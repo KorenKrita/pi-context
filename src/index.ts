@@ -330,6 +330,13 @@ function fixOrphanedToolUse(messages: any[]): void {
     }
 }
 
+/** Append a label change to a SessionManager. ctx.sessionManager is typed
+ *  as ReadonlySessionManager but is a full SessionManager at runtime;
+ *  callers cast before calling. */
+function appendLabel(sm: SessionManager, entryId: string, label: string): void {
+    sm.appendLabelChange(entryId, label);
+}
+
 // ── Extension factory ─────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -340,6 +347,11 @@ export default function (pi: ExtensionAPI) {
     let refreshFailure: string | null = null;
     let refreshTargetLeafId: string | null = null;
     const MAX_REFRESH_ATTEMPTS = 3;
+    // ── Accurate token cache (fixes HUD lag after travel) ──────
+    // getContextUsage() reads agent.state.messages (stale after travel).
+    // turn_end gives us the real promptTokens from each LLM response.
+    // We cache it and use it in the timeline HUD instead of the stale value.
+    let cachedUsage: UsageLike | null = null;
 
     // ── Tool: acm_checkpoint ───────────────────────────────────
     const CheckpointParams = Type.Object({
@@ -538,11 +550,14 @@ export default function (pi: ExtensionAPI) {
             }
 
             // ── Context Dashboard HUD ──
-            const usage = ctx.getContextUsage();
-            const usageStr = usage ? formatContextUsage(
-                { tokens: usage.tokens ?? 0, contextWindow: usage.contextWindow, percent: usage.percent ?? 0 },
-                true
-            ) : "Unknown";
+            // Show both official (from getContextUsage, may lag after travel)
+            // and last LLM prompt tokens (from turn_end, accurate but only
+            // reflects the most recent API call, not the live context).
+            const officialUsage = ctx.getContextUsage();
+            const officialStr = officialUsage
+                ? formatContextUsage({ tokens: officialUsage.tokens ?? 0, contextWindow: officialUsage.contextWindow, percent: officialUsage.percent ?? 0 }, true)
+                : "Unknown";
+            const lastLlmStr = cachedUsage ? formatContextUsage(cachedUsage, true) : "N/A";
 
             let stepsSinceCheckpoint = 0;
             let nearestCheckpointName: string | null = null;
@@ -560,7 +575,8 @@ export default function (pi: ExtensionAPI) {
             const isRefreshPending = refreshPending;
             const hudParts = [
                 `[Context Dashboard]`,
-                `• Context Usage:    ${usageStr}`,
+                `• Context Usage:    ${officialStr} (official)`,
+                `• Last LLM Prompt:  ${lastLlmStr} (turn_end)`,
                 `• Active Path:      ${branch.length} node(s)`,
                 `• Off-path Branches: ${offPathForks}`,
                 `• Segment Size:     ${stepsSinceCheckpoint} steps since last checkpoint '${nearestCheckpointName ?? "None"}'`,
@@ -720,12 +736,58 @@ export default function (pi: ExtensionAPI) {
         }
     });
 
+    // ── Event: turn_end → cache accurate token usage ─────────────
+    // getContextUsage() reads stale agent.state.messages after travel.
+    // turn_end gives us the real promptTokens from each LLM response,
+    // so the timeline HUD shows accurate numbers immediately.
+    pi.on("turn_end", (event, ctx) => {
+        const msg = event.message;
+        if (msg.role !== "assistant") return;
+        const usage = msg.usage;
+        if (!usage) return;
+        const promptTokens = usage.input + usage.cacheRead;
+        const officialUsage = ctx.getContextUsage();
+        const contextWindow = officialUsage?.contextWindow;
+        if (typeof contextWindow === "number" && contextWindow > 0) {
+            cachedUsage = { tokens: promptTokens, contextWindow, percent: (promptTokens / contextWindow) * 100 };
+        }
+    });
+
+    // ── Event: session_before_compact → auto checkpoint ──────────
+    // Before compaction discards detail, checkpoint the current branch
+    // so the agent can travel back to recover pre-compaction context.
+    pi.on("session_before_compact", (event, ctx) => {
+        const sm = ctx.sessionManager as SessionManager;
+        const branch = sm.getBranch();
+        if (branch.length === 0) return;
+        const labelMaps = buildLabelMaps(sm.getEntries());
+        const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+        const checkpointName = `pre-compact-${ts}`;
+        const resolve = findLastMeaningfulEntry(branch, sm, event.signal);
+        if (!resolve.entryId) return;
+        const priorLabels = getEntryLabels(labelMaps, resolve.entryId);
+        if (priorLabels.includes(checkpointName)) return;
+        appendLabel(sm, resolve.entryId, checkpointName);
+    });
+
+    // ── Event: session_compact → sync refresh state ──────────────
+    // Compaction triggers replaceMessages internally, which syncs
+    // agent.state.messages to the current branch. Clear refreshPending
+    // since the override is no longer needed, and invalidate cachedUsage.
+    pi.on("session_compact", () => {
+        refreshPending = false;
+        refreshAttempts = 0;
+        refreshFailure = null;
+        refreshTargetLeafId = null;
+        cachedUsage = null;
+    });
+
     // ── Session lifecycle: clear stale state ───────────────────
     pi.on("session_start", (_event, ctx) => {
-        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null;
+        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null;
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
-        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null;
+        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null;
     });
 }
