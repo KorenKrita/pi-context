@@ -1,55 +1,43 @@
-# Pi Context: Agentic Context Management for Pi
+# pi-context
 
-An Agentic Context Management tool that helps AI agents keep long conversations focused by maintaining a clean working set: checkpoint useful anchors, inspect the active history structure, and compact noisy completed paths into state summaries.
+> Agentic Context Management for Pi — 让 AI agent 主动管理自己的上下文。
 
-Inspired by kimi-cli d-mail, it brings lossless time travel to Pi's session tree.
+**pi-context** 让 agent 像管理 git 分支一样管理上下文：打锚点、看时间线、穿越到任意节点留 handoff summary。不是被动等系统自动压缩，而是主动的、语义级别的上下文管理。
 
-For more on the design philosophy, see the [blog post](https://blog.xlab.app/p/51d26495/) ([中文版本](https://blog.xlab.app/p/6a966aeb/)).
+## 为什么需要
 
-## Naming migration note
+AI agent 在长对话中会积累大量噪音：搜索结果、调试日志、失败尝试、中间产物。自动压缩按 token 阈值触发，不理解任务语义，经常压缩掉有用的东西。
 
-Earlier versions used more Git-like names such as `context_tag`, `context_log`, and `context_checkout`.
+pi-context 让 agent 自己决定何时打锚点、何时穿越时间线、穿越到哪个节点。
 
-Current versions intentionally use conversation-native names instead:
-- `acm_checkpoint`
-- `acm_timeline`
-- `acm_travel`
+## 工具
 
-These tools manage **conversation history**, not repository state. They should not be treated as Git commands or as replacements for real `git tag`, `git log`, or `git checkout`. Context navigation does not modify or roll back files, running processes, browser state, tickets, databases, or remote services.
+| 工具 | 做什么 |
+|---|---|
+| `acm_checkpoint` | 打锚点。零成本——不改上下文、不分支、不摘要。多打 = 后续更多选择 |
+| `acm_timeline` | 看 active path 结构图 + token HUD（official + last LLM prompt）。支持 full_tree、search、list_checkpoints |
+| `acm_travel` | 穿越到任意锚点，留一份 handoff summary。上下文切换到目标节点 + summary；旧路径保留 |
 
-## Installation
+## 事件驱动优化
 
-```bash
-pi install npm:pi-context
-```
+| 事件 | 优化 |
+|---|---|
+| `turn_end` | 缓存 LLM response 的真实 prompt tokens，HUD 显示准确数值（解决 travel 后 official HUD 滞后） |
+| `session_before_compact` | compaction 前自动打 `pre-compact-{timestamp}` checkpoint，事后能 travel 回来恢复细节 |
+| `session_compact` | compaction 触发 replaceMessages 后同步状态（清 refreshPending + cachedUsage） |
 
-## Usage
-
-### For Humans
-
-Run the following command to enable ACM (**A**gentic **C**ontext **M**anagement) for the current session.
-
-```bash
-/acm
-```
-
-Open a visual dashboard to inspect context-window usage and token distribution (similar to `claude code /context`).
+## 安装
 
 ```bash
-/context
+# 从本地
+pi install .
+
+# 从 GitHub
+pi install github:KorenKrita/pi-context
 ```
 
-![](img/context.png)
+## 参考
 
-### For Agents
-
-This extension adds the `context-management` skill, which guides agents to keep the active conversation as the smallest sufficient working set for the next step. It includes three core tools:
-
-1. **🔖 Anchor (`acm_checkpoint`)**
-   Label a meaningful conversation node with a unique semantic checkpoint name, such as `parser-fix-start` or `timeout-investigation-search`.
-
-2. **📊 Inspect (`acm_timeline`)**
-   View the active path as a structural map of checkpoints, summaries/compactions, branch points, user turns, and current position. Use it when orientation or compact target selection depends on history shape.
-
-3. **⏪ Compact (`acm_travel`)**
-   Create a summarized continuation branch from an earlier checkpoint, history node, or `root`. The summary should restore the useful state after the target: current task, decisions, external side effects such as changed files or remote updates, validation state, source anchors, and the explicit next step.
+- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计思路，本项目在此基础上从零实现
+- [omp-context](https://github.com/KorenKrita/omp-context) — 同一项目的 OMP (oh-my-pi) 版本
+- [让 AI 主动管理自己的上下文](https://blog.xlab.app/p/6a966aeb/) — 设计思路

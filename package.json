@@ -1,7 +1,7 @@
 {
   "name": "pi-context",
-  "version": "2.0.0",
-  "description": "Agentic Context Management for Pi",
+  "version": "2.1.0",
+  "description": "Agentic Context Management for Pi — checkpoint, timeline, and time-travel tools",
   "files": [
     "src",
     "skills",
@@ -20,7 +20,7 @@
     "pi-skill"
   ],
   "type": "module",
-  "author": "",
+  "author": "KorenKrita",
   "license": "MIT",
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.75.4",
@@ -35,12 +35,11 @@
     ],
     "skills": [
       "./skills"
-    ],
-    "image": "https://github.com/ttttmr/pi-context/raw/refs/heads/main/img/context.png"
+    ]
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ttttmr/pi-context.git"
+    "url": "git+https://github.com/KorenKrita/pi-context.git"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
