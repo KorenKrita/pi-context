@@ -352,6 +352,7 @@ export default function (pi: ExtensionAPI) {
     // turn_end gives us the real promptTokens from each LLM response.
     // We cache it and use it in the timeline HUD instead of the stale value.
     let cachedUsage: UsageLike | null = null;
+    let hasRebuilt = false;
 
     // ── Tool: acm_checkpoint ───────────────────────────────────
     const CheckpointParams = Type.Object({
@@ -472,7 +473,7 @@ export default function (pi: ExtensionAPI) {
                         { tokens: usage.tokens ?? 0, contextWindow: usage.contextWindow, percent: usage.percent ?? 0 },
                         currentMessages, targetMessages
                     ) : undefined;
-                    const estPart = estimated ? `~${targetMessages.length} msgs, ~${formatContextUsage(estimated, true)} est.` : `~${targetMessages.length} msgs`;
+                    const estPart = estimated ? `~${targetMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)` : `~${targetMessages.length} msgs`;
                     lines.push(`  ${cp.label} → ${cp.entryId} (${pathTag}${headTag}) ${estPart}`);
                 }
                 if (listings.length > listLimit) lines.push(`  ... +${listings.length - listLimit} more`);
@@ -498,9 +499,10 @@ export default function (pi: ExtensionAPI) {
                     if (renderTreeNode(tree[i], sm, labelMaps, currentLeafId, backboneIds, 0, maxDepth, "", i === tree.length - 1, lines))
                         treeTruncated = true;
                 }
-                if (treeTruncated) lines.push("... (tree truncated — use list_checkpoints or search)");
+                if (treeTruncated) lines.unshift("⚠ tree truncated by depth/line limit — use list_checkpoints or search to see hidden nodes");
             } else {
                 // Default: active path
+                if (params.search !== undefined && searchTerm === "") lines.push("query is empty; showing active path");
                 const sequence: SessionEntry[] = [...branch];
                 const isInteresting = (entry: SessionEntry): boolean => {
                     if (entry.id === currentLeafId) return true;
@@ -583,7 +585,7 @@ export default function (pi: ExtensionAPI) {
                 `• Travel Cue:       ${travelCue}`,
             ];
             if (refreshFailureMsg) hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailureMsg}`);
-            else if (isRefreshPending) hudParts.push(`• Context Sync:     refresh pending on next LLM turn`);
+            else if (isRefreshPending) hudParts.push(`• Context Sync:     persistent rebuild active${hasRebuilt ? "" : " (travel pending)"}`);
             hudParts.push(`---------------------------------------------------`);
 
             return {
@@ -671,7 +673,7 @@ export default function (pi: ExtensionAPI) {
             // Mark context refresh pending — store the new leaf ID so the
             // context event can rebuild from it (pi moves SM leaf back to old branch
             // after appending tool results).
-            refreshPending = true; refreshAttempts = 0; refreshFailure = null;
+            refreshPending = true; refreshAttempts = 0; refreshFailure = null; hasRebuilt = false;
             refreshTargetLeafId = summaryEntryId;
 
             // Estimate post-travel usage
@@ -723,12 +725,14 @@ export default function (pi: ExtensionAPI) {
                 const fallback = getBuildSessionMessages(sm, refreshTargetLeafId);
                 if (fallback.length > 0) {
                     fixOrphanedToolUse(fallback);
+                    hasRebuilt = true;
                     return { messages: fallback as typeof event.messages };
                 }
                 return { messages: event.messages };
             }
 
             fixOrphanedToolUse(messages);
+            hasRebuilt = true;
             return { messages: messages as typeof event.messages };
         } catch (err) {
             // On error, pass through original messages
@@ -780,14 +784,15 @@ export default function (pi: ExtensionAPI) {
         refreshFailure = null;
         refreshTargetLeafId = null;
         cachedUsage = null;
+        hasRebuilt = false;
     });
 
     // ── Session lifecycle: clear stale state ───────────────────
     pi.on("session_start", (_event, ctx) => {
-        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null;
+        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null; hasRebuilt = false;
     });
 
     pi.on("session_shutdown", (_event, ctx) => {
-        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null;
+        refreshPending = false; refreshAttempts = 0; refreshFailure = null; refreshTargetLeafId = null; cachedUsage = null; hasRebuilt = false;
     });
 }
