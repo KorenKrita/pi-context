@@ -15,7 +15,7 @@ These tasks often stay cleaner when treated as stages with anchors, instead of o
 1. Create a checkpoint before starting serious work.
 2. Add checkpoints before risky edits, new approaches, or major phase changes.
 3. Review the timeline when you need to understand the current shape of the work.
-4. Compact after a stable implementation milestone, a failed approach, or a completed troubleshooting phase when there is another phase, attempt, validation step, or task switch that benefits from cleanup. If files, processes, or external systems changed, include those side effects in the summary because context navigation does not roll them back. If the completed phase is also the final user-visible deliverable, answer first and wait.
+4. Travel after a stable implementation milestone, a failed approach, or a completed troubleshooting phase when there is another phase, attempt, validation step, or task switch that benefits from cleanup. If files, processes, or external systems changed, include those side effects in the summary because context navigation does not roll them back. If the completed phase is also the final user-visible deliverable, answer first and wait.
 
 ## Typical checkpoint moments
 
@@ -40,29 +40,29 @@ Run `acm_timeline` when:
 - you are about to abandon one approach and restart from another anchor
 - you are unsure which checkpoint best represents the clean continuation point
 
-## Compact patterns
+## Travel patterns
 
 ### After a failed attempt
 
-Use compact when an attempt clearly failed and you have a crisp summary of why.
+Use travel when an attempt clearly failed and you have a crisp summary of why.
 
 ```javascript
 acm_travel({
   target: "memory-leak-fix-start",
   summary: "Current task: continue the memory leak fix. State: WeakRef approach failed because objects were collected too early and cache hit rate collapsed. Decision: abandon WeakRef and try object pooling. Next step: implement the object-pooling approach.",
-  backupCheckpoint: "memory-leak-weakref-raw-history"
+  backupCurrentHeadAs: "memory-leak-weakref-raw-history"
 });
 ```
 
 ### After a completed phase
 
-Use compact when a phase is done and the next phase would work better from a focused state summary than from the raw implementation/debugging trail. Do not use this as a reflexive final step after delivering the finished work; use it before validation, the next phase, the next attempt, or the next user task.
+Use travel when a phase is done and the next phase would work better from a focused state summary than from the raw implementation/debugging trail. Do not use this as a reflexive final step after delivering the finished work; use it before validation, the next phase, the next attempt, or the next user task.
 
 ```javascript
 acm_travel({
   target: "parser-fix-start",
   summary: "Current task: validate the parser fix. State: implementation is done and the debugging trail can be summarized. External state: parser implementation and related tests were changed on disk; context navigation did not revert them. Validation not yet run after final edit. Next step: run targeted validation and summarize remaining edge cases.",
-  backupCheckpoint: "parser-fix-debug-history"
+  backupCurrentHeadAs: "parser-fix-debug-history"
 });
 ```
 
@@ -73,3 +73,11 @@ Switch into stronger context-management behavior when:
 - the thread contains multiple fix attempts
 - you keep revisiting earlier reasoning
 - the next step is clear but the path behind it is getting noisy
+
+## Common mistakes
+
+Avoid:
+- traveling away from a failed attempt without naming what failed and what to try next
+- omitting disk/process side effects from the travel summary after implementation work
+- assuming travel rolled back file changes — it only changes conversation context
+- relying on `backupCurrentHeadAs` when `branchWithSummary` fails — the backup label may already exist even though travel aborted

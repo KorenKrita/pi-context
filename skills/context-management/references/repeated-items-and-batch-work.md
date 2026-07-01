@@ -14,10 +14,10 @@ Use this reference when the items are similar enough that the same method should
 1. Create a checkpoint at the start of the overall repeated-item task.
 2. If item 1 teaches you a reusable approach, checkpoint again after that approach becomes clear.
 3. Work item by item.
-4. Compact after each completed item or completed mini-phase when another item remains and the raw path is no longer worth carrying forward.
+4. Travel after each completed item or completed mini-phase when another item remains and the raw path is no longer worth carrying forward.
 5. Use timeline occasionally to verify that the history still has a clean structure.
 
-For repeated-item work, the default between-item move is not "keep carrying the last item's raw reasoning". Once an item is done, its takeaway is stable, and another item remains, compact to the repeated-work anchor or other baseline that preserves the reusable method without item-specific noise. If the last item completes the whole user request, deliver the final answer and wait for the next user message before deciding whether to compact.
+For repeated-item work, the default between-item move is not "keep carrying the last item's raw reasoning". Once an item is done, its takeaway is stable, and another item remains, travel to the repeated-work anchor or other baseline that preserves the reusable method without item-specific noise. If the last item completes the whole user request, deliver the final answer and wait for the next user message before deciding whether to travel.
 
 ## Useful anchors
 
@@ -31,15 +31,15 @@ Example checkpoint names:
 
 Run `acm_timeline` when:
 - several items have already been processed
-- item-level work has created multiple branches or compactions
+- item-level work has created multiple branches or travels
 - you want to confirm that the overall pattern still looks clean
 - you are about to choose which anchor repeated work should keep returning to
 
-## When to compact
+## When to travel
 
-Compact after:
+Travel after:
 - a representative item produced a reusable method and the batch will continue
-- a single item is complete, another item remains, and the raw path should be compacted
+- a single item is complete, another item remains, and the raw path should be traveled
 - an item-specific dead end is understood and should not remain active in full
 - a new user message arrives after the batch completed, and the batch's raw path is stale baggage for the new task
 
@@ -57,13 +57,21 @@ acm_checkpoint({ name: "vendor-review-method-clear" });
 acm_travel({
   target: "vendor-review-method-clear",
   summary: "Current task: continue the vendor review batch. State: one more vendor review is complete; item-specific reasoning no longer needs to stay raw. Reusable method remains the active baseline. Next step: process the next vendor using the same method.",
-  backupCheckpoint: "vendor-review-item-7-history"
+  backupCurrentHeadAs: "vendor-review-item-7-history"
 });
 ```
 
+## Common mistakes
+
+Avoid:
+- carrying every completed item's raw reasoning into the next item
+- traveling without a repeated-work anchor when the batch will continue
+- omitting the reusable method or item-specific takeaway from the travel summary
+- assuming the batch anchor is obvious without running `acm_timeline` after several items
+
 ## Warning signs
 
-Use stronger checkpoint/timeline/compact discipline when:
+Use stronger checkpoint/timeline/travel discipline when:
 - each item creates lots of local reasoning
 - you are starting to confuse one item's path with another's
 - the repeated work is stretching across many turns

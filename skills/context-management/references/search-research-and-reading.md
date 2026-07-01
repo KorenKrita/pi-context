@@ -17,12 +17,12 @@ This reference is for **input-heavy work where the process is much larger than t
 1. Create a checkpoint before a large search or reading loop.
 2. Search, browse, read, inspect, and follow leads normally.
 3. If you lose orientation, review the timeline.
-4. Once the investigation yields a stable finding and there is another step to take, compact to the anchor that gives the next step a focused working set.
-5. Continue with the conclusion, recommendation, or next action instead of carrying the entire raw exploration forward. If the finding is the final answer to the user's current request, answer first and wait; compact on the next user message if it starts new work.
+4. Once the investigation yields a stable finding and there is another step to take, travel to the anchor that gives the next step a focused working set.
+5. Continue with the conclusion, recommendation, or next action instead of carrying the entire raw exploration forward. If the finding is the final answer to the user's current request, answer first and wait; travel on the next user message if it starts new work.
 
-Do not stop at "I already made a checkpoint" if the investigation phase is complete and the conversation is continuing. The cleanup move for completed research is usually a compact to the anchor that preserves only the raw context the next step still needs.
+Do not stop at "I already made a checkpoint" if the investigation phase is complete and the conversation is continuing. The cleanup move for completed research is usually a travel to the anchor that preserves only the raw context the next step still needs.
 
-**Important:** “another step” includes the next phase of the same request. If you searched to find the right data source, previous task record, API shape, rule id, or query pattern, then the next execution step (running the real query/export, implementing, validating, etc.) is an immediate continuation. Compact before that execution step, not only before a future user message.
+**Important:** “another step” includes the next phase of the same request. If you searched to find the right data source, previous task record, API shape, rule id, or query pattern, then the next execution step (running the real query/export, implementing, validating, etc.) is an immediate continuation. Travel before that execution step, not only before a future user message.
 
 ## When to checkpoint
 
@@ -44,24 +44,24 @@ Run `acm_timeline` when:
 - you have followed several leads
 - you are no longer sure what the main anchor is
 - the investigation has already produced multiple checkpoints
-- you are deciding which path should be compacted
+- you are deciding which path should be traveled
 
-## When to compact
+## When to travel
 
-Compact after the investigation produces one of these and there is a continuation that benefits from cleanup:
+Travel after the investigation produces one of these and there is a continuation that benefits from cleanup:
 - a stable root cause
 - a stable comparison result
 - a dead-end conclusion
 - a shortlist of viable next actions
 - a located data source, old conversation, schema, rule id, query/API pattern, or other fact that unlocks execution
 
-If you already have one of these, the investigation phase is usually complete enough to compact. If the next step is to use the finding in another tool call, compact first. If there is no continuation yet because you are about to give the final answer, wait until the next user message before deciding.
+If you already have one of these, the investigation phase is usually complete enough to travel. If the next step is to use the finding in another tool call, travel first. If there is no continuation yet because you are about to give the final answer, wait until the next user message before deciding.
 
-Do not compact in the middle of a still-open search loop just because the thread feels busy.
+Do not travel in the middle of a still-open search loop just because the thread feels busy.
 
-## Message quality for research compactions
+## Message quality for research travels
 
-Research compactions are especially sensitive to summary quality. The raw exploration may contain details that become important later, but returning to the backup branch is a context switch. Preserve the state needed to use the finding, not the whole journey.
+Research travels are especially sensitive to summary quality. The raw exploration may contain details that become important later, but returning to the backup branch is a context switch. Preserve the state needed to use the finding, not the whole journey.
 
 Include:
 - **Current task/state:** what the research unlocked and how it will be used next
@@ -70,8 +70,8 @@ Include:
 - **Evidence:** important numbers, errors, examples, IDs, or constraints that support the finding
 - **Rejected leads:** only expensive dead ends that future-you should not repeat
 - **Open questions:** what is still uncertain
-- **Next step:** what to do immediately after compact
-- **Backup pointer:** if `backupCheckpoint` is set, when to return to it
+- **Next step:** what to do immediately after travel
+- **Backup pointer:** if `backupCurrentHeadAs` is set, when to return to it
 
 Do not compress research to only “found the answer”. That forces future-you to either trust an unsupported conclusion or switch back to the backup for basic details.
 
@@ -82,22 +82,30 @@ acm_checkpoint({ name: "timeout-investigation-start" });
 
 // ... search logs, read code, compare docs, inspect outputs ...
 
-// Stable finding found and the next action is execution/validation, so compact before continuing.
+// Stable finding found and the next action is execution/validation, so travel before continuing.
 acm_timeline();
 
 acm_travel({
   target: "timeout-investigation-start",
-  backupCheckpoint: "timeout-investigation-raw-history",
+  backupCurrentHeadAs: "timeout-investigation-raw-history",
   summary: "Current task: plan mitigation for API timeouts. State: DB connection pool exhaustion is the likely root cause. Evidence: logs show pool wait timeouts during peak traffic; config has pool size 10; no network errors found in the checked logs. Rejected lead: API gateway timeout was downstream of DB waits, not the origin. Backup: timeout-investigation-raw-history if exact log lines are needed. Next step: propose mitigation and validation steps."
 });
 ```
 
-## Good compact outcomes
+## Good travel outcomes
 
-After compacting, you should be able to continue with:
+After traveling, you should be able to continue with:
 - the finding
 - the recommendation
 - the next verification step
 - the next narrower investigation
 
 You should not still need the whole raw trail in active context unless the investigation is still ongoing.
+
+## Common mistakes
+
+Avoid:
+- traveling before the finding is stable enough to summarize
+- omitting source anchors (URLs, file paths, query IDs) from the travel summary
+- carrying the entire search trail forward instead of a focused handoff
+- assuming search matched a checkpoint because content matched — checkpoint **names** are case-sensitive
