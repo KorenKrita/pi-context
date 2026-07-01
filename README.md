@@ -38,6 +38,6 @@ pi install github:KorenKrita/pi-context
 
 ## 参考
 
-- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计思路，本项目在此基础上从零实现
+- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计思路，本项目在此基础上实现 Agent 自动化上下文管理
 - [omp-context](https://github.com/KorenKrita/omp-context) — 同一项目的 OMP (oh-my-pi) 版本
 - [让 AI 主动管理自己的上下文](https://blog.xlab.app/p/6a966aeb/) — 设计思路
