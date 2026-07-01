@@ -54,7 +54,7 @@ pi-context 让 agent 像管理 git 分支一样管理上下文：
 pi install .
 
 # 从 GitHub
-pi install github:KorenKrita/pi-context
+pi install git:github.com/KorenKrita/pi-context
 ```
 
 ## 与 Pi 内置功能的关系
