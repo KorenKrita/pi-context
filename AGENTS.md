@@ -58,9 +58,9 @@ checkpoint / `backupCurrentHeadAs` **名称**在整棵树内必须唯一且**大
 
 `target: "root"` 解析为 **第一个 top-level 节点**；多根会话会 notify，优先用显式 checkpoint 名或节点 ID。
 
-`acm_checkpoint` 的成功 tool result 会附带当前 context usage 和 **fold preview**（估算 travel 回上一个锚点后会剩多少 %，并附可直接抄的 `acm_travel` 调用骨架），让 agent 在正常工作流中被动看到折叠收益，无需主动调 `acm_timeline`。checkpoint 和 travel 都是**事件绑定**动作（skill 面向弱模型设计，消灭判断词）：checkpoint 绑定任务开始/每条新用户请求/phase 首个动作前/危险操作前/里程碑后；fold 绑定四个 **fold moments**（phase 产出结论且下一步要用/尝试失败换路/batch item 完成/无关新任务），fold 是这些时刻的**默认动作**，唯一豁免条件是 fold preview 显示几乎不降——不用任何具体百分比举例（对不同上下文长度的模型无意义）。锚点命名带语义：`-start` = fold target（打点即承诺回折），`-done` = recovery bookmark（永不作 fold target）。summary 用六槽填空模板（Task/Done/Files-External/Do not repeat/Recover raw via/NEXT，空槽写 "none"）。skill 用错误不对称性把默认方向扳到 fold（折早了一次 forward travel 找回，折晚了整个窗口报废）。三个工具的 description 内嵌这些触发规则，因为 tool description 是唯一常驻模型上下文的表面；`acm_travel` 成功结果会提醒执行 summary 的 NEXT 并为新 phase 重新打锚，闭合循环。任务完成且无已知后续时例外：只打 `<task>-done` 等下一条消息，欠下的 fold 在下一条消息的第一个动作偿还。
+`acm_checkpoint` 的成功 tool result 会附带当前 context usage 和 **双目标 fold preview**（最近锚点 = phase fold 目标；active path 上最早的 `-start` 锚点 = task-chain fold 目标，各带估算），并声明 "preview 只测量、不选目标"（防止弱模型抄最近锚点导致折叠目标错误）。名字以 `-done` 结尾的 checkpoint 结果附带任务收尾指令（立即 fold 到对应 `-start` 并在 summary 分支上给最终回答）。checkpoint 和 travel 都是**事件绑定**动作（skill 面向弱模型设计，消灭判断词）：checkpoint 绑定任务开始/每条新用户请求/phase 首个动作前/**输出不可预估的工具调用前**（大 read、宽 search、日志、subagent）/危险操作前/里程碑后；fold 绑定六个 **fold moments**：(1) phase 产出结论且下一步要用；(2) 尝试失败或发现方向走错（无锚点时用裸 node ID 回退）；(3) 大段工具输出已提炼完毕；(4) batch item 完成；(5) **任务完成 → 先 fold 再给最终回答**——单次调用 `acm_travel({ target: "<task>-start", backupCurrentHeadAs: "<task>-done", summary })`，`-done` 作为折叠副产品自动产生；(6) 修复：新消息到达且历史上有漏折的完成任务 → fold 到该链**最早**的 `-start`（相关任务连成链回链头，多链堆叠用 root）。fold 是这些时刻的**默认动作**，唯一豁免条件是 fold preview 显示几乎不降。锚点命名：`-start` = 打点即承诺回折的 fold target；`-done` = 成果在手的双用途锚（后续失败时的撤退点 + 身前 raw 的 recovery bookmark）。**锚点是便利品不是前提**：`acm_travel`/`acm_checkpoint` 都接受裸 node ID，skill 内置无锚修复三步宏。summary 用六槽填空模板。三个工具的 description 内嵌这些触发规则；timeline HUD 的 travel cue 附可抄调用并提示 node-ID 部分折叠。
 
-`acm_travel` 的 `backupCurrentHeadAs` 同样落在最近有意义的 USER/AI 消息上，而不是 raw HEAD（避免 backup 打在 `acm_timeline` 等 tool result 上）。若从 HEAD 回退，tool result 会写明 `backup@entryId (resolved from HEAD …)`。
+`acm_travel` 的 `backupCurrentHeadAs` 同样落在最近有意义的 USER/AI 消息上，而不是 raw HEAD（避免 backup 打在 `acm_timeline` 等 tool result 上）。若从 HEAD 回退，tool result 会写明 `backup@entryId (resolved from HEAD …)`。若 backup 已写入但 `branchWithSummary` 失败，extension 会 **best-effort 回滚** backup label；回滚失败时 error/details 会注明 label 仍留在树上。
 
 ### timeline 是会话树结构视图
 
@@ -165,8 +165,8 @@ Pi 的 `fromId` 字段表示 branch point（travel target），不是旧 HEAD。
 | `src/lib.ts` | 可单测的纯逻辑（label maps、resolve、usage 估算、meaningful entry、timeline 模式） |
 | `src/context.ts` | `/context` TUI 可视化 token 占用 |
 | `src/utils.ts` | TUI 辅助（`formatTokens` 等） |
-| `skills/context-management/SKILL.md` | 驱动 agent 使用 checkpoint/timeline/travel 的 prompt（事件绑定打点 + 四个事件绑定 fold moments + `-start`/`-done` 命名语义 + 六槽 summary 模板，面向弱模型，无判断词、无具体百分比示例） |
-| `skills/context-management/references/playbook.md` | 单文件 playbook：fold moments 对照 + 七类场景 worked examples（含填好的 summary 模板）+ 兜底 |
+| `skills/context-management/SKILL.md` | 驱动 agent 使用 checkpoint/timeline/travel 的 prompt（事件绑定打点 + 六个 fold moments 含任务末尾默认折叠与无锚修复 + `-start`/`-done` 命名语义 + 六槽 summary 模板，面向弱模型，无判断词、无具体百分比示例） |
+| `skills/context-management/references/playbook.md` | 单文件 playbook：fold moments 对照 + 八类场景 worked examples（含填好的 summary 模板与无锚 node-ID 回退示例）+ 兜底 |
 | `README.md` | 面向用户的安装和功能说明 |
 
 ## 开发注意事项

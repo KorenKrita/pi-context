@@ -395,14 +395,14 @@ export default function (pi: ExtensionAPI) {
 
     // ── Tool: acm_checkpoint ───────────────────────────────────
     const CheckpointParams = Type.Object({
-        name: Type.String({ description: "Unique semantic anchor name encoding task+phase. Suffix carries meaning: '<name>-start' = future fold target (you will travel back here when the phase ends), '<name>-done' = recovery bookmark on finished work (never a fold target). E.g. parser-fix-start, timeout-investigation-start, cache-migration-done. Avoid generic names like start, checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars." }),
+        name: Type.String({ description: "Unique semantic anchor name encoding task+phase. Suffix carries meaning: '<name>-start' = placed before work begins; a future fold target (you will travel back here to shed that work's trail). '<name>-done' = placed when results are in hand (milestone); the retreat point for shedding whatever comes AFTER it, and the recovery bookmark for the raw work before it. E.g. parser-fix-start, timeout-investigation-start, root-cause-done. Avoid generic names like start, checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars." }),
         target: Type.Optional(Type.String({ description: "History node ID or checkpoint name to label. Defaults to current meaningful position near HEAD." })),
     });
 
     pi.registerTool({
         name: "acm_checkpoint",
         label: "ACM Checkpoint",
-        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Call at every one of these events, without being asked: task start, each new user request, before each phase's first action ('<phase>-start' — a promise to fold back there when the phase ends), before risky steps, after milestones ('<milestone>-done' — a recovery bookmark, never a fold target). When unsure, checkpoint — it is free. Names must be unique across the session tree; the same node may hold multiple aliases. The result reports current context usage and a fold preview showing what traveling back to the previous anchor would leave — react to it.",
+        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Call at every one of these events, without being asked: task start, each new user request, before each phase's first action ('<phase>-start' — a promise to fold back there when the phase ends), before any tool call whose output you cannot bound (big file read, broad search, log fetch, subagent — the anchor is your way back if it floods the window), before risky steps, at milestones ('<milestone>-done' — results in hand; the retreat point if what comes next fails). When unsure, checkpoint — it is free. A checkpoint can also be placed on any PAST node via target, so it is never too late to anchor retroactively. Names must be unique across the session tree; the same node may hold multiple aliases. The result reports current context usage and fold previews — react to them.",
         parameters: CheckpointParams,
         async execute(_id, rawParams: Static<typeof CheckpointParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -463,6 +463,7 @@ export default function (pi: ExtensionAPI) {
                 ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
                 : undefined;
             const usageText = formatContextUsage(usageLike, true);
+            // Nearest previous anchor behind HEAD — the phase-fold target.
             let prevAnchorLabel: string | null = null;
             let prevAnchorEntryId: string | null = null;
             for (let i = branch.length - 1; i >= 0; i--) {
@@ -475,17 +476,55 @@ export default function (pi: ExtensionAPI) {
                     break;
                 }
             }
-            let foldPreview = "";
-            let estimatedAtPrevAnchor: UsageLike | undefined;
-            if (prevAnchorEntryId && prevAnchorLabel && usageLike) {
-                const currentMessages = getBuildSessionMessages(sm);
-                const targetMessages = getBuildSessionMessages(sm, prevAnchorEntryId);
-                estimatedAtPrevAnchor = estimateUsageAfterMessageChange(usageLike, currentMessages, targetMessages);
-                if (estimatedAtPrevAnchor) {
-                    foldPreview = ` Fold preview: traveling to previous anchor '${prevAnchorLabel}' would leave ~${formatContextUsage(estimatedAtPrevAnchor, true)} est. (+summary). If the work since '${prevAnchorLabel}' is finished — conclusion written, attempt judged, item done — fold now: acm_travel({ target: "${prevAnchorLabel}", summary: <filled template> }). Skip only if the preview shows almost no saving.`;
+            // Earliest on-path '-start' anchor — the task-chain fold target.
+            let earliestStartLabel: string | null = null;
+            let earliestStartEntryId: string | null = null;
+            for (let i = 0; i < branch.length; i++) {
+                const eid = branch[i].id;
+                if (eid === id) continue;
+                const startLabel = getEntryLabels(labelMaps, eid).find((l) => l.endsWith("-start"));
+                if (startLabel) {
+                    earliestStartLabel = startLabel;
+                    earliestStartEntryId = eid;
+                    break;
                 }
             }
-            const usageSuffix = ` Context usage: ${usageText}.${foldPreview}`;
+            let foldPreview = "";
+            let estimatedAtPrevAnchor: UsageLike | undefined;
+            let estimatedAtEarliestStart: UsageLike | undefined;
+            if (usageLike && (prevAnchorEntryId || earliestStartEntryId)) {
+                const currentMessages = getBuildSessionMessages(sm);
+                const previewParts: string[] = [];
+                if (prevAnchorEntryId && prevAnchorLabel) {
+                    estimatedAtPrevAnchor = estimateUsageAfterMessageChange(
+                        usageLike, currentMessages, getBuildSessionMessages(sm, prevAnchorEntryId),
+                    );
+                    if (estimatedAtPrevAnchor) {
+                        previewParts.push(`nearest anchor '${prevAnchorLabel}' → ~${formatContextUsage(estimatedAtPrevAnchor, true)} est.`);
+                    }
+                }
+                if (earliestStartEntryId && earliestStartLabel && earliestStartEntryId !== prevAnchorEntryId) {
+                    estimatedAtEarliestStart = estimateUsageAfterMessageChange(
+                        usageLike, currentMessages, getBuildSessionMessages(sm, earliestStartEntryId),
+                    );
+                    if (estimatedAtEarliestStart) {
+                        previewParts.push(`earliest start anchor '${earliestStartLabel}' → ~${formatContextUsage(estimatedAtEarliestStart, true)} est.`);
+                    }
+                }
+                if (previewParts.length > 0) {
+                    foldPreview = ` Fold preview (+summary): ${previewParts.join("; ")}. The preview measures, it does not pick the target — phase fold → nearest phase anchor; task end or unrelated new task → the task chain's earliest '-start'. Skip a due fold only when the preview shows almost no saving.`;
+                }
+            }
+            // Name-triggered directive: a '-done' checkpoint marks finished work — the
+            // fold that closes it should follow immediately, not wait for the next message.
+            let doneDirective = "";
+            if (params.name.endsWith("-done")) {
+                const base = params.name.slice(0, -"-done".length);
+                const siblingStart = `${base}-start`;
+                const startRef = labelMaps.labelToEntryId.has(siblingStart) ? siblingStart : "<task>-start";
+                doneDirective = ` '${params.name}' marks finished work. If this closes the task or segment, fold now and continue (or give the final answer) from the summary branch: acm_travel({ target: "${startRef}", summary: <filled template> }) — this '-done' label already bookmarks the raw path, no backup needed.`;
+            }
+            const usageSuffix = ` Context usage: ${usageText}.${foldPreview}${doneDirective}`;
             return {
                 content: [{
                     type: "text",
@@ -499,6 +538,8 @@ export default function (pi: ExtensionAPI) {
                     contextUsage: usageLike ?? null,
                     previousAnchor: prevAnchorLabel,
                     estimatedUsageAtPreviousAnchor: estimatedAtPrevAnchor ? formatContextUsage(estimatedAtPrevAnchor, true) : null,
+                    earliestStartAnchor: earliestStartLabel,
+                    estimatedUsageAtEarliestStart: estimatedAtEarliestStart ? formatContextUsage(estimatedAtEarliestStart, true) : null,
                 },
             };
         },
@@ -647,8 +688,8 @@ export default function (pi: ExtensionAPI) {
             }
 
             const travelCue = nearestCheckpointName === null
-                ? "no anchor on this path yet — checkpoint before the next phase's first action"
-                : `if the work since '${nearestCheckpointName}' is finished (conclusion written, attempt judged, item done), fold now: acm_travel({ target: "${nearestCheckpointName}", summary: <filled template> })`;
+                ? "no anchor on this path — checkpoint now, or fold directly to a clean node ID from the timeline above (anchors are optional for travel)"
+                : `if the work since '${nearestCheckpointName}' is finished (conclusion written, attempt judged, item done), fold now: acm_travel({ target: "${nearestCheckpointName}", summary: <filled template> }); to shed only part of the trail, target the last clean node ID from the timeline above`;
 
             const refreshFailureMsg = refreshFailure;
             const isRefreshPending = refreshPending;
@@ -676,13 +717,13 @@ export default function (pi: ExtensionAPI) {
     const TravelParams = Type.Object({
         target: Type.String({ description: "Checkpoint name, history node ID, or 'root'. Use acm_timeline with full_tree or search to see all available targets." }),
         summary: Type.String({ description: "Handoff summary — your only memory after the travel. Fill every slot, write 'none' rather than dropping one: Task (goal; quote a triggering new user request verbatim), Done (conclusions with key numbers/errors/IDs), Files/External (disk/process/remote side effects — travel does NOT undo them), Do not repeat (judged dead ends), Recover raw via (backup or checkpoint name on the path being left), NEXT (the single action to take after landing). Pointers over dumps. Max 10000 chars." }),
-        backupCurrentHeadAs: Type.Optional(Type.String({ description: "Optional checkpoint name for the current HEAD before traveling. Recovery pointer only; summary must still be self-contained. Not the travel target." })),
+        backupCurrentHeadAs: Type.Optional(Type.String({ description: "Optional checkpoint name for the current HEAD before traveling. Recovery pointer only; summary must still be self-contained. Not the travel target. At a task-end fold set it to '<task>-done' — the done-bookmark and the fold happen in one call. Omit when the path being left already carries a checkpoint." })),
     });
 
     pi.registerTool({
         name: "acm_travel",
         label: "ACM Travel",
-        description: "Travel on the conversation timeline to any checkpoint or node (name, node ID, or 'root'). The target becomes the branch point; your summary replaces only the path after it. Folding is the DEFAULT action at these moments — call without being asked: (1) a phase produced its conclusion and the next step acts on it (fold before the next phase's first action, do not wait for a new user message); (2) an attempt failed and you switch approach; (3) a batch item finished and more remain; (4) a new user message starts work unrelated to a finished task (fold first, quote the new request verbatim in the summary). Skip only when the fold preview shows almost no saving. Folding is safe: the old path is preserved off-path forever and forward travel recovers it. Context may shrink (earlier anchor) or grow (later/off-path anchor restoring raw history). Changes conversation history only — not disk files or external systems.",
+        description: "Travel on the conversation timeline to any checkpoint or node (name, node ID, or 'root'). The target becomes the branch point; your summary replaces only the path after it. Folding is the DEFAULT action at these moments — call without being asked: (1) a phase produced its conclusion and the next step acts on it — fold before the next phase's first action, do not wait for a new user message; (2) an attempt failed or a direction proved wrong — retreat to where it started (no anchor there? a raw node ID from acm_timeline is a valid target); (3) bulky tool output (reads, searches, logs) is already distilled into a conclusion — shed the raw trail, keep the extract; (4) a batch item finished and more remain — fold to the method anchor; (5) the task is complete and the final answer comes next — fold to '<task>-start' with backupCurrentHeadAs: '<task>-done', THEN answer from the summary branch; (6) a new user message arrives over unfolded finished work — fold to the finished chain's earliest '-start' first, quoting the new request verbatim in the summary. Skip only when the fold preview shows almost no saving. Folding is safe: the old path is preserved off-path forever and forward travel recovers it. Context may shrink (earlier anchor) or grow (later/off-path anchor restoring raw history). Changes conversation history only — not disk files or external systems.",
         parameters: TravelParams,
         async execute(_id, rawParams: Static<typeof TravelParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
