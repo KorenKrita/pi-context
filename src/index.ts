@@ -680,6 +680,15 @@ export default function (pi: ExtensionAPI) {
                 : undefined;
             const usageBeforeText = formatContextUsage(usageLike, true);
             const currentMessages = getBuildSessionMessages(sm);
+            const targetMessages = getBuildSessionMessages(sm, tid);
+            const estimatedUsagePreview = estimateUsageAtTravelTarget(
+                usageLike,
+                currentMessages,
+                targetMessages,
+                params.summary,
+            );
+            const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
+            const messagesBefore = currentMessages.length;
 
             // Backup current HEAD
             let backupEntryId: string | undefined;
@@ -719,9 +728,10 @@ export default function (pi: ExtensionAPI) {
             const estimatedUsageAfter = estimateUsageAfterMessageChange(usageLike, currentMessages, afterMessages);
             const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
             const estimatedEffect = classifyTravelEffect(usageLike, estimatedUsageAfter);
-            const structuralEffect = classifyStructuralMessageEffect(currentMessages.length, afterMessages.length);
+            const messagesAfter = afterMessages.length;
+            const structuralEffect = classifyStructuralMessageEffect(messagesBefore, messagesAfter);
             const backupText = formatBackupText(params.backupCurrentHeadAs, backupEntryId, backupResolvedFromHead);
-            const messageDelta = `${currentMessages.length} → ${afterMessages.length} (${structuralEffect})`;
+            const messageDelta = `${messagesBefore} → ${messagesAfter} (${structuralEffect})`;
 
             if (resolved.fromOffPath) {
                 ctx.ui.notify(`Note: '${params.target}' resolved from an off-path branch.`, "info");
@@ -731,16 +741,33 @@ export default function (pi: ExtensionAPI) {
                 content: [{
                     type: "text",
                     text: [
-                        `Travel complete. target=${params.target} (${tid}); backupCurrentHeadAs=${backupText}; context ${usageBeforeText} → ${estimatedUsageAfterText} est. (${estimatedEffect}); messages=${messageDelta}; summaryEntryId=${summaryEntryId}.`,
-                        "Context refresh pending on the next LLM turn — run acm_timeline if sync status is unclear.",
+                        `Travel complete. target=${params.target} (${tid}); backupCurrentHeadAs=${backupText}; context ${usageBeforeText} → ${estimatedUsageAfterText} est. (estimatedEffect=${estimatedEffect}, structuralEffect=${structuralEffect}); sessionMessages=${messageDelta}; summaryEntryId=${summaryEntryId}.`,
+                        "Context rebuild is now persistent: every subsequent LLM turn is rebuilt from the new branch until the next travel or session reload. Run acm_timeline if official token % or sync status is unclear.",
+                        estimatedUsagePreview
+                            ? `Pre-travel preview was ${estimatedPreviewText} est. — compare with post-travel estimate above.`
+                            : null,
+                        "Estimates use buildSessionContext + token model; official % confirms on the next LLM context event or acm_timeline.",
+                        "Note: the branch summary entry is appended synchronously and may appear before this tool call in the session log.",
                         "Execute the summary's NEXT step and checkpoint the new phase ('<phase>-start') as you proceed.",
-                    ].join("\n"),
+                    ].filter((line): line is string => line !== null).join("\n"),
                 }],
                 details: {
                     target: params.target, targetId: tid, originId, originLabel,
+                    hasBackup: !!params.backupCurrentHeadAs,
                     backupCurrentHeadAs: params.backupCurrentHeadAs ?? null, backupEntryId,
-                    usageBefore: usageBeforeText, estimatedUsageAfter: estimatedUsageAfterText,
-                    estimatedEffect, structuralEffect, messageDelta, summaryEntryId,
+                    backupResolvedFromHead,
+                    usageBefore: usageBeforeText,
+                    usageAfter: "pending_next_context_event",
+                    estimatedUsagePreview: estimatedPreviewText,
+                    estimatedUsageAfter: estimatedUsageAfterText,
+                    estimatedEffect,
+                    structuralMessagesBefore: messagesBefore,
+                    structuralMessagesAfter: messagesAfter,
+                    structuralEffect,
+                    sessionMessages: messageDelta,
+                    messagesBefore,
+                    messagesAfter,
+                    summaryEntryId,
                     contextRefreshPending: true, fromOffPath: resolved.fromOffPath,
                 },
             };
