@@ -733,6 +733,7 @@ export default function (pi: ExtensionAPI) {
                     text: [
                         `Travel complete. target=${params.target} (${tid}); backupCurrentHeadAs=${backupText}; context ${usageBeforeText} → ${estimatedUsageAfterText} est. (${estimatedEffect}); messages=${messageDelta}; summaryEntryId=${summaryEntryId}.`,
                         "Context refresh pending on the next LLM turn — run acm_timeline if sync status is unclear.",
+                        "Continue from the handoff summary and anchor the new phase with acm_checkpoint as you proceed.",
                     ].join("\n"),
                 }],
                 details: {
