@@ -635,9 +635,9 @@ export default function (pi: ExtensionAPI) {
 
     // ── Tool: acm_travel ───────────────────────────────────────
     const TravelParams = Type.Object({
-        target: Type.String({ description: "Checkpoint name, history node ID, or 'root'." }),
+        target: Type.String({ description: "Checkpoint name, history node ID, or 'root'. Use acm_timeline with full_tree or search to see all available targets." }),
         summary: Type.String({ description: "Handoff summary — your only memory after the travel. Fill every slot, write 'none' rather than dropping one: Task (goal; quote a triggering new user request verbatim), Done (conclusions with key numbers/errors/IDs), Files/External (disk/process/remote side effects — travel does NOT undo them), Do not repeat (judged dead ends), Recover raw via (backup or checkpoint name on the path being left), NEXT (the single action to take after landing). Pointers over dumps. Max 10000 chars." }),
-        backupCurrentHeadAs: Type.Optional(Type.String({ description: "Optional checkpoint name for the current HEAD before traveling. Recovery pointer only." })),
+        backupCurrentHeadAs: Type.Optional(Type.String({ description: "Optional checkpoint name for the current HEAD before traveling. Recovery pointer only; summary must still be self-contained. Not the travel target." })),
     });
 
     pi.registerTool({
