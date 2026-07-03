@@ -415,14 +415,52 @@ export default function (pi: ExtensionAPI) {
             (sm as any).appendLabelChange(id, params.name);
 
             const aliasSuffix = priorLabels.length > 0 ? ` Added alias alongside: ${priorLabels.join(", ")}.` : "";
+
+            // Push context usage plus a fold preview into every checkpoint result,
+            // so the agent sees its fill level and the concrete benefit of folding
+            // to the previous anchor during normal work, without calling acm_timeline.
+            const usage = ctx.getContextUsage();
+            const usageLike: UsageLike | undefined = usage && usage.tokens != null && usage.percent != null
+                ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
+                : undefined;
+            const usageText = formatContextUsage(usageLike, true);
+            let prevAnchorLabel: string | null = null;
+            let prevAnchorEntryId: string | null = null;
+            for (let i = branch.length - 1; i >= 0; i--) {
+                const eid = branch[i].id;
+                if (eid === id) continue;
+                const labels = getEntryLabels(labelMaps, eid);
+                if (labels.length > 0) {
+                    prevAnchorLabel = labels[labels.length - 1];
+                    prevAnchorEntryId = eid;
+                    break;
+                }
+            }
+            let foldPreview = "";
+            let estimatedAtPrevAnchor: UsageLike | undefined;
+            if (prevAnchorEntryId && prevAnchorLabel && usageLike) {
+                const currentMessages = getBuildSessionMessages(sm);
+                const targetMessages = getBuildSessionMessages(sm, prevAnchorEntryId);
+                estimatedAtPrevAnchor = estimateUsageAfterMessageChange(usageLike, currentMessages, targetMessages);
+                if (estimatedAtPrevAnchor) {
+                    foldPreview = ` Fold preview: acm_travel to previous anchor '${prevAnchorLabel}' would leave ~${formatContextUsage(estimatedAtPrevAnchor, true)} est. (+summary). Fold whenever the trail since an anchor is mostly dead weight — worthwhile at any usage level.`;
+                }
+            }
+            const usageSuffix = ` Context usage: ${usageText}.${foldPreview}`;
             return {
                 content: [{
                     type: "text",
-                    text: autoResolved
+                    text: (autoResolved
                         ? `Created checkpoint '${params.name}' at ${id} (${formatMeaningfulResolveSummary(autoResolved)}).${aliasSuffix}`
-                        : `Created checkpoint '${params.name}' at ${id}.${aliasSuffix}`,
+                        : `Created checkpoint '${params.name}' at ${id}.${aliasSuffix}`) + usageSuffix,
                 }],
-                details: { entryId: id, label: params.name },
+                details: {
+                    entryId: id,
+                    label: params.name,
+                    contextUsage: usageLike ?? null,
+                    previousAnchor: prevAnchorLabel,
+                    estimatedUsageAtPreviousAnchor: estimatedAtPrevAnchor ? formatContextUsage(estimatedAtPrevAnchor, true) : null,
+                },
             };
         },
     });
