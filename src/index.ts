@@ -363,7 +363,7 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
         name: "acm_checkpoint",
         label: "ACM Checkpoint",
-        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Create checkpoints liberally before noisy work, at phase boundaries, before risky attempts, and after milestones.",
+        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Call constantly, without being asked: at task start, at each new user request, before each phase's first action, before risky steps, and after milestones. When unsure, checkpoint — it is free. The result reports current context usage and a fold preview showing what traveling back to the previous anchor would leave.",
         parameters: CheckpointParams,
         async execute(_id, rawParams: Static<typeof CheckpointParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -477,7 +477,7 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
         name: "acm_timeline",
         label: "ACM Timeline",
-        description: "Inspect the conversation tree: active path (default), full tree, checkpoint catalog, or global search.",
+        description: "Inspect the conversation tree: active path (default), full tree, checkpoint catalog, or global search. Call when choosing a travel target, when orientation is unclear, or to check context usage — list_checkpoints estimates what every anchor would leave after a fold. On large trees prefer list_checkpoints or search over full_tree.",
         parameters: TimelineParams,
         async execute(_id, rawParams: Static<typeof TimelineParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -643,7 +643,7 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
         name: "acm_travel",
         label: "ACM Travel",
-        description: "Travel on the conversation timeline to any checkpoint or node. The target becomes the branch point; your summary replaces only the path after it. The old path is preserved as an off-path branch. Changes conversation history only — not disk files or external systems.",
+        description: "Travel on the conversation timeline to any checkpoint or node. The target becomes the branch point; your summary replaces only the path after it. Call on your own judgment whenever folding the trail behind you is worth it: a phase produced a stable result, an approach failed, a task switch, or the segment since an anchor is mostly dead weight. Benefit decides, not usage level — shedding 13% down to 5% is worth doing. The old path is preserved as an off-path branch. Changes conversation history only — not disk files or external systems.",
         parameters: TravelParams,
         async execute(_id, rawParams: Static<typeof TravelParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
