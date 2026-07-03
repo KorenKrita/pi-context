@@ -337,9 +337,48 @@ function appendLabel(sm: SessionManager, entryId: string, label: string): void {
     sm.appendLabelChange(entryId, label);
 }
 
+/** Set or clear entry labels via appendLabelChange. label=undefined clears
+ *  all aliases on the node — only safe when that entry had no prior labels. */
+function setEntryLabel(sm: SessionManager, entryId: string, label: string | undefined): void {
+    sm.appendLabelChange(entryId, label);
+}
+
 // ── Extension factory ─────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+    const acmToolNames = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
+    pi.on("before_provider_request", (event) => {
+        const payload = event.payload;
+        if (!payload || typeof payload !== "object") return undefined;
+        const record = payload as Record<string, unknown>;
+        if (!Array.isArray(record.tools)) return undefined;
+
+        let changed = false;
+        const tools = record.tools.map((tool) => {
+            if (!tool || typeof tool !== "object") return tool;
+            const toolRecord = tool as Record<string, unknown>;
+
+            if (toolRecord.type === "function" && typeof toolRecord.name === "string" && acmToolNames.has(toolRecord.name)) {
+                changed = true;
+                return { ...toolRecord, strict: false };
+            }
+
+            const fn = toolRecord.function;
+            if (toolRecord.type === "function" && fn && typeof fn === "object") {
+                const fnRecord = fn as Record<string, unknown>;
+                if (typeof fnRecord.name === "string" && acmToolNames.has(fnRecord.name)) {
+                    changed = true;
+                    return { ...toolRecord, function: { ...fnRecord, strict: false } };
+                }
+            }
+
+            return tool;
+        });
+
+        if (!changed) return undefined;
+        return { ...record, tools };
+    });
+
     // Simple module-level flag — WeakSet/WeakMap doesn't work because
     // ctx.sessionManager may be a different object reference across events/tools.
     let refreshPending = false;
@@ -693,29 +732,96 @@ export default function (pi: ExtensionAPI) {
             // Backup current HEAD
             let backupEntryId: string | undefined;
             let backupResolvedFromHead: string | undefined;
+            let backupLabelWrittenThisCall = false;
+            let backupHadNoPriorLabels = false;
             if (params.backupCurrentHeadAs) {
                 const headResolve = findLastMeaningfulEntry(branch, sm, signal);
                 if (headResolve.aborted) {
-                    return { content: [{ type: "text", text: "acm_travel aborted during backup resolution." }], details: {} };
+                    return { content: [{ type: "text", text: "acm_travel aborted during backup target resolution." }], details: { error: "aborted", target: params.target, targetId: tid } };
                 }
                 backupEntryId = headResolve.entryId ?? undefined;
                 if (!backupEntryId) {
-                    return { content: [{ type: "text", text: `Error: backupCurrentHeadAs could not be placed — no meaningful entry near HEAD.` }], details: {} };
+                    return { content: [{ type: "text", text: `Error: backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no meaningful USER/AI message found near HEAD. Travel aborted.` }], details: { error: "no_meaningful_backup_target", name: params.backupCurrentHeadAs, headId: originId } };
                 }
-                if (backupEntryId !== originId) backupResolvedFromHead = originId;
-
+                if (backupEntryId !== originId) {
+                    backupResolvedFromHead = originId;
+                    ctx.ui.notify(
+                        `Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on ${backupEntryId} (${headResolve.role ?? "message"}) instead of HEAD ${originId} (tool/internal traffic).`,
+                        "info",
+                    );
+                }
                 const backupOwner = findCheckpointLabelOwner(labelMaps, params.backupCurrentHeadAs, branchIds);
                 if (backupOwner && backupOwner.entryId !== backupEntryId) {
-                    return { content: [{ type: "text", text: `Error: backupCurrentHeadAs name '${params.backupCurrentHeadAs}' already exists at ${backupOwner.entryId}. Use a different name.` }], details: {} };
+                    const existing = `${backupOwner.entryId}${backupOwner.onActivePath ? " (on-path)" : " (off-path)"}`;
+                    return { content: [{ type: "text", text: `Error: backupCurrentHeadAs name '${params.backupCurrentHeadAs}' already exists at ${existing}. Use a different name.` }], details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: backupOwner } };
                 }
-                const priorLabels = getEntryLabels(labelMaps, backupEntryId);
-                if (!priorLabels.includes(params.backupCurrentHeadAs)) {
-                    (sm as any).appendLabelChange(backupEntryId, params.backupCurrentHeadAs);
+                const backupPriorLabels = getEntryLabels(labelMaps, backupEntryId);
+                if (!backupPriorLabels.includes(params.backupCurrentHeadAs)) {
+                    backupHadNoPriorLabels = backupPriorLabels.length === 0;
+                    try {
+                        setEntryLabel(sm, backupEntryId, params.backupCurrentHeadAs);
+                        backupLabelWrittenThisCall = true;
+                    } catch (e) {
+                        return {
+                            content: [{ type: "text", text: `Error: backup label '${params.backupCurrentHeadAs}' could not be set: ${e instanceof Error ? e.message : String(e)}. Travel aborted.` }],
+                            details: { error: "backup_label_failed", name: params.backupCurrentHeadAs, message: e instanceof Error ? e.message : String(e) },
+                        };
+                    }
                 }
             }
 
-            // Perform branch with summary
-            const summaryEntryId = sm.branchWithSummary(tid, params.summary, undefined, true);
+            const travelDetails = {
+                originId,
+                originLabel,
+                target: params.target,
+                targetId: tid,
+                backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
+            };
+            let summaryEntryId: string;
+            try {
+                summaryEntryId = sm.branchWithSummary(tid, params.summary, travelDetails, true);
+            } catch (e) {
+                const errText = e instanceof Error ? e.message : String(e);
+                let backupRolledBack = false;
+                let backupRollbackFailed = false;
+                let backupRollbackSkipped = false;
+                if (backupLabelWrittenThisCall && backupEntryId) {
+                    if (backupHadNoPriorLabels) {
+                        try {
+                            setEntryLabel(sm, backupEntryId, undefined);
+                            backupRolledBack = true;
+                        } catch {
+                            backupRollbackFailed = true;
+                        }
+                    } else {
+                        backupRollbackSkipped = true;
+                    }
+                }
+                let backupNote = "";
+                if (params.backupCurrentHeadAs) {
+                    if (backupRollbackSkipped) {
+                        backupNote = ` Backup label '${params.backupCurrentHeadAs}' remains on the tree (rollback skipped — entry had other checkpoint aliases).`;
+                    } else if (backupRollbackFailed) {
+                        backupNote = ` Backup label '${params.backupCurrentHeadAs}' was written but could not be rolled back.`;
+                    } else if (backupRolledBack) {
+                        backupNote = ` Backup label '${params.backupCurrentHeadAs}' was rolled back.`;
+                    } else if (backupLabelWrittenThisCall) {
+                        backupNote = ` Backup label '${params.backupCurrentHeadAs}' remains on the tree.`;
+                    }
+                }
+                return {
+                    content: [{ type: "text", text: `Error: branchWithSummary failed: ${errText}.${backupNote}` }],
+                    details: {
+                        error: "branch_failed",
+                        backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
+                        backupEntryId,
+                        backupLabelWritten: backupLabelWrittenThisCall,
+                        backupRolledBack,
+                        backupRollbackFailed,
+                        backupRollbackSkipped,
+                    },
+                };
+            }
 
             // Mark context refresh pending — store the new leaf ID so the
             // context event can rebuild from it (pi moves SM leaf back to old branch
