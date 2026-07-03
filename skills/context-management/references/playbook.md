@@ -1,155 +1,196 @@
-# Scenario Playbook
+# Boundary Playbook
 
-Every task decomposes into the same primitives: a **start**, one or more **phases**, occasional **risky steps**, occasional **failures**, **milestones**, and sometimes a **switch** to other work. Anchors and folds attach to those primitives, not to task categories:
+Use this when the boundary is unclear. The main skill owns the discipline: keep the working set live, fold by boundary, and leave a recoverable handoff.
 
-- Anchor every primitive you might return to: start, phase entry, pre-burst, pre-risk, post-milestone, pre-switch. Use the `-start` / `-done` naming from SKILL.md.
-- Fold at the six fold moments: phase turnover, failed attempt or wrong direction, bulky output distilled, batch item done, task complete (before the final answer), repair on a new message over unfolded work. The fold preview number is the only skip condition.
-- Every summary follows the template in SKILL.md — fill every slot.
+## Target selection
 
-The sections below work this through common shapes. They are illustrations, not a taxonomy: if your task matches none of them, apply the fold moments directly.
+Name the boundary first.
 
-## Research and heavy reading
+| Boundary | Signal | Target | Handoff owns |
+|---|---|---|---|
+| Burst | temporary output has been distilled | pre-burst anchor or last clean node | extract, evidence pointer, NEXT |
+| Phase | next action uses the conclusion | phase start | conclusion, decision, next phase |
+| Failed direction | path is judged dead or superseded | attempt start or last milestone | what failed, why, what survives |
+| Batch item | item done and more remain | method/batch anchor | tally, method refinements, next item |
+| Task chain | final answer or new request after finished work | semantic chain start | final state, answer material, recovery pointer |
+| Missing anchor | no label sits before the boundary | raw node ID before the boundary | same as the boundary being folded |
 
-Search, web/browser work, reading many files/logs/pages. The trail is much larger than the conclusion.
+## Burst boundary
 
-- Checkpoint `<topic>-investigation-start` before the first pass, and checkpoint again before each burst you cannot bound — a big file read, a broad search, a log fetch. You cannot know in advance which burst floods the window; the anchor is your way back.
-- Fold moment 3 fires mid-phase: a burst is distilled into an extract → travel to the pre-burst anchor carrying the extract, then continue the same phase clean.
-- Fold moment 1 fires at phase end: the finding is written and the next step uses it — implement, answer, decide. Travel to the investigation anchor. This includes the next phase of the same request (found the API shape → now implement). Do not wait for a new user message.
-- Research summaries fail when thin. "Found the answer" is not a summary — the template's `Done` slot must hold the finding itself with its key evidence.
+A burst is a temporary expansion: big read, broad search, log fetch, large diff, subagent, or any tool output you could not bound before calling it.
 
-```javascript
-acm_travel({
-  target: "timeout-investigation-start",
-  backupCurrentHeadAs: "timeout-investigation-raw",
-  summary: `Task: mitigate API timeouts.
-Done: root cause is DB connection pool exhaustion. Evidence: pool wait timeouts in logs during peak; pool size 10 in config/db.yaml; no network errors found.
-Files/External: none — investigation only, nothing changed.
-Do not repeat: gateway timeout theory — it was downstream of DB waits, not a cause.
-Recover raw via: timeout-investigation-raw (exact log lines, full config).
-NEXT: propose pool sizing + queue mitigation and how to validate.`
-});
-```
+**Signal**: you have extracted the finding, paths, commands, errors, or IDs needed for the next action.
 
-## Development and debugging
-
-Implementation, debugging, refactoring, migration, review.
-
-- Checkpoint `<fix>-start` before serious work, before risky edits, before each alternative attempt; checkpoint `<milestone>-done` when a root cause is confirmed or a test passes — that `-done` is the retreat point if the next attempt fails.
-- Fold moment 2 fires here: the moment an approach is abandoned, travel to the pre-attempt anchor (often the last `-done`). Never drag a dead attempt's raw trail into the next one.
-- Fold moment 1 fires at phase turnover: debugging produced the diagnosis → fold before implementing; implementation done → fold before a long validation phase.
-- Files and processes changed on disk stay changed — the `Files/External` slot must state the current on-disk state, and the `Done` slot what has and has not been validated.
+**Target**: the pre-burst checkpoint. If missing, use `acm_timeline` and choose the last clean node ID before the burst.
 
 ```javascript
-acm_travel({
-  target: "memory-leak-fix-start",
-  backupCurrentHeadAs: "memory-leak-weakref-raw",
-  summary: `Task: fix memory leak in the object cache.
-Done: WeakRef approach implemented and rejected — objects collected too early, cache hit rate collapsed.
-Files/External: src/cache.ts reverted to pre-attempt state on disk; no processes running.
-Do not repeat: WeakRef-based caching — early collection is inherent, not tunable.
-Recover raw via: memory-leak-weakref-raw.
-NEXT: implement object pooling in src/cache.ts.`
-});
+acm_travel({ target: "<pre-burst-anchor-or-node-id>", summary: "<handoff>" });
 ```
 
-## Wrong direction, no anchor
-
-You rarely know a direction is wrong before walking it, and you cannot always predict which tool result will be huge. Anchors help but are never required — the realization itself is the fold moment:
-
-1. `acm_timeline` — the active path with node IDs.
-2. Pick the last clean node before the wrong turn or the flood: a user turn, your own plan statement, any point that still holds everything you want to keep.
-3. Travel to that node ID directly.
-
-```javascript
-acm_travel({
-  target: "aBc123",  // last clean node before three wrong-direction searches
-  backupCurrentHeadAs: "auth-refactor-wrong-turn-raw",
-  summary: `Task: refactor auth middleware.
-Done: ruled out the session-store as the coupling point — three searches confirmed sessions never touch the middleware chain.
-Files/External: none changed.
-Do not repeat: session-store direction — dead end, evidence in the backup.
-Recover raw via: auth-refactor-wrong-turn-raw.
-NEXT: trace the token-validation path in src/middleware/validate.ts instead.`
-});
-```
-
-Do not keep walking a road you know is wrong just because the trail behind you is unanchored.
-
-## Plan-driven execution
-
-Work anchored to an explicit plan, roadmap, or todo list that execution keeps returning to.
-
-- Checkpoint `plan-ready` when the plan is settled; checkpoint each phase start.
-- After each subtask stabilizes and another remains, fold back to the plan-ready or phase anchor. The `Done` slot carries the plan's current status (done / in progress / remaining) so the plan itself survives the fold.
-- On a material replan: summarize the direction change, checkpoint the new plan-ready state, continue from there.
-
-## Repeated batch items
-
-Many similar items (tickets, reviews, cases) processed with a reusable method. Fold moment 4.
-
-- Checkpoint the batch start; checkpoint `<batch>-method-clear` once the first item teaches a reusable method.
-- After every item: travel to the method anchor. Item-specific reasoning must not accumulate across items — the preview saving per item may look small, and the fold is still correct, because it compounds.
-
-```javascript
-acm_travel({
-  target: "vendor-review-method-clear",
-  summary: `Task: vendor review batch, 4 of 12 done.
-Done: results logged in review-notes.md; item 4 flagged missing DPA. Method unchanged: SLA terms, then security addendum, then pricing deltas.
-Files/External: review-notes.md updated on disk.
-Do not repeat: none.
-Recover raw via: none — per-item raw is disposable once logged.
-NEXT: review vendor 5 with the same method.`
-});
-```
-
-## Retry, branch, and pivot
-
-Trying approaches A/B/C, comparisons, strategy changes. Cross-cutting: applies on top of any shape above.
-
-- Always checkpoint before opening a risky branch — that anchor is what makes a clean retreat possible. A milestone `-done` behind you serves the same purpose.
-- The moment a branch is decided (failed, won, or superseded), fold to the pre-branch anchor. Preserve what was tried, why it was rejected, what remains valid, and the chosen next approach.
-- Multiple travels to the same anchor are fine — each creates a sibling branch (attempt 1, attempt 2, ...).
-
-## Task end and task switching
-
-Fold moments 5 and 6.
-
-- **Task complete (moment 5):** fold BEFORE giving the final answer — one call, then answer from the summary branch:
-
-```javascript
-acm_travel({
-  target: "cache-migration-start",
-  backupCurrentHeadAs: "cache-migration-done",  // the done-bookmark, created by the fold itself
-  summary: `Task: migrate the cache layer to Redis.
-Done: migration complete; all 14 integration tests pass; cutover flag enabled in config/cache.yaml.
-Files/External: src/cache/*.ts rewritten, config/cache.yaml updated, local Redis running via docker compose.
-Do not repeat: none.
-Recover raw via: cache-migration-done.
-NEXT: give the user the final summary of the migration.`
-});
-```
-
-  If the preview shows almost no saving, checkpoint `<task>-done` and just answer.
-- **Repair (moment 6):** a new user message arrives and earlier finished work was never folded → fold before starting. Target the finished chain's **earliest** `-start`: related tasks form one chain, retreat to where the chain began, not to the most recent task's anchor. Use `root` when several unrelated chains have stacked up, with one capsule line per finished task in the summary. Quote the new request verbatim in the `Task` slot — it sits after the target and would otherwise leave context. If the path being left already has a `-done` or other checkpoint, that is the recovery pointer; add `backupCurrentHeadAs` only when the path is unlabeled.
-- Before switching away from unfinished work: checkpoint `<task>-paused` so you can return.
-- Adopting context management late in an already-messy thread: `acm_timeline` finds the best pre-noise node (any node ID works), then fold with a full-template summary. It is never too late.
-
-## Interleaved async fronts
-
-Background jobs, subagents, delayed results, user decisions — several overlapping lines of work in one thread.
-
-Treat each line as a **front**. Keep at most one front raw (the one you are reasoning about now); park the rest as capsule lines inside your summaries:
+**Handoff owns**:
 
 ```text
-Front: docs-build | Goal: validate docs before publish | State: background build running
-Stable result: source edits complete | Pointers: task docs-build, dist/docs/
-Trigger: build exit status | Next: on success summarize validation; on failure inspect first error
+Goal: <current task or phase goal>
+State: <the distilled finding>
+Evidence: <files, commands, URLs, node IDs, search terms>
+External: <none, unless the burst changed disk/process/remote state>
+Exclusions: <irrelevant branches or failed searches>
+Recover: <pre-burst checkpoint or node ID; backup if created>
+NEXT: <continue the phase using the extract>
 ```
 
-- When a delayed result returns: capture it into its front, decide whether it interrupts the current focus, park it if not.
-- Fold when switching fronts after a heavy phase, or when the middle of the thread is completed fronts. Interleaving makes recent anchors poor targets — an old anchor (even `root`) plus one capsule per live front is often the right fold.
-- Before a deep fold, answer in the summary: which front is active, which are parked (with pointers), which are done, and the single NEXT action.
+**Failure mode**: keeping raw output live after the extract is stable.
 
-## None of these fit?
+## Phase boundary
 
-Identify the primitives in your task — where it starts, where phases turn over, what is risky, where milestones land, what counts as a switch — and attach the checkpoint moments and fold moments from SKILL.md to those events. The six fold moments plus the summary template are sufficient for any shape; the scenarios above are pre-worked answers for frequent ones.
+A phase boundary appears when the next action uses the phase result, not the raw path that produced it.
+
+**Signal**: investigation becomes implementation; implementation becomes validation; diagnosis becomes fix; reading becomes answer.
+
+**Target**: the phase `-start`.
+
+```javascript
+acm_travel({ target: "<phase-start>", summary: "<handoff>" });
+```
+
+**Handoff owns**:
+
+```text
+Goal: <task goal and phase just completed>
+State: <phase conclusion and current status>
+Evidence: <load-bearing files, commands, errors, commits, test names>
+External: <files/processes/remotes changed during the phase>
+Exclusions: <wrong leads or options rejected>
+Recover: <phase start and any milestone/archive pointer>
+NEXT: <first action of the next phase>
+```
+
+**Failure mode**: waiting for a new user message even though the next phase has already begun.
+
+## Failed-direction boundary
+
+A failed direction is a branch whose raw trail should not pollute the next attempt.
+
+**Signal**: an approach failed, a hypothesis was falsified, a design direction was rejected, or a path was superseded.
+
+**Target**: the attempt start. If no attempt anchor exists, use the last milestone `-done` before it, or the last clean node ID.
+
+```javascript
+acm_travel({ target: "<attempt-start-or-last-milestone-or-node-id>", summary: "<handoff>" });
+```
+
+**Handoff owns**:
+
+```text
+Goal: <unchanged larger goal>
+State: <what failed and what remains true>
+Evidence: <commands, errors, diffs, links proving the failure>
+External: <any partial files/processes/remotes left behind>
+Exclusions: <the failed direction and why not to retry it>
+Recover: <attempt start, milestone, node ID, or backup>
+NEXT: <next attempt or question>
+```
+
+**Failure mode**: continuing with a dead trail in the working set because it was expensive to produce.
+
+## Batch boundary
+
+Batch work accumulates hidden context debt because each item feels small.
+
+**Signal**: one item is complete and more remain.
+
+**Target**: the method anchor: the point after the reusable method is known and before item-specific noise begins.
+
+```javascript
+acm_travel({ target: "<method-anchor>", summary: "<handoff>" });
+```
+
+**Handoff owns**:
+
+```text
+Goal: <batch goal>
+State: <completed count, remaining count, method refinements>
+Evidence: <item IDs, changed paths, command pattern>
+External: <side effects already applied>
+Exclusions: <item-specific dead ends not to repeat>
+Recover: <method anchor and any backup>
+NEXT: <next item>
+```
+
+**Failure mode**: judging each fold by small immediate savings. Batch folds compound.
+
+## Task-chain boundary
+
+A task-chain boundary clears completed work before the final answer or before a new request starts.
+
+**Signal**: the final answer is next; or a new user request arrives over finished work.
+
+**Target**: the earliest `-start` of the semantic chain being compressed. A semantic chain is continuous work serving one user goal: follow-up fixes, refinements, and phase shifts stay in the chain; a new unrelated user goal starts a new chain. This may be older than the nearest anchor. Use `root` only when several unrelated finished chains have stacked up and a single handoff can capsule each one.
+
+```javascript
+acm_travel({ target: "<semantic-chain-start>", backupCurrentHeadAs: "<task>-done", summary: "<handoff>" });
+```
+
+**Handoff owns**:
+
+```text
+Goal: <task goal; quote the new user request verbatim if it triggered the fold>
+State: <final conclusions, decisions, status, answer material>
+Evidence: <key paths, commands, commits, errors, checkpoints>
+External: <all disk/process/browser/remote/ticket side effects>
+Exclusions: <dead ends already judged>
+Recover: <backupCurrentHeadAs, existing -done, checkpoint, or node ID>
+NEXT: <give final answer, or start the quoted new request>
+```
+
+**Failure mode**: anchor gravity toward the most recent task or phase anchor. Fold by boundary, not proximity.
+
+## Interleaved fronts
+
+Interleaving makes recent anchors especially misleading.
+
+**Signal**: several fronts are live or parked, or delayed results arrive while another front is active.
+
+**Target**: the boundary of the front being compressed. When completed fronts are scattered through the thread, an older anchor or `root` plus one capsule per front can be cleaner than a recent anchor.
+
+```javascript
+acm_travel({ target: "<front-boundary-anchor-or-root>", summary: "<handoff>" });
+```
+
+**Handoff owns**:
+
+```text
+Goal: <overall goal and active front>
+State: <active front, parked fronts, done fronts>
+Evidence: <pointers per front>
+External: <side effects per front>
+Exclusions: <front-specific dead ends>
+Recover: <archive pointers per front>
+NEXT: <single next action on the active front>
+```
+
+**Failure mode**: choosing the closest anchor even though it belongs to the wrong front.
+
+## Missing anchor
+
+Anchors are conveniences, not prerequisites.
+
+1. Run `acm_timeline`.
+2. Find the last clean node before the boundary you want to compress.
+3. Travel to that node ID with a handoff that names the boundary and recovery pointer.
+
+```javascript
+acm_travel({ target: "<last-clean-node-id>", summary: "<handoff>" });
+```
+
+If orientation is poor, checkpoint the current meaningful turn first as an archive pointer, then inspect the timeline.
+
+## None of these fit
+
+Use the fold gate from the main skill:
+
+- Boundary named.
+- NEXT executable.
+- Raw recoverable.
+
+If any gate fails, keep the context live and checkpoint the next stable point.

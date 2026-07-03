@@ -14,6 +14,21 @@ const TRAVEL_EFFECT_MIN_TOKEN_DELTA = 500;
 const TRAVEL_EFFECT_RELATIVE_THRESHOLD = 0.02;
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
+export const HANDOFF_SLOT_HINT = "Goal/State/Evidence/External/Exclusions/Recover/NEXT";
+
+export const BOUNDARY_SELECTION_GUIDANCE = "Choose by boundary, not proximity. A candidate is correct only when it sits before the boundary being compressed; use an earliest on-path -start only when it begins the semantic chain being compressed.";
+
+export function formatFoldCandidatePreview(previewParts: string[]): string {
+    return ` Fold candidates (+handoff): ${previewParts.join("; ")}. ${BOUNDARY_SELECTION_GUIDANCE}`;
+}
+
+export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
+    if (nearestCheckpointName === null) {
+        return "name the boundary first; no anchor is on this path, so checkpoint now or fold directly to the last clean node ID before the boundary";
+    }
+    return `name the boundary first. '${nearestCheckpointName}' is only a candidate target. Choose the target that sits before the boundary: phase start, pre-burst node, attempt start, method anchor, or semantic chain start. See the Boundary Playbook if unclear`;
+}
+
 export type TravelEffect = "shrunk" | "restored" | "unchanged" | "unknown";
 
 export interface UsageLike {
