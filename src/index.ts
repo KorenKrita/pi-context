@@ -356,14 +356,14 @@ export default function (pi: ExtensionAPI) {
 
     // ── Tool: acm_checkpoint ───────────────────────────────────
     const CheckpointParams = Type.Object({
-        name: Type.String({ description: "Unique semantic anchor name encoding task+phase, e.g. parser-fix-start, timeout-investigation-search. Only letters, digits, hyphens, underscores, dots. Max 64 chars." }),
+        name: Type.String({ description: "Unique semantic anchor name encoding task+phase. Suffix carries meaning: '<name>-start' = future fold target (you will travel back here when the phase ends), '<name>-done' = recovery bookmark on finished work (never a fold target). E.g. parser-fix-start, timeout-investigation-start, cache-migration-done. Avoid generic names like start, checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars." }),
         target: Type.Optional(Type.String({ description: "History node ID or checkpoint name to label. Defaults to current meaningful position near HEAD." })),
     });
 
     pi.registerTool({
         name: "acm_checkpoint",
         label: "ACM Checkpoint",
-        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Call constantly, without being asked: at task start, at each new user request, before each phase's first action, before risky steps, and after milestones. When unsure, checkpoint — it is free. The result reports current context usage and a fold preview showing what traveling back to the previous anchor would leave.",
+        description: "Create a named anchor on a conversation history node. Zero cost: no branch, no summary, no context change — just a label you can travel back to later. Call at every one of these events, without being asked: task start, each new user request, before each phase's first action ('<phase>-start' — a promise to fold back there when the phase ends), before risky steps, after milestones ('<milestone>-done' — a recovery bookmark, never a fold target). When unsure, checkpoint — it is free. Names must be unique across the session tree; the same node may hold multiple aliases. The result reports current context usage and a fold preview showing what traveling back to the previous anchor would leave — react to it.",
         parameters: CheckpointParams,
         async execute(_id, rawParams: Static<typeof CheckpointParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -443,7 +443,7 @@ export default function (pi: ExtensionAPI) {
                 const targetMessages = getBuildSessionMessages(sm, prevAnchorEntryId);
                 estimatedAtPrevAnchor = estimateUsageAfterMessageChange(usageLike, currentMessages, targetMessages);
                 if (estimatedAtPrevAnchor) {
-                    foldPreview = ` Fold preview: acm_travel to previous anchor '${prevAnchorLabel}' would leave ~${formatContextUsage(estimatedAtPrevAnchor, true)} est. (+summary). Fold whenever the trail since an anchor is mostly dead weight — worthwhile at any usage level.`;
+                    foldPreview = ` Fold preview: traveling to previous anchor '${prevAnchorLabel}' would leave ~${formatContextUsage(estimatedAtPrevAnchor, true)} est. (+summary). If the work since '${prevAnchorLabel}' is finished — conclusion written, attempt judged, item done — fold now: acm_travel({ target: "${prevAnchorLabel}", summary: <filled template> }). Skip only if the preview shows almost no saving.`;
                 }
             }
             const usageSuffix = ` Context usage: ${usageText}.${foldPreview}`;
@@ -608,8 +608,8 @@ export default function (pi: ExtensionAPI) {
             }
 
             const travelCue = nearestCheckpointName === null
-                ? "create a checkpoint before the next noisy phase"
-                : `if this segment has produced a stable result and another phase remains, travel to '${nearestCheckpointName}' with a handoff summary before continuing`;
+                ? "no anchor on this path yet — checkpoint before the next phase's first action"
+                : `if the work since '${nearestCheckpointName}' is finished (conclusion written, attempt judged, item done), fold now: acm_travel({ target: "${nearestCheckpointName}", summary: <filled template> })`;
 
             const refreshFailureMsg = refreshFailure;
             const isRefreshPending = refreshPending;
@@ -636,14 +636,14 @@ export default function (pi: ExtensionAPI) {
     // ── Tool: acm_travel ───────────────────────────────────────
     const TravelParams = Type.Object({
         target: Type.String({ description: "Checkpoint name, history node ID, or 'root'." }),
-        summary: Type.String({ description: "Handoff state summary: current task/state, decisions/constraints, external side effects, validation status, and explicit next step. Max 10000 chars." }),
+        summary: Type.String({ description: "Handoff summary — your only memory after the travel. Fill every slot, write 'none' rather than dropping one: Task (goal; quote a triggering new user request verbatim), Done (conclusions with key numbers/errors/IDs), Files/External (disk/process/remote side effects — travel does NOT undo them), Do not repeat (judged dead ends), Recover raw via (backup or checkpoint name on the path being left), NEXT (the single action to take after landing). Pointers over dumps. Max 10000 chars." }),
         backupCurrentHeadAs: Type.Optional(Type.String({ description: "Optional checkpoint name for the current HEAD before traveling. Recovery pointer only." })),
     });
 
     pi.registerTool({
         name: "acm_travel",
         label: "ACM Travel",
-        description: "Travel on the conversation timeline to any checkpoint or node. The target becomes the branch point; your summary replaces only the path after it. Call on your own judgment whenever folding the trail behind you is worth it: a phase produced a stable result, an approach failed, a task switch, or the segment since an anchor is mostly dead weight. Benefit decides, not usage level — shedding 13% down to 5% is worth doing. The old path is preserved as an off-path branch. Changes conversation history only — not disk files or external systems.",
+        description: "Travel on the conversation timeline to any checkpoint or node (name, node ID, or 'root'). The target becomes the branch point; your summary replaces only the path after it. Folding is the DEFAULT action at these moments — call without being asked: (1) a phase produced its conclusion and the next step acts on it (fold before the next phase's first action, do not wait for a new user message); (2) an attempt failed and you switch approach; (3) a batch item finished and more remain; (4) a new user message starts work unrelated to a finished task (fold first, quote the new request verbatim in the summary). Skip only when the fold preview shows almost no saving. Folding is safe: the old path is preserved off-path forever and forward travel recovers it. Context may shrink (earlier anchor) or grow (later/off-path anchor restoring raw history). Changes conversation history only — not disk files or external systems.",
         parameters: TravelParams,
         async execute(_id, rawParams: Static<typeof TravelParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -733,7 +733,7 @@ export default function (pi: ExtensionAPI) {
                     text: [
                         `Travel complete. target=${params.target} (${tid}); backupCurrentHeadAs=${backupText}; context ${usageBeforeText} → ${estimatedUsageAfterText} est. (${estimatedEffect}); messages=${messageDelta}; summaryEntryId=${summaryEntryId}.`,
                         "Context refresh pending on the next LLM turn — run acm_timeline if sync status is unclear.",
-                        "Continue from the handoff summary and anchor the new phase with acm_checkpoint as you proceed.",
+                        "Execute the summary's NEXT step and checkpoint the new phase ('<phase>-start') as you proceed.",
                     ].join("\n"),
                 }],
                 details: {
