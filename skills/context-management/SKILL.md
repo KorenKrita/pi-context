@@ -1,95 +1,100 @@
 ---
 name: context-management
-description: "Self-manage your context window with checkpoints and time travel — treat this as a native ability, like reading files or running commands. Checkpoint constantly, it is free: at task start, at each new user request, before each phase's first action, before risky steps, after milestones. Decide travel purely by benefit, never by a usage threshold: whenever the trail behind you is mostly dead weight and a summary can carry the live state, fold it — dropping from 13% to 5% usage is worth doing. Tool results report usage and fold previews; react to them. Skip only for trivial one-shot answers."
+description: "Self-manage your context window with checkpoints and time travel — a native ability, like reading files or running commands. Two reflexes, both bound to events, not judgment. CHECKPOINT (free, always): at task start, at each new user request, before each phase's first action, before risky steps, after milestones. FOLD (acm_travel back to the phase anchor with a handoff summary) at these moments: a phase produced its conclusion and the next step acts on it; an attempt failed and you switch approach; a batch item finished; a new user message starts unrelated work. Folding is the default action at those moments — skip only when the fold preview shows almost no saving. Everything folded is recoverable forever; a bloated window is not. When unsure, fold."
 ---
 
 # Context Management
 
-Your context window is a finite working set, and you are the one who manages it. Three tools:
+Your context window is a finite working set. You manage it yourself, mid-task, without being asked and without asking permission. Three tools:
 
-- `acm_checkpoint` — label a conversation node with a semantic name. Zero cost: no branch, no summary, no context change. Its result reports current context usage and a fold preview (what traveling back to the previous anchor would leave).
-- `acm_timeline` — see the conversation tree plus a context-usage HUD. `list_checkpoints: true` estimates the post-fold size of every anchor.
-- `acm_travel` — jump to any checkpoint or node, leaving a handoff summary. The target becomes the branch point; everything after it is replaced by your summary. The old path is never deleted.
+- `acm_checkpoint` — put a named anchor on a conversation node. Free: no branch, no summary, no context change.
+- `acm_travel` — jump back to an anchor. Your summary replaces everything after it; the old path is preserved off-path forever.
+- `acm_timeline` — see the tree, the anchors, and what each fold would leave (`list_checkpoints: true`).
 
-Use them on your own judgment, mid-task, without being asked. Do not wait for the user to mention context, and do not ask permission. When any tool result shows a usage percentage or fold preview, that number is addressed to you — read it and react.
+## Two kinds of anchors
 
-## The rhythm
+Fixed suffixes. The name decides the anchor's future use — decide at creation time, not later:
 
-1. **Anchor** — checkpoint at every moment you might want to return to (see policy below).
-2. **Work** — do the phase; let it get noisy locally.
-3. **Look** — every checkpoint result shows current usage and what a fold would leave.
-4. **Fold** — whenever the trail behind you is mostly dead weight, `acm_travel` back to the anchor with a handoff summary. The raw trail becomes a capsule; you continue clean.
+- `<name>-start` — a fold target. Creating it is a promise: when this phase or task ends, you WILL travel back here. Place it before the first action of the work it covers.
+- `<name>-done` — a recovery bookmark on finished work. NEVER a fold target: the noise sits before it, so traveling to it cleans nothing.
 
-## Checkpoint policy: anchor early, anchor often
+## Checkpoint moments
 
-Checkpoints cost nothing — no branch, no summary, no context change. The failure mode is not too many anchors; it is reaching for a travel target that does not exist. Checkpoint at:
+Checkpoint at every one of these events. It is free; the only failure mode is a missing anchor when you need one.
 
-- task start, and at each new user request that starts or redirects work
-- before the first action of each phase (investigate, implement, validate, ...)
-- before risky, destructive, or hard-to-redo steps
-- after milestones: a stable finding, a decision, a passing test, a completed item
-- before switching away from a line of work you will return to
+- A new user message starts or redirects multi-step work → `<task>-start`.
+- The first action of a phase (investigate, implement, validate, ...) is about to run → `<task>-<phase>-start`.
+- A risky, destructive, or hard-to-redo step is about to run → checkpoint.
+- A milestone landed — conclusion written, decision made, test passed, item finished → `<milestone>-done`.
+- Switching away from work you will return to → `<task>-paused`.
 
-When unsure, checkpoint. And if you forgot: user turns are implicit anchors — `acm_travel` accepts raw node IDs from the timeline — so it is never too late to fold.
+Forgot to checkpoint? User turns are implicit anchors and `acm_travel` accepts raw node IDs from `acm_timeline` — it is never too late to fold.
 
-## Fold policy: judge by benefit, never by thresholds
+## Fold moments — these are actions, not suggestions
 
-There is no usage level that triggers a fold and none that excuses skipping one. The only question is: **how much of the context behind me is dead weight, and can a summary carry the live state?**
+At each of these events, calling `acm_travel` is the default. Not calling it is the exception.
 
-- At every stable point — phase result, failed attempt, answered side question, completed batch item, task switch — look back at the trail since the relevant anchor. If it is mostly noise you will not reason over again (searches already distilled, logs already diagnosed, attempts already judged), fold it, **even at low usage**. Going from 13% to 5% is a good fold.
-- Conversely, a full window made of live, still-needed context is not a fold signal by itself. Find the real stable point first; never discard context you are actively reasoning over.
-- Absolute usage only changes urgency: the fuller the window, the sooner you should reach a stable point and fold.
-- Use the numbers, not intuition: checkpoint results show a fold preview, and `acm_timeline({ list_checkpoints: true })` estimates what every anchor would leave (`~msgs, ~% est.`). If an anchor shows a real drop and the summary writes itself, that fold is worth taking now.
+1. **Phase turnover.** You wrote down the conclusion of an investigation / reading / search phase, and the next action uses the conclusion, not the raw pages → travel to that phase's `-start` NOW, before the first action of the next phase. Do not wait for a new user message.
+2. **Failed attempt.** An approach failed and you are switching to another → travel to the pre-attempt anchor. The summary records what failed and why it must not be retried.
+3. **Batch item done.** An item finished and more remain → travel to the method anchor, carrying only the tally and method refinements.
+4. **Unrelated new task.** A new user message starts work unrelated to the previous, finished task → travel the old task to its `-start` (or `root` if several stale tasks have stacked up) BEFORE starting. Quote the new request verbatim in the summary — it sits after the target and will leave context too.
+
+The only valid reason to skip a fold moment: the fold preview shows the travel would save almost nothing. Then checkpoint and continue. These are NOT reasons to skip — answer each with `backupCurrentHeadAs` plus the fold:
+
+- "the details might be useful later" → backup, then fold; forward travel recovers everything.
+- "the trail is not that long yet" → the preview number decides, not your impression.
+- "I already checkpointed" → a checkpoint marks the fold target; it is not the fold.
+
+One task-end exception: task fully done, final answer about to be given, no known next work → checkpoint `<task>-done`, answer, wait. That skipped fold is owed at the next user message.
+
+## Why folding is always safe
+
+Folding too eagerly costs one forward travel to the backup — no path is ever deleted. Folding too late costs the whole window. The two mistakes are not symmetric. When unsure, fold.
+
+## Summary template
+
+The summary IS your memory after the travel. Fill every slot; write "none" rather than deleting a slot:
+
+```text
+Task: <goal in one line; if a new user request triggered this fold, quote it verbatim>
+Done: <what finished, with conclusions and key numbers / errors / IDs>
+Files/External: <paths changed, processes started or stopped, remote/browser/ticket side effects — travel does NOT undo any of these>
+Do not repeat: <dead ends already tried and why they failed>
+Recover raw via: <backup label or checkpoint name on the path being left>
+NEXT: <the single action to take immediately after landing>
+```
+
+Pointers, not dumps: file paths, IDs, URLs, commands to re-fetch — copy raw values only when small, volatile, or needed immediately.
 
 ## Reflex table
 
-| Moment | Reflex |
+| Event | Action |
 |---|---|
-| Multi-step task starting, or a new user request arriving | checkpoint |
-| First action of a new phase | checkpoint; if the finished phase left a noisy trail, fold it to its anchor first |
-| About to try something risky or hard to redo | checkpoint |
-| Milestone: stable finding, decision, passing test | checkpoint |
-| Approach failed, switching to another | travel to the pre-attempt anchor; summary records what failed and why |
-| Stable point + trail since an anchor is mostly dead weight | travel — at any usage level |
-| Window filling up with live, still-needed context | keep working to the next stable point, then fold; do not discard live context |
-| New user task after a noisy completed one | travel the old task away before starting |
-| Lost orientation, or repeatedly re-checking status | timeline |
-| Need raw details that a summary dropped | travel forward to the backup/off-path anchor (find it with `acm_timeline({ search })`) |
-| Task fully done, about to give the final answer | do nothing — answer and wait |
-
-## Two directions
-
-- **Back** (usual): target sits before the noisy segment. Folds raw history into your summary; context usually shrinks.
-- **Forward**: target is a backup or off-path anchor that still carries raw history. Restores details a summary dropped; context usually grows. Old paths survive every travel, so nothing is ever lost — recover via `search`.
-
-Do not assume travel shrinks context. Read `estimatedUsageAfter`, `estimatedEffect`, and `structuralEffect` from the travel result; official token % confirms on the next `acm_timeline`.
-
-## Summary contract
-
-The summary IS your memory after the travel — everything after the target leaves your context. It must restore:
-
-1. **Task state** — goal, decisions, constraints, what succeeded or failed.
-2. **External state** — files changed, processes started or stopped, remote/browser/ticket side effects. Travel never rolls these back; the summary must bridge conversation state to real-world state.
-3. **Validation state** — what was run, what passed, what remains risky.
-4. **Pointers, not dumps** — file paths, IDs, URLs, queries, commands to re-fetch data instead of raw copies. Copy raw values only when small, volatile, or needed immediately.
-5. **Next step** — one explicit action to take after the travel lands.
-
-Set `backupCurrentHeadAs` when the raw path might still matter later. It is a recovery pointer on the path you are leaving, **not** the travel target, and never a substitute for the summary.
-
-Choosing the target: pick the anchor that leaves the smallest context that still suffices. An older anchor plus a stronger summary usually beats a recent anchor plus stale baggage; `root` is legitimate when the summary can carry everything.
+| New user message starting or redirecting multi-step work | checkpoint `<task>-start` |
+| First action of a new phase about to run | checkpoint `<phase>-start`; if the previous phase has an anchor, fold to it first (fold moment 1) |
+| Risky or hard-to-redo step about to run | checkpoint |
+| Conclusion written / decision made / test passed | checkpoint `<milestone>-done` |
+| Next action uses a conclusion, not the raw trail that produced it | travel to the phase `-start` |
+| Approach failed, switching to another | travel to the pre-attempt anchor |
+| Batch item finished, more remain | travel to the method anchor |
+| New user message, previous task finished and unrelated | travel the old task away first; new request goes verbatim into the summary |
+| Final answer about to be given, no known next work | checkpoint `<task>-done`, answer, wait — the fold is owed at the next message |
+| Need a travel target or lost orientation | `acm_timeline({ list_checkpoints: true })` |
+| A summary dropped a detail you now need | re-fetch from pointers first; else forward travel to the backup (find it with `acm_timeline({ search })`) |
 
 ## After a travel
 
-The injected summary is your new state — execute its next step, and anchor the new phase with a fresh checkpoint as you continue. Disk and external systems were not rolled back; inspect them directly when in doubt. If a detail is missing, re-fetch it from pointers first; travel to the backup only if it cannot be reconstructed cheaply.
+The injected summary is your new state — execute its NEXT step and checkpoint the new phase as you continue. Disk and external systems were not rolled back; inspect them directly when in doubt.
 
 ## Mechanics
 
-- Checkpoint names are unique across the tree and **case-sensitive**; one node may hold multiple aliases. Omitting `target` auto-anchors the nearest meaningful USER/AI turn near HEAD. For phase-complete milestones, prefer an explicit `target` on the substantive turn rather than a short meta-instruction line.
-- `acm_timeline` modes, in precedence order: `list_checkpoints` (catalog with per-anchor fold estimates) > `search` (full tree, including off-path) > `full_tree` (bounded; truncates on deep trees) > default active path. On large trees use `list_checkpoints` or `search`; never conclude a checkpoint is missing from a truncated `full_tree`.
-- Judge fill level by reported usage numbers, never by file bytes or lines read.
-- `root` resolves to the first top-level node. Error messages include recovery hints — read them.
+- Checkpoint names are unique across the tree and case-sensitive; one node may hold multiple aliases. Omitting `target` auto-anchors the nearest meaningful USER/AI turn near HEAD.
+- Travel target choice: the anchor that leaves the smallest context that still suffices. An older anchor plus a stronger summary beats a recent anchor plus stale baggage; `root` (the first top-level node) is right when the summary can carry everything.
+- Travel can shrink or grow context: a later or off-path target restores raw history (that is how forward recovery works). Read `estimatedUsageAfter` and `structuralEffect` from the result.
+- `acm_timeline` mode precedence: `list_checkpoints` > `search` (full tree, including off-path) > `full_tree` (truncates on deep trees) > default active path. Never conclude an anchor is missing from a truncated `full_tree`.
+- Judge fill level only by reported usage numbers, never by file bytes or lines read.
 - If the runtime auto-compacts, a `pre-compact-<timestamp>` checkpoint is created automatically; you can travel back to it.
 
 ## Scenario playbook
 
-`references/playbook.md` opens with the **universal fold procedure** — a shape-independent way to decide anchors, fold points, and summary content for any task — and then works it through common shapes (research, development, planning, batch items, retries, task switching, async fronts). The examples are illustrations, not a taxonomy: if your task matches none of them, apply the universal procedure directly.
+`references/playbook.md` works the fold moments through common shapes — research, development, plan-driven work, batch items, retries, task switching, async fronts — each with a filled summary template to copy. If your task matches none of them, the fold moments above apply directly.
