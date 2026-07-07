@@ -23,10 +23,10 @@
   "author": "KorenKrita",
   "license": "MIT",
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.75.4",
-    "@earendil-works/pi-coding-agent": "^0.75.4",
-    "@earendil-works/pi-tui": "^0.75.4",
-    "typescript": "^5.7.2"
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@earendil-works/pi-tui": "^0.80.3",
+    "typescript": "^5.8.0"
   },
   "pi": {
     "extensions": [

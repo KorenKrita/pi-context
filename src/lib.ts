@@ -339,7 +339,7 @@ export function getMeaningfulSkipReason(entry: SessionEntry): MeaningfulSkipReas
     if (msg.role === "toolResult") return "tool_result";
     if (msg.role === "bashExecution") return "bash_execution";
     if ((msg as any).role === "custom") return "custom_message";
-    if (msg.role === "system") return "system_message";
+    if ((msg.role as string) === "system") return "system_message";
     if (msg.role === "assistant") {
         if (Array.isArray(msg.content)) {
             const toolCalls = msg.content.filter(
@@ -397,7 +397,7 @@ export function getMessageRoleLabel(entry: SessionEntry): string | undefined {
     if (msg.role === "toolResult") return `TOOL:${msg.toolName}`;
     if (msg.role === "bashExecution") return "BASH";
     if ((msg as any).role === "custom") return "CUSTOM";
-    if (msg.role === "system") return "SYSTEM";
+    if ((msg.role as string) === "system") return "SYSTEM";
     return (msg as any).role?.toUpperCase();
 }
 

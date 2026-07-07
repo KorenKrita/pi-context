@@ -74,7 +74,7 @@ function getDisplayRole(entry: SessionEntry): string {
         if (m.role === "user") return "USER";
         if (m.role === "bashExecution") return "BASH";
         if ((m as any).role === "custom") return "CUSTOM";
-        if (m.role === "system") return "SYSTEM";
+        if ((m.role as string) === "system") return "SYSTEM";
         return "TOOL";
     }
     if (entry.type === "branch_summary" || entry.type === "compaction") return "SUMMARY";
