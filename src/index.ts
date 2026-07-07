@@ -290,9 +290,13 @@ function fixOrphanedToolUse(messages: any[]): void {
 
     // Pass 2: Inject synthetic toolResults for orphaned tool_use blocks
     // (assistant has tool_use but no subsequent toolResult with matching ID).
+    // Skip error/aborted assistants — pi-ai's transformMessages strips them
+    // entirely, so injecting a synthetic result here would create an orphaned
+    // toolResult referencing a tool_use that never reaches the API.
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
         if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        if (msg.stopReason === "error" || msg.stopReason === "aborted") continue;
 
         const toolUseIds: { id: string; name: string }[] = [];
         for (const block of msg.content) {
