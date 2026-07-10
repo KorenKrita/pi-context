@@ -1,6 +1,6 @@
 ---
 name: context-management
-description: "Manage the context working set with recoverable folds. Use continuously during multi-step work: checkpoint before bursts and risks; fold at stable boundaries when raw history has become a handoff; before final answers or task switches, clear the finished task chain. Fold by boundary, not proximity."
+description: "Keep the context working set live with recoverable checkpoints and boundary folds. Use continuously in multi-step work: before bursts or risks, at phase/attempt/batch boundaries, and before final answers or task switches."
 ---
 
 # Context Management
@@ -10,6 +10,8 @@ A context window is a **working set**: the live material needed for the next act
 Keep the working set live. Compress everything else into a recoverable **handoff** at stable **boundaries**. Manage it yourself, mid-task, without being asked and without asking permission.
 
 ## Leading words
+
+Use these words consistently; they are the skill's decision vocabulary.
 
 **Working set** — context the next action will directly reason over. Keep exact detail live while it is still needed.
 
@@ -76,11 +78,13 @@ Fold by boundary, not proximity. The nearest anchor is only a candidate.
 | Batch item | item finished and more remain | method or batch anchor |
 | Task chain | final answer next, or new request over finished work | semantic chain start |
 
-Call `acm_travel` at these stable boundaries by default. Skip only when the fold preview shows almost no saving.
+Call `acm_travel` at these stable boundaries by default. The boundary establishes whether folding is semantically appropriate; the preview only measures the likely saving. **Preview measures; boundary decides.**
 
 ### Task end
 
-The final answer should be written from the handoff, not the trail. At task end, fold before answering:
+A task-chain boundary is semantically foldable by default. Inspect the fold preview before answering:
+
+- If it shows meaningful structural saving, fold to the semantic task-chain start:
 
 ```javascript
 acm_travel({
@@ -90,7 +94,12 @@ acm_travel({
 });
 ```
 
-Then answer from the handoff branch. If a `-done` checkpoint already bookmarks the raw path, name it in the handoff's `Recover` slot.
+  Then answer from the handoff branch, not the archived trail.
+- If it shows almost no saving, checkpoint `<task>-done` and answer directly without traveling.
+
+If a `-done` checkpoint already bookmarks the raw path, name it in the handoff's `Recover` slot.
+
+Task-end context management is complete when either a meaningful fold has landed or the no-saving fallback has created a unique `-done` checkpoint. Give the answer from the surviving branch.
 
 ### New request over unfolded work
 
@@ -116,30 +125,23 @@ Pointers over dumps. Copy raw values only when small, volatile, or needed immedi
 
 ## Target selection
 
-Name the boundary first, then choose the target:
-
-- Burst → pre-burst anchor or last clean node before the output.
-- Phase → the phase's `-start`.
-- Failed direction → where the attempt began, or the last `-done` milestone behind it.
-- Batch item → the method anchor that should survive item-to-item.
-- Task chain → earliest `-start` of the semantic chain being compressed, not the earliest start in the whole conversation.
-- Missing anchor → `acm_timeline`, pick the last clean node ID before the boundary, then travel to that node.
-
-Older anchors can be better targets when the handoff can carry the state. A newer anchor is not automatically better.
+Use the boundary table, then verify that the target sits before the material being compressed. Older semantic anchors can be better than newer ones. If no anchor fits, use `acm_timeline` to find the last clean node before the boundary and travel to that raw node ID.
 
 ## After travel
 
-You are on the handoff branch. Execute `NEXT`, then checkpoint the next phase before its first action. Disk and external systems were not rolled back; inspect them directly when in doubt. If a handoff dropped detail, re-fetch from `Evidence` first, then recover from `Archive` by traveling to the backup or off-path node.
+You are on the handoff branch. Read the tool result before continuing: confirm the reported structural effect and context refresh or synchronization status. If `NEXT` is the first action of a new phase, checkpoint that phase before executing `NEXT`; otherwise execute `NEXT` directly.
+
+Disk and external systems were not rolled back; inspect them directly when in doubt. If a handoff dropped detail, re-fetch from `Evidence` first, then recover from `Archive` by following the round-trip procedure in the playbook.
 
 ## Mechanics
 
-- Checkpoint names are unique across the tree and case-sensitive; one node may hold multiple aliases.
+- Checkpoint names are unique across the tree and case-sensitive; one node may hold multiple aliases. If a semantic name already exists, preserve its base and add the smallest useful scope, ordinal, or date, such as `parser-fix-api-v2-start`. Generic names like `checkpoint-1` carry no recovery meaning.
 - Omitting checkpoint `target` auto-anchors the nearest meaningful USER/AI turn near HEAD; passing a node ID anchors any past node retroactively.
-- `acm_timeline` mode precedence: `list_checkpoints` > `search` > `full_tree` > active path. Never conclude an anchor is missing from a truncated `full_tree`.
+- `acm_timeline` mode precedence: `list_checkpoints` > `search` > `full_tree` > active path. Treat a truncated `full_tree` as incomplete; use `list_checkpoints` or `search` to verify whether an anchor exists.
 - Travel can shrink or grow context: traveling to a later or off-path target can restore raw history. Read the reported usage and structural effect.
-- Judge fill level by reported usage, never by file bytes or lines read.
+- Judge fill level by reported usage; file bytes and line counts are not context usage.
 - If runtime auto-compacts, a `pre-compact-<timestamp>` checkpoint is created automatically.
 
 ## Boundary playbook
 
-`references/playbook.md` helps identify boundaries and pick targets when the shape is unclear. It is reference, not a second source of truth: the rules above own the discipline.
+For non-obvious target selection, interleaved fronts, missing anchors, archive recovery, task-end no-saving cases, or checkpoint name collisions, read the [Boundary Playbook](references/playbook.md) before acting. It is reference, not a second source of truth: the rules above own the discipline.
