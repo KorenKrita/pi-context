@@ -483,7 +483,7 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool({
         name: "acm_checkpoint",
         label: "ACM Checkpoint",
-        description: "Create a recoverability anchor on a conversation node. Zero cost: no branch, no handoff, no context change. Checkpoint before task chains, phase starts, bursts whose output cannot be bounded, risky steps, and milestones. A checkpoint does not fold context; it makes a future boundary fold possible. Names are unique across the session tree; one node may hold multiple aliases. The result reports context usage and fold candidates — choose by boundary, not proximity.",
+        description: "Create a recoverability anchor on a conversation node. Structurally lightweight: creates no branch or handoff and does not change the active context. Checkpoint before task chains, phase starts, bursts whose output cannot be bounded, risky steps, and milestones. A checkpoint does not fold context; it makes a future boundary fold possible. Names are unique across the session tree; one node may hold multiple aliases. The result reports context usage and fold candidates — choose by boundary, not proximity.",
         parameters: CheckpointParams,
         async execute(_id, rawParams: Static<typeof CheckpointParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -613,14 +613,14 @@ export default function (pi: ExtensionAPI) {
                     foldPreview = formatFoldCandidatePreview(previewParts);
                 }
             }
-            // Name-triggered directive: a '-done' checkpoint marks finished work — the
-            // fold that closes it should follow immediately, not wait for the next message.
+            // Name-triggered guidance: a '-done' checkpoint marks finished work and
+            // task-end handling follows the preview rather than forcing a no-op fold.
             let doneDirective = "";
             if (params.name.endsWith("-done")) {
                 const base = params.name.slice(0, -"-done".length);
                 const siblingStart = `${base}-start`;
                 const startRef = labelMaps.labelToEntryId.has(siblingStart) ? siblingStart : "<task>-start";
-                doneDirective = ` '${params.name}' is a milestone/archive pointer. If later work moves past it, this is a recovery target. If this closes the task, fold before the final answer and answer from the handoff: acm_travel({ target: "${startRef}", summary: <${HANDOFF_SLOT_HINT} handoff> }) — this '-done' label bookmarks the raw archive path.`;
+                doneDirective = ` '${params.name}' is a milestone/archive pointer. If later work moves past it, this is a recovery target. If this closes the task, use the preview to choose the close: when travel would produce meaningful structural saving, fold before the final answer and answer from the handoff with acm_travel({ target: "${startRef}", summary: <${HANDOFF_SLOT_HINT} handoff> }); when the preview shows almost no saving, keep this unique '-done' checkpoint and answer directly. Boundary decides whether folding is semantically appropriate; preview only measures savings.`;
             }
             const usageSuffix = ` Context usage: ${usageText}.${foldPreview}${doneDirective}`;
             return {
@@ -645,17 +645,17 @@ export default function (pi: ExtensionAPI) {
 
     // ── Tool: acm_timeline ─────────────────────────────────────
     const TimelineParams = Type.Object({
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, description: "Maximum visible entries (default 50). In full_tree mode: max depth. Range 1..50." })),
-        verbose: Type.Optional(Type.Boolean({ description: "Show all messages including internal tool traffic." })),
-        full_tree: Type.Optional(Type.Boolean({ description: "Show all branches including off-path nodes. Default false." })),
-        list_checkpoints: Type.Optional(Type.Boolean({ description: "List checkpoint labels with node IDs and on-path/off-path tags." })),
-        search: Type.Optional(Type.String({ maxLength: 500, description: "Search the full session tree for matching checkpoint labels, node IDs, or content." })),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50, description: "In default active-path mode: maximum visible entries (default 50). In full_tree mode: maximum tree depth to render. With search or list_checkpoints: maximum results displayed. Range 1..50." })),
+        verbose: Type.Optional(Type.Boolean({ description: "Show all messages including internal tool traffic, system/custom meta messages, and ACM tool calls. Applies only in default active-path mode; ignored when list_checkpoints, search, or full_tree is active." })),
+        full_tree: Type.Optional(Type.Boolean({ description: "Show all branches including off-path nodes with IDs. Default false (active path only). Prefer list_checkpoints or search on large trees. Ignored when list_checkpoints or search is set." })),
+        list_checkpoints: Type.Optional(Type.Boolean({ description: "List checkpoint labels across the full tree with node IDs and on-path/off-path tags. Display is capped by limit (maximum 50); use search to narrow. Ignores verbose and full_tree when set." })),
+        search: Type.Optional(Type.String({ maxLength: 500, description: "Search the full session tree (active + off-path) for matching checkpoint labels, node IDs, or content. When set without list_checkpoints, returns matching nodes. With list_checkpoints, filters the checkpoint catalog. Mode precedence: list_checkpoints > search > full_tree > default active path." })),
     });
 
     pi.registerTool({
         name: "acm_timeline",
         label: "ACM Timeline",
-        description: "Inspect the conversation tree: active path (default), full tree, checkpoint catalog, or global search. Call when choosing a travel target, when orientation is unclear, or to check context usage — list_checkpoints estimates what every anchor would leave after a fold. On large trees prefer list_checkpoints or search over full_tree.",
+        description: "Inspect the conversation tree: active path (default), full tree, checkpoint catalog, or global search. Call when choosing a travel target, when orientation is unclear, or to check context usage. list_checkpoints estimates post-fold usage for the displayed matching anchors when usage data is available; display limits still apply. On large trees prefer list_checkpoints or search over full_tree.",
         parameters: TimelineParams,
         async execute(_id, rawParams: Static<typeof TimelineParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
@@ -834,15 +834,15 @@ export default function (pi: ExtensionAPI) {
 
     // ── Tool: acm_travel ───────────────────────────────────────
     const TravelParams = Type.Object({
-        target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Name the boundary first, then choose a target before that boundary. Use acm_timeline with full_tree or search to see labels and node IDs." }),
+        target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Name the boundary first, then choose a target before that boundary. On large trees use acm_timeline with list_checkpoints or search; use full_tree only when the surrounding branch structure is needed." }),
         summary: Type.String({ minLength: 1, maxLength: 10000, description: `Handoff summary — the working state after travel. It must make the next action executable without rereading the folded trail. Fill every slot, write 'none' rather than dropping one: ${HANDOFF_SLOT_HINT}. Include recovery pointers; pointers over dumps. Max 10000 chars.` }),
-        backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. At task end use '<task>-done'. This is a recovery pointer, never the travel target and never a substitute for a self-contained handoff. Omit when the path being left already carries a checkpoint." })),
+        backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
     });
 
     pi.registerTool({
         name: "acm_travel",
         label: "ACM Travel",
-        description: "Fold conversation history into a recoverable handoff by traveling to a checkpoint, node ID, or root. Use at stable boundaries: burst distilled, phase complete, direction failed, batch item done, task chain complete, or new request over finished work. Name the boundary first, choose a target before that boundary, and write a handoff with executable NEXT plus recovery pointers. Fold by boundary, not proximity. At task end, set backupCurrentHeadAs to '<task>-done', travel to the semantic task-chain start, then answer from the handoff. Travel changes conversation history only, not disk files or external systems.",
+        description: "Fold conversation history into a recoverable handoff by traveling to a checkpoint, node ID, or root. Use at stable boundaries: burst distilled, phase complete, direction failed, batch item done, task chain complete, or new request over finished work. Name the boundary first, choose a target before that boundary, and write a handoff with executable NEXT plus recovery pointers. Fold by boundary, not proximity. At task end, travel to the semantic task-chain start and set backupCurrentHeadAs to '<task>-done' only when the preview shows meaningful structural saving; if it shows almost no saving, create a unique '-done' checkpoint and answer directly. Boundary decides whether folding is semantically appropriate; preview only measures savings. Travel changes conversation history only, not disk files or external systems.",
         parameters: TravelParams,
         async execute(_id, rawParams: Static<typeof TravelParams>, signal, _onUpdate, ctx) {
             const params = rawParams;
