@@ -293,7 +293,9 @@ function renderTreeNode(
  * the immediately following message. This function injects synthetic tool_result
  * messages for any orphaned tool_use blocks.
  */
-export function fixOrphanedToolUse(messages: any[]): void {
+export function fixOrphanedToolUse(messages: any[]): boolean {
+    let changed = false;
+
     // Pass 1: Remove tool results that are not attached to the immediately
     // preceding assistant tool-call batch. Walking past sibling tool results is
     // valid; walking past any other role is not.
@@ -315,7 +317,10 @@ export function fixOrphanedToolUse(messages: any[]): void {
                 (block.id ?? block.toolCallId) === toolCallId
             ),
         );
-        if (!hasMatchingCall) messages.splice(i, 1);
+        if (!hasMatchingCall) {
+            messages.splice(i, 1);
+            changed = true;
+        }
     }
 
     // Pass 2: Inject synthetic toolResults for orphaned tool_use blocks
@@ -364,8 +369,11 @@ export function fixOrphanedToolUse(messages: any[]): void {
         let insertAt = i + 1;
         while (insertAt < messages.length && messages[insertAt].role === "toolResult") insertAt++;
         messages.splice(insertAt, 0, ...synthetics);
+        changed = true;
         i = insertAt + synthetics.length - 1;
     }
+
+    return changed;
 }
 
 /** Set or clear entry labels through the runtime SessionManager. Passing
@@ -1045,13 +1053,25 @@ export default function (pi: ExtensionAPI) {
         },
     });
 
-    // ── Event: context → persistent message override after travel ──
-    // Pi's context event return value only affects ONE LLM call. Keep rebuilding
-    // while this SessionManager has an active travel, with bounded retries and
-    // visible failure state instead of silently passing through stale messages.
+    // ── Event: context → request sanitation + persistent travel override ──
+    // Sanitize every outbound request, including the first request after a
+    // session restore. The travel-pending registry is intentionally in-memory
+    // and is cleared by session_start, but branchWithSummary can persist a
+    // toolResult immediately after a branch summary. On reload that result has
+    // no matching assistant tool call on the active branch, so OpenAI rejects
+    // the request unless we remove it even when no travel refresh is pending.
+    //
+    // Pi's context event return value only affects ONE LLM call. When a travel
+    // is pending, keep rebuilding while this SessionManager has an active
+    // travel, with bounded retries and visible failure state instead of silently
+    // passing through stale messages.
     pi.on("context", (event, ctx) => {
         const sm = ctx.sessionManager as SessionManager;
-        if (!contextRefresh.isPending(sm)) return;
+        if (!contextRefresh.isPending(sm)) {
+            return fixOrphanedToolUse(event.messages)
+                ? { messages: event.messages }
+                : undefined;
+        }
 
         const reportFailure = (message: string) => {
             const willRetry = contextRefresh.recordFailedAttempt(sm, message);
