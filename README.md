@@ -20,7 +20,7 @@ pi-context 让 agent 像管理 git 分支一样管理上下文：
 | 工具 | 做什么 |
 |---|---|
 | `acm_checkpoint` | 打锚点。零成本——不改上下文、不分支、不摘要。多打 = 后续更多选择 |
-| `acm_timeline` | 看 active path 结构图 + token HUD（official + last LLM prompt）。默认只显示当前路径；`verbose: true` 可显示 ACM 工具调用。off-path 摘要以脚注标出。`search` 全树搜索（含 off-path）。`list_checkpoints: true` 列 checkpoint 清单（可配合 `search` 缩小，显示上限 50），`full_tree: true` 看整棵树 |
+| `acm_timeline` | 看 active path 结构图 + token HUD（official + last LLM prompt + context sync 状态）。默认只显示当前路径；`verbose: true` 可显示 ACM 工具调用。off-path 摘要以脚注标出。`search` 全树搜索（含 off-path）。`list_checkpoints: true` 列 checkpoint 清单（按路径/时间排序，可配合 `search` 缩小，显示上限 50），`full_tree: true` 看整棵树 |
 | `acm_travel` | 穿越到任意锚点，留一份 handoff summary。上下文切换到目标节点 + summary；token 可能降（回到过去）也可能升（前往未来）。旧路径保留，随时再 travel |
 
 ## 时间旅行
@@ -45,7 +45,7 @@ pi-context 让 agent 像管理 git 分支一样管理上下文：
 |---|---|
 | `turn_end` | 缓存 LLM response 的真实 prompt tokens，HUD 显示准确数值（解决 travel 后 official HUD 滞后） |
 | `session_before_compact` | compaction 前自动打 `pre-compact-{timestamp}` checkpoint，事后能 travel 回来恢复细节 |
-| `session_compact` | compaction 触发 replaceMessages 后同步状态（清 refreshPending + cachedUsage） |
+| `session_compact` | compaction 触发 replaceMessages 后同步状态（清当前 session 的 refresh/cached-usage 状态） |
 
 ## 安装
 
@@ -62,7 +62,7 @@ pi install git:github.com/KorenKrita/pi-context
 | 内置功能 | 关系 |
 |---|---|
 | 自动压缩 | 互补——自动压缩按阈值触发，acm_travel 让 agent 按语义主动穿越时间线 |
-| `/context` | 互补——pi-context 提供 `/context` TUI 可视化 + acm_timeline HUD 双重 token 可视化 |
+| `/context` | 互补——pi-context 提供 compaction-aware `/context` TUI 可视化 + acm_timeline HUD 双重 token 可视化；无法归类的 provider/schema 开销单列为 `Other` |
 
 ## 参考
 

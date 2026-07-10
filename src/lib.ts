@@ -84,18 +84,20 @@ export function resolveTimelineMode(params: {
     return "active_path";
 }
 
-/** One-shot context rebuild state keyed by session manager instance. */
+/** Persistent post-travel context rebuild state keyed by session manager instance. */
 export class ContextRefreshRegistry {
     static readonly MAX_ATTEMPTS = 3;
 
     private pending = new WeakSet<object>();
     private failures = new WeakMap<object, string>();
     private attempts = new WeakMap<object, number>();
+    private rebuilt = new WeakSet<object>();
 
     markPending(sm: object): void {
         this.pending.add(sm);
         this.failures.delete(sm);
         this.attempts.set(sm, 0);
+        this.rebuilt.delete(sm);
     }
 
     isPending(sm: object): boolean {
@@ -125,6 +127,16 @@ export class ContextRefreshRegistry {
         return true;
     }
 
+    markRebuilt(sm: object): void {
+        this.rebuilt.add(sm);
+        this.failures.delete(sm);
+        this.attempts.set(sm, 0);
+    }
+
+    hasRebuilt(sm: object): boolean {
+        return this.rebuilt.has(sm);
+    }
+
     markSuccess(sm: object): void {
         this.clear(sm);
     }
@@ -133,6 +145,7 @@ export class ContextRefreshRegistry {
         this.pending.delete(sm);
         this.failures.delete(sm);
         this.attempts.delete(sm);
+        this.rebuilt.delete(sm);
     }
 }
 
@@ -250,8 +263,8 @@ export function resolveTargetId(
     return { id: target, fromOffPath: !ids.has(target) };
 }
 
-export function formatTokens(tokens: number): string {
-    if (!Number.isFinite(tokens) || tokens < 0) return "N/A";
+export function formatTokens(tokens: number | null | undefined): string {
+    if (tokens == null || !Number.isFinite(tokens) || tokens < 0) return "N/A";
     if (tokens >= 999_950) return `${(tokens / 1_000_000).toFixed(1)}M`;
     if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}K`;
     return String(tokens);
@@ -282,12 +295,19 @@ export function classifyStructuralMessageEffect(before: number | undefined, afte
     return delta < 0 ? "shrunk" : "restored";
 }
 
+export function getBuildSessionMessagesFromEntries(
+    entries: SessionEntry[],
+    leafId: string | null,
+    byId: Map<string, SessionEntry> = new Map(entries.map((entry) => [entry.id, entry])),
+): AgentMessage[] {
+    if (entries.length === 0) return [];
+    return buildSessionContext(entries, leafId, byId).messages as AgentMessage[];
+}
+
 export function getBuildSessionMessages(sm: SessionManager, leafId?: string | null): AgentMessage[] {
     const entries = sm.getEntries();
-    if (entries.length === 0) return [];
-    const byId = new Map(entries.map((e) => [e.id, e]));
     const effectiveLeaf = leafId === undefined ? sm.getLeafId() : leafId;
-    return buildSessionContext(entries, effectiveLeaf, byId).messages as AgentMessage[];
+    return getBuildSessionMessagesFromEntries(entries, effectiveLeaf);
 }
 
 export function compareEntriesByTimestamp(a: SessionEntry, b: SessionEntry): number {
@@ -364,7 +384,6 @@ export function getMeaningfulSkipReason(entry: SessionEntry): MeaningfulSkipReas
 
 export function findLastMeaningfulEntry(
     branch: SessionEntry[],
-    sm: SessionManager,
     signal?: AbortSignal,
 ): MeaningfulResolveResult {
     const skipped: SkippedEntry[] = [];
@@ -382,7 +401,7 @@ export function findLastMeaningfulEntry(
         return {
             entryId: entry.id,
             role: getMessageRoleLabel(entry),
-            snippet: describeEntrySnippet(entry, sm),
+            snippet: describeEntrySnippet(entry),
             skipped,
         };
     }
@@ -401,13 +420,13 @@ export function getMessageRoleLabel(entry: SessionEntry): string | undefined {
     return (msg as any).role?.toUpperCase();
 }
 
-export function describeEntrySnippet(entry: SessionEntry, sm: SessionManager, maxLen = 60): string {
-    const content = getMsgContent(entry, sm, false).replace(/\s+/g, " ").trim();
+export function describeEntrySnippet(entry: SessionEntry, maxLen = 60): string {
+    const content = getMsgContent(entry, false).replace(/\s+/g, " ").trim();
     if (!content) return "";
     return content.length > maxLen ? `${content.slice(0, maxLen)}...` : content;
 }
 
-export function getMsgContent(entry: SessionEntry, sm: SessionManager, verbose: boolean): string {
+export function getMsgContent(entry: SessionEntry, verbose: boolean): string {
     if (entry.type === "branch_summary" || entry.type === "compaction") {
         return entry.summary || "[No summary provided]";
     }
