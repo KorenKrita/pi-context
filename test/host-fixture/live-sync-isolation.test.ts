@@ -15,7 +15,7 @@ const originalGetContextUsage = AgentSession.prototype.getContextUsage;
 const handoff = (scope: string) => [
   `Goal: synchronize ${scope}`,
   `State: ${scope} travel completed`,
-  "Evidence: pinned Pi host isolation fixture",
+  "Evidence: capability host isolation fixture",
   "External: none",
   "Exclusions: unrelated sessions",
   `Recover: ${scope}-done`,
@@ -129,6 +129,49 @@ describe("live AgentSession synchronization isolation", () => {
       parentFixture.context,
     );
     expect(parentSession.agent.state.messages).toBe(parentStale);
+  });
+
+  test("only the latest matching tool completion applies across duplicate runtimes for one manager", async () => {
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 1000, contextWindow: 100_000, percent: 1 };
+    };
+    const branch = createBranch("duplicate-runtime");
+    const firstFixture = createFixture(branch.sessionManager);
+    const secondFixture = createFixture(branch.sessionManager);
+    const staleMessages = branch.sessionManager.buildSessionContext().messages as AgentMessage[];
+    const liveSession = captureLiveSession(branch.sessionManager, staleMessages);
+
+    await firstFixture.travelTool.execute(
+      "first-runtime",
+      { target: branch.rootId, summary: handoff("first-runtime") },
+      undefined,
+      undefined,
+      firstFixture.context,
+    );
+    await secondFixture.travelTool.execute(
+      "second-runtime",
+      { target: branch.rootId, summary: handoff("second-runtime") },
+      undefined,
+      undefined,
+      secondFixture.context,
+    );
+
+    await emit(
+      firstFixture.handlers,
+      "tool_execution_end",
+      { toolCallId: "first-runtime", toolName: "acm_travel" },
+      firstFixture.context,
+    );
+    expect(liveSession.agent.state.messages).toBe(staleMessages);
+
+    await emit(
+      secondFixture.handlers,
+      "tool_execution_end",
+      { toolCallId: "second-runtime", toolName: "acm_travel" },
+      secondFixture.context,
+    );
+    expect(liveSession.agent.state.messages).toEqual(branch.sessionManager.buildSessionContext().messages);
+    expect(JSON.stringify(liveSession.agent.state.messages)).toContain("second-runtime travel completed");
   });
 
   test("matches sessions by SessionManager identity despite identical metadata and applies only the addressed travel", async () => {

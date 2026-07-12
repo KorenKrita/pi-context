@@ -20,7 +20,7 @@ import {
 const HANDOFF = [
   "Goal: verify live synchronization failure recovery",
   "State: travel completed or failed as asserted",
-  "Evidence: pinned Pi host fixture",
+  "Evidence: capability host fixture",
   "External: none",
   "Exclusions: no synthetic compaction or tool calls",
   "Recover: failure-recovery-checkpoint",
@@ -86,20 +86,24 @@ function createSpyAdapter(): LiveAgentSessionAdapter & { scheduled: number; appl
     reason: "not_pending",
     message: "nothing pending",
   };
+  let pendingToolCallId: string | undefined;
   return {
     installation: { status: "ready" },
     scheduled: 0,
     applied: 0,
-    schedule() {
+    schedule(_session, toolCallId) {
       this.scheduled++;
+      pendingToolCallId = toolCallId;
       return { status: "pending" };
     },
-    apply() {
+    apply(_session, toolCallId) {
+      if (pendingToolCallId !== toolCallId) return initial;
+      pendingToolCallId = undefined;
       this.applied++;
       return { status: "applied", leafId: null, messageCount: 0 };
     },
     getStatus() { return initial; },
-    clear() {},
+    clear() { pendingToolCallId = undefined; },
   };
 }
 
@@ -115,10 +119,10 @@ function createThrowingHostClass(): AgentSessionHostClass {
 }
 
 describe("live synchronization failure recovery", () => {
-  test("unsupported host leaves persistent travel rebuild active and reports reload guidance", async () => {
+  test("missing live-sync capability leaves persistent travel rebuild active and reports reload guidance", async () => {
     const { rootId, sessionManager } = createSession();
     const staleMessages = sessionManager.buildSessionContext().messages as AgentMessage[];
-    const adapter = createLiveAgentSessionAdapter({ hostVersion: "0.80.5" });
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
     const runtime = new AcmSessionRuntime(adapter);
     const { context, handlers, timelineTool, travelTool } = registerFixture(sessionManager, runtime);
 
@@ -126,7 +130,7 @@ describe("live synchronization failure recovery", () => {
     expect(result.details).toMatchObject({
       contextRefreshState: "pending",
       liveAgentSessionSyncState: "unavailable",
-      liveAgentSessionSync: { status: "unavailable", reason: "unsupported_host_version" },
+      liveAgentSessionSync: { status: "unavailable", reason: "unsupported_host_shape" },
     });
     expect((result.content[0] as { text: string }).text).toContain("Persistent context rebuild remains active");
 
@@ -150,7 +154,7 @@ describe("live synchronization failure recovery", () => {
       set: () => { throw new Error("replacement refused"); },
     });
     const liveSession = new (HostClass as any)(sessionManager, { state });
-    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass, hostVersion: "0.80.6" });
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
     liveSession.getContextUsage();
     const runtime = new AcmSessionRuntime(adapter);
     const { context, handlers, notifications, timelineTool, travelTool } = registerFixture(sessionManager, runtime);

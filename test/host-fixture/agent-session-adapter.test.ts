@@ -1,22 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   createLiveAgentSessionAdapter,
   getLiveAgentSyncRecoveryGuidance,
-  readInstalledAgentSessionHostVersion,
   type AgentSessionHostClass,
 } from "./.acm-build/live-agent-session-adapter.js";
-
-const installationSymbol = Symbol.for("pi-context.live-agent-session-adapter.v1");
-const installedPrototypes: object[] = [];
-afterEach(() => {
-  for (const prototype of installedPrototypes.splice(0)) delete (prototype as Record<PropertyKey, unknown>)[installationSymbol];
-});
 
 function createHostClass(counter = { calls: 0 }): AgentSessionHostClass {
   class TestAgentSession {
@@ -29,37 +18,22 @@ function createHostClass(counter = { calls: 0 }): AgentSessionHostClass {
       return undefined;
     }
   }
-  installedPrototypes.push(TestAgentSession.prototype);
   return TestAgentSession as unknown as AgentSessionHostClass;
 }
 
-describe("live AgentSession adapter against pinned Pi", () => {
-  test("detects the version of a resolved Pi host outside ancestor node_modules", () => {
-    const directory = mkdtempSync(join(tmpdir(), "pi-context-host-version-"));
-    const manifestPath = join(directory, "package.json");
-    writeFileSync(manifestPath, JSON.stringify({ version: "9.9.9" }));
-    try {
-      expect(readInstalledAgentSessionHostVersion({
-        starts: [join(directory, "unrelated")],
-        resolvePackageManifest: () => pathToFileURL(manifestPath).href,
-      })).toBe("9.9.9");
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
+describe("live AgentSession capability adapter", () => {
   test("captures by SessionManager identity and applies rebuilt active-branch messages", () => {
     const sessionManager = SessionManager.inMemory();
     sessionManager.appendMessage({ role: "user", content: "active branch", timestamp: Date.now() });
     const agent = { state: { messages: [{ role: "user", content: "stale", timestamp: Date.now() }] as AgentMessage[] } };
     const HostClass = createHostClass();
     const session = new (HostClass as any)(sessionManager, agent);
-    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass, hostVersion: "0.80.6" });
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
 
     expect(adapter.installation).toEqual({ status: "ready" });
     session.getContextUsage();
-    expect(adapter.schedule(sessionManager, sessionManager.getLeafId() ?? undefined)).toMatchObject({ status: "pending" });
-    expect(adapter.apply(sessionManager)).toMatchObject({ status: "applied", messageCount: 1 });
+    expect(adapter.schedule(sessionManager, "travel", sessionManager.getLeafId() ?? undefined)).toMatchObject({ status: "pending" });
+    expect(adapter.apply(sessionManager, "travel")).toMatchObject({ status: "applied", messageCount: 1 });
     expect(agent.state.messages).toEqual(sessionManager.buildSessionContext().messages);
   });
 
@@ -68,39 +42,109 @@ describe("live AgentSession adapter against pinned Pi", () => {
     const HostClass = createHostClass(counter);
     const sessionManager = SessionManager.inMemory();
     const session = new (HostClass as any)(sessionManager, { state: { messages: [] } });
-    const first = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass, hostVersion: "0.80.6" });
+    const first = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
     const wrapped = HostClass.prototype.getContextUsage;
-    const second = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass, hostVersion: "0.80.6" });
+    const second = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
     expect(HostClass.prototype.getContextUsage).toBe(wrapped);
     HostClass.prototype.getContextUsage.call(session);
     expect(counter.calls).toBe(1);
-    expect(first.schedule(sessionManager).status).toBe("pending");
-    expect(second.apply(sessionManager).status).toBe("applied");
+    expect(first.schedule(sessionManager, "travel").status).toBe("pending");
+    expect(second.apply(sessionManager, "travel").status).toBe("applied");
   });
 
-  test("reports unsupported version, unsupported shape, missing association, and replacement failure", () => {
-    expect(createLiveAgentSessionAdapter({ hostVersion: "0.80.5" }).installation).toMatchObject({ status: "unavailable", reason: "unsupported_host_version" });
-    expect(createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass, hostVersion: "0.80.6" }).installation).toMatchObject({ status: "unavailable", reason: "unsupported_host_shape" });
+  test("falls back without throwing when the host method cannot be wrapped", () => {
+    let calls = 0;
+    const prototype = {} as AgentSessionHostClass["prototype"];
+    const original = function () { calls++; };
+    Object.defineProperty(prototype, "getContextUsage", {
+      value: original,
+      configurable: false,
+      writable: false,
+    });
+
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype } });
+
+    expect(adapter.installation).toMatchObject({ status: "unavailable", reason: "unsupported_host_shape" });
+    expect(prototype.getContextUsage).toBe(original as never);
+    prototype.getContextUsage.call({} as never);
+    expect(calls).toBe(1);
+  });
+
+  test("never lets capability observation break the original lifecycle method", () => {
+    const counter = { calls: 0 };
+    const HostClass = createHostClass(counter);
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    const manager = SessionManager.inMemory();
+    const session = { sessionManager: manager } as { sessionManager: SessionManager; agent?: unknown };
+    Object.defineProperty(session, "agent", { get: () => { throw new Error("probe getter exploded"); } });
+
+    expect(() => HostClass.prototype.getContextUsage.call(session as never)).not.toThrow();
+    expect(counter.calls).toBe(1);
+    expect(adapter.schedule(manager, "travel")).toMatchObject({
+      status: "unavailable",
+      reason: "unsupported_session_shape",
+      message: "AgentSession capability probe failed: probe getter exploded",
+    });
+  });
+
+  test("re-probes current capabilities and reports replacement failures", () => {
+    expect(createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass }).installation).toMatchObject({ status: "unavailable", reason: "unsupported_host_shape" });
 
     const HostClass = createHostClass();
-    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass, hostVersion: "0.80.6" });
-    expect(adapter.schedule({})).toMatchObject({ status: "skipped", reason: "missing_association" });
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    expect(adapter.schedule({}, "missing")).toMatchObject({ status: "skipped", reason: "missing_association" });
+
+    const unsupportedManager = SessionManager.inMemory();
+    const unsupportedSession = new (HostClass as any)(unsupportedManager, { state: {} });
+    unsupportedSession.getContextUsage();
+    expect(adapter.schedule(unsupportedManager, "unsupported")).toMatchObject({ status: "unavailable", reason: "unsupported_session_shape" });
+    unsupportedSession.agent.state.messages = [];
+    expect(adapter.schedule(unsupportedManager, "recovered")).toMatchObject({ status: "pending" });
+    expect(adapter.apply(unsupportedManager, "recovered")).toMatchObject({ status: "applied" });
 
     const sessionManager = SessionManager.inMemory();
     const state = { messages: [] as AgentMessage[] };
     Object.defineProperty(state, "messages", { get: () => [], set: () => { throw new Error("replacement refused"); } });
     const session = new (HostClass as any)(sessionManager, { state });
     session.getContextUsage();
-    expect(adapter.schedule(sessionManager).status).toBe("pending");
-    const failure = adapter.apply(sessionManager);
+    expect(adapter.schedule(sessionManager, "replacement").status).toBe("pending");
+    const failure = adapter.apply(sessionManager, "replacement");
     expect(failure).toMatchObject({ status: "failed", reason: "replace_messages_failed", message: "replacement refused" });
     expect(getLiveAgentSyncRecoveryGuidance(failure)).toContain("Reload");
+
+    const ignoredManager = SessionManager.inMemory();
+    const retainedMessages: AgentMessage[] = [];
+    const ignoredState = {} as { messages: AgentMessage[] };
+    Object.defineProperty(ignoredState, "messages", { get: () => retainedMessages, set: () => undefined });
+    const ignoredSession = new (HostClass as any)(ignoredManager, { state: ignoredState });
+    ignoredSession.getContextUsage();
+    expect(adapter.schedule(ignoredManager, "ignored").status).toBe("pending");
+    expect(adapter.apply(ignoredManager, "ignored")).toMatchObject({
+      status: "failed",
+      reason: "replace_messages_failed",
+      message: "AgentSession.agent.state.messages did not retain the replacement array",
+    });
 
     const brokenManager = { getLeafId: () => { throw new Error("leaf unavailable"); } };
     const brokenSession = new (HostClass as any)(brokenManager, { state: { messages: [] } });
     brokenSession.getContextUsage();
-    expect(adapter.schedule(brokenManager).status).toBe("pending");
-    expect(adapter.apply(brokenManager)).toMatchObject({ status: "failed", reason: "read_leaf_failed", message: "leaf unavailable" });
+    expect(adapter.schedule(brokenManager, "broken").status).toBe("pending");
+    expect(adapter.apply(brokenManager, "broken")).toMatchObject({ status: "failed", reason: "read_leaf_failed", message: "leaf unavailable" });
     expect(adapter.getStatus(brokenManager)).toMatchObject({ status: "failed", reason: "read_leaf_failed" });
+  });
+
+  test("only the matching latest tool ticket may consume pending synchronization", () => {
+    const HostClass = createHostClass();
+    const manager = SessionManager.inMemory();
+    const session = new (HostClass as any)(manager, { state: { messages: [] } });
+    const first = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    const second = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    session.getContextUsage();
+
+    expect(first.schedule(manager, "first")).toMatchObject({ status: "pending" });
+    expect(second.schedule(manager, "second")).toMatchObject({ status: "pending" });
+    expect(first.apply(manager, "first")).toMatchObject({ status: "skipped", reason: "not_pending" });
+    expect(first.getStatus(manager)).toMatchObject({ status: "pending" });
+    expect(second.apply(manager, "second")).toMatchObject({ status: "applied" });
   });
 });

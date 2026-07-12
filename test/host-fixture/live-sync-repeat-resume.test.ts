@@ -19,7 +19,7 @@ const temporaryDirectories: string[] = [];
 const handoff = (state: string) => [
   "Goal: exercise repeated live synchronization",
   `State: ${state}`,
-  "Evidence: pinned Pi host fixture",
+  "Evidence: capability host fixture",
   "External: none",
   "Exclusions: none",
   "Recover: repeat-sync-done",

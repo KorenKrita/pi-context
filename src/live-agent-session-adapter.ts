@@ -1,12 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { buildSessionMessages, type ReadonlySessionManager } from "./host-bridge.js";
 import { fixOrphanedToolUse } from "./message-sanitizer.js";
 
-export const SUPPORTED_AGENT_SESSION_HOST_VERSION = "0.80.6";
 const INSTALLATION_SYMBOL = Symbol.for("pi-context.live-agent-session-adapter.v1");
 
 interface LiveAgentSession {
@@ -18,15 +14,17 @@ interface LiveAgentSession {
   };
 }
 
+type GetContextUsage = (this: LiveAgentSession, ...args: unknown[]) => unknown;
+type InstalledGetContextUsage = GetContextUsage & { [INSTALLATION_SYMBOL]?: InstallationState };
+
 export interface AgentSessionHostClass {
   readonly prototype: {
-    getContextUsage(this: LiveAgentSession, ...args: unknown[]): unknown;
-    [INSTALLATION_SYMBOL]?: InstallationState;
+    getContextUsage: InstalledGetContextUsage;
   };
 }
 
 export type AgentSessionSyncOutcome =
-  | { status: "unavailable"; reason: "unsupported_host_version" | "unsupported_host_shape" | "host_version_unreadable"; message: string }
+  | { status: "unavailable"; reason: "unsupported_host_shape" | "unsupported_session_shape"; message: string }
   | { status: "pending"; preferredLeafId?: string }
   | { status: "applied"; leafId: string | null; messageCount: number }
   | { status: "failed"; reason: "read_leaf_failed" | "build_messages_failed" | "replace_messages_failed"; message: string }
@@ -38,78 +36,39 @@ export type AgentSessionAdapterInstallationOutcome =
   | { status: "ready" }
   | AgentSessionUnavailableOutcome;
 
+interface PendingSync {
+  readonly toolCallId: string;
+  readonly preferredLeafId?: string;
+}
+
 interface InstallationState {
   readonly kind: "installed";
-  readonly originalGetContextUsage: AgentSessionHostClass["prototype"]["getContextUsage"];
-  readonly sessions: WeakMap<object, WeakRef<LiveAgentSession>>;
-  readonly pending: WeakMap<object, string | undefined>;
+  readonly originalGetContextUsage: GetContextUsage;
+  readonly sessions: WeakMap<object, WeakRef<object>>;
+  readonly pending: WeakMap<object, PendingSync>;
   readonly outcomes: WeakMap<object, AgentSessionSyncOutcome>;
 }
 
 export interface LiveAgentSessionAdapter {
   readonly installation: AgentSessionAdapterInstallationOutcome;
-  schedule(sessionManager: object, preferredLeafId?: string): AgentSessionSyncOutcome;
-  apply(sessionManager: object): AgentSessionSyncOutcome;
+  schedule(sessionManager: object, toolCallId: string, preferredLeafId?: string): AgentSessionSyncOutcome;
+  apply(sessionManager: object, toolCallId: string): AgentSessionSyncOutcome;
   getStatus(sessionManager: object): AgentSessionSyncOutcome;
   clear(sessionManager: object): void;
 }
 
 export interface LiveAgentSessionAdapterOptions {
   AgentSessionClass?: AgentSessionHostClass;
-  hostVersion?: string;
 }
 
 export function getLiveAgentSyncRecoveryGuidance(outcome: AgentSessionSyncOutcome): string | null {
   if (outcome.status === "unavailable") {
-    return `Persistent context rebuild remains active. Reload the session after installing the exact supported Pi ${SUPPORTED_AGENT_SESSION_HOST_VERSION} host if native AgentSession accounting must be refreshed.`;
+    return "Persistent context rebuild remains active. Reload the session to reconstruct native AgentSession state before relying on native context accounting.";
   }
   if (outcome.status === "failed") {
     return "Persistent context rebuild remains active and the traveled branch is preserved. Reload the session to reconstruct native AgentSession state before relying on native context accounting.";
   }
   return null;
-}
-
-export interface InstalledHostVersionOptions {
-  starts?: string[];
-  resolvePackageManifest?: () => string;
-}
-
-function readPackageVersion(manifestPath: string): string | undefined {
-  try {
-    const hostPackage = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
-    return typeof hostPackage.version === "string" ? hostPackage.version : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export function readInstalledAgentSessionHostVersion(
-  options: InstalledHostVersionOptions = {},
-): string | undefined {
-  const resolvePackageManifest = options.resolvePackageManifest
-    ?? (() => import.meta.resolve("@earendil-works/pi-coding-agent/package.json"));
-  try {
-    const resolvedVersion = readPackageVersion(fileURLToPath(resolvePackageManifest()));
-    if (resolvedVersion) return resolvedVersion;
-  } catch {
-    // Fall back to ancestor lookup for hosts without import.meta.resolve support.
-  }
-
-  const starts = options.starts ?? [dirname(fileURLToPath(import.meta.url)), process.cwd()];
-  for (const start of starts) {
-    let directory = start;
-    while (true) {
-      const manifestPath = join(directory, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
-      if (existsSync(manifestPath)) {
-        const version = readPackageVersion(manifestPath);
-        if (version) return version;
-      }
-      const parent = dirname(directory);
-      if (parent === directory) break;
-      directory = parent;
-    }
-  }
-  return undefined;
 }
 
 function unavailable(
@@ -119,37 +78,94 @@ function unavailable(
   return { status: "unavailable", reason, message };
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function observeSessionAssociation(state: InstallationState, value: unknown): void {
+  try {
+    if (!value || typeof value !== "object") return;
+    const sessionManager = (value as { sessionManager?: unknown }).sessionManager;
+    if (!sessionManager || typeof sessionManager !== "object") return;
+    state.sessions.set(sessionManager, new WeakRef(value));
+  } catch {
+    // Capability observation must never change host getContextUsage behavior.
+  }
+}
+
+function inspectLiveSession(value: unknown, expectedSessionManager: object):
+  | { ok: true; session: LiveAgentSession }
+  | { ok: false; outcome: AgentSessionUnavailableOutcome } {
+  try {
+    if (!value || typeof value !== "object") {
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession instance is unavailable") };
+    }
+    const candidate = value as Partial<LiveAgentSession>;
+    if (candidate.sessionManager !== expectedSessionManager) {
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.sessionManager does not match the scheduled SessionManager") };
+    }
+    if (!candidate.agent || typeof candidate.agent !== "object" || !candidate.agent.state || typeof candidate.agent.state !== "object") {
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state is unavailable") };
+    }
+    if (!Array.isArray(candidate.agent.state.messages)) {
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state.messages is not an array") };
+    }
+    return { ok: true, session: candidate as LiveAgentSession };
+  } catch (error) {
+    return { ok: false, outcome: unavailable("unsupported_session_shape", `AgentSession capability probe failed: ${errorMessage(error)}`) };
+  }
+}
+
+function replacePrototypeMethod(
+  prototype: AgentSessionHostClass["prototype"],
+  replacement: InstalledGetContextUsage,
+): AgentSessionUnavailableOutcome | undefined {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "getContextUsage");
+    const replacementDescriptor: PropertyDescriptor = descriptor && "value" in descriptor
+      ? { ...descriptor, value: replacement }
+      : {
+          value: replacement,
+          configurable: descriptor?.configurable ?? true,
+          enumerable: descriptor?.enumerable ?? false,
+          writable: true,
+        };
+    Object.defineProperty(prototype, "getContextUsage", replacementDescriptor);
+    return undefined;
+  } catch (error) {
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage cannot be wrapped: ${errorMessage(error)}`);
+  }
+}
+
 function install(HostClass: AgentSessionHostClass): InstallationState | AgentSessionUnavailableOutcome {
-  const prototype = HostClass?.prototype;
-  if (!prototype || typeof prototype.getContextUsage !== "function") {
+  let prototype: AgentSessionHostClass["prototype"];
+  let current: InstalledGetContextUsage;
+  try {
+    prototype = HostClass?.prototype;
+    current = prototype?.getContextUsage;
+  } catch (error) {
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage cannot be inspected: ${errorMessage(error)}`);
+  }
+  if (!prototype || typeof current !== "function") {
     return unavailable("unsupported_host_shape", "AgentSession.getContextUsage is unavailable");
   }
 
-  const existing = Object.prototype.hasOwnProperty.call(prototype, INSTALLATION_SYMBOL)
-    ? prototype[INSTALLATION_SYMBOL]
-    : undefined;
+  const existing = current[INSTALLATION_SYMBOL];
   if (existing) return existing;
 
-  const originalGetContextUsage = prototype.getContextUsage;
   const state: InstallationState = {
     kind: "installed",
-    originalGetContextUsage,
+    originalGetContextUsage: current,
     sessions: new WeakMap(),
     pending: new WeakMap(),
     outcomes: new WeakMap(),
   };
-  Object.defineProperty(prototype, INSTALLATION_SYMBOL, {
-    value: state,
-    configurable: true,
-  });
-  prototype.getContextUsage = function (this: LiveAgentSession, ...args: unknown[]) {
-    if (this && typeof this.sessionManager === "object" && this.sessionManager !== null) {
-      const tracked = state.sessions.get(this.sessionManager)?.deref();
-      if (tracked !== this) state.sessions.set(this.sessionManager, new WeakRef(this));
-    }
-    return originalGetContextUsage.apply(this, args);
+  const replacement: InstalledGetContextUsage = function (this: LiveAgentSession, ...args: unknown[]) {
+    observeSessionAssociation(state, this);
+    return current.apply(this, args);
   };
-  return state;
+  Object.defineProperty(replacement, INSTALLATION_SYMBOL, { value: state });
+  return replacePrototypeMethod(prototype, replacement) ?? state;
 }
 
 function isInstallationState(
@@ -164,25 +180,14 @@ function readLeafId(sessionManager: object): string | null {
 }
 
 /**
- * Installs the narrow pinned-host adapter. Tree mutations remain owned by Host Bridge;
- * this adapter only replaces the live AgentSession message array after a caller schedules it.
+ * Installs the narrow capability-probed adapter. Tree mutations remain owned by Host Bridge;
+ * this adapter only replaces the matching live AgentSession message array after tool completion.
  */
 export function createLiveAgentSessionAdapter(
   options: LiveAgentSessionAdapterOptions = {},
 ): LiveAgentSessionAdapter {
-  const hostVersion = options.hostVersion ?? readInstalledAgentSessionHostVersion();
   const HostClass = options.AgentSessionClass ?? AgentSession as unknown as AgentSessionHostClass;
-  let installation: InstallationState | AgentSessionUnavailableOutcome;
-  if (!hostVersion) {
-    installation = unavailable("host_version_unreadable", "Could not determine the installed Pi host version");
-  } else if (hostVersion !== SUPPORTED_AGENT_SESSION_HOST_VERSION) {
-    installation = unavailable(
-      "unsupported_host_version",
-      `AgentSession synchronization supports Pi ${SUPPORTED_AGENT_SESSION_HOST_VERSION}, found ${hostVersion}`,
-    );
-  } else {
-    installation = install(HostClass);
-  }
+  const installation = install(HostClass);
 
   if (!isInstallationState(installation)) {
     return {
@@ -202,7 +207,7 @@ export function createLiveAgentSessionAdapter(
   };
   return {
     installation: { status: "ready" },
-    schedule(sessionManager, preferredLeafId) {
+    schedule(sessionManager, toolCallId, preferredLeafId) {
       const session = state.sessions.get(sessionManager)?.deref();
       if (!session) {
         const outcome: AgentSessionSyncOutcome = {
@@ -213,47 +218,52 @@ export function createLiveAgentSessionAdapter(
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
+      const inspected = inspectLiveSession(session, sessionManager);
+      if (!inspected.ok) {
+        state.pending.delete(sessionManager);
+        state.outcomes.set(sessionManager, inspected.outcome);
+        return inspected.outcome;
+      }
       const outcome: AgentSessionSyncOutcome = preferredLeafId
         ? { status: "pending", preferredLeafId }
         : { status: "pending" };
-      state.pending.set(sessionManager, preferredLeafId);
+      state.pending.set(sessionManager, { toolCallId, ...(preferredLeafId ? { preferredLeafId } : {}) });
       state.outcomes.set(sessionManager, outcome);
       return outcome;
     },
-    apply(sessionManager) {
-      if (!state.pending.has(sessionManager)) {
-        const outcome: AgentSessionSyncOutcome = {
+    apply(sessionManager, toolCallId) {
+      const pending = state.pending.get(sessionManager);
+      if (!pending || pending.toolCallId !== toolCallId) {
+        return {
           status: "skipped",
           reason: "not_pending",
-          message: "No AgentSession synchronization is pending",
+          message: "No live AgentSession synchronization matches this tool execution",
         };
-        state.outcomes.set(sessionManager, outcome);
-        return outcome;
       }
-      const preferredLeafId = state.pending.get(sessionManager);
+      state.pending.delete(sessionManager);
+
       let currentLeafId: string | null;
       try {
         currentLeafId = readLeafId(sessionManager);
       } catch (error) {
-        state.pending.delete(sessionManager);
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "read_leaf_failed",
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
-      state.pending.delete(sessionManager);
-      if (preferredLeafId && currentLeafId !== preferredLeafId) {
+      if (pending.preferredLeafId && currentLeafId !== pending.preferredLeafId) {
         const outcome: AgentSessionSyncOutcome = {
           status: "skipped",
           reason: "stale_leaf",
-          message: `Pending synchronization targeted ${preferredLeafId}, current leaf is ${currentLeafId ?? "none"}`,
+          message: `Pending synchronization targeted ${pending.preferredLeafId}, current leaf is ${currentLeafId ?? "none"}`,
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
+
       const session = state.sessions.get(sessionManager)?.deref();
       if (!session) {
         const outcome: AgentSessionSyncOutcome = {
@@ -264,7 +274,13 @@ export function createLiveAgentSessionAdapter(
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
-      const messagesResult = buildSessionMessages(session.sessionManager);
+      const inspected = inspectLiveSession(session, sessionManager);
+      if (!inspected.ok) {
+        state.outcomes.set(sessionManager, inspected.outcome);
+        return inspected.outcome;
+      }
+
+      const messagesResult = buildSessionMessages(inspected.session.sessionManager);
       if (!messagesResult.ok) {
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
@@ -276,7 +292,10 @@ export function createLiveAgentSessionAdapter(
       }
       const messages = fixOrphanedToolUse(messagesResult.value);
       try {
-        session.agent.state.messages = messages;
+        inspected.session.agent.state.messages = messages;
+        if (inspected.session.agent.state.messages !== messages) {
+          throw new Error("AgentSession.agent.state.messages did not retain the replacement array");
+        }
         const outcome: AgentSessionSyncOutcome = {
           status: "applied",
           leafId: currentLeafId,
@@ -288,7 +307,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "replace_messages_failed",
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;

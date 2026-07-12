@@ -22,7 +22,7 @@
 - `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui` 的 peer/dev dependency 均精确固定为 **`0.80.6`**
 - `test/host-fixture/` 也精确安装 Pi `0.80.6`，用于验证真实 host contract
 
-不要把精确版本改成 caret/tilde range。live AgentSession compatibility seam 遇到其他版本必须返回 `unavailable`，不能猜测 host shape。
+不要把开发依赖与 host fixture 的精确版本改成 caret/tilde range。Live Agent Sync 不读取、报告或按宿主版本分支；它只探测当前运行时实际使用的能力，缺失或失败时返回 `unavailable` 并保留 persistent rebuild/reload fallback。
 
 ## 架构
 
@@ -48,7 +48,7 @@
 | `src/host-bridge.ts` | readonly SessionManager 到公开 mutation/build capability 的唯一 guarded seam |
 | `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation 与 live sync state |
 | `src/runtime-lifecycle.ts` | context rebuild、tool end sync、usage、compaction、session cleanup |
-| `src/live-agent-session-adapter.ts` | pinned Pi live AgentSession association 与 message replacement |
+| `src/live-agent-session-adapter.ts` | capability-probed live AgentSession association 与 message replacement |
 | `src/lib.ts` / `label-journal.ts` / `entry-resolution.ts` / `message-sanitizer.ts` | 可测试的 domain logic |
 | `src/generated-guidance.ts` | 从 canonical guidance 派生的 runtime strings |
 | `src/prompt-registration.ts` | idempotent ACM CORE prompt segment |
@@ -135,23 +135,23 @@ successful travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记
 
 ## Live AgentSession synchronization
 
-Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_travel` 不能直接复用 Pi 的原生 tree navigation。但 Pi `0.80.6` 的 SDK 暴露 `AgentSession.agent.state.messages`，可在 travel 后同步 native stored context。
+Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_travel` 不能直接复用 Pi 的��生 tree navigation。当前运行时若暴露可观察的 `AgentSession` lifecycle seam 与可替换的 `agent.state.messages`，则可在 travel 后同步 native stored context。
 
 `src/live-agent-session-adapter.ts` 的约束：
 
-- 精确版本与 runtime capability check
-- 在 pinned `AgentSession.getContextUsage()` lifecycle seam 捕获 AgentSession ↔ SessionManager association
+- 只按实际 runtime capability 决定可用性；不读取、不显示、不比较宿主版本
+- 在可包装的 `AgentSession.getContextUsage()` lifecycle seam 捕获 AgentSession ↔ SessionManager association；探测不得改变原方法行为
 - 按 SessionManager object identity 索引；不使用 working directory、model、session path 或 global current-session
 - 只保存 WeakMap/WeakRef，允许 session GC
 - 安装 marker 是 process-wide 且幂等；重复 extension registration/reload 只包装一次，original method 每次调用恰好一次
-- travel tool body 只 schedule；匹配的 `tool_execution_end` 才 apply replacement，保护 in-flight tool call/result pair
+- travel tool body 只 schedule；shared adapter 原子保存完整 `{ toolCallId, preferredLeafId }` ticket，只有匹配的 `tool_execution_end` 才 apply replacement
 - replacement messages 必须从 resulting active branch 重建，不能裁剪 pre-travel AgentSession array
-- 后续 travel 仅覆盖同一 manager 的旧 pending operation
+- 后续 travel 仅覆盖同一 manager 的旧 pending ticket；不匹配的 tool end 不得消费 pending 或覆盖诊断
 - unavailable/failed live sync 不回滚已验证的 travel；persistent context rebuild 继续生效，并提示 reload
 
 公开 outcome：`unavailable`、`pending`、`applied`、`failed`、`skipped`。
 
-如果未来 Pi 提供 tool-context 可调用的官方 atomic navigation/refresh API，应删除这个 pinned adapter，改用官方接口；不要扩展成通用 private-access framework。
+如果未来 Pi 提供 tool-context 可调用的官方 atomic navigation/refresh interface，应删除这个 capability-probed adapter，改用官方接口；不要扩展成通用 private-access framework。
 
 ## Guidance ownership
 

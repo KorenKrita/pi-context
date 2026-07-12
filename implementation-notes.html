@@ -24,14 +24,14 @@
         <td>The Pi implementation must preserve observable ACM contracts without mechanically copying OMP-private types or seams.</td>
       </tr>
       <tr>
-        <td>agent-resolved</td>
-        <td>Support exactly Pi <code>0.80.6</code>.</td>
-        <td>The extension, isolated host fixture, and live-session compatibility seam use the same pinned host version. Host-version drift returns an explicit unavailable outcome rather than guessing runtime shapes.</td>
+        <td>user-decided</td>
+        <td>Gate Live Agent Sync only on the runtime capabilities it uses; do not inspect or report the Pi host version.</td>
+        <td>If the required <code>AgentSession</code> lifecycle and mutable message-state capabilities are present, synchronization runs. Missing or failed capabilities fall back to the persistent context rebuild and reload recovery path. Version and compatibility labels are intentionally omitted because timeline output enters model context.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
         <td>Associate live <code>AgentSession</code> instances with <code>SessionManager</code> identity through one idempotent, weakly referenced adapter.</td>
-        <td>Pi exposes <code>AgentSession.agent</code> and a public mutable <code>agent.state.messages</code> contract. The adapter captures the association at the pinned <code>getContextUsage()</code> lifecycle point, rebuilds messages from the active SessionManager leaf, and assigns the public message state. It never owns tree mutations.</td>
+        <td>The adapter probes the <code>getContextUsage()</code> lifecycle seam and each captured session's <code>sessionManager</code>, <code>agent.state</code>, and replaceable <code>messages</code> state. It rebuilds messages from the active SessionManager leaf and never owns tree mutations.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
@@ -56,7 +56,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Scope live synchronization strictly to each <code>SessionManager</code>/<code>AgentSession</code> identity pair, including parent/subagent and duplicate extension registrations.</td>
-        <td>The process-wide installation marker owns only <code>WeakMap</code> indexes and <code>WeakRef</code> session values. Each extension runtime keeps its own pending tool-call correlation, lifecycle cleanup addresses one manager only, and no working-directory, model, session-file, or global-current-session matching is used.</td>
+        <td>The process-wide adapter owns weak session associations and one atomic <code>{ toolCallId, preferredLeafId }</code> pending ticket per manager. Duplicate extension runtimes therefore cannot consume each other's tool completion, lifecycle cleanup addresses one manager only, and no working-directory, model, session-file, or global-current-session matching is used.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
@@ -65,12 +65,17 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
-        <td>Discover the pinned host manifest from the package resolution used by the running extension, with ancestor <code>node_modules</code> lookup as a compatibility fallback.</td>
-        <td>A globally installed Bun host can load Pi from its package cache while neither the extension directory nor the working directory has an ancestor host manifest. Resolving <code>@earendil-works/pi-coding-agent/package.json</code> through <code>import.meta.resolve()</code> identifies the package available to the current runtime; ancestor lookup remains for hosts without that resolver, and both paths still require exact version <code>0.80.6</code>.</td>
+        <td>Make capability observation non-throwing and publish installation state only through a successfully installed wrapper.</td>
+        <td>Frozen/read-only host prototypes and throwing session getters are capability failures, not extension-fatal errors. The wrapper carries the process-wide installation marker, observation never prevents the original lifecycle method from running, and current session capabilities are re-probed when synchronization is scheduled and applied.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
-        <td>Retire prototype-only synchronization code only after the production pinned-host matrix proves equivalent behavior.</td>
+        <td>Verify message replacement by checking that the live state retains the rebuilt array.</td>
+        <td>Property presence alone is insufficient: a setter may reject or ignore replacement. A failed assignment or retained-reference check produces the existing live-sync failure outcome while preserving the traveled branch and reload fallback.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Retire prototype-only synchronization code only after the production capability matrix proves equivalent behavior.</td>
         <td>The final fixture combines a shrinking travel, a valid in-flight <code>acm_travel</code> call/result pair, provider-context rebuild, archive recovery, and native compaction accounting. Additional fixtures cover unsupported capability, replacement failure, repeated travel, off-path restoration, persistence/resume, lifecycle cleanup, and multi-session/parent-subagent isolation. No prototype runner or duplicated adapter remains.</td>
       </tr>
       <tr>
@@ -85,7 +90,7 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
-        <td>Keep Pi-native TypeBox schemas, lifecycle seams, <code>/context</code> TUI, and pinned-host adapter while synchronizing the shared ACM guidance and evidence model.</td>
+        <td>Keep Pi-native TypeBox schemas, lifecycle seams, <code>/context</code> TUI, and capability-probed adapter while synchronizing the shared ACM guidance and evidence model.</td>
         <td>The corresponding behavior is adapted to Pi architecture instead of copying OMP-specific package APIs, injected Zod, or host contracts. The extension now always registers its canonical prompt hook because this repository has no integrated-consumer bypass.</td>
       </tr>
       <tr>
@@ -101,6 +106,6 @@
     </tbody>
   </table>
   <h2>Open decisions</h2>
-  <p>None. The complete pinned Pi <code>0.80.6</code> verification matrix passes. If Pi later exposes an official tool-context API that atomically navigates the session tree and synchronizes live agent messages, replace and remove the version-pinned AgentSession adapter rather than maintaining both paths.</p>
+  <p>None. The capability and recovery verification matrix passes against the repository host fixture. If Pi later exposes an official tool-context interface that atomically navigates the session tree and synchronizes live agent messages, replace and remove the capability-probed AgentSession adapter rather than maintaining both paths.</p>
 </body>
 </html>

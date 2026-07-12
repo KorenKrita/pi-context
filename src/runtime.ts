@@ -12,7 +12,6 @@ export class AcmSessionRuntime {
   readonly liveAgentSessions: LiveAgentSessionAdapter;
   private readonly cachedUsage = new WeakMap<object, UsageLike>();
   private readonly refreshTargets = new WeakMap<object, string>();
-  private readonly pendingLiveSyncToolCalls = new WeakMap<object, string>();
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;
@@ -33,21 +32,11 @@ export class AcmSessionRuntime {
     toolCallId: string,
     preferredLeafId?: string,
   ): AgentSessionSyncOutcome {
-    const outcome = this.liveAgentSessions.schedule(session, preferredLeafId);
-    if (outcome.status === "pending") this.pendingLiveSyncToolCalls.set(session, toolCallId);
-    return outcome;
+    return this.liveAgentSessions.schedule(session, toolCallId, preferredLeafId);
   }
 
   applyLiveAgentSync(session: object, toolCallId: string): AgentSessionSyncOutcome {
-    if (this.pendingLiveSyncToolCalls.get(session) !== toolCallId) {
-      return {
-        status: "skipped",
-        reason: "not_pending",
-        message: "No live AgentSession synchronization matches this tool execution",
-      };
-    }
-    this.pendingLiveSyncToolCalls.delete(session);
-    return this.liveAgentSessions.apply(session);
+    return this.liveAgentSessions.apply(session, toolCallId);
   }
 
   getLiveAgentSyncStatus(session: object): AgentSessionSyncOutcome {
@@ -66,7 +55,6 @@ export class AcmSessionRuntime {
     this.contextRefresh.clear(session);
     this.refreshTargets.delete(session);
     this.cachedUsage.delete(session);
-    this.pendingLiveSyncToolCalls.delete(session);
     this.liveAgentSessions.clear(session);
   }
 }
