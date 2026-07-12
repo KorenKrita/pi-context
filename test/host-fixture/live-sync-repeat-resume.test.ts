@@ -139,6 +139,58 @@ describe("repeated travel, restoration, and resume", () => {
     expect(sessionManager.getEntry(archivedId)).toBeDefined();
   });
 
+  test("session start, compaction, and shutdown clear only their pending synchronization", async () => {
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 1000, contextWindow: 100_000, percent: 1 };
+    };
+
+    for (const eventName of ["session_start", "session_compact", "session_shutdown"] as const) {
+      const sessionManager = SessionManager.inMemory();
+      const rootId = sessionManager.appendMessage({ role: "user", content: `${eventName} root`, timestamp: Date.now() });
+      sessionManager.appendMessage({ role: "user", content: `${eventName} abandoned`, timestamp: Date.now() });
+      const staleMessages = sessionManager.buildSessionContext().messages as AgentMessage[];
+      const fixture = createFixture(sessionManager);
+      const liveSession = captureLiveSession(sessionManager, staleMessages);
+
+      await fixture.travelTool.execute(
+        `${eventName}-travel`,
+        { target: rootId, summary: handoff(`${eventName} pending`) },
+        undefined,
+        undefined,
+        fixture.context,
+      );
+      const pending = await fixture.timelineTool.execute(
+        `${eventName}-pending`,
+        { view: "active" },
+        undefined,
+        undefined,
+        fixture.context,
+      );
+      expect(pending.details).toMatchObject({ liveAgentSessionSyncState: "pending" });
+
+      await emit(fixture.handlers, eventName, {}, fixture.context);
+      await emit(
+        fixture.handlers,
+        "tool_execution_end",
+        { toolCallId: `${eventName}-travel`, toolName: "acm_travel" },
+        fixture.context,
+      );
+
+      expect(liveSession.agent.state.messages).toBe(staleMessages);
+      const cleared = await fixture.timelineTool.execute(
+        `${eventName}-cleared`,
+        { view: "active" },
+        undefined,
+        undefined,
+        fixture.context,
+      );
+      expect(cleared.details).toMatchObject({
+        liveAgentSessionSyncState: "skipped",
+        liveAgentSessionSync: { status: "skipped", reason: "not_pending" },
+      });
+    }
+  });
+
   test("persists the active leaf, resumes with a new session identity, and clears lifecycle state", async () => {
     AgentSession.prototype.getContextUsage = function () {
       return { tokens: 1000, contextWindow: 100_000, percent: 1 };
