@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:host": "cd test/host-fixture && bun run verify"
   },
   "keywords": [
     "pi-agent",
@@ -24,11 +25,11 @@
   "author": "KorenKrita",
   "license": "MIT",
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^0.80.3",
-    "@earendil-works/pi-ai": "^0.80.3",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
-    "@earendil-works/pi-tui": "^0.80.3",
-    "typescript": "^5.8.0"
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6",
+    "typescript": "5.8.3"
   },
   "pi": {
     "extensions": [
@@ -44,9 +45,9 @@
     "url": "git+https://github.com/KorenKrita/pi-context.git"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6"
   }
 }

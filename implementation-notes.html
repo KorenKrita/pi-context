@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pi Context Implementation Notes</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+    body { max-width: 72rem; margin: 0 auto; padding: 2rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #8888; padding: .6rem; text-align: left; vertical-align: top; }
+    th { background: #8882; }
+    code { background: #8882; padding: .1rem .25rem; border-radius: .2rem; }
+  </style>
+</head>
+<body>
+  <h1>Pi Context Implementation Notes</h1>
+  <table>
+    <thead><tr><th>Provenance</th><th>Decision</th><th>Rationale and constraint</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>user-decided</td>
+        <td>Migrate the complete canonical ACM architecture and behavior from <code>omp-context</code> to <code>pi-context</code>, preferring public Pi interfaces where available.</td>
+        <td>The Pi implementation must preserve observable ACM contracts without mechanically copying OMP-private types or seams.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Support exactly Pi <code>0.80.6</code>.</td>
+        <td>The extension, isolated host fixture, and live-session compatibility seam use the same pinned host version. Host-version drift returns an explicit unavailable outcome rather than guessing runtime shapes.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Associate live <code>AgentSession</code> instances with <code>SessionManager</code> identity through one idempotent, weakly referenced adapter.</td>
+        <td>Pi exposes <code>AgentSession.agent</code> and a public mutable <code>agent.state.messages</code> contract. The adapter captures the association at the pinned <code>getContextUsage()</code> lifecycle point, rebuilds messages from the active SessionManager leaf, and assigns the public message state. It never owns tree mutations.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Keep persistent tree mutation in Host Bridge and live-state replacement in a separate compatibility boundary.</td>
+        <td><code>appendLabelChange()</code>, <code>branchWithSummary()</code>, and <code>buildSessionContext()</code> are public Pi capabilities, but extension tool context exposes only a readonly manager type. Host Bridge performs guarded capability access; the adapter only synchronizes the matching live session after callers schedule it.</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2>Open decisions</h2>
+  <p>None for the adapter boundary. Later migration tickets must verify tool-execution ordering, failure recovery, repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
+</body>
+</html>

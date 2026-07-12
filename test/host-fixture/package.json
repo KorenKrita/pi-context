@@ -1,0 +1,13 @@
+{
+  "name": "pi-context-host-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "bun install --frozen-lockfile && bun ./build-source.mjs && bun test ./version.test.ts ./agent-session-adapter.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-coding-agent": "0.80.6"
+  }
+}
