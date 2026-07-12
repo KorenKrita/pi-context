@@ -69,19 +69,40 @@ export function getLiveAgentSyncRecoveryGuidance(outcome: AgentSessionSyncOutcom
   return null;
 }
 
-export function readInstalledAgentSessionHostVersion(): string | undefined {
-  const starts = [dirname(fileURLToPath(import.meta.url)), process.cwd()];
+export interface InstalledHostVersionOptions {
+  starts?: string[];
+  resolvePackageManifest?: () => string;
+}
+
+function readPackageVersion(manifestPath: string): string | undefined {
+  try {
+    const hostPackage = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
+    return typeof hostPackage.version === "string" ? hostPackage.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function readInstalledAgentSessionHostVersion(
+  options: InstalledHostVersionOptions = {},
+): string | undefined {
+  const resolvePackageManifest = options.resolvePackageManifest
+    ?? (() => import.meta.resolve("@earendil-works/pi-coding-agent/package.json"));
+  try {
+    const resolvedVersion = readPackageVersion(fileURLToPath(resolvePackageManifest()));
+    if (resolvedVersion) return resolvedVersion;
+  } catch {
+    // Fall back to ancestor lookup for hosts without import.meta.resolve support.
+  }
+
+  const starts = options.starts ?? [dirname(fileURLToPath(import.meta.url)), process.cwd()];
   for (const start of starts) {
     let directory = start;
     while (true) {
       const manifestPath = join(directory, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
       if (existsSync(manifestPath)) {
-        try {
-          const hostPackage = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
-          return typeof hostPackage.version === "string" ? hostPackage.version : undefined;
-        } catch {
-          return undefined;
-        }
+        const version = readPackageVersion(manifestPath);
+        if (version) return version;
       }
       const parent = dirname(directory);
       if (parent === directory) break;

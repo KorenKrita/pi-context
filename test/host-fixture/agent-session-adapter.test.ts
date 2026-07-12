@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   createLiveAgentSessionAdapter,
   getLiveAgentSyncRecoveryGuidance,
+  readInstalledAgentSessionHostVersion,
   type AgentSessionHostClass,
 } from "./.acm-build/live-agent-session-adapter.js";
 
@@ -29,6 +34,20 @@ function createHostClass(counter = { calls: 0 }): AgentSessionHostClass {
 }
 
 describe("live AgentSession adapter against pinned Pi", () => {
+  test("detects the version of a resolved Pi host outside ancestor node_modules", () => {
+    const directory = mkdtempSync(join(tmpdir(), "pi-context-host-version-"));
+    const manifestPath = join(directory, "package.json");
+    writeFileSync(manifestPath, JSON.stringify({ version: "9.9.9" }));
+    try {
+      expect(readInstalledAgentSessionHostVersion({
+        starts: [join(directory, "unrelated")],
+        resolvePackageManifest: () => pathToFileURL(manifestPath).href,
+      })).toBe("9.9.9");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("captures by SessionManager identity and applies rebuilt active-branch messages", () => {
     const sessionManager = SessionManager.inMemory();
     sessionManager.appendMessage({ role: "user", content: "active branch", timestamp: Date.now() });
