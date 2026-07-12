@@ -134,7 +134,11 @@ describe("successful travel synchronizes the pinned live AgentSession", () => {
     expect(result.details).toMatchObject({
       contextRefreshState: "pending",
       liveAgentSessionSyncState: "pending",
+      activeSummaryDepthBefore: 0,
+      activeSummaryDepthAfter: 1,
+      activeSummaryDepthDelta: 1,
     });
+    expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);

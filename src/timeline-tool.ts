@@ -8,12 +8,14 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import {
   buildLabelMaps,
   ContextRefreshRegistry,
+  countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
   extractTextFromContent,
   formatBoundaryTravelCue,
   formatContextUsage,
   formatEntryLabels,
   getEntryLabels,
+  projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
   type LabelMaps,
 } from "./lib.js";
@@ -232,6 +234,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const leafId = sessionManager.getLeafId();
       const labelMaps = buildLabelMaps(entries);
       const activeIds = new Set(branch.map((entry) => entry.id));
+      const activeSummaryDepth = countActiveSummaryDepth(branch);
       const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
       const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
       const lines: string[] = [];
@@ -241,6 +244,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let activeOmittedEntries = 0;
       let checkpointsMatchingAliases = 0;
       let checkpointsDisplayedAliases = 0;
+      let rootCandidateDisplayed = false;
+      let rootCandidateEntryId: string | null = null;
+      let rootProjectedSummaryDepth: number | null = null;
       let searchDisplayedMatches = 0;
       let searchTruncated = false;
 
@@ -257,8 +263,31 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
-        lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap 50). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}:`);
+        lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap 50). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, AgentMessage[]>();
+        const projectedDepthCache = new Map<string, number>();
+        const rootEntry = tree[0]?.entry;
+        const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
+          !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
+        );
+        if (rootEntry && rootMatchesFilter) {
+          const rootResult = buildSessionMessages(sessionManager, rootEntry.id);
+          const rootMessages = rootResult.ok ? rootResult.value : [];
+          cache.set(rootEntry.id, rootMessages);
+          rootCandidateDisplayed = true;
+          rootCandidateEntryId = rootEntry.id;
+          rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
+          projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
+          let estimateText = "message estimate unavailable";
+          if (rootResult.ok) {
+            const estimated = estimateUsageAfterMessageChange(usage, currentResult.value, rootMessages);
+            estimateText = estimated
+              ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
+              : `~${rootMessages.length} msgs`;
+          }
+          const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
+          lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; summary depth ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected`);
+        }
         for (const checkpoint of listings.slice(0, params.limit)) {
           if (signal?.aborted) break;
           let targetMessages = cache.get(checkpoint.entryId);
@@ -271,7 +300,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const estimateText = estimated
             ? `~${targetMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
             : `~${targetMessages.length} msgs`;
-          lines.push(`  ${checkpoint.label} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}`);
+          let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
+          if (projectedSummaryDepth === undefined) {
+            projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
+            projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
+          }
+          lines.push(`  ${checkpoint.label} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
         if (listings.length > params.limit) lines.push(`  ... +${listings.length - params.limit} more — use a narrower filter`);
       } else if (params.view === "search") {
@@ -327,9 +361,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official)`,
         `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (turn_end)`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
+        `• Summary Depth:    ${activeSummaryDepth} active summary node(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Segment Size:     ${stepsSinceCheckpoint} steps since last checkpoint '${nearestCheckpoint ?? "None"}'`,
-        `• Travel Cue:       ${formatBoundaryTravelCue(nearestCheckpoint)}`,
+        `• Travel Cue:       ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
       ];
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
@@ -367,6 +402,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           nearestCheckpoint,
           stepsSinceCheckpoint,
           activePathNodes: branch.length,
+          activeSummaryDepth,
           offPathSummaries: countOffPathSummaries(branch, tree, activeIds),
           view: params.view,
           limit: params.limit,
@@ -377,6 +413,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           activeOmittedEntries: params.view === "active" ? activeOmittedEntries : null,
           checkpointsMatchingAliases: params.view === "checkpoints" ? checkpointsMatchingAliases : null,
           checkpointsDisplayedAliases: params.view === "checkpoints" ? checkpointsDisplayedAliases : null,
+          rootCandidateDisplayed: params.view === "checkpoints" ? rootCandidateDisplayed : false,
+          rootCandidateEntryId: params.view === "checkpoints" ? rootCandidateEntryId : null,
+          rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,
           searchDisplayedMatches: params.view === "search" ? searchDisplayedMatches : null,
           searchTruncated: params.view === "search" ? searchTruncated : false,
           outputLines: lines.length,

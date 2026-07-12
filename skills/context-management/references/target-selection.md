@@ -1,6 +1,18 @@
 # Advanced Target Selection
 
-Use this reference only after CORE has established a fold boundary and the correct target is still ambiguous. CORE remains authoritative for whether to fold and what the handoff must contain.
+Use this reference only after CORE has established a fold boundary or rebase trigger and the correct target is still ambiguous. CORE remains authoritative for whether to fold or rebase and what the handoff must contain.
+
+## Rebase base selection
+
+When cold start may permit a rebase but the earliest safe base is unclear:
+
+1. List every surviving state item: active and parked fronts, unresolved invariants, external effects, and recovery pointers.
+2. Order candidate bases from earliest to latest: root, chain start, phase or attempt start, raw pre-boundary node, then local boundary start.
+3. Run the cold start test against each candidate in that order. The snapshot must let a fresh agent execute `NEXT` without reading any summary that would leave the active spine.
+4. Choose the first candidate that passes. Projected summary depth and usage are evidence, never substitutes for the test.
+5. If none passes, keep required detail live or use a local fold. A transcript-sized snapshot is evidence that rebase is not ready.
+
+Root is the ideal earliest candidate, not the presumed answer. The selected base is the earliest one that preserves every surviving state item through the authoritative snapshot or a direct evidence pointer.
 
 ## Interleaved fronts
 

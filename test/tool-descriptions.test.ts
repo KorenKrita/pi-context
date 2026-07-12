@@ -16,10 +16,20 @@ describe("ACM tool description contract", () => {
     expect(generatedGuidance).not.toContain("Zero cost: no branch, no handoff, no context change.");
   });
 
+  test("keeps rebase semantics agent-owned and runtime evidence factual", () => {
+    expect(travelTool).toContain("For a rebase, run cold start on candidate bases from earliest to latest");
+    expect(travelTool).toContain("root is a candidate, not a default");
+    expect(travelTool).toContain("activeSummaryDepthBefore");
+    expect(timelineTool).toContain("structural candidate, not a checkpoint");
+    expect(generatedGuidance).toContain("rebase accumulated summaries");
+    expect(generatedGuidance).toContain("cold start");
+    expect(generatedGuidance).not.toContain("acm_rebase");
+  });
+
   test("keeps task-end travel conditional on meaningful structural saving", () => {
     expect(travelTool).toContain("when the preview shows meaningful structural saving");
     expect(travelTool).toContain("If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly");
-    expect(generatedGuidance).toContain("otherwise create a unique `-done` checkpoint and answer directly");
+    expect(generatedGuidance).toContain("or create a unique `-done` checkpoint and answer directly");
     expect(travelTool).not.toContain("At task end, set backupCurrentHeadAs to '<task>-done', travel");
   });
 

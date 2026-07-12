@@ -1,127 +1,119 @@
 # pi-context
 
-> 让 Pi agent 主动管理自己的上下文。
+让 Pi agent 主动维护自己的上下文，而不是等窗口耗尽后被动压缩。
 
-**Agentic Context Management (ACM)** 让 agent 按任务语义管理 context working set：checkpoint 建立恢复点，timeline 展示会话树，travel 把完成阶段或失败方向折叠成可恢复的 handoff branch。旧路径仍保留在 session tree 中，之后可以恢复。
+`pi-context` 是由 KorenKrita 维护的第三方 Pi 扩展。它让 agent 能够：
 
-本仓库是 KorenKrita 维护的 [`omp-context`](https://github.com/KorenKrita/omp-context) 的 Pi 迁移版，并保留 Pi 独有的 `/context` token 可视化命令。`omp-context` 是个人维护的第三方 OMP 插件，不是 OMP 官方实现。
+- 在任务、阶段和高风险操作前建立可恢复的语义锚点；
+- 查看当前会话 spine、历史分支、checkpoint 与上下文占用；
+- 把已经完成的过程折叠成可执行 handoff；
+- 在安全时将累计 summary chain **rebase** 到更早的基底，重新获得浅层、低负载的 working set；
+- 在 travel 后同步持久会话树、下一轮模型上下文与 live AgentSession。
 
-## 支持版本
+## 为什么需要它
 
-当前精确支持 **Pi `0.80.6`**。所有 `@earendil-works/pi-*` peer dependencies 和真实 host fixture 都固定为该版本；live AgentSession compatibility seam 不会对其他版本猜测私有结构。
+长任务的问题不只是 token 数量。
 
-## ACM 工具
-
-| 工具 | 作用 |
-|---|---|
-| `acm_checkpoint` | 给某个会话节点追加语义 alias。不会分支、摘要或改变当前 context |
-| `acm_timeline` | 查看 active path、checkpoint catalog、全树搜索或完整 tree，并显示 context/live-sync HUD |
-| `acm_travel` | travel 到 checkpoint 或 node ID，用七槽 handoff 创建 continuation branch；原路径成为可恢复 archive |
-
-### Timeline：严格单视图
-
-```ts
-{ view: "active", limit?, verbose? }
-{ view: "checkpoints", limit?, filter? }
-{ view: "search", limit?, query }
-{ view: "tree", limit? }
-```
-
-省略 `view` 等价于 `active`。默认视图只显示模型实际使用的 active spine；off-path summaries 以分支脚注呈现。旧的 `list_checkpoints` / `full_tree` / `search` boolean 参数不受支持。
-
-### Travel handoff
-
-`acm_travel.summary` 必须包含七个槽位：
+即使每个阶段都做了局部摘要，summary 仍可能一层层堆在 active spine 上：
 
 ```text
-Goal: <当前目标>
-State: <已经确定的状态和结论>
-Evidence: <文件、命令、URL、commit、node/checkpoint 等恢复指针>
-External: <磁盘、进程、浏览器、远端等外部副作用>
-Exclusions: <已排除方向及原因>
-Recover: <archive checkpoint 或 node ID>
-NEXT: <一个可立即执行的动作>
+root → summary A → summary B → summary C → current work
 ```
 
-travel 改变的是 Pi 会话历史树及后续模型 context，**不会**回滚文件系统、进程、浏览器或远端服务。
+这些历史 handoff 会持续占用上下文和注意力。`pi-context` 不把压缩当作单纯的 token 操作，而是按**语义边界**管理 working set：保留下一步真正需要的内容，把已完成过程移到可恢复的 archive。
 
-## Travel 后的双重同步
+## 三个工具
 
-一次结构验证成功的 travel 会触发两条互补路径：
+| Tool | 作用 |
+|---|---|
+| `acm_checkpoint` | 给会话节点建立唯一、可恢复的语义 checkpoint |
+| `acm_timeline` | 查看 active spine、checkpoint catalog、全文搜索、完整树和 summary depth |
+| `acm_travel` | 将一个 boundary 折叠为七槽 handoff，或把累计 summaries rebase 到最早安全基底 |
 
-1. **Persistent context rebuild**：下一次 `context` event 从 active SessionManager branch 重建并 sanitize provider messages；失败最多重试 3 次。
-2. **Live AgentSession sync**：匹配的 `tool_execution_end` 后，把同一 SessionManager 对应 AgentSession 的 stored messages 替换为 rebuilt active branch，使 Pi 的 native context accounting 不再继续计算已折叠历史。
+扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。复杂的 target selection、archive round trip 和异常恢复按需从 advanced Skill 加载，不会把整套 playbook 常驻在上下文里。
 
-live sync 按 SessionManager 对象身份隔离，使用 WeakMap/WeakRef，不按目录、模型或 session 文件名猜测关联。若精确 host capability 不可用或 replacement 失败，travel 本身仍保持有效，persistent rebuild 继续提供正确 provider context，HUD 会显示状态并建议 reload。
+## Semantic rebase
 
-live sync 状态包括：`unavailable`、`pending`、`applied`、`failed`、`skipped`。
+普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。
 
-## Context 与 compaction
+agent 会在以下时机主动检查 rebase：
 
-- `turn_end` 缓存最近一次真实 prompt usage，供 timeline HUD 使用。
-- `session_before_compact` 只在 Pi 真正发起 native compaction 时追加唯一的 `pre-compact-*` checkpoint。
-- successful live sync 会缩减 Pi 的 stored message accounting，避免因为 travel 前的 stale message array 立即误触发 native compaction。
-- `session_start`、`session_shutdown`、`session_compact` 按 session 清理 runtime state。
-- `fixOrphanedToolUse()` 删除孤立 tool result，并为被 travel 中断的 tool call 合成 `[Interrupted by context travel]` result。
+- 下一次 fold 会继续叠加 summary；
+- 一个稳定 chain 或 subchain 已结束；
+- 同一 session 即将开始新目标；
+- context pressure 上升。
 
-### Integrated-consumer compatibility
+rebase 不等于强制跳到 `root`。agent 会从最早候选开始执行 **cold start** 检查：如果一个全新的 agent 只依赖当前 snapshot 和直接 evidence pointers 就能执行 `NEXT`，该基底才安全。root 是理想候选，不是默认答案。
 
-The named export `fixOrphanedToolUse(messages)` follows the canonical ACM contract: it returns a sanitized message array and does not mutate the caller's array. Consumers of the legacy in-place/boolean helper must use the returned array after upgrading.
+Timeline 会提供事实证据：
 
-## `/context`
+- 当前 active summary depth；
+- root structural candidate；
+- 每个 checkpoint travel 后的 projected summary depth；
+- usage、message count 与 branch topology。
 
-`src/context.ts` 注册 Pi 独有的 `/context` TUI，用于查看 token 构成。它与 ACM 分工如下：
+Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase。
 
-- `/context`：观察 token 占用
-- `acm_timeline`：观察 session tree、checkpoint、refresh/live-sync 状态
-- `acm_checkpoint` / `acm_travel`：主动改变会话结构
+## `/context` 面板
+
+Pi 版本保留独有的 `/context` 命令，用于查看当前上下文的分类占用、校准后的 token 估算和 compaction-aware 消息构成。它是诊断界面，不会修改会话树。
 
 ## 安装
 
-```bash
-# 本地
-pi install .
+### 本地安装
 
-# GitHub
+```bash
+pi install .
+```
+
+### GitHub
+
+```bash
 pi install git:github.com/KorenKrita/pi-context
 ```
 
-## 开发验证
+也可以临时直接加载 source-first 入口：
 
 ```bash
-bun install
+pi -e /path/to/pi-context/src/index.ts
+```
+
+安装后无需手动调用命令。Agent 会根据 CORE 在任务边界主动使用三个 ACM tools；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
+
+## 可观察性与恢复
+
+每次操作都会返回可核对的结构事实：
+
+- resolved target 与 entry ID；
+- checkpoint aliases；
+- branch summary leaf；
+- backup checkpoint outcome；
+- message、token、percentage-point 与 summary-depth delta；
+- persistent context rebuild 和 live AgentSession sync 状态。
+
+Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
+
+## 安全边界
+
+- Travel 只改变 Pi 会话树和后续模型上下文。
+- 它不会回滚文件、进程、浏览器、Git commit 或远端服务。
+- 扩展不会取消、替换或延迟 Pi 原生 compaction。
+- 如果当前任务仍依赖不可压缩的中间推理，agent 会保留 working set 或接受 native compaction，而不是为了降低数字强行 rebase。
+- Host 不支持 live synchronization 时，持久 branch 和公开 context rebuild 仍然保留；结果会给出明确恢复指引。
+
+## 验证
+
+```bash
+bun test
+bun run typecheck
 bun run verify:acm
 ```
 
-`test/host-fixture/` 会独立安装精确的 Pi `0.80.6`，构建 source-first fixture，并验证：
+开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
 
-- host version contract
-- AgentSession adapter capability、弱关联与幂等安装
-- successful shrinking travel 与完整 in-flight tool call/result
-- provider context、tree archive 与 native compaction accounting
-- unavailable/failure fallback
-- repeated travel、off-path restoration、persistence/resume
-- lifecycle cleanup、多 session 与 parent/subagent isolation
+## 致谢
 
-## 代码结构
-
-| 路径 | 责任 |
-|---|---|
-| `src/index.ts` | 短 composition root |
-| `src/*-tool.ts` | checkpoint / timeline / travel behavior modules |
-| `src/travel-coordinator.ts` | backup、branch、verification、compensation transaction |
-| `src/host-bridge.ts` | SessionManager capability boundary |
-| `src/runtime.ts`, `src/runtime-lifecycle.ts` | session-scoped refresh、usage、live sync 与 lifecycle |
-| `src/live-agent-session-adapter.ts` | pinned Pi AgentSession synchronization seam |
-| `src/lib.ts` 等 | dependency-light domain logic |
-| `skills/context-management/CORE.md` | canonical normal-path guidance |
-| `src/generated-guidance.ts` | generated runtime guidance |
-| `src/context.ts` | Pi 独有 `/context` TUI |
-
-详细维护约束见 [`AGENTS.md`](./AGENTS.md)，实现决策与 provenance 见 [`implementation-notes.html`](./implementation-notes.html)。
-
-## 参考
-
-- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计
-- [omp-context](https://github.com/KorenKrita/omp-context) — KorenKrita 维护的第三方 OMP 适配版，也是本仓库 ACM 实现的迁移源
+- [pi-context](https://github.com/ttttmr/pi-context) — 原始项目 by ttttmr
 - [让 AI 主动管理自己的上下文](https://blog.xlab.app/p/6a966aeb/) — 设计思路
+
+MIT License

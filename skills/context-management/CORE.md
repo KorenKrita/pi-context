@@ -16,6 +16,8 @@ A context window is a **working set**: the exact material needed for the next ac
 - **chain** — continuous work serving one user goal.
 - **burst** — temporary expansion from broad reads, logs, searches, diffs, or subagents.
 - **anchor gravity** — the misleading pull of the nearest checkpoint. Name the boundary before choosing a target.
+- **rebase** — carry all surviving state in one authoritative snapshot to the earliest safe base, moving accumulated summary depth out of the working set.
+- **cold start** — the rebase test: a fresh agent can execute `NEXT` from the snapshot and its evidence pointers without reading archived summaries.
 
 ### Normal state transitions
 
@@ -26,10 +28,11 @@ A context window is a **working set**: the exact material needed for the next ac
 | Unbounded burst or risky step is next | checkpoint before output or side effects arrive |
 | Findings are distilled and raw trail is no longer needed by NEXT | inspect timeline evidence, then fold the named boundary |
 | Direction is rejected or superseded | put the dead direction in Exclusions, preserve surviving facts, then fold to its start |
-| Final answer is next | fold the task chain when the fold removes material structure; otherwise create a unique `-done` checkpoint and answer directly |
-| New request arrives over finished unfolded work | fold the finished chain before starting the new chain |
+| Final answer is next | run a rebase check; if it is not ready, fold the task chain when that removes material structure or create a unique `-done` checkpoint and answer directly |
+| New request arrives over finished work | run a rebase check before starting the new chain; if it is not ready, fold the finished local chain |
+| Another fold would stack on an active summary, a stable subchain closes, or context pressure rises | run a rebase check before choosing a local fold or accepting native compaction |
 
-High context pressure triggers a boundary check. It does not authorize travel by itself.
+Context pressure triggers a rebase check. It does not lower the cold start gate or authorize travel by itself.
 
 ### Fold gate
 
@@ -40,6 +43,14 @@ Travel only when all three criteria hold:
 3. **Raw recoverable** — preserve omitted detail through a checkpoint, node ID, file, command, URL, commit, or other pointer.
 
 Boundary decides whether folding is valid. Timeline reports evidence; it does not decide for you. A target must sit before the named boundary. Nearest and earliest anchors are candidates, never defaults.
+
+### Rebase gate
+
+A **rebase** is a fold across accumulated summary depth. It uses the fold gate and adds one hard test: **cold start**.
+
+Build one authoritative snapshot, then evaluate candidate bases from earliest to latest. Choose the earliest base from which a fresh agent can execute `NEXT` using only the snapshot and its evidence pointers. Root is ideal when it passes; it is never presumed safe.
+
+Archived summaries become recovery-only. If ordinary execution still requires one of them, rebase is not ready: keep the detail live, use a local fold, or accept native compaction.
 
 ### Handoff contract
 
@@ -83,7 +94,9 @@ Recover: cache-hypothesis-start; cache-hypothesis-done.
 NEXT: Checkpoint dispatch-replay-start, then inspect callers of dispatchRestoredRequest.
 ```
 
-**Finished-chain example**
+**Finished-chain rebase example**
+
+Rebase the finished chain to the earliest base that passes cold start:
 
 ```text
 Goal: Release fix complete; new request is "Add dry-run mode to migration."
@@ -95,7 +108,7 @@ Recover: release-fix-done.
 NEXT: Checkpoint migration-dry-run-start, then inspect the migration command entry point.
 ```
 
-After travel, confirm resolved target, summary leaf, backup outcome, raw usage/message deltas, and context-sync state. If NEXT begins a new phase, checkpoint that phase before acting. Travel changes conversation context only; inspect disk and external systems directly.
+After travel, confirm resolved target, summary leaf, backup outcome, raw usage/message/summary-depth deltas, and context-sync state. After a rebase, execute from the snapshot without rereading archived summaries. If NEXT begins a new phase, checkpoint that phase before acting. Travel changes conversation context only; inspect disk and external systems directly.
 <!-- ACM:CORE:END -->
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
@@ -103,11 +116,11 @@ Create recoverability by labeling one session node. Checkpoint before a chain, p
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-Inspect session structure and context evidence through one view: `active`, `checkpoints`, `search`, or `tree`. Omit view for `active`. Use `checkpoints` or `search` to compare non-obvious targets; use `tree` only when topology matters. Choose a target by named boundary, not proximity.
+Inspect session structure and context evidence through one view: `active`, `checkpoints`, `search`, or `tree`. Omit view for `active`. Timeline reports active summary depth and projected depth for candidate bases. Use `checkpoints` or `search` to compare non-obvious targets; use `tree` only when topology matters. Choose a target by boundary or cold start, not proximity.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Fold one named boundary into a recoverable seven-slot handoff. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but does not judge fold value or semantic boundary quality.
+Apply one recoverable context transition: fold a named boundary or rebase accumulated summaries to the earliest safe base. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but cannot prove boundary quality or cold start completeness.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 <!-- ACM:CUE_CHECKPOINT_START:START -->
@@ -115,12 +128,16 @@ Recoverability created. Continue the current working set; choose any later fold 
 <!-- ACM:CUE_CHECKPOINT_START:END -->
 
 <!-- ACM:CUE_CHECKPOINT_DONE:START -->
-Milestone archived. Use this checkpoint as a retreat or raw-history recovery pointer if later work regresses.
+Milestone archived. Use it as a recovery pointer. If this closes a stable chain or another fold would stack, run a rebase check before continuing.
 <!-- ACM:CUE_CHECKPOINT_DONE:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
 View `active` selected. Continue from the visible spine; inspect another view only when target identity or branch topology is not yet checkable.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
+
+<!-- ACM:CUE_REBASE_CHECK:START -->
+Another fold would stack on summarized history. At the next rebase trigger, run cold start on the earliest safe base; root is a candidate, not a verdict.
+<!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
 View `checkpoints` selected. Compare named candidates against the boundary, then inspect the chosen target's branch only if its placement remains ambiguous.

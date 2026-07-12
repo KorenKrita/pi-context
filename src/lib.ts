@@ -316,6 +316,16 @@ export function classifyStructuralMessageDirection(
  return after < before ? "decreased" : "increased";
 }
 
+/** Count semantic handoff layers on one session spine. Native compaction is intentionally separate. */
+export function countActiveSummaryDepth(branch: SessionEntry[]): number {
+ return branch.reduce((depth, entry) => depth + (entry.type === "branch_summary" ? 1 : 0), 0);
+}
+
+/** A successful travel appends one new branch_summary after the selected target spine. */
+export function projectSummaryDepthAfterTravel(targetBranch: SessionEntry[]): number {
+ return countActiveSummaryDepth(targetBranch) + 1;
+}
+
 export function compareEntriesByTimestamp(a: SessionEntry, b: SessionEntry): number {
  return a.timestamp.localeCompare(b.timestamp);
 }

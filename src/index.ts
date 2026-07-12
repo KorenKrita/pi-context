@@ -9,17 +9,10 @@ import { registerTravelTool } from "./travel-tool.js";
 export { fixOrphanedToolUse } from "./message-sanitizer.js";
 export { ensureAcmCoreSegment } from "./prompt-registration.js";
 
-export interface AcmExtensionOptions {
-  promptInjection?: boolean;
-}
-
 /** ACM composition root. Domain behavior lives in behavior-owned modules. */
-export default function registerAcmExtension(
-  pi: ExtensionAPI,
-  options: AcmExtensionOptions = {},
-): void {
+export default function registerAcmExtension(pi: ExtensionAPI): void {
   const runtime = new AcmSessionRuntime();
-  if (options.promptInjection !== false) registerAcmPrompt(pi);
+  registerAcmPrompt(pi);
   registerCheckpointTool(pi);
   registerTimelineTool(pi, runtime);
   registerTravelTool(pi, runtime);

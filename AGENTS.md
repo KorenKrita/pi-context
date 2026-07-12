@@ -2,7 +2,7 @@
 
 ## 概述
 
-**pi-context** 是 [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) 的 fork，也是 `omp-context` 的 Pi 适配版。它为 Pi agent 提供主动上下文管理能力：agent 可以创建 recoverable checkpoint、查看会话树，并通过 summary branch 折叠或恢复上下文。
+**pi-context** 是 [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) 的 fork，由 KorenKrita 独立维护。它为 Pi agent 提供主动上下文管理能力：agent 可以创建 recoverable checkpoint、查看会话树，并通过 summary branch 折叠、恢复或 rebase 上下文。
 
 项目暴露三个 ACM 工具：
 
@@ -31,11 +31,11 @@
 `src/index.ts` 只负责：
 
 1. 创建一个 `AcmSessionRuntime`
-2. 可选注册 canonical prompt injection
+2. 注册 canonical prompt injection
 3. 注册三个工具
 4. 注册 lifecycle handlers
 
-外部 prompt orchestrator 可传 `{ promptInjection: false }`，并调用 named export `ensureAcmCoreSegment()`。
+`ensureAcmCoreSegment()` 保留为可测试的 idempotent prompt producer，但 extension 入口始终注册 canonical prompt hook；不要重新引入 integrated-consumer bypass。
 
 ### Behavior-owned modules
 
@@ -91,13 +91,15 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 
 默认 active 视图只展示 LLM 实际看到的 spine；off-path summary/compaction 以分支脚注呈现，不能伪装成线性历史。checkpoint view 按 alias 逐项列出，search 在整棵树上做大小写不敏感匹配。
 
-HUD 包含 official/cached usage、active node count、off-path summary count、nearest checkpoint distance、context refresh 与 live AgentSession sync diagnostics。
+HUD 包含 official/cached usage、active node count、active summary depth、off-path summary count、nearest checkpoint distance、context refresh 与 live AgentSession sync diagnostics。
+
+checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 后的 projected summary depth。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。
 
 ## Travel transaction
 
 `acm_travel` 的顺序：
 
-1. 解析 target，验证七槽 handoff：`Goal/State/Evidence/External/Exclusions/Recover/NEXT`
+1. 解析 target，验证七槽 handoff：`Goal/State/Evidence/External/Exclusions/Recover/NEXT`；rebase snapshot 还必须满足 cold start
 2. prevalidate branch 与可选 backup alias
 3. coordinator 追加 backup label，并持有 operation-scoped rollback token
 4. 调用 `branchWithSummary(..., true)`
@@ -107,7 +109,18 @@ HUD 包含 official/cached usage、active node count、off-path summary count、
 
 travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、浏览器、远端服务或其他外部副作用。
 
-结果报告 raw evidence：usage before/estimated after、token delta、percentage-point delta、message counts/direction、summary entry、backup、refresh 与 live sync state。不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict。
+结果报告 raw evidence：usage before/estimated after、token delta、percentage-point delta、message counts/direction、summary-depth before/after/delta、summary entry、backup、refresh 与 live sync state。不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict。
+
+## Semantic rebase
+
+rebase 是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 runtime mode。目标是把所有 surviving state 合并成一个 authoritative snapshot，并移动到**最早安全基底**。
+
+- 触发 rebase check：summary 已堆叠、稳定 chain/subchain 完成、新目标将开始、context pressure 上升
+- 候选从 earliest 到 latest 评估；`root` 是理想候选但不是默认 target
+- cold start 是硬门槛：fresh agent 必须能只凭新 handoff 与 direct evidence pointers 执行 `NEXT`
+- context pressure 不得降低 snapshot 完整性要求
+- native `compaction` 不计入 semantic summary depth；只有 `branch_summary` 计入
+- runtime 只报告 summary depth、projected depth 和 deltas，不自动判断或执行 rebase
 
 ## Persistent context rebuild
 
@@ -147,7 +160,7 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 - `skills/context-management/references/`：target selection、archive recovery、exceptional recovery
 - `src/generated-guidance.ts`：generated runtime artifact，不应手工漂移
 
-canonical 词汇固定为 working set、boundary、handoff、archive、chain、burst、anchor gravity。checkpoint 创建 recoverability；travel 才 fold boundary。
+canonical 词汇固定为 working set、boundary、handoff、archive、chain、burst、rebase、cold start、anchor gravity。checkpoint 创建 recoverability；travel 才 fold boundary；rebase 仍复用 travel mutation contract。
 
 ## 测试与验证
 
