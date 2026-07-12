@@ -1,12 +1,11 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type ExtensionAPI,
-  type SessionManager,
   DynamicBorder,
   estimateTokens,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text, Spacer } from "@earendil-works/pi-tui";
-import { getBuildSessionMessages } from "./lib.js";
+import { buildSessionMessages } from "./host-bridge.js";
 import { formatTokens } from "./utils.js";
 
 interface TokenBuckets {
@@ -69,8 +68,12 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const sm = ctx.sessionManager as SessionManager;
-      const contextMessages = getBuildSessionMessages(sm);
+      const contextMessagesResult = buildSessionMessages(ctx.sessionManager);
+      if (!contextMessagesResult.ok) {
+        ctx.ui.notify(`Context messages could not be rebuilt: ${contextMessagesResult.message}`, "warning");
+        return;
+      }
+      const contextMessages = contextMessagesResult.value;
       const systemPrompt = ctx.getSystemPrompt();
       const activeToolNames = new Set(pi.getActiveTools());
       const activeToolDefs = pi.getAllTools().filter((tool) => activeToolNames.has(tool.name));

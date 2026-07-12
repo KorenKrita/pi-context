@@ -38,8 +38,9 @@ describe("fixOrphanedToolUse", () => {
             },
         ];
 
-        expect(fixOrphanedToolUse(messages)).toBe(true);
-        expect(messages).toEqual([{ role: "user", content: text("continue") }]);
+        const fixed = fixOrphanedToolUse(messages as Parameters<typeof fixOrphanedToolUse>[0]);
+        expect(fixed).toEqual([{ role: "user", content: text("continue") }]);
+        expect(messages).toHaveLength(2);
     });
 
     it("removes results for error assistants that Pi omits from the API request", () => {
@@ -57,9 +58,10 @@ describe("fixOrphanedToolUse", () => {
             },
         ];
 
-        expect(fixOrphanedToolUse(messages)).toBe(true);
-        expect(messages).toHaveLength(1);
-        expect(messages[0]?.role).toBe("assistant");
+        const fixed = fixOrphanedToolUse(messages as Parameters<typeof fixOrphanedToolUse>[0]);
+        expect(fixed).toHaveLength(1);
+        expect(fixed[0]?.role).toBe("assistant");
+        expect(messages).toHaveLength(2);
     });
 
     it("synthesizes an error result when a surviving tool call lost its output", () => {
@@ -71,9 +73,9 @@ describe("fixOrphanedToolUse", () => {
             },
         ];
 
-        expect(fixOrphanedToolUse(messages)).toBe(true);
-        expect(messages).toHaveLength(2);
-        expect(messages[1]).toMatchObject({
+        const fixed = fixOrphanedToolUse(messages as Parameters<typeof fixOrphanedToolUse>[0]);
+        expect(fixed).toHaveLength(2);
+        expect(fixed[1]).toMatchObject({
             role: "toolResult",
             toolCallId: "call_missing_output",
             toolName: "bash",
