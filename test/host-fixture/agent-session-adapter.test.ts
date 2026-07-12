@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import {
   createLiveAgentSessionAdapter,
@@ -31,6 +31,24 @@ describe("live AgentSession capability adapter", () => {
     const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
 
     expect(adapter.installation).toEqual({ status: "ready" });
+    session.getContextUsage();
+    expect(adapter.schedule(sessionManager, "travel", sessionManager.getLeafId() ?? undefined)).toMatchObject({ status: "pending" });
+    expect(adapter.apply(sessionManager, "travel")).toMatchObject({ status: "applied", messageCount: 1 });
+    expect(agent.state.messages).toEqual(sessionManager.buildSessionContext().messages);
+  });
+
+  test("accepts the real Agent state setter copying the replacement array", () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "active branch", timestamp: Date.now() });
+    const agent = new Agent({
+      initialState: {
+        messages: [{ role: "user", content: "stale", timestamp: Date.now() }],
+      },
+    });
+    const HostClass = createHostClass();
+    const session = new (HostClass as any)(sessionManager, agent);
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+
     session.getContextUsage();
     expect(adapter.schedule(sessionManager, "travel", sessionManager.getLeafId() ?? undefined)).toMatchObject({ status: "pending" });
     expect(adapter.apply(sessionManager, "travel")).toMatchObject({ status: "applied", messageCount: 1 });
@@ -113,6 +131,7 @@ describe("live AgentSession capability adapter", () => {
     expect(getLiveAgentSyncRecoveryGuidance(failure)).toContain("Reload");
 
     const ignoredManager = SessionManager.inMemory();
+    ignoredManager.appendMessage({ role: "user", content: "must replace", timestamp: Date.now() });
     const retainedMessages: AgentMessage[] = [];
     const ignoredState = {} as { messages: AgentMessage[] };
     Object.defineProperty(ignoredState, "messages", { get: () => retainedMessages, set: () => undefined });
@@ -122,7 +141,7 @@ describe("live AgentSession capability adapter", () => {
     expect(adapter.apply(ignoredManager, "ignored")).toMatchObject({
       status: "failed",
       reason: "replace_messages_failed",
-      message: "AgentSession.agent.state.messages did not retain the replacement array",
+      message: "AgentSession.agent.state.messages did not retain the replacement message sequence",
     });
 
     const brokenManager = { getLeafId: () => { throw new Error("leaf unavailable"); } };

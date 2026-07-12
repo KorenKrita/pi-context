@@ -179,6 +179,10 @@ function readLeafId(sessionManager: object): string | null {
   return typeof candidate.getLeafId === "function" ? candidate.getLeafId() : null;
 }
 
+function retainsMessageSequence(actual: AgentMessage[], expected: AgentMessage[]): boolean {
+  return actual.length === expected.length && actual.every((message, index) => message === expected[index]);
+}
+
 /**
  * Installs the narrow capability-probed adapter. Tree mutations remain owned by Host Bridge;
  * this adapter only replaces the matching live AgentSession message array after tool completion.
@@ -293,8 +297,8 @@ export function createLiveAgentSessionAdapter(
       const messages = fixOrphanedToolUse(messagesResult.value);
       try {
         inspected.session.agent.state.messages = messages;
-        if (inspected.session.agent.state.messages !== messages) {
-          throw new Error("AgentSession.agent.state.messages did not retain the replacement array");
+        if (!retainsMessageSequence(inspected.session.agent.state.messages, messages)) {
+          throw new Error("AgentSession.agent.state.messages did not retain the replacement message sequence");
         }
         const outcome: AgentSessionSyncOutcome = {
           status: "applied",

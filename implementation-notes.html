@@ -70,8 +70,8 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
-        <td>Verify message replacement by checking that the live state retains the rebuilt array.</td>
-        <td>Property presence alone is insufficient: a setter may reject or ignore replacement. A failed assignment or retained-reference check produces the existing live-sync failure outcome while preserving the traveled branch and reload fallback.</td>
+        <td>Verify message replacement by checking that live state retains the rebuilt message sequence, not the caller's array identity.</td>
+        <td>Live validation against Pi 0.80.6 exposed that the documented <code>Agent.state.messages</code> setter deliberately stores <code>nextMessages.slice()</code>. Reference identity therefore reports a false failure after a successful replacement. Element-by-element sequence identity accepts the host's top-level defensive copy while still detecting thrown or silently ignored replacement when the rebuilt branch differs.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
