@@ -98,6 +98,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const resolvedBy = requestedRoot ? "root" : labelMaps.labelToEntryId.has(params.target) ? "checkpoint" : "entry_id";
       const resolved = resolveTargetId(sessionManager, tree, params.target, branchIds, labelMaps);
       const targetId = resolved.id;
+      const targetIsStructuralRoot = tree[0]?.entry.id === targetId;
       if (requestedRoot && !isValidEntryId(targetId)) {
         return {
           content: [{ type: "text" as const, text: "Error: Cannot travel to root — session tree is empty." }],
@@ -164,6 +165,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
       const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
+      const targetSummaryDepth = countActiveSummaryDepth(sessionManager.getBranch(targetId));
 
       let backupEntryId: string | undefined;
       let backupResolvedFromHead: string | undefined;
@@ -350,12 +352,18 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
       const nextCue = params.backupCurrentHeadAs?.endsWith("-done") ? GUIDANCE_CUES.travelTask : GUIDANCE_CUES.travelPhase;
+      const summaryDepthNote = targetIsStructuralRoot
+        && activeSummaryDepthBefore > targetSummaryDepth
+        && activeSummaryDepthAfter === targetSummaryDepth + 1
+        ? `Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
+        : null;
 
       return {
         content: [{
           type: "text" as const,
           text: [
             `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextRefresh=pending; liveAgentSessionSync=${liveAgentSessionSync.status}.`,
+            summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
             nextCue,
@@ -392,6 +400,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           activeSummaryDepthBefore,
           activeSummaryDepthAfter,
           activeSummaryDepthDelta,
+          targetSummaryDepth,
+          targetIsStructuralRoot,
+          summaryDepthNote,
           sessionMessages: messageDelta,
           messagesBefore,
           messagesAfter,

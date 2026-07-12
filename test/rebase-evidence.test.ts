@@ -113,7 +113,8 @@ describe("semantic rebase evidence", () => {
     );
 
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
-    expect(result.content[0].text).toContain("Summary Depth:    1 active summary node(s)");
+    expect(result.content[0].text).toContain("Summary Depth:    1 active handoff summary layer(s) on the current spine");
+    expect(result.content[0].text).not.toContain("normalized rebase");
     expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
   });
 
@@ -140,5 +141,6 @@ describe("semantic rebase evidence", () => {
     });
     expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
     expect(result.content[0].text).toContain("summary depth 1 → 1 projected");
+    expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });
 });

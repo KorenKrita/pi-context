@@ -21,7 +21,7 @@ const TOOL_CALL_ID = "travel-live-sync";
 const HANDOFF = [
   "Goal: exercise live travel synchronization",
   "State: travel completed",
-  "Evidence: pinned Pi host fixture",
+  "Evidence: capability host fixture",
   "External: none",
   "Exclusions: none",
   "Recover: live-sync-done",
@@ -87,7 +87,7 @@ async function emit(handlers: Map<string, Array<(event: any, ctx: ExtensionConte
   return result;
 }
 
-describe("successful travel synchronizes the pinned live AgentSession", () => {
+describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
   test("applies only after the matching tool_execution_end and preserves tree recovery", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "old branch root", timestamp: Date.now() });
@@ -175,5 +175,33 @@ describe("successful travel synchronizes the pinned live AgentSession", () => {
     const timeline = await timelineTool.execute("timeline", { view: "active" }, undefined, undefined, context);
     expect(timeline.content[0]).toMatchObject({ type: "text" });
     expect((timeline.content[0] as { text: string }).text).toContain("Live Agent Sync:  applied");
+    expect((timeline.content[0] as { text: string }).text).toContain("1 active handoff summary layer(s) on the current spine");
+    expect((timeline.content[0] as { text: string }).text).not.toContain("normalized rebase");
+
+    const rebaseResult = await travelTool.execute(
+      "root-rebase",
+      { target: rootId, summary: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+    expect(rebaseResult.details).toMatchObject({
+      activeSummaryDepthBefore: 1,
+      activeSummaryDepthAfter: 1,
+      activeSummaryDepthDelta: 0,
+      targetSummaryDepth: 0,
+    });
+    expect((rebaseResult.content[0] as { text: string }).text).toContain("summaryDepth=1 → 1 (delta=0)");
+    expect((rebaseResult.content[0] as { text: string }).text).toContain("Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is 1 rather than 0.");
+
+    const nonRootResult = await travelTool.execute(
+      "non-root-fold",
+      { target: abandonedId, summary: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+    expect(nonRootResult.details).toMatchObject({ targetIsStructuralRoot: false });
+    expect((nonRootResult.content[0] as { text: string }).text).not.toContain("Root rebase");
   });
 });

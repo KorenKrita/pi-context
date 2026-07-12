@@ -286,7 +286,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               : `~${rootMessages.length} msgs`;
           }
           const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
-          lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; summary depth ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected`);
+          const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
+            ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
+            : "";
+          lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; summary depth ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
         }
         for (const checkpoint of listings.slice(0, params.limit)) {
           if (signal?.aborted) break;
@@ -361,7 +364,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official)`,
         `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (turn_end)`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
-        `• Summary Depth:    ${activeSummaryDepth} active summary node(s) on the current spine`,
+        `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Segment Size:     ${stepsSinceCheckpoint} steps since last checkpoint '${nearestCheckpoint ?? "None"}'`,
         `• Travel Cue:       ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
