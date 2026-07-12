@@ -5,12 +5,17 @@
   "files": [
     "src",
     "skills",
-    "README.md"
+    "README.md",
+    "AGENTS.md",
+    "implementation-notes.html"
   ],
   "scripts": {
     "test": "bun test",
+    "generate:guidance": "bun scripts/generate-guidance.mjs",
+    "test:guidance": "bun test scripts/generate-guidance.test.mjs",
+    "test:host": "cd test/host-fixture && bun run verify",
     "typecheck": "tsc --noEmit",
-    "test:host": "cd test/host-fixture && bun run verify"
+    "verify:acm": "bun scripts/generate-guidance.mjs --check && bun run test:guidance && bun run typecheck && bun run test:host"
   },
   "keywords": [
     "pi-agent",

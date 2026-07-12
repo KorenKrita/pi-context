@@ -1,71 +1,123 @@
 # pi-context
 
-> 让 AI agent 主动管理自己的上下文。
+> 让 Pi agent 主动管理自己的上下文。
 
-**Agentic Context Management** — agent 自己决定何时打锚点、何时穿越时间线、穿越到哪个节点。不是被动等系统自动压缩，而是主动的、语义级别的上下文管理。
+**Agentic Context Management (ACM)** 让 agent 按任务语义管理 context working set：checkpoint 建立恢复点，timeline 展示会话树，travel 把完成阶段或失败方向折叠成可恢复的 handoff branch。旧路径仍保留在 session tree 中，之后可以恢复。
 
-## 为什么需要
+本仓库是 canonical [`omp-context`](https://github.com/KorenKrita/omp-context) 的 Pi 适配版，并保留 Pi 独有的 `/context` token 可视化命令。
 
-AI agent 在长对话中会积累大量噪音：搜索结果、调试日志、失败尝试、中间产物。自动压缩按 token 阈值触发，不理解任务语义，经常压缩掉有用的东西。
+## 支持版本
 
-pi-context 让 agent 像管理 git 分支一样管理上下文：
+当前精确支持 **Pi `0.80.6`**。所有 `@earendil-works/pi-*` peer dependencies 和真实 host fixture 都固定为该版本；live AgentSession compatibility seam 不会对其他版本猜测私有结构。
 
-- **开始前**打个锚点（零成本）
-- **做完一阶段**后回头看结构
-- **觉得太乱了**就 travel 回更早的锚点，用 handoff summary 翻篇
-- **需要找回旧路径**就 travel 到 off-path 节点，恢复当时的 raw context
+## ACM 工具
 
-## 工具
-
-| 工具 | 做什么 |
+| 工具 | 作用 |
 |---|---|
-| `acm_checkpoint` | 打锚点。零成本——不改上下文、不分支、不摘要。多打 = 后续更多选择 |
-| `acm_timeline` | 看 active path 结构图 + token HUD（official + last LLM prompt + context sync 状态）。默认只显示当前路径；`verbose: true` 可显示 ACM 工具调用。off-path 摘要以脚注标出。`search` 全树搜索（含 off-path）。`list_checkpoints: true` 列 checkpoint 清单（按路径/时间排序，可配合 `search` 缩小，显示上限 50），`full_tree: true` 看整棵树 |
-| `acm_travel` | 穿越到任意锚点，留一份 handoff summary。上下文切换到目标节点 + summary；token 可能降（回到过去）也可能升（前往未来）。旧路径保留，随时再 travel |
+| `acm_checkpoint` | 给某个会话节点追加语义 alias。不会分支、摘要或改变当前 context |
+| `acm_timeline` | 查看 active path、checkpoint catalog、全树搜索或完整 tree，并显示 context/live-sync HUD |
+| `acm_travel` | travel 到 checkpoint 或 node ID，用七槽 handoff 创建 continuation branch；原路径成为可恢复 archive |
 
-## 时间旅行
+### Timeline：严格单视图
 
-**回到过去** — travel 到更早的锚点，把当前路径的噪音替换成 summary：
-- 失败的探索后重新开始
-- 完成嘈杂阶段后只留结论
-- 进入新阶段前整理调查过程
+```ts
+{ view: "active", limit?, verbose? }
+{ view: "checkpoints", limit?, filter? }
+{ view: "search", limit?, query }
+{ view: "tree", limit? }
+```
 
-副作用**可能**是 context 变小（目标在噪音产生之前），也可能不变或变大——以 travel 返回的 `estimatedEffect`、`structuralEffect` 和 `sessionMessages` 为准，再用 `acm_timeline` HUD 确认官方 %。
+省略 `view` 等价于 `active`。默认视图只显示模型实际使用的 active spine；off-path summaries 以分支脚注呈现。旧的 `list_checkpoints` / `full_tree` / `search` boolean 参数不受支持。
 
-**前往未来** — travel 到 off-path 或更晚的锚点，恢复该节点之前的 raw history：
-- 通过 `backupCurrentHeadAs` 找回被离开的分支
-- 比较不同方案
-- 恢复 summary 里丢失的细节
+### Travel handoff
 
-旧路径永远不删除——每次 travel 创建新分支，老分支完整保留在树里。
+`acm_travel.summary` 必须包含七个槽位：
 
-## 事件驱动优化
+```text
+Goal: <当前目标>
+State: <已经确定的状态和结论>
+Evidence: <文件、命令、URL、commit、node/checkpoint 等恢复指针>
+External: <磁盘、进程、浏览器、远端等外部副作用>
+Exclusions: <已排除方向及原因>
+Recover: <archive checkpoint 或 node ID>
+NEXT: <一个可立即执行的动作>
+```
 
-| 事件 | 优化 |
-|---|---|
-| `turn_end` | 缓存 LLM response 的真实 prompt tokens，HUD 显示准确数值（解决 travel 后 official HUD 滞后） |
-| `session_before_compact` | compaction 前自动打 `pre-compact-{timestamp}` checkpoint，事后能 travel 回来恢复细节 |
-| `session_compact` | compaction 触发 replaceMessages 后同步状态（清当前 session 的 refresh/cached-usage 状态） |
+travel 改变的是 Pi 会话历史树及后续模型 context，**不会**回滚文件系统、进程、浏览器或远端服务。
+
+## Travel 后的双重同步
+
+一次结构验证成功的 travel 会触发两条互补路径：
+
+1. **Persistent context rebuild**：下一次 `context` event 从 active SessionManager branch 重建并 sanitize provider messages；失败最多重试 3 次。
+2. **Live AgentSession sync**：匹配的 `tool_execution_end` 后，把同一 SessionManager 对应 AgentSession 的 stored messages 替换为 rebuilt active branch，使 Pi 的 native context accounting 不再继续计算已折叠历史。
+
+live sync 按 SessionManager 对象身份隔离，使用 WeakMap/WeakRef，不按目录、模型或 session 文件名猜测关联。若精确 host capability 不可用或 replacement 失败，travel 本身仍保持有效，persistent rebuild 继续提供正确 provider context，HUD 会显示状态并建议 reload。
+
+live sync 状态包括：`unavailable`、`pending`、`applied`、`failed`、`skipped`。
+
+## Context 与 compaction
+
+- `turn_end` 缓存最近一次真实 prompt usage，供 timeline HUD 使用。
+- `session_before_compact` 只在 Pi 真正发起 native compaction 时追加唯一的 `pre-compact-*` checkpoint。
+- successful live sync 会缩减 Pi 的 stored message accounting，避免因为 travel 前的 stale message array 立即误触发 native compaction。
+- `session_start`、`session_shutdown`、`session_compact` 按 session 清理 runtime state。
+- `fixOrphanedToolUse()` 删除孤立 tool result，并为被 travel 中断的 tool call 合成 `[Interrupted by context travel]` result。
+
+## `/context`
+
+`src/context.ts` 注册 Pi 独有的 `/context` TUI，用于查看 token 构成。它与 ACM 分工如下：
+
+- `/context`：观察 token 占用
+- `acm_timeline`：观察 session tree、checkpoint、refresh/live-sync 状态
+- `acm_checkpoint` / `acm_travel`：主动改变会话结构
 
 ## 安装
 
 ```bash
-# 从本地
+# 本地
 pi install .
 
-# 从 GitHub
+# GitHub
 pi install git:github.com/KorenKrita/pi-context
 ```
 
-## 与 Pi 内置功能的关系
+## 开发验证
 
-| 内置功能 | 关系 |
+```bash
+bun install
+bun run verify:acm
+```
+
+`test/host-fixture/` 会独立安装精确的 Pi `0.80.6`，构建 source-first fixture，并验证：
+
+- host version contract
+- AgentSession adapter capability、弱关联与幂等安装
+- successful shrinking travel 与完整 in-flight tool call/result
+- provider context、tree archive 与 native compaction accounting
+- unavailable/failure fallback
+- repeated travel、off-path restoration、persistence/resume
+- lifecycle cleanup、多 session 与 parent/subagent isolation
+
+## 代码结构
+
+| 路径 | 责任 |
 |---|---|
-| 自动压缩 | 互补——自动压缩按阈值触发，acm_travel 让 agent 按语义主动穿越时间线 |
-| `/context` | 互补——pi-context 提供 compaction-aware `/context` TUI 可视化 + acm_timeline HUD 双重 token 可视化；无法归类的 provider/schema 开销单列为 `Other` |
+| `src/index.ts` | 短 composition root |
+| `src/*-tool.ts` | checkpoint / timeline / travel behavior modules |
+| `src/travel-coordinator.ts` | backup、branch、verification、compensation transaction |
+| `src/host-bridge.ts` | SessionManager capability boundary |
+| `src/runtime.ts`, `src/runtime-lifecycle.ts` | session-scoped refresh、usage、live sync 与 lifecycle |
+| `src/live-agent-session-adapter.ts` | pinned Pi AgentSession synchronization seam |
+| `src/lib.ts` 等 | dependency-light domain logic |
+| `skills/context-management/CORE.md` | canonical normal-path guidance |
+| `src/generated-guidance.ts` | generated runtime guidance |
+| `src/context.ts` | Pi 独有 `/context` TUI |
+
+详细维护约束见 [`AGENTS.md`](./AGENTS.md)，实现决策与 provenance 见 [`implementation-notes.html`](./implementation-notes.html)。
 
 ## 参考
 
-- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计思路，本项目在此基础上实现 Agent 自动化上下文管理
-- [omp-context](https://github.com/KorenKrita/omp-context) — 同一项目的 OMP (oh-my-pi) 版本
+- [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计
+- [omp-context](https://github.com/KorenKrita/omp-context) — canonical OMP 实现
 - [让 AI 主动管理自己的上下文](https://blog.xlab.app/p/6a966aeb/) — 设计思路

@@ -147,7 +147,7 @@ Search existing checkpoints, preserve the semantic base, and add the smallest us
 <!-- ACM:RECOVERY_NAME_COLLISION:END -->
 
 <!-- ACM:RECOVERY_HOST_CAPABILITY:START -->
-The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported OMP version before retrying.
+The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported Pi version before retrying.
 <!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
