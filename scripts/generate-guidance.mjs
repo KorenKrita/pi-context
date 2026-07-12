@@ -15,6 +15,7 @@ export function extractGuidanceSection(source, name) {
   if (starts !== 1 || ends !== 1) throw new Error(`Expected exactly one ${name} marker pair; found ${starts}/${ends}`);
   const start = source.indexOf(startMarker) + startMarker.length;
   const end = source.indexOf(endMarker, start);
+  if (end < 0) throw new Error(`Marker ${name}: END must appear after START`);
   return source.slice(start, end).trim();
 }
 

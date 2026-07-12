@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
@@ -39,11 +39,9 @@ const build = await Bun.build({
   packages: "external",
 });
 if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-const fixtureModules = join(fixtureRoot, "node_modules") + sep;
 const resolvedPackages = hostPackages.map((packageName) => {
   const packageJsonPath = join(fixtureRoot, "node_modules", ...packageName.split("/"), "package.json");
   const metadata = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  if (!packageJsonPath.startsWith(fixtureModules)) throw new Error(`${packageName} resolved outside fixture node_modules: ${packageJsonPath}`);
   if (metadata.version !== supportedVersion) throw new Error(`${packageName} resolved ${metadata.version} instead of ${supportedVersion}`);
   return { packageName, relativePackageJsonPath: relative(fixtureRoot, packageJsonPath), version: metadata.version };
 });

@@ -60,7 +60,7 @@ function labelRemains(
   let aliases: string[] = [];
   for (const entry of sessionManager.getEntries()) {
     if (entry.type !== "label" || entry.targetId !== targetId) continue;
-    if (entry.label === undefined) {
+    if (entry.label === undefined || entry.label === null) {
       aliases = [];
       continue;
     }

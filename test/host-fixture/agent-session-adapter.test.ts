@@ -76,5 +76,12 @@ describe("live AgentSession adapter against pinned Pi", () => {
     const failure = adapter.apply(sessionManager);
     expect(failure).toMatchObject({ status: "failed", reason: "replace_messages_failed", message: "replacement refused" });
     expect(getLiveAgentSyncRecoveryGuidance(failure)).toContain("Reload");
+
+    const brokenManager = { getLeafId: () => { throw new Error("leaf unavailable"); } };
+    const brokenSession = new (HostClass as any)(brokenManager, { state: { messages: [] } });
+    brokenSession.getContextUsage();
+    expect(adapter.schedule(brokenManager).status).toBe("pending");
+    expect(adapter.apply(brokenManager)).toMatchObject({ status: "failed", reason: "read_leaf_failed", message: "leaf unavailable" });
+    expect(adapter.getStatus(brokenManager)).toMatchObject({ status: "failed", reason: "read_leaf_failed" });
   });
 });

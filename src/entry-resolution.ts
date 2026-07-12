@@ -24,11 +24,12 @@ export function isCheckpointableMessage(entry: SessionEntry): boolean {
 }
 
 export function describeEntrySnippet(entry: SessionEntry, maxLength = 60): string {
-  const raw = entry.type === "message"
-    ? ("content" in entry.message ? extractTextFromContent(entry.message.content) : "")
-    : entry.type === "branch_summary" || entry.type === "compaction"
-      ? entry.summary
-      : "";
+  let raw = "";
+  if (entry.type === "message") {
+    raw = "content" in entry.message ? extractTextFromContent(entry.message.content) : "";
+  } else if (entry.type === "branch_summary" || entry.type === "compaction") {
+    raw = entry.summary;
+  }
   const content = raw.replace(/\s+/g, " ").trim();
   return content.length > maxLength ? `${content.slice(0, maxLength)}...` : content;
 }

@@ -69,7 +69,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
-    const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
+    const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);
     const contextWindow = ctx.getContextUsage()?.contextWindow;
     if (typeof contextWindow === "number" && contextWindow > 0) {
       runtime.setUsage(ctx.sessionManager, {

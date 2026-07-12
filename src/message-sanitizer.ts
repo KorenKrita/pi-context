@@ -63,7 +63,7 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
       toolCallId: toolUse.id,
       toolName: toolUse.name,
       content: [{ type: "text" as const, text: "[Interrupted by context travel]" }],
-      timestamp: Date.now(),
+      timestamp: message.timestamp,
       isError: true,
     }));
     result.splice(index + 1, followingIndex - index - 1, ...repairedResults);

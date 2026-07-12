@@ -260,6 +260,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap 50). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}:`);
         const cache = new Map<string, AgentMessage[]>();
         for (const checkpoint of listings.slice(0, params.limit)) {
+          if (signal?.aborted) break;
           let targetMessages = cache.get(checkpoint.entryId);
           if (!targetMessages) {
             const targetResult = buildSessionMessages(sessionManager, checkpoint.entryId);

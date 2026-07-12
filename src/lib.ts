@@ -126,7 +126,7 @@ export class ContextRefreshRegistry {
   this.pending.delete(sm);
  }
 
- setFailure(sm: object, message: string): void {
+ private setFailure(sm: object, message: string): void {
   this.failures.set(sm, message);
  }
 

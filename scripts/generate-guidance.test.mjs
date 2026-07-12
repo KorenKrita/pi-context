@@ -71,6 +71,9 @@ describe("canonical guidance generation", () => {
     expect(() => deriveGuidance(`${source}\n${marker}`)).toThrow(
       "Expected exactly one TOOL_TIMELINE marker pair; found 2/1",
     );
+    const endMarker = "<!-- ACM:TOOL_TIMELINE:END -->";
+    const misordered = source.replace(marker, "").replace(endMarker, `${endMarker}\n${marker}`);
+    expect(() => deriveGuidance(misordered)).toThrow("Marker TOOL_TIMELINE: END must appear after START");
   });
 
   test("keeps normal cues concise and view-specific", () => {
