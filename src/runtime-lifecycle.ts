@@ -8,6 +8,7 @@ import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { RECOVERY_GUIDANCE } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { fixOrphanedToolUse } from "./message-sanitizer.js";
+import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 
 export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
@@ -15,7 +16,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
-    runtime.applyLiveAgentSync(ctx.sessionManager, event.toolCallId);
+    const outcome = runtime.applyLiveAgentSync(ctx.sessionManager, event.toolCallId);
+    const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
+    if (outcome.status === "failed" && recovery) {
+      ctx.ui.notify(`Live AgentSession synchronization failed: ${outcome.message}. ${recovery}`, "warning");
+    }
   });
 
   pi.on("context", (event, ctx: ExtensionContext) => {

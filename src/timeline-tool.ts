@@ -379,6 +379,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           outputLines: lines.length,
           contextRefreshPending: refreshPending,
           contextRefreshFailure: refreshFailure ?? null,
+          liveAgentSessionSyncState: liveSync.status,
+          liveAgentSessionSync: liveSync,
+          liveAgentSessionSyncRecovery: liveSyncRecovery,
         },
       };
     },

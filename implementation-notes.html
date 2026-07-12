@@ -45,6 +45,11 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
+        <td>Preserve a verified traveled branch when live message replacement fails, and surface reload guidance without attempting tree rollback.</td>
+        <td>The persistent SessionManager branch and context-event rebuild remain authoritative. A post-travel live-sync failure clears only the matching pending tool operation, records a terminal diagnostic, and emits a warning; rolling back a valid travel would be more destructive than leaving native accounting stale until reload.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
         <td>Use strict Pi TypeBox schemas rather than recreating the OMP runtime-injected Zod seam.</td>
         <td>Pi exposes TypeBox through <code>@earendil-works/pi-ai</code>. The timeline schema keeps the single-view contract, including omitted <code>view</code> as active mode, without accepting legacy competing booleans.</td>
       </tr>
@@ -56,6 +61,6 @@
     </tbody>
   </table>
   <h2>Open decisions</h2>
-  <p>None for successful single-travel synchronization. Later tickets must still verify failure recovery, repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
+  <p>None for successful single-travel synchronization or synchronization failure recovery. Later tickets must still verify repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
 </body>
 </html>
