@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerACMExtension, { fixOrphanedToolUse } from "../src/index";
+import { getMeaningfulSkipReason } from "../src/lib";
 
 const text = (value: string) => [{ type: "text", text: value }];
 const toolCall = (id: string) => ({
@@ -81,6 +82,18 @@ describe("fixOrphanedToolUse", () => {
             toolName: "bash",
             isError: true,
         });
+    });
+});
+
+describe("meaningful entry sanitation", () => {
+    it("defensively ignores malformed text blocks without throwing", () => {
+        const entry = {
+            type: "message",
+            id: "assistant-malformed",
+            message: { role: "assistant", content: [{ type: "text" }] },
+        };
+
+        expect(getMeaningfulSkipReason(entry as Parameters<typeof getMeaningfulSkipReason>[0])).toBe("empty_assistant");
     });
 });
 

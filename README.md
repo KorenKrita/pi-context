@@ -64,6 +64,10 @@ live sync 状态包括：`unavailable`、`pending`、`applied`、`failed`、`ski
 - `session_start`、`session_shutdown`、`session_compact` 按 session 清理 runtime state。
 - `fixOrphanedToolUse()` 删除孤立 tool result，并为被 travel 中断的 tool call 合成 `[Interrupted by context travel]` result。
 
+### Integrated-consumer compatibility
+
+The named export `fixOrphanedToolUse(messages)` follows the canonical ACM contract: it returns a sanitized message array and does not mutate the caller's array. Consumers of the legacy in-place/boolean helper must use the returned array after upgrading.
+
 ## `/context`
 
 `src/context.ts` 注册 Pi 独有的 `/context` TUI，用于查看 token 构成。它与 ACM 分工如下：

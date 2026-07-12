@@ -1,2 +1,3 @@
 node_modules/
 bun.lock
+!test/host-fixture/bun.lock

@@ -373,7 +373,9 @@ export function getMeaningfulSkipReason(entry: SessionEntry): MeaningfulSkipReas
     (c: AssistantContentPart): c is ToolCall => c.type === "toolCall",
    );
    const hasVisibleText = msg.content.some(
-    (c: AssistantContentPart) => c.type === "text" && (c as TextContent).text.trim().length > 0,
+    (c: AssistantContentPart) => c.type === "text" &&
+     typeof (c as TextContent).text === "string" &&
+     (c as TextContent).text.trim().length > 0,
    );
    const onlyInternalTools = toolCalls.length > 0 &&
     toolCalls.every((tc: ToolCall) => ACM_INTERNAL_TOOLS.has(tc.name));

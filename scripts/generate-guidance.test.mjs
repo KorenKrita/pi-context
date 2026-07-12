@@ -46,7 +46,7 @@ describe("canonical guidance generation", () => {
     const tempOutput = join(tempDirectory, "generated-guidance.ts");
     await Bun.write(tempOutput, "stale\n");
     try {
-      const process = Bun.spawn(["bun", new URL("./generate-guidance.mjs", import.meta.url).pathname, "--source", sourcePath, "--output", tempOutput, "--check"], {
+      const process = Bun.spawn(["bun", fileURLToPath(new URL("./generate-guidance.mjs", import.meta.url)), "--source", sourcePath, "--output", tempOutput, "--check"], {
         stdout: "pipe",
         stderr: "pipe",
       });

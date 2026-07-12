@@ -277,7 +277,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const search = searchTree(tree, labelMaps, params.query, params.limit, signal);
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
-        lines.push(`Search '${params.query}': ${search.matches.length} displayed of ${search.matches.length + (search.truncated ? 1 : 0)} matching node(s).`);
+        lines.push(
+          `Search '${params.query}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
+        );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
           lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${match.labels.join(", ")})` : ""} [${displayRole(match.entry)}] ${body}`);

@@ -49,7 +49,8 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
     let followingIndex = index + 1;
     while (followingIndex < result.length && result[followingIndex].role === "toolResult") {
       const following = result[followingIndex];
-      if (following.role === "toolResult" && following.toolCallId && !existingResults.has(following.toolCallId)) {
+      if (following.role !== "toolResult") break; // Re-narrow indexed union access for TypeScript.
+      if (following.toolCallId && !existingResults.has(following.toolCallId)) {
         existingResults.set(following.toolCallId, following);
       }
       followingIndex++;

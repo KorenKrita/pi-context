@@ -124,7 +124,8 @@ function install(HostClass: AgentSessionHostClass): InstallationState | AgentSes
   });
   prototype.getContextUsage = function (this: LiveAgentSession, ...args: unknown[]) {
     if (this && typeof this.sessionManager === "object" && this.sessionManager !== null) {
-      state.sessions.set(this.sessionManager, new WeakRef(this));
+      const existing = state.sessions.get(this.sessionManager)?.deref();
+      if (existing !== this) state.sessions.set(this.sessionManager, new WeakRef(this));
     }
     return originalGetContextUsage.apply(this, args);
   };

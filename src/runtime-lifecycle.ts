@@ -53,7 +53,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const fallbackResult = fallbackLeafId
           ? buildSessionMessages(sessionManager, fallbackLeafId)
           : { ok: true as const, value: [] as AgentMessage[] };
-        messages = fallbackResult.ok ? fallbackResult.value : [];
+        if (!fallbackResult.ok) return reportFailure(fallbackResult.message);
+        messages = fallbackResult.value;
       }
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
 
