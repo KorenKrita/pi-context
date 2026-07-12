@@ -45,16 +45,19 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
     }
     if (toolUseIds.length === 0) continue;
 
-    const resolvedIds = new Set<string>();
-    for (let followingIndex = index + 1; followingIndex < result.length; followingIndex++) {
+    const existingResults = new Map<string, AgentMessage>();
+    let followingIndex = index + 1;
+    while (followingIndex < result.length && result[followingIndex].role === "toolResult") {
       const following = result[followingIndex];
-      if (following.role !== "toolResult") break;
-      if (following.toolCallId) resolvedIds.add(following.toolCallId);
+      if (following.role === "toolResult" && following.toolCallId && !existingResults.has(following.toolCallId)) {
+        existingResults.set(following.toolCallId, following);
+      }
+      followingIndex++;
     }
 
-    const orphaned = toolUseIds.filter((toolUse) => !resolvedIds.has(toolUse.id));
+    const orphaned = toolUseIds.filter((toolUse) => !existingResults.has(toolUse.id));
     if (orphaned.length === 0) continue;
-    const synthetics: AgentMessage[] = orphaned.map((toolUse) => ({
+    const repairedResults: AgentMessage[] = toolUseIds.map((toolUse) => existingResults.get(toolUse.id) ?? ({
       role: "toolResult" as const,
       toolCallId: toolUse.id,
       toolName: toolUse.name,
@@ -62,8 +65,8 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
       timestamp: Date.now(),
       isError: true,
     }));
-    result.splice(index + 1, 0, ...synthetics);
-    index += synthetics.length;
+    result.splice(index + 1, followingIndex - index - 1, ...repairedResults);
+    index += repairedResults.length;
   }
 
   return result;
