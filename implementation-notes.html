@@ -55,6 +55,11 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
+        <td>Scope live synchronization strictly to each <code>SessionManager</code>/<code>AgentSession</code> identity pair, including parent/subagent and duplicate extension registrations.</td>
+        <td>The process-wide installation marker owns only <code>WeakMap</code> indexes and <code>WeakRef</code> session values. Each extension runtime keeps its own pending tool-call correlation, lifecycle cleanup addresses one manager only, and no working-directory, model, session-file, or global-current-session matching is used.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
         <td>Use strict Pi TypeBox schemas rather than recreating the OMP runtime-injected Zod seam.</td>
         <td>Pi exposes TypeBox through <code>@earendil-works/pi-ai</code>. The timeline schema keeps the single-view contract, including omitted <code>view</code> as active mode, without accepting legacy competing booleans.</td>
       </tr>
@@ -66,6 +71,6 @@
     </tbody>
   </table>
   <h2>Open decisions</h2>
-  <p>None for successful travel, synchronization failure recovery, repeated travel, off-path restoration, persistence/resume, or lifecycle cleanup. Multi-session and subagent isolation still require final verification before this compatibility seam is considered complete.</p>
+  <p>None for successful travel, synchronization failure recovery, repeated travel, off-path restoration, persistence/resume, lifecycle cleanup, or multi-session/subagent isolation. Final combined verification and prototype retirement remain implementation work rather than open design decisions.</p>
 </body>
 </html>
