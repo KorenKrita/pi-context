@@ -4,7 +4,7 @@
 
 **Agentic Context Management (ACM)** 让 agent 按任务语义管理 context working set：checkpoint 建立恢复点，timeline 展示会话树，travel 把完成阶段或失败方向折叠成可恢复的 handoff branch。旧路径仍保留在 session tree 中，之后可以恢复。
 
-本仓库是 canonical [`omp-context`](https://github.com/KorenKrita/omp-context) 的 Pi 适配版，并保留 Pi 独有的 `/context` token 可视化命令。
+本仓库是 KorenKrita 维护的 [`omp-context`](https://github.com/KorenKrita/omp-context) 的 Pi 迁移版，并保留 Pi 独有的 `/context` token 可视化命令。`omp-context` 是个人维护的第三方 OMP 插件，不是 OMP 官方实现。
 
 ## 支持版本
 
@@ -123,5 +123,5 @@ bun run verify:acm
 ## 参考
 
 - [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) — 原始设计
-- [omp-context](https://github.com/KorenKrita/omp-context) — canonical OMP 实现
+- [omp-context](https://github.com/KorenKrita/omp-context) — KorenKrita 维护的第三方 OMP 适配版，也是本仓库 ACM 实现的迁移源
 - [让 AI 主动管理自己的上下文](https://blog.xlab.app/p/6a966aeb/) — 设计思路
