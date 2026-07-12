@@ -38,9 +38,24 @@
         <td>Keep persistent tree mutation in Host Bridge and live-state replacement in a separate compatibility boundary.</td>
         <td><code>appendLabelChange()</code>, <code>branchWithSummary()</code>, and <code>buildSessionContext()</code> are public Pi capabilities, but extension tool context exposes only a readonly manager type. Host Bridge performs guarded capability access; the adapter only synchronizes the matching live session after callers schedule it.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Schedule live synchronization only after a structurally verified travel and apply it from the matching <code>tool_execution_end</code> event.</td>
+        <td>The travel tool remains synchronous and truthful about its branch result. Deferring message replacement until the matching tool execution ends preserves the in-flight call/result protocol while preventing failed, indeterminate, or unrelated tool executions from modifying live state.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Use strict Pi TypeBox schemas rather than recreating the OMP runtime-injected Zod seam.</td>
+        <td>Pi exposes TypeBox through <code>@earendil-works/pi-ai</code>. The timeline schema keeps the single-view contract, including omitted <code>view</code> as active mode, without accepting legacy competing booleans.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Discover the pinned host manifest by walking ancestor <code>node_modules</code> directories.</td>
+        <td>Bun's bundled fixture does not reliably resolve the scoped host package through <code>createRequire()</code>. Filesystem discovery is deterministic in both source-first and isolated fixture layouts and still requires the exact <code>0.80.6</code> manifest.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
-  <p>None for the adapter boundary. Later migration tickets must verify tool-execution ordering, failure recovery, repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
+  <p>None for successful single-travel synchronization. Later tickets must still verify failure recovery, repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
 </body>
 </html>

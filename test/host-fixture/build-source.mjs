@@ -20,6 +20,7 @@ if (!declaredVersions.every((version) => version === supportedVersion)) {
   throw new Error(`Fixture host package versions disagree: ${declaredVersions.join(", ")}`);
 }
 const entrypoints = [
+  { source: "../../src/index.ts", output: "index.js" },
   { source: "../../src/live-agent-session-adapter.ts", output: "live-agent-session-adapter.js" },
 ];
 rmSync(outputRoot, { recursive: true, force: true });

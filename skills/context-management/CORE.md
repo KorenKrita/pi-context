@@ -1,0 +1,175 @@
+# ACM Canonical Guidance
+
+This file is the editable source for always-on ACM guidance and generated tool/result text. Generated TypeScript must be refreshed with `bun run generate:guidance`.
+
+<!-- ACM:CORE:START -->
+## Agentic Context Management CORE v1
+
+A context window is a **working set**: the exact material needed for the next action. Keep that detail live. Compress finished process into a recoverable **handoff** only at a named **boundary**.
+
+### Vocabulary
+
+- **working set** — live detail the next action will reason over.
+- **boundary** — the semantic edge being compressed: a burst, phase, failed direction, batch item, or task chain.
+- **handoff** — the executable state that survives a fold; an index to evidence, not a dump.
+- **archive** — the raw off-path history and its recovery checkpoint or node ID.
+- **chain** — continuous work serving one user goal.
+- **burst** — temporary expansion from broad reads, logs, searches, diffs, or subagents.
+- **anchor gravity** — the misleading pull of the nearest checkpoint. Name the boundary before choosing a target.
+
+### Normal state transitions
+
+| Event | Required transition |
+|---|---|
+| New chain starts | checkpoint `<chain>-start` before the first action |
+| Phase, attempt, or batch item starts | checkpoint its `-start` boundary before acting |
+| Unbounded burst or risky step is next | checkpoint before output or side effects arrive |
+| Findings are distilled and raw trail is no longer needed by NEXT | inspect timeline evidence, then fold the named boundary |
+| Direction is rejected or superseded | put the dead direction in Exclusions, preserve surviving facts, then fold to its start |
+| Final answer is next | fold the task chain when the fold removes material structure; otherwise create a unique `-done` checkpoint and answer directly |
+| New request arrives over finished unfolded work | fold the finished chain before starting the new chain |
+
+High context pressure triggers a boundary check. It does not authorize travel by itself.
+
+### Fold gate
+
+Travel only when all three criteria hold:
+
+1. **Boundary named** — say exactly what raw process leaves the working set.
+2. **NEXT executable** — write one immediate action that can run from the handoff.
+3. **Raw recoverable** — preserve omitted detail through a checkpoint, node ID, file, command, URL, commit, or other pointer.
+
+Boundary decides whether folding is valid. Timeline reports evidence; it does not decide for you. A target must sit before the named boundary. Nearest and earliest anchors are candidates, never defaults.
+
+### Handoff contract
+
+Every handoff uses these seven slots in this order. Write `none` when a category is empty.
+
+```text
+Goal: <current goal; quote a new triggering request when its turn will leave context>
+State: <conclusions, decisions, status, key values and identifiers>
+Evidence: <paths, commands, URLs, commits, errors, checkpoints or node IDs>
+External: <file, process, browser, remote, ticket, or other side effects>
+Exclusions: <dead ends and directions not to repeat, with reasons>
+Recover: <archive checkpoint, backup label, or raw node pointer>
+NEXT: <one executable next action>
+```
+
+The runtime can validate slot structure. Semantic completeness, target quality, recoverability sufficiency, and whether NEXT is genuinely executable remain agent completion criteria.
+
+### Representative transitions
+
+**Burst example**
+
+```text
+Goal: Fix high CPU while preserving the sidebar.
+State: Profiling proved hidden tabs retain workers; implementation is next.
+Evidence: artifacts/sidebar-profile.json; src/sidebar/session-manager.ts.
+External: profiler stopped; no files changed.
+Exclusions: disabling the sidebar violates the goal.
+Recover: sidebar-profile-start.
+NEXT: Checkpoint sidebar-lifecycle-fix-start, then inspect worker disposal.
+```
+
+**Failed-direction example**
+
+```text
+Goal: Stop duplicate requests after restore.
+State: Disabling the cache did not change request count; duplication precedes cache lookup.
+Evidence: logs/restore-debug.log; restore-replay test.
+External: debug logging remains enabled locally.
+Exclusions: cache invalidation is ruled out because both requests enter dispatch.
+Recover: cache-hypothesis-start; cache-hypothesis-done.
+NEXT: Checkpoint dispatch-replay-start, then inspect callers of dispatchRestoredRequest.
+```
+
+**Finished-chain example**
+
+```text
+Goal: Release fix complete; new request is "Add dry-run mode to migration."
+State: v2.4.1 is validated and pushed; migration work has not started.
+Evidence: commit 1a2b3c4; tag v2.4.1; full test output.
+External: commit and tag pushed to origin.
+Exclusions: version-detection workaround remains rejected.
+Recover: release-fix-done.
+NEXT: Checkpoint migration-dry-run-start, then inspect the migration command entry point.
+```
+
+After travel, confirm resolved target, summary leaf, backup outcome, raw usage/message deltas, and context-sync state. If NEXT begins a new phase, checkpoint that phase before acting. Travel changes conversation context only; inspect disk and external systems directly.
+<!-- ACM:CORE:END -->
+
+<!-- ACM:TOOL_CHECKPOINT:START -->
+Create recoverability by labeling one session node. Checkpoint before a chain, phase, attempt, burst, risky step, or milestone. Names are tree-wide, unique, and case-sensitive; use semantic `-start`, `-done`, or `-paused` suffixes. Omitting target selects the nearest meaningful USER/AI turn; an explicit node ID may label older history. Checkpoint does not branch or fold the active context.
+<!-- ACM:TOOL_CHECKPOINT:END -->
+
+<!-- ACM:TOOL_TIMELINE:START -->
+Inspect session structure and context evidence through one view: `active`, `checkpoints`, `search`, or `tree`. Omit view for `active`. Use `checkpoints` or `search` to compare non-obvious targets; use `tree` only when topology matters. Choose a target by named boundary, not proximity.
+<!-- ACM:TOOL_TIMELINE:END -->
+
+<!-- ACM:TOOL_TRAVEL:START -->
+Fold one named boundary into a recoverable seven-slot handoff. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but does not judge fold value or semantic boundary quality.
+<!-- ACM:TOOL_TRAVEL:END -->
+
+<!-- ACM:CUE_CHECKPOINT_START:START -->
+Recoverability created. Continue the current working set; choose any later fold target by boundary, not by nearest-anchor gravity.
+<!-- ACM:CUE_CHECKPOINT_START:END -->
+
+<!-- ACM:CUE_CHECKPOINT_DONE:START -->
+Milestone archived. Use this checkpoint as a retreat or raw-history recovery pointer if later work regresses.
+<!-- ACM:CUE_CHECKPOINT_DONE:END -->
+
+<!-- ACM:CUE_TIMELINE_ACTIVE:START -->
+View `active` selected. Continue from the visible spine; inspect another view only when target identity or branch topology is not yet checkable.
+<!-- ACM:CUE_TIMELINE_ACTIVE:END -->
+
+<!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
+View `checkpoints` selected. Compare named candidates against the boundary, then inspect the chosen target's branch only if its placement remains ambiguous.
+<!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
+
+<!-- ACM:CUE_TIMELINE_SEARCH:START -->
+View `search` selected. Narrow by semantic label, node ID, or content until the pre-boundary target is identifiable; use the returned raw node ID when no checkpoint fits.
+<!-- ACM:CUE_TIMELINE_SEARCH:END -->
+
+<!-- ACM:CUE_TIMELINE_TREE:START -->
+View `tree` selected. Use branch topology to verify front ownership and target placement; narrow with search or checkpoints if the tree is truncated.
+<!-- ACM:CUE_TIMELINE_TREE:END -->
+
+<!-- ACM:CUE_TRAVEL_PHASE:START -->
+Checkpoint the next phase before its first action, then execute the handoff NEXT.
+<!-- ACM:CUE_TRAVEL_PHASE:END -->
+
+<!-- ACM:CUE_TRAVEL_TASK:START -->
+Answer from the handoff branch; do not reintroduce archived process into the final response.
+<!-- ACM:CUE_TRAVEL_TASK:END -->
+
+<!-- ACM:RECOVERY_NAME_COLLISION:START -->
+Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target.
+<!-- ACM:RECOVERY_NAME_COLLISION:END -->
+
+<!-- ACM:RECOVERY_HOST_CAPABILITY:START -->
+The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported OMP version before retrying.
+<!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
+
+<!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
+The backup label remains in the tree. Record its label and entry ID as a recovery pointer before any retry.
+<!-- ACM:RECOVERY_ROLLBACK_FAILED:END -->
+
+<!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:START -->
+Branch creation failed before mutation; the new backup label was rolled back. Correct the reported host failure before retrying.
+<!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:END -->
+
+<!-- ACM:RECOVERY_ROLLBACK_SKIPPED:START -->
+Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer and inspect the active leaf before retrying.
+<!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
+
+<!-- ACM:RECOVERY_REFRESH_PENDING:START -->
+Travel mutation landed, but rebuilt message evidence is pending. Use the reported summary entry as the fallback and inspect context sync state if the next rebuild fails.
+<!-- ACM:RECOVERY_REFRESH_PENDING:END -->
+
+<!-- ACM:RECOVERY_RESTORED_HISTORY:START -->
+Off-path travel restored raw history. Use the required detail, then return to the summary checkpoint unless this branch intentionally replaces it.
+<!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
+
+<!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->
+Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and resume only after the selected branch is authoritative.
+<!-- ACM:RECOVERY_REFRESH_EXHAUSTED:END -->

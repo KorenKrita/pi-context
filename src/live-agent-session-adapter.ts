@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { buildSessionMessages, type ReadonlySessionManager } from "./host-bridge.js";
@@ -70,15 +71,25 @@ export function getLiveAgentSyncRecoveryGuidance(outcome: AgentSessionSyncOutcom
 }
 
 export function readInstalledAgentSessionHostVersion(): string | undefined {
-  try {
-    const require = createRequire(import.meta.url);
-    const resolved = require.resolve("@earendil-works/pi-coding-agent").replace(/^(?:file:)+/, "");
-    const manifestPath = join(dirname(dirname(resolved)), "package.json");
-    const hostPackage = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
-    return typeof hostPackage.version === "string" ? hostPackage.version : undefined;
-  } catch {
-    return undefined;
+  const starts = [dirname(fileURLToPath(import.meta.url)), process.cwd()];
+  for (const start of starts) {
+    let directory = start;
+    while (true) {
+      const manifestPath = join(directory, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
+      if (existsSync(manifestPath)) {
+        try {
+          const hostPackage = JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown };
+          return typeof hostPackage.version === "string" ? hostPackage.version : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+      const parent = dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
   }
+  return undefined;
 }
 
 function unavailable(
