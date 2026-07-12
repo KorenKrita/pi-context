@@ -50,6 +50,11 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
+        <td>Treat each scheduled synchronization as replaceable per <code>SessionManager</code>, and make the resulting persisted branch the only resume authority.</td>
+        <td>A later travel supersedes stale pending work only for the same manager. Off-path restoration rebuilds from the newly selected leaf, while process resume opens the persisted tree into a new manager/session association instead of retaining any previous-process <code>AgentSession</code> object.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
         <td>Use strict Pi TypeBox schemas rather than recreating the OMP runtime-injected Zod seam.</td>
         <td>Pi exposes TypeBox through <code>@earendil-works/pi-ai</code>. The timeline schema keeps the single-view contract, including omitted <code>view</code> as active mode, without accepting legacy competing booleans.</td>
       </tr>
@@ -61,6 +66,6 @@
     </tbody>
   </table>
   <h2>Open decisions</h2>
-  <p>None for successful single-travel synchronization or synchronization failure recovery. Later tickets must still verify repeated travel, restoration, lifecycle cleanup, and multi-session isolation before this compatibility seam is considered complete.</p>
+  <p>None for successful travel, synchronization failure recovery, repeated travel, off-path restoration, persistence/resume, or lifecycle cleanup. Multi-session and subagent isolation still require final verification before this compatibility seam is considered complete.</p>
 </body>
 </html>
