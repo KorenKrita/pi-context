@@ -1,32 +1,34 @@
 # Exceptional Recovery
 
-Use this reference only when an ACM result reports an exceptional outcome. CORE remains authoritative for the normal process; this file supplies bounded responses to observable failures and unusual structural effects.
+Use this reference only when an ACM result reports an exceptional outcome. CORE remains authoritative for the normal process; this file maps each observable failure state to one bounded recovery action.
 
 ## Travel failure
 
-Do not continue from the requested destination or assume that history changed. Read the failure, then inspect the timeline to establish the active branch and target existence. Correct only the reported cause—such as an unknown target, invalid summary, or stale checkpoint name—and retry once the destination is verifiable. Preserve the failed result as evidence if the cause is not locally correctable.
+Hold ordinary work on the observed active branch. Read the failure, then inspect the timeline to establish the active leaf and target existence. Correct the reported cause—such as an unknown target, invalid summary, or stale checkpoint name—and retry only after the destination is verifiable. Preserve the failed result as evidence when the cause is not locally correctable.
 
-## Rollback failure
+## Backup rollback failure
 
-A failed travel rollback means branch mutation may be partial. Stop all downstream work. Capture the reported original branch, attempted target, summary entry, and rollback error; inspect the timeline for the actual active leaf. Resume only after branch identity is established. If the original branch is reachable, return to it with a fresh handoff; otherwise preserve the current leaf, report the lost transition, and choose recovery from observed tree state rather than intent.
+This outcome means branch creation was not applied, but the newly created backup checkpoint could not be removed. Treat the branch as unchanged and the remaining backup label as a recovery pointer. Record its label and entry ID, resolve any label collision it creates, and retry only after the original failure is corrected.
 
-Travel never rolls back files, processes, browser state, commits, or remote effects. Inspect those systems directly whenever the exceptional result leaves their state uncertain.
+## Indeterminate branch mutation
+
+This outcome means mutation may have landed, so automatic backup rollback was skipped. Pause semantic work and inspect the actual leaf, summary entry, backup pointer, and context-refresh state. Continue from the observed branch when its handoff is authoritative; otherwise travel from that observed state to a verified recovery target. Disk, process, browser, commit, and remote state remain external and require direct inspection.
 
 ## Context-refresh exhaustion
 
-When the result reports that context refresh or model synchronization exhausted its retries, treat the conversation tree as mutated but the model context as stale. Do not issue semantic follow-up work. Preserve the destination and summary entry IDs, then trigger only the host-supported context rebuild or session restart path. After rebuild, verify the active branch and handoff before resuming its next action.
+Treat the conversation tree as mutated and the model context as stale. Preserve the destination and summary entry IDs, then use the host-supported session reload or context rebuild path. After rebuild, verify the active branch and handoff before resuming `NEXT`.
 
 ## Restored history
 
-Travel can restore or grow raw history when the destination is later, off-path, or previously archived. If the result reports restored history or increased context usage:
+Travel can restore or grow raw history when the destination is later, off-path, or previously archived. When the result reports restored history or increased context usage:
 
 1. Verify that the requested destination is active.
 2. Decide whether the restored detail is required by the current action.
-3. If required, continue without immediately folding it again.
-4. If accidental, return to the prior summary checkpoint with a handoff that preserves the needed extract.
+3. When required, continue with that detail live.
+4. When accidental, return to the prior summary checkpoint with a handoff carrying only the needed extract.
 
-Increased usage is evidence about structure, not proof of failure.
+Increased usage is structural evidence, not proof of failure.
 
 ## No-saving recovery
 
-When a task-end travel preview or result shows no meaningful structural saving, do not travel merely to create an archive label. Create a unique semantic `<task>-done` checkpoint on the current branch and answer directly. If an attempted no-saving travel already landed, verify the surviving branch, preserve its summary entry as evidence, and avoid repeating the same no-op fold.
+When a task-end travel preview or result shows no meaningful structural saving, create a unique semantic `<task>-done` checkpoint on the current branch and answer directly. If an attempted no-saving travel already landed, verify the surviving branch, preserve its summary entry as evidence, and use that branch without repeating the same fold.

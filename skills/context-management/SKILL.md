@@ -1,16 +1,16 @@
 ---
 name: context-management
-description: "Resolve advanced ACM cases: non-obvious earliest-safe-base selection, interleaved fronts, missing anchors, archive round trips, checkpoint-name collisions, and exceptional travel or recovery results. Use only when the always-on CORE normal path cannot be applied directly."
+description: "Resolve advanced ACM cases: ambiguous earliest-safe-base selection, interleaved fronts, missing anchors, archive round trips, checkpoint-name collisions, and exceptional mutation or context-sync results. Use only when the always-on CORE normal path cannot complete the current decision."
 ---
 
 # Advanced Context Management
 
-The always-on **CORE owns the normal path**. Do not reconstruct it here or load this Skill for ordinary checkpointing, clear phase folds, clear burst folds, pressure checks, or task-end handling.
+The always-on **CORE owns the normal path**: ordinary checkpointing, clear phase folds, clear burst folds, pressure checks, task-end handling, and an obvious rebase all stay there. This Skill resolves one advanced condition at a time.
 
-Load exactly one reference when its observable condition is true:
+Select the reference whose observable condition is active:
 
-- Load [Advanced Target Selection](references/target-selection.md) when the boundary or rebase trigger is known but the target is ambiguous because the earliest safe base is unclear, fronts are interleaved, a suitable anchor is older or missing, only a raw node may fit, or a checkpoint name collides.
-- Load [Archive Recovery](references/archive-recovery.md) when one exact detail must be fetched from an archived branch and work must then resume on the current summary branch.
-- Load [Exceptional Recovery](references/exceptional-recovery.md) when an ACM result reports travel failure, rollback failure, exhausted context refresh, restored or grown history, or a task-end fold with no meaningful saving.
+- Load [Advanced Target Selection](references/target-selection.md) when the fold boundary or rebase trigger is known but the target remains ambiguous because candidate chronology, front ownership, an older or missing anchor, raw-node fallback, or a checkpoint-name collision must be resolved.
+- Load [Archive Recovery](references/archive-recovery.md) when one exact archived detail must be fetched and ordinary work must resume on the current summary branch.
+- Load [Exceptional Recovery](references/exceptional-recovery.md) when a result reports travel failure, backup rollback failure, indeterminate branch mutation, exhausted context refresh, restored or grown history, or a task-end fold with no meaningful saving.
 
-Each reference is self-contained for that cognitive task. Stop after the selected reference; loading the others adds unrelated branches.
+Load one reference at a time. If the observable condition changes, return to this router and replace the active reference instead of accumulating playbooks. Routing is complete when the current condition has one matching reference—or CORE already handles it—and no unrelated reference is loaded.

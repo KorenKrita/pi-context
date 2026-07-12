@@ -17,7 +17,8 @@ describe("ACM tool description contract", () => {
   });
 
   test("keeps rebase semantics agent-owned and runtime evidence factual", () => {
-    expect(travelTool).toContain("For a rebase, run cold start on candidate bases from earliest to latest");
+    expect(travelTool).toContain("retires an active summary without growing projected depth");
+    expect(travelTool).toContain("whose snapshot passes cold start");
     expect(travelTool).toContain("root is a candidate, not a default");
     expect(travelTool).toContain("activeSummaryDepthBefore");
     expect(timelineTool).toContain("structural candidate, not a checkpoint");

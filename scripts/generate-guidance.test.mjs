@@ -94,8 +94,8 @@ describe("canonical guidance generation", () => {
       expect(cue).not.toContain("### Normal state transitions");
       expect(cue).not.toContain("Goal: <");
     }
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("rebase");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold start");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("structural reset and cold start");
     expect(GUIDANCE_CUES.timelineActive).toContain("`active`");
     expect(GUIDANCE_CUES.timelineCheckpoints).toContain("`checkpoints`");
     expect(GUIDANCE_CUES.timelineSearch).toContain("`search`");

@@ -4,15 +4,16 @@ Use this reference only after CORE has established a fold boundary or rebase tri
 
 ## Rebase base selection
 
-When cold start may permit a rebase but the earliest safe base is unclear:
+When a rebase trigger is known but the earliest safe base is unclear:
 
-1. List every surviving state item: active and parked fronts, unresolved invariants, external effects, and recovery pointers.
-2. Order candidate bases from earliest to latest: root, chain start, phase or attempt start, raw pre-boundary node, then local boundary start.
-3. Run the cold start test against each candidate in that order. The snapshot must let a fresh agent execute `NEXT` without reading any summary that would leave the active spine.
-4. Choose the first candidate that passes. Projected summary depth and usage are evidence, never substitutes for the test.
-5. If none passes, keep required detail live or use a local fold. A transcript-sized snapshot is evidence that rebase is not ready.
+1. Inventory every surviving item: active and parked fronts, unresolved invariants, external effects, and recovery pointers.
+2. Collect candidate bases from root, chain/phase/attempt starts, and verified raw pre-boundary nodes. Keep only candidates on the intended branch, deduplicate them, then sort by actual ancestor order from earliest to latest; semantic labels suggest candidates, tree topology orders them.
+3. Apply structural reset. The candidate must precede at least one active `branch_summary` that will leave the spine, and projected summary depth must not grow. Equal depth is valid only when an old summary is replaced by the new authoritative snapshot.
+4. Apply cold start. `NEXT` must be immediately executable; every surviving item must live in the snapshot or a usable direct evidence pointer; ordinary execution must not require an archived summary.
+5. Choose the first candidate that passes both criteria. Usage and message deltas are supporting evidence, not substitutes for structural reset or cold start.
+6. If none passes, keep required detail live or use a local fold. A transcript-sized snapshot or a target after every active summary means rebase is not ready.
 
-Root is the ideal earliest candidate, not the presumed answer. The selected base is the earliest one that preserves every surviving state item through the authoritative snapshot or a direct evidence pointer.
+Root is the ideal earliest candidate, not the presumed answer. Selection is complete only when the chosen base passes both criteria and every surviving item has one authoritative home.
 
 ## Interleaved fronts
 

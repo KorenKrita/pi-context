@@ -16,8 +16,8 @@ A context window is a **working set**: the exact material needed for the next ac
 - **chain** — continuous work serving one user goal.
 - **burst** — temporary expansion from broad reads, logs, searches, diffs, or subagents.
 - **anchor gravity** — the misleading pull of the nearest checkpoint. Name the boundary before choosing a target.
-- **rebase** — carry all surviving state in one authoritative snapshot to the earliest safe base, moving accumulated summary depth out of the working set.
-- **cold start** — the rebase test: a fresh agent can execute `NEXT` from the snapshot and its evidence pointers without reading archived summaries.
+- **rebase** — move all surviving state in one authoritative snapshot to the earliest safe base, retiring accumulated summary depth.
+- **cold start** — a fresh agent can execute `NEXT` from the snapshot and its pointers without archived summaries.
 
 ### Normal state transitions
 
@@ -46,11 +46,15 @@ Boundary decides whether folding is valid. Timeline reports evidence; it does no
 
 ### Rebase gate
 
-A **rebase** is a fold across accumulated summary depth. It uses the fold gate and adds one hard test: **cold start**.
+A **rebase** is a structural reset across accumulated summary depth. It uses the fold gate and adds two completion criteria: **structural reset** and **cold start**.
 
-Build one authoritative snapshot, then evaluate candidate bases from earliest to latest. Choose the earliest base from which a fresh agent can execute `NEXT` using only the snapshot and its evidence pointers. Root is ideal when it passes; it is never presumed safe.
+Structural reset passes only when the target precedes an active `branch_summary` that leaves the spine and projected summary depth does not grow. Equal depth passes only when the new snapshot replaces an old summary; a target after all active summaries fails.
 
-Archived summaries become recovery-only. If ordinary execution still requires one of them, rebase is not ready: keep the detail live, use a local fold, or accept native compaction.
+Cold start passes only when `NEXT` is immediately executable, every surviving front and invariant is in the snapshot or a usable direct pointer, and ordinary execution needs no archived summary.
+
+Build one authoritative snapshot, then evaluate candidate bases from earliest to latest. Choose the earliest base that passes both criteria. Root is ideal when it passes; it is never presumed safe.
+
+If no candidate passes, rebase is not ready: keep required detail live, use a local fold, or accept native compaction.
 
 ### Handoff contract
 
@@ -70,7 +74,7 @@ The runtime can validate slot structure. Semantic completeness, target quality, 
 
 ### Representative transitions
 
-**Burst example**
+**Local fold example**
 
 ```text
 Goal: Fix high CPU while preserving the sidebar.
@@ -80,18 +84,6 @@ External: profiler stopped; no files changed.
 Exclusions: disabling the sidebar violates the goal.
 Recover: sidebar-profile-start.
 NEXT: Checkpoint sidebar-lifecycle-fix-start, then inspect worker disposal.
-```
-
-**Failed-direction example**
-
-```text
-Goal: Stop duplicate requests after restore.
-State: Disabling the cache did not change request count; duplication precedes cache lookup.
-Evidence: logs/restore-debug.log; restore-replay test.
-External: debug logging remains enabled locally.
-Exclusions: cache invalidation is ruled out because both requests enter dispatch.
-Recover: cache-hypothesis-start; cache-hypothesis-done.
-NEXT: Checkpoint dispatch-replay-start, then inspect callers of dispatchRestoredRequest.
 ```
 
 **Finished-chain rebase example**
@@ -136,7 +128,7 @@ View `active` selected. Continue from the visible spine; inspect another view on
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-Another fold would stack on summarized history. At the next rebase trigger, run cold start on the earliest safe base; root is a candidate, not a verdict.
+Active summarized history is present. When the current event is a rebase trigger or the next fold would stack, test structural reset and cold start from the earliest safe base; root is a candidate, not a verdict.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
