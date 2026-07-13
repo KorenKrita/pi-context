@@ -12,7 +12,8 @@ describe("ACM tool description contract", () => {
     expect(checkpointTool).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(timelineTool).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(travelTool).toContain("description: TOOL_DESCRIPTIONS.travel");
-    expect(generatedGuidance).toContain("Checkpoint does not branch or fold the active context.");
+    expect(generatedGuidance).toContain("Preflight a distinct user goal before its first substantive action");
+    expect(generatedGuidance).toContain("This tool labels history while preserving the active context.");
     expect(generatedGuidance).not.toContain("Zero cost: no branch, no handoff, no context change.");
   });
 

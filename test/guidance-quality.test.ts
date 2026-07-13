@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { ACM_CORE, GUIDANCE_CUES } from "../src/generated-guidance.js";
+import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
 describe("ACM guidance quality", () => {
   test("preserves the base workflow while bounding semantic rebase", () => {
     for (const baseBehavior of [
-      "New chain starts",
       "Phase, attempt, or batch item starts",
       "Unbounded burst or risky step is next",
       "Findings are distilled",
@@ -23,6 +22,20 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("Cold start passes only when");
     expect(ACM_CORE.length).toBeLessThan(6000);
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
+  });
+
+  test("front-loads a checkable checkpoint preflight", () => {
+    const preflightIndex = ACM_CORE.indexOf("### ACM preflight");
+    const vocabularyIndex = ACM_CORE.indexOf("### Vocabulary");
+
+    expect(preflightIndex).toBeGreaterThan(-1);
+    expect(preflightIndex).toBeLessThan(vocabularyIndex);
+    expect(ACM_CORE).toContain("A distinct user goal starts with an **ACM preflight**");
+    expect(ACM_CORE).toContain("call `acm_checkpoint` first with a semantic `<chain>-start` name");
+    expect(ACM_CORE).toContain("Start work after its result confirms the checkpoint was created or reused");
+    expect(ACM_CORE).not.toContain("| New chain starts |");
+    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
+    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(300);
   });
 
   test("routes one advanced condition at a time and reroutes on state change", async () => {
