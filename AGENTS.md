@@ -146,7 +146,7 @@ successful travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记
 3. 成功后标记 rebuilt
 4. 失败最多跨 turn 重试 3 次，并提供 actionable recovery guidance
 
-`session_start` 会清理易失 runtime state，再从 active branch 中持久化的 `acm:context-usage-reminder` custom messages 恢复当前周期最高档位；最近的 ACM travel branch summary 或 native compaction 是恢复扫描边界。`session_shutdown` 只清理对应 SessionManager。`session_compact` 清理 host/runtime state 后立即开启一个等待真实 post-compaction usage baseline 的新提醒周期。
+`session_start` 会清理易失 runtime state，再扫描最近 ACM travel branch summary 或 native compaction 之后的 active branch：`acm:context-usage-state` custom entry 记录第一条真实 post-transition usage 已建立的 baseline 及当时最高档位，`acm:context-usage-reminder` custom message 记录后续已发送档位。baseline entry 通过 `pi.appendEntry()` 持久化且不进入 LLM context；两类记录共同恢复当前周期的 `baselinePending` 与 highest reached level。`session_shutdown` 只清理对应 SessionManager。`session_compact` 清理 host/runtime state 后立即开启一个等待真实 post-compaction usage baseline 的新提醒周期。
 
 ## Live AgentSession synchronization
 

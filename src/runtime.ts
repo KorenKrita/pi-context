@@ -3,6 +3,7 @@ import {
   classifyContextUsageNudgeLevel,
   type ContextUsageNudgeLevel,
   type PendingContextUsageNudge,
+  type PersistedContextUsageBaselineState,
   type RestoredContextUsageNudgeState,
 } from "./context-usage-nudge.js";
 import { ContextRefreshRegistry } from "./lib.js";
@@ -62,23 +63,32 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
 
-  observeContextUsage(session: object, percent: number, establishBaseline = false): void {
-    if (!Number.isFinite(percent) || percent < 0) return;
+  observeContextUsage(
+    session: object,
+    percent: number,
+    establishBaseline = false,
+  ): PersistedContextUsageBaselineState | undefined {
+    if (!Number.isFinite(percent) || percent < 0) return undefined;
     const state = this.contextUsageNudges.get(session) ?? { highestReachedLevel: 0 as const };
     const level = classifyContextUsageNudgeLevel(percent);
     if (state.baselinePending) {
-      if (!establishBaseline) return;
+      if (!establishBaseline) return undefined;
       state.highestReachedLevel = level;
       state.baselinePending = false;
       delete state.pending;
       this.contextUsageNudges.set(session, state);
-      return;
+      return {
+        kind: "context-usage-baseline",
+        highestReachedLevel: level,
+        usagePercent: percent,
+      };
     }
     if (level !== 0 && level > state.highestReachedLevel) {
       state.highestReachedLevel = level;
       state.pending = { level, usagePercent: percent };
     }
     this.contextUsageNudges.set(session, state);
+    return undefined;
   }
 
   takePendingContextUsageNudge(session: object): PendingContextUsageNudge | undefined {

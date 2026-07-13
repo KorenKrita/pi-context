@@ -6,6 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel, buildSessionMessages } from "./host-bridge.js";
 import {
   buildContextUsageNudgeMessage,
+  CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE,
   restoreContextUsageNudgeState,
 } from "./context-usage-nudge.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
@@ -98,7 +99,18 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         contextWindow,
         percent,
       });
-      runtime.observeContextUsage(ctx.sessionManager, percent, true);
+      const baseline = runtime.observeContextUsage(ctx.sessionManager, percent, true);
+      if (baseline) {
+        try {
+          pi.appendEntry(CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE, baseline);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(
+            `Could not persist the post-transition context reminder baseline: ${message}. Reload may re-establish the baseline.`,
+            "warning",
+          );
+        }
+      }
     }
   });
 

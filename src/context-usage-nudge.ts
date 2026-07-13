@@ -1,5 +1,13 @@
 export type ContextUsageNudgeLevel = 30 | 50 | 70;
 
+export const CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE = "acm:context-usage-state";
+
+export interface PersistedContextUsageBaselineState {
+  kind: "context-usage-baseline";
+  highestReachedLevel: 0 | ContextUsageNudgeLevel;
+  usagePercent: number;
+}
+
 export interface PendingContextUsageNudge {
   level: ContextUsageNudgeLevel;
   usagePercent: number;
@@ -48,6 +56,20 @@ function getPersistedReminderLevel(entry: Record<string, unknown>): 0 | ContextU
   return details.level === 30 || details.level === 50 || details.level === 70 ? details.level : 0;
 }
 
+function getPersistedBaselineLevel(
+  entry: Record<string, unknown>,
+): 0 | ContextUsageNudgeLevel | undefined {
+  if (entry.type !== "custom" || entry.customType !== CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE) return undefined;
+  const data = asRecord(entry.data);
+  if (data?.kind !== "context-usage-baseline") return undefined;
+  return data.highestReachedLevel === 0
+    || data.highestReachedLevel === 30
+    || data.highestReachedLevel === 50
+    || data.highestReachedLevel === 70
+    ? data.highestReachedLevel
+    : undefined;
+}
+
 export function restoreContextUsageNudgeState(entries: readonly unknown[]): RestoredContextUsageNudgeState {
   let lastBoundaryIndex = -1;
   for (let index = 0; index < entries.length; index++) {
@@ -56,16 +78,24 @@ export function restoreContextUsageNudgeState(entries: readonly unknown[]): Rest
   }
 
   let highestReachedLevel: 0 | ContextUsageNudgeLevel = 0;
+  let baselineEstablished = false;
   for (let index = lastBoundaryIndex + 1; index < entries.length; index++) {
     const entry = asRecord(entries[index]);
     if (!entry) continue;
-    const level = getPersistedReminderLevel(entry);
-    if (level > highestReachedLevel) highestReachedLevel = level;
+    const baselineLevel = getPersistedBaselineLevel(entry);
+    if (baselineLevel !== undefined) {
+      baselineEstablished = true;
+      if (baselineLevel > highestReachedLevel) highestReachedLevel = baselineLevel;
+    }
+    const reminderLevel = getPersistedReminderLevel(entry);
+    if (reminderLevel === 0) continue;
+    baselineEstablished = true;
+    if (reminderLevel > highestReachedLevel) highestReachedLevel = reminderLevel;
   }
 
   return {
     highestReachedLevel,
-    baselinePending: lastBoundaryIndex >= 0 && highestReachedLevel === 0,
+    baselinePending: lastBoundaryIndex >= 0 && !baselineEstablished,
   };
 }
 

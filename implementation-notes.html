@@ -125,8 +125,8 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
-        <td>Restore the highest delivered reminder tier from persisted active-branch custom messages on session resume or extension reload.</td>
-        <td>Reload is not a user-approved context-cycle reset. Reconstruction scans only after the latest ACM travel branch summary or native compaction boundary, preserving the current cycle without importing reminders from an abandoned pre-transition span.</td>
+        <td>Persist the first authoritative post-transition baseline as an <code>acm:context-usage-state</code> custom entry, then restore reminder-cycle state from baseline entries plus delivered reminder messages.</td>
+        <td>A delivered reminder alone cannot distinguish “baseline not established” from “baseline established below 30%,” and reload must also preserve a baseline already at 30% or 50%. Pi's public <code>appendEntry()</code> channel keeps the baseline marker on the active branch without adding it to LLM context; reconstruction scans only after the latest ACM travel branch summary or native compaction boundary.</td>
       </tr>
     </tbody>
   </table>
