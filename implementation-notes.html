@@ -143,6 +143,11 @@
         <td>Persist the first authoritative post-transition baseline as an <code>acm:context-usage-state</code> custom entry, then restore reminder-cycle state from baseline entries plus delivered reminder messages.</td>
         <td>A delivered reminder alone cannot distinguish “baseline not established” from “baseline established below 30%,” and reload must also preserve a baseline already at 30% or 50%. Pi's public <code>appendEntry()</code> channel keeps the baseline marker on the active branch without adding it to LLM context; reconstruction scans only after the latest ACM travel branch summary or native compaction boundary.</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>Classify ACM reminders against a working budget capped at 400K tokens while preserving hard-window usage as a separate metric.</td>
+        <td><code>workingBudgetTokens = min(contextWindow, 400000)</code>: models at or below 400K retain their actual-window 30% / 50% / 70% behavior, while larger windows use 400K and therefore trigger at 120K / 200K / 280K active tokens. Existing persisted levels remain compatible; reminder details, baseline state, and the timeline dashboard expose both hard usage and ACM pressure rather than redefining <code>usagePercent</code>.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

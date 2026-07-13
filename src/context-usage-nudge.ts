@@ -1,27 +1,73 @@
 export type ContextUsageNudgeLevel = 30 | 50 | 70;
 
 export const CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE = "acm:context-usage-state";
+export const ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS = 400_000;
 
-export interface PersistedContextUsageBaselineState {
-  kind: "context-usage-baseline";
-  highestReachedLevel: 0 | ContextUsageNudgeLevel;
+export type ContextWorkingBudgetPolicy = "actual-window" | "400k-cap";
+
+export interface ContextUsagePressure {
+  tokens: number;
+  contextWindow: number;
   usagePercent: number;
+  workingBudgetTokens: number;
+  pressurePercent: number;
+  policy: ContextWorkingBudgetPolicy;
 }
 
-export interface PendingContextUsageNudge {
+export interface PersistedContextUsageBaselineState extends ContextUsagePressure {
+  kind: "context-usage-baseline";
+  highestReachedLevel: 0 | ContextUsageNudgeLevel;
+}
+
+export interface PendingContextUsageNudge extends ContextUsagePressure {
   level: ContextUsageNudgeLevel;
-  usagePercent: number;
 }
 
 export interface ContextUsageNudgeMessage {
   customType: "acm:context-usage-reminder";
   content: string;
   display: false;
-  details: {
+  details: ContextUsagePressure & {
     kind: "context-usage-reminder";
     level: ContextUsageNudgeLevel;
-    usagePercent: number;
   };
+}
+
+export function calculateContextUsagePressure(
+  tokens: number | null | undefined,
+  contextWindow: number | null | undefined,
+  usagePercent?: number | null,
+): ContextUsagePressure | undefined {
+  if (!Number.isFinite(tokens) || (tokens ?? -1) < 0) return undefined;
+  if (!Number.isFinite(contextWindow) || (contextWindow ?? 0) <= 0) return undefined;
+
+  const validTokens = tokens as number;
+  const validContextWindow = contextWindow as number;
+  const workingBudgetTokens = Math.min(validContextWindow, ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS);
+  const hardUsagePercent = Number.isFinite(usagePercent) && (usagePercent ?? -1) >= 0
+    ? usagePercent as number
+    : (validTokens * 100) / validContextWindow;
+
+  return {
+    tokens: validTokens,
+    contextWindow: validContextWindow,
+    usagePercent: hardUsagePercent,
+    workingBudgetTokens,
+    pressurePercent: (validTokens * 100) / workingBudgetTokens,
+    policy: validContextWindow > ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS ? "400k-cap" : "actual-window",
+  };
+}
+
+function formatTokenCount(tokens: number): string {
+  const format = (value: number, suffix: string) => `${Number(value.toFixed(1))}${suffix}`;
+  if (tokens >= 1_000_000) return format(tokens / 1_000_000, "M");
+  if (tokens >= 1_000) return format(tokens / 1_000, "K");
+  return String(Math.round(tokens));
+}
+
+export function formatContextUsagePressure(pressure: ContextUsagePressure): string {
+  const policy = pressure.policy === "400k-cap" ? "400K cap" : "actual window";
+  return `${pressure.pressurePercent.toFixed(1)}% (${formatTokenCount(pressure.tokens)} / ${formatTokenCount(pressure.workingBudgetTokens)} working budget; ${policy})`;
 }
 
 export function classifyContextUsageNudgeLevel(percent: number): 0 | ContextUsageNudgeLevel {
@@ -100,7 +146,8 @@ export function restoreContextUsageNudgeState(entries: readonly unknown[]): Rest
 }
 
 export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): ContextUsageNudgeMessage {
-  const usage = nudge.usagePercent.toFixed(1);
+  const pressure = nudge.pressurePercent.toFixed(1);
+  const hardUsage = nudge.usagePercent.toFixed(1);
   const header = nudge.level === 70
     ? "[ACM Context Reminder · 70% tier · Final reminder]"
     : `[ACM Context Reminder · ${nudge.level}% tier]`;
@@ -125,7 +172,7 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
     content: [
       header,
       "",
-      `Active context usage has reached approximately ${usage}%. This is an automated ACM notice, not a new user request.`,
+      `ACM working-budget pressure has reached approximately ${pressure}% (${formatTokenCount(nudge.tokens)} / ${formatTokenCount(nudge.workingBudgetTokens)} working budget). Hard context usage is ${hardUsage}% (${formatTokenCount(nudge.tokens)} / ${formatTokenCount(nudge.contextWindow)} model window). This is an automated ACM notice, not a new user request.`,
       "",
       ...guidance,
     ].join("\n"),
@@ -133,7 +180,12 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
     details: {
       kind: "context-usage-reminder",
       level: nudge.level,
+      tokens: nudge.tokens,
+      contextWindow: nudge.contextWindow,
       usagePercent: nudge.usagePercent,
+      workingBudgetTokens: nudge.workingBudgetTokens,
+      pressurePercent: nudge.pressurePercent,
+      policy: nudge.policy,
     },
   };
 }

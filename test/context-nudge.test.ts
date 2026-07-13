@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import registerAcmExtension from "../src/index";
+import { calculateContextUsagePressure } from "../src/context-usage-nudge";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 
@@ -9,7 +10,7 @@ function createFixture(sessionManager: object = {}) {
   const tools = new Map<string, any>();
   const sentMessages: Array<{ message: any; options: any }> = [];
   const appendedEntries: Array<{ customType: string; data: unknown }> = [];
-  let usagePercent = 1;
+  let contextUsage = { tokens: 1_000, contextWindow: 100_000, percent: 1 };
 
   const pi = {
     on(event: string, handler: Handler) {
@@ -35,11 +36,7 @@ function createFixture(sessionManager: object = {}) {
 
   const context = {
     sessionManager,
-    getContextUsage: () => ({
-      tokens: usagePercent * 1_000,
-      contextWindow: 100_000,
-      percent: usagePercent,
-    }),
+    getContextUsage: () => ({ ...contextUsage }),
     ui: { notify() {} },
   } as unknown as ExtensionContext;
 
@@ -58,12 +55,31 @@ function createFixture(sessionManager: object = {}) {
     appendedEntries,
     tools,
     setUsagePercent(value: number) {
-      usagePercent = value;
+      contextUsage = {
+        ...contextUsage,
+        tokens: (value / 100) * contextUsage.contextWindow,
+        percent: value,
+      };
+    },
+    setContextUsage(tokens: number, contextWindow: number, percent = (tokens / contextWindow) * 100) {
+      contextUsage = { tokens, contextWindow, percent };
     },
   };
 }
 
 describe("ACM context usage reminders", () => {
+  test("caps only windows above the 400K boundary", () => {
+    expect(calculateContextUsagePressure(120_000, 400_000)).toMatchObject({
+      workingBudgetTokens: 400_000,
+      pressurePercent: 30,
+      policy: "actual-window",
+    });
+    expect(calculateContextUsagePressure(120_000, 400_001)).toMatchObject({
+      workingBudgetTokens: 400_000,
+      pressurePercent: 30,
+      policy: "400k-cap",
+    });
+  });
   test("sends only the highest newly reached tier as a hidden steering message", async () => {
     const fixture = createFixture();
 
@@ -99,6 +115,85 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[1]?.message.content).toContain("earliest safe semantic boundary");
     expect(fixture.sentMessages[1]?.message.content).toContain("native compaction is acceptable");
     expect(fixture.sentMessages.some(({ message }) => message.details?.level === 50)).toBe(false);
+  });
+
+  test("uses a 400K working-budget cap for larger model windows", async () => {
+    const fixture = createFixture();
+
+    fixture.setContextUsage(119_999, 1_000_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setContextUsage(120_000, 1_000_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages[0]?.message.details).toMatchObject({
+      level: 30,
+      tokens: 120_000,
+      contextWindow: 1_000_000,
+      usagePercent: 12,
+      workingBudgetTokens: 400_000,
+      pressurePercent: 30,
+      policy: "400k-cap",
+    });
+    expect(fixture.sentMessages[0]?.message.content).toContain("30.0% (120K / 400K working budget)");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Hard context usage is 12.0% (120K / 1M model window)");
+
+    fixture.setContextUsage(200_000, 1_000_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-3", content: [], isError: false });
+    fixture.setContextUsage(280_000, 1_000_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-4", content: [], isError: false });
+
+    expect(fixture.sentMessages.map(({ message }) => message.details.level)).toEqual([30, 50, 70]);
+  });
+
+  test("uses the actual model window at or below 400K", async () => {
+    const fixture = createFixture();
+
+    fixture.setContextUsage(104_999, 350_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setContextUsage(105_000, 350_000);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages[0]?.message.details).toMatchObject({
+      level: 30,
+      usagePercent: 30,
+      workingBudgetTokens: 350_000,
+      pressurePercent: 30,
+      policy: "actual-window",
+    });
+  });
+
+  test("shows hard-window usage and ACM pressure separately in the timeline HUD", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    const fixture = createFixture(sessionManager);
+    fixture.setContextUsage(280_000, 1_000_000);
+
+    const timeline = fixture.tools.get("acm_timeline");
+    const result = await timeline.execute(
+      "timeline-1",
+      { view: "active" },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    const text = result.content[0]?.text ?? "";
+
+    expect(text).toContain("Context Usage:    28.0% (280.0K/1.0M) (official hard window)");
+    expect(text).toContain("ACM Pressure:     70.0% (280K / 400K working budget; 400K cap)");
+    expect(result.details.contextPressure).toMatchObject({
+      pressurePercent: 70,
+      workingBudgetTokens: 400_000,
+      policy: "400k-cap",
+    });
+    expect(result.details.contextPressure.usagePercent).toBeCloseTo(28);
   });
 
   test("ordinary usage drops do not rearm tiers, while compaction starts a baseline-only cycle", async () => {
@@ -225,7 +320,16 @@ describe("ACM context usage reminders", () => {
 
     expect(beforeReload.appendedEntries).toContainEqual({
       customType: "acm:context-usage-state",
-      data: { kind: "context-usage-baseline", highestReachedLevel: 0, usagePercent: 20 },
+      data: {
+        kind: "context-usage-baseline",
+        highestReachedLevel: 0,
+        tokens: 20_000,
+        contextWindow: 100_000,
+        usagePercent: 20,
+        workingBudgetTokens: 100_000,
+        pressurePercent: 20,
+        policy: "actual-window",
+      },
     });
 
     const afterReload = createFixture(sessionManager);

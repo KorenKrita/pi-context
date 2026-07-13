@@ -127,7 +127,9 @@ rebase 是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 run
 
 ACM context nudge 使用 Pi 公开的 hidden custom message channel，不修改工具结果：
 
-- 每次 `context` event 根据 `ctx.getContextUsage()` 观察 active context usage；
+- 每次 `context` event 根据 `ctx.getContextUsage()` 观察 active tokens、hard context window 与 hard usage；
+- reminder 档位依据 `workingBudgetTokens = min(contextWindow, 400_000)` 和 `pressurePercent = tokens / workingBudgetTokens * 100` 分类；400K 及以下使用实际窗口，超过 400K 使用 400K cap；
+- `usagePercent` 始终表示 hard-window usage，不得静默改为 working-budget pressure；message details、baseline state 与 timeline dashboard 分别暴露 `pressurePercent`、`workingBudgetTokens` 和 `policy`；
 - 进入更高档位时只保留一个 pending reminder，档位固定为 30% / 50% / 70%；
 - `tool_result` 消费 pending 并通过 `pi.sendMessage(..., { deliverAs: "steer" })` 发送；
 - 若本次 run 没有后续 tool boundary，只在正常 `agent_end`（最后 assistant `stopReason === "stop"`）通过 `followUp` 兜底；

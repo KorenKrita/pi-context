@@ -20,6 +20,7 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { buildSessionMessages } from "./host-bridge.js";
+import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
@@ -346,6 +347,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
       const officialUsageRaw = ctx.getContextUsage();
       const officialUsage = toUsageLike(officialUsageRaw);
+      const officialPressure = calculateContextUsagePressure(
+        officialUsageRaw?.tokens,
+        officialUsageRaw?.contextWindow,
+        officialUsageRaw?.percent,
+      );
       const lastUsage = runtime.getUsage(sessionManager);
       let stepsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
@@ -361,7 +367,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const refreshPending = runtime.contextRefresh.isPending(sessionManager);
       const hudParts = [
         "[Context Dashboard]",
-        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official)`,
+        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official hard window)`,
+        `• ACM Pressure:     ${officialPressure ? formatContextUsagePressure(officialPressure) : "N/A"}`,
         `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (turn_end)`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
@@ -401,6 +408,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         content: [{ type: "text" as const, text: `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}` }],
         details: {
           contextUsage: officialUsageRaw ? { percent: officialUsageRaw.percent, tokens: officialUsageRaw.tokens, contextWindow: officialUsageRaw.contextWindow } : null,
+          contextPressure: officialPressure ?? null,
           leafId,
           nearestCheckpoint,
           stepsSinceCheckpoint,
