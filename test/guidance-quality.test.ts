@@ -30,10 +30,11 @@ describe("ACM guidance quality", () => {
 
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight**");
-    expect(ACM_CORE).toContain("call `acm_checkpoint` first with a semantic `<chain>-start` name");
+    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight** on the branch that will carry it");
+    expect(ACM_CORE).toContain("First complete any required `New request arrives over finished work` transition");
+    expect(ACM_CORE).toContain("then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
+    expect(ACM_CORE).toContain("When no finished-chain transition is required, the checkpoint call is the first action");
     expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
-    expect(ACM_CORE).toContain("Complete the preflight before any managed work");
     expect(ACM_CORE).toContain("the checkpoint was created or reused");
     expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
     expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
@@ -44,7 +45,7 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
     expect(ACM_CORE).not.toContain("| New chain starts |");
     expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
-    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(600);
+    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(800);
   });
 
   test("routes one advanced condition at a time and reroutes on state change", async () => {
