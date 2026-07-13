@@ -52,7 +52,19 @@ Timeline 会提供事实证据：
 - 每个 checkpoint travel 后的 projected summary depth；
 - usage、message count 与 branch topology。
 
-Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase。
+Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase.
+
+## ACM 上下文占用提醒
+
+扩展会在 active context 首次进入 **30% / 50% / 70%** 档位时，通过 Pi 的 hidden custom message 向 agent 发送分级 ACM 提醒：
+
+- **30%**：在下一个自然语义边界顺便考虑是否存在安全 travel 时机；
+- **50%**：主动寻找下一个适合 fold 或 rebase travel 的边界；
+- **70%**：当前周期最后一次提醒，强烈建议在最早安全边界评估 travel。
+
+提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
+
+同一上下文周期只提醒更高的新档位：普通 usage 回落不会重新触发旧档。一次采样跨越多个档位时只发送当前最高档。只有明确成功的 `acm_travel` 或 Pi 原生 compaction 才开启新周期；transition 后先用下一次真实 LLM prompt usage 建立无提醒基线，再继续观察后续增长。Session resume/reload 会从 active branch 中已持久化的 ACM reminder 恢复本周期最高档位，不会仅因重载而重复提醒。
 
 ## `/context` 面板
 

@@ -4,6 +4,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel, buildSessionMessages } from "./host-bridge.js";
+import {
+  buildContextUsageNudgeMessage,
+  restoreContextUsageNudgeState,
+} from "./context-usage-nudge.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { RECOVERY_GUIDANCE } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
@@ -23,8 +27,24 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
   });
 
+  pi.on("tool_result", (_event, ctx: ExtensionContext) => {
+    const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
+    if (!nudge) return;
+    pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
+  });
+
+  pi.on("agent_end", (event, ctx: ExtensionContext) => {
+    const lastAssistant = [...event.messages].reverse().find((message) => message.role === "assistant");
+    if (lastAssistant?.role !== "assistant" || lastAssistant.stopReason !== "stop") return;
+    const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
+    if (!nudge) return;
+    pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
+  });
+
   pi.on("context", (event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
+    const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    if (typeof usage?.percent === "number") runtime.observeContextUsage(sessionManager, usage.percent);
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
       const fixed = fixOrphanedToolUse(original);
@@ -72,11 +92,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);
     const contextWindow = ctx.getContextUsage()?.contextWindow;
     if (typeof contextWindow === "number" && contextWindow > 0) {
+      const percent = (promptTokens / contextWindow) * 100;
       runtime.setUsage(ctx.sessionManager, {
         tokens: promptTokens,
         contextWindow,
-        percent: (promptTokens / contextWindow) * 100,
+        percent,
       });
+      runtime.observeContextUsage(ctx.sessionManager, percent, true);
     }
   });
 
@@ -97,7 +119,19 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (!append.ok) ctx.ui.notify(`Could not create pre-compaction checkpoint: ${append.message}`, "warning");
   });
 
-  pi.on("session_compact", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
-  pi.on("session_start", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
+  pi.on("session_compact", (_event, ctx: ExtensionContext) => {
+    runtime.clear(ctx.sessionManager);
+    runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
+  });
+  pi.on("session_start", (_event, ctx: ExtensionContext) => {
+    const sessionManager = ctx.sessionManager;
+    runtime.clear(sessionManager);
+    const getBranch = (sessionManager as { getBranch?: () => readonly unknown[] }).getBranch;
+    const branch = typeof getBranch === "function" ? getBranch.call(sessionManager) : [];
+    runtime.restoreContextUsageNudgeState(
+      sessionManager,
+      restoreContextUsageNudgeState(branch),
+    );
+  });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
 }

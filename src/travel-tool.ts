@@ -36,6 +36,7 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface TravelSummaryDetails {
+  kind: "acm_travel";
   originId: string;
   originLabel?: string;
   target: string;
@@ -232,6 +233,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
 
       const travelDetails: TravelSummaryDetails = {
+        kind: "acm_travel",
         originId,
         originLabel,
         target: params.target,
@@ -300,6 +302,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
+      runtime.resetContextUsageNudgeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
       const activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
