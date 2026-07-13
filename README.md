@@ -56,8 +56,14 @@ Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行
 
 ## ACM 上下文占用提醒
 
-扩展会在 active context 首次进入 **30% / 50% / 70%** 档位时，通过 Pi 的 hidden custom message 向 agent 发送分级 ACM 提醒：
+扩展会在 active context 的 ACM working-budget pressure 首次进入 **30% / 50% / 70%** 档位时，通过 Pi 的 hidden custom message 向 agent 发送分级 ACM 提醒。工作预算按以下策略计算：
 
+```text
+workingBudgetTokens = min(contextWindow, 400K)
+pressurePercent = activeTokens / workingBudgetTokens × 100
+```
+
+物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
 - **30%**：在下一个自然语义边界顺便考虑是否存在安全 travel 时机；
 - **50%**：主动寻找下一个适合 fold 或 rebase travel 的边界；
 - **70%**：当前周期最后一次提醒，强烈建议在最早安全边界评估 travel。

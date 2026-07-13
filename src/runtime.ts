@@ -2,6 +2,7 @@ import type { UsageLike } from "./lib.js";
 import {
   classifyContextUsageNudgeLevel,
   type ContextUsageNudgeLevel,
+  type ContextUsagePressure,
   type PendingContextUsageNudge,
   type PersistedContextUsageBaselineState,
   type RestoredContextUsageNudgeState,
@@ -65,12 +66,11 @@ export class AcmSessionRuntime {
 
   observeContextUsage(
     session: object,
-    percent: number,
+    pressure: ContextUsagePressure,
     establishBaseline = false,
   ): PersistedContextUsageBaselineState | undefined {
-    if (!Number.isFinite(percent) || percent < 0) return undefined;
     const state = this.contextUsageNudges.get(session) ?? { highestReachedLevel: 0 as const };
-    const level = classifyContextUsageNudgeLevel(percent);
+    const level = classifyContextUsageNudgeLevel(pressure.pressurePercent);
     if (state.baselinePending) {
       if (!establishBaseline) return undefined;
       state.highestReachedLevel = level;
@@ -80,12 +80,12 @@ export class AcmSessionRuntime {
       return {
         kind: "context-usage-baseline",
         highestReachedLevel: level,
-        usagePercent: percent,
+        ...pressure,
       };
     }
     if (level !== 0 && level > state.highestReachedLevel) {
       state.highestReachedLevel = level;
-      state.pending = { level, usagePercent: percent };
+      state.pending = { level, ...pressure };
     }
     this.contextUsageNudges.set(session, state);
     return undefined;
