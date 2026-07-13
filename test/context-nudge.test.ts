@@ -8,6 +8,7 @@ function createFixture(sessionManager: object = {}) {
   const handlers = new Map<string, Handler[]>();
   const tools = new Map<string, any>();
   const sentMessages: Array<{ message: any; options: any }> = [];
+  const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let usagePercent = 1;
 
   const pi = {
@@ -21,6 +22,12 @@ function createFixture(sessionManager: object = {}) {
     },
     sendMessage(message: any, options: any) {
       sentMessages.push({ message, options });
+    },
+    appendEntry(customType: string, data: unknown) {
+      appendedEntries.push({ customType, data });
+      const appendCustomEntry = (sessionManager as { appendCustomEntry?: (type: string, value: unknown) => string })
+        .appendCustomEntry;
+      if (typeof appendCustomEntry === "function") appendCustomEntry.call(sessionManager, customType, data);
     },
   } as unknown as ExtensionAPI;
 
@@ -48,6 +55,7 @@ function createFixture(sessionManager: object = {}) {
     context,
     emit,
     sentMessages,
+    appendedEntries,
     tools,
     setUsagePercent(value: number) {
       usagePercent = value;
@@ -199,6 +207,59 @@ describe("ACM context usage reminders", () => {
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-3", content: [], isError: false });
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 30 });
+  });
+
+  test("persists an established post-transition baseline across reload", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendCompaction("compacted work", rootId, 80_000);
+    const beforeReload = createFixture(sessionManager);
+
+    await beforeReload.emit("session_start", { reason: "reload" });
+    await beforeReload.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+
+    expect(beforeReload.appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: { kind: "context-usage-baseline", highestReachedLevel: 0, usagePercent: 20 },
+    });
+
+    const afterReload = createFixture(sessionManager);
+    await afterReload.emit("session_start", { reason: "reload" });
+    afterReload.setUsagePercent(35);
+    await afterReload.emit("context", { messages: [] });
+    await afterReload.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+
+    expect(afterReload.sentMessages).toHaveLength(1);
+    expect(afterReload.sentMessages[0]?.message.details).toMatchObject({ level: 30 });
+  });
+
+  test("restores the tier reached by a persisted post-transition baseline", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendCompaction("compacted work", rootId, 80_000);
+    sessionManager.appendCustomEntry("acm:context-usage-state", {
+      kind: "context-usage-baseline",
+      highestReachedLevel: 50,
+      usagePercent: 55,
+    });
+    const fixture = createFixture(sessionManager);
+
+    await fixture.emit("session_start", { reason: "reload" });
+    fixture.setUsagePercent(60);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setUsagePercent(71);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]?.message.details).toMatchObject({ level: 70 });
   });
 
   test("restores the highest delivered tier when a session resumes", async () => {
