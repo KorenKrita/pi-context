@@ -38,11 +38,15 @@ describe("ACM tool description contract", () => {
     expect(travelTool).not.toContain("At task end, set backupCurrentHeadAs to '<task>-done', travel");
   });
 
-  test("uses the strict single-view timeline contract", () => {
-    expect(timelineTool).toContain('view: Type.Optional(Type.Literal("active"))');
-    expect(timelineTool).toContain('view: Type.Literal("checkpoints")');
-    expect(timelineTool).toContain('view: Type.Literal("search")');
-    expect(timelineTool).toContain('view: Type.Literal("tree")');
+  test("uses the strict single-object timeline contract", () => {
+    expect(timelineTool).toContain("const schema = Type.Object({");
+    expect(timelineTool).toContain("view: Type.Optional(Type.Union([");
+    expect(timelineTool).toContain('Type.Literal("active")');
+    expect(timelineTool).toContain('Type.Literal("checkpoints")');
+    expect(timelineTool).toContain('Type.Literal("search")');
+    expect(timelineTool).toContain('Type.Literal("tree")');
+    expect(timelineTool).toContain("if (params.view === \"search\" && !params.query)");
+    expect(timelineTool).not.toContain("const schema = Type.Union([");
     expect(travelTool).toContain("On large trees use acm_timeline with view checkpoints or search");
     expect(timelineTool).not.toContain("list_checkpoints");
     expect(timelineTool).not.toContain("full_tree");
