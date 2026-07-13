@@ -103,6 +103,31 @@
         <td>Use one advanced reference at a time and reroute when the observable condition changes.</td>
         <td>This preserves progressive disclosure without trapping archive recovery inside the wrong playbook after a failure. Recovery references now distinguish backup-label rollback from indeterminate branch mutation and use factual refresh/live-sync lifecycle states.</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>Send ACM context-usage reminders through Pi's hidden custom-message channel at 30%, 50%, and 70% usage tiers.</td>
+        <td>The reminder must identify itself as ACM-generated and remain invisible in the Pi TUI while participating in model context. The 30% tier is a light opportunity cue, 50% asks the agent to actively look for a safe travel boundary, and 70% is the final and strongest reminder for that context cycle.</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>Keep reminders advisory: prefer low active-context usage, but never force summary, fold, rebase, or travel.</td>
+        <td>The agent evaluates whether current task requirements permit a complete and recoverable handoff. Correctness, task continuity, required working state, and recoverability take priority; native compaction remains acceptable for genuinely long tasks.</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>Track the highest reminder tier per context cycle; ordinary usage drops do not rearm tiers, while successful ACM travel and native Pi compaction start a new cycle.</td>
+        <td>Within a cycle only a newly reached higher tier produces a reminder, and a single observation that skips tiers emits only the highest one. A new cycle treats its first authoritative post-transition usage as a no-reminder baseline.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Arm reminders from the <code>context</code> lifecycle, deliver at <code>tool_result</code> with <code>steer</code>, and use normal-stop <code>agent_end</code> with <code>followUp</code> as the no-tool fallback.</td>
+        <td>This follows Pi's public Channel 2 transport without modifying tool output. After travel or compaction, immediate <code>getContextUsage()</code> may still reflect pre-transition native accounting, so baseline establishment waits for the next real assistant prompt usage captured at <code>turn_end</code>.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Restore the highest delivered reminder tier from persisted active-branch custom messages on session resume or extension reload.</td>
+        <td>Reload is not a user-approved context-cycle reset. Reconstruction scans only after the latest ACM travel branch summary or native compaction boundary, preserving the current cycle without importing reminders from an abandoned pre-transition span.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

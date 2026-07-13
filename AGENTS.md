@@ -46,8 +46,9 @@
 | `src/travel-tool.ts` | handoff validation、travel evidence、sync scheduling |
 | `src/travel-coordinator.ts` | 单次 backup → branch → verify → compensate transaction |
 | `src/host-bridge.ts` | readonly SessionManager 到公开 mutation/build capability 的唯一 guarded seam |
-| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation 与 live sync state |
-| `src/runtime-lifecycle.ts` | context rebuild、tool end sync、usage、compaction、session cleanup |
+| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation、context nudge 与 live sync state |
+| `src/runtime-lifecycle.ts` | context rebuild、hidden nudge delivery、tool end sync、usage、compaction、session cleanup |
+| `src/context-usage-nudge.ts` | 30/50/70 档位分类与分级 ACM reminder 文案 |
 | `src/live-agent-session-adapter.ts` | capability-probed live AgentSession association 与 message replacement |
 | `src/lib.ts` / `label-journal.ts` / `entry-resolution.ts` / `message-sanitizer.ts` | 可测试的 domain logic |
 | `src/generated-guidance.ts` | 从 canonical guidance 派生的 runtime strings |
@@ -122,6 +123,20 @@ rebase 是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 run
 - native `compaction` 不计入 semantic summary depth；只有 `branch_summary` 计入
 - runtime 只报告 summary depth、projected depth 和 deltas，不自动判断或执行 rebase
 
+## Context usage nudge contract
+
+ACM context nudge 使用 Pi 公开的 hidden custom message channel，不修改工具结果：
+
+- 每次 `context` event 根据 `ctx.getContextUsage()` 观察 active context usage；
+- 进入更高档位时只保留一个 pending reminder，档位固定为 30% / 50% / 70%；
+- `tool_result` 消费 pending 并通过 `pi.sendMessage(..., { deliverAs: "steer" })` 发送；
+- 若本次 run 没有后续 tool boundary，只在正常 `agent_end`（最后 assistant `stopReason === "stop"`）通过 `followUp` 兜底；
+- custom message 使用 `display: false`，对 agent 可见但不在 Pi TUI 中展示，并明确标注为 ACM 自动提醒、不是用户请求；
+- 普通 usage 回落不降低本周期 highest reached level；一次跳档只发送当前最高档；
+- 只有明确成功的 `acm_travel` 和 `session_compact` 开启新周期；失败或 indeterminate travel 不重置；
+- transition 后忽略可能仍然陈旧的即时 usage，以第一条真实 post-transition assistant prompt usage 建立无提醒 baseline；
+- reminder 只提高 agent 对安全 travel 时机的关注度，不强制 summary/travel/rebase；低 active context 是偏好，不得压过正确性、任务连续性、cold start 与 recoverability。
+
 ## Persistent context rebuild
 
 successful travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记录 pending refresh。每次 `context` event：
@@ -131,7 +146,7 @@ successful travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记
 3. 成功后标记 rebuilt
 4. 失败最多跨 turn 重试 3 次，并提供 actionable recovery guidance
 
-`session_start`、`session_shutdown`、`session_compact` 只清理对应 SessionManager 的 runtime state。
+`session_start` 会清理易失 runtime state，再从 active branch 中持久化的 `acm:context-usage-reminder` custom messages 恢复当前周期最高档位；最近的 ACM travel branch summary 或 native compaction 是恢复扫描边界。`session_shutdown` 只清理对应 SessionManager。`session_compact` 清理 host/runtime state 后立即开启一个等待真实 post-compaction usage baseline 的新提醒周期。
 
 ## Live AgentSession synchronization
 
