@@ -9,31 +9,31 @@ A context window is a **working set**: the exact material needed for the next ac
 
 ### ACM preflight
 
-A distinct user goal starts with an **ACM preflight**: call `acm_checkpoint` first with a semantic `<chain>-start` name. Start work after its result confirms the checkpoint was created or reused. Direct conversational and trivial replies stay outside the managed-chain workflow.
+A distinct user goal begins with an **ACM preflight**: call `acm_checkpoint` first with a semantic `<chain>-start` name. Managed work includes investigation, planning, delegation, any non-ACM tool call, file or external side effects, and multi-step reasoning. Complete the preflight before any managed work. It is complete only when the tool result confirms that the checkpoint was created or reused. If the call fails, follow the recovery guidance in its result before proceeding. A text-only direct reply requiring no managed work stays outside the managed-chain workflow.
 
 ### Vocabulary
 
-- **working set** — detail needed for the next action.
-- **boundary** — process edge being compressed: burst, phase, failed direction, batch item, or chain.
-- **handoff** — executable state surviving a fold; an evidence index, not a dump.
-- **archive** — off-path raw history and its recovery checkpoint or node ID.
-- **chain** — work serving one user goal.
-- **burst** — temporary expansion from reads, logs, searches, diffs, or subagents.
-- **anchor gravity** — the nearest checkpoint's misleading pull; choose targets from the boundary.
-- **rebase** — move surviving state into one snapshot at the earliest safe base, retiring summary depth.
-- **cold start** — a fresh agent can execute `NEXT` from the snapshot and its pointers.
+- **working set** — live detail the next action will reason over.
+- **boundary** — the semantic edge being compressed: a burst, phase, failed direction, batch item, or task chain.
+- **handoff** — the executable state that survives a fold; an evidence index, not a dump.
+- **archive** — the raw off-path history and its recovery checkpoint or node ID.
+- **chain** — continuous work serving one user goal.
+- **burst** — temporary expansion from broad reads, logs, searches, diffs, or subagents.
+- **anchor gravity** — the misleading pull of the nearest checkpoint. Name the boundary before choosing a target.
+- **rebase** — move all surviving state into one authoritative snapshot at the earliest safe base, retiring accumulated summary depth.
+- **cold start** — a fresh agent can execute `NEXT` from the snapshot and its pointers without archived summaries.
 
 ### Normal state transitions
 
 | Event | Required transition |
 |---|---|
-| Phase, attempt, or batch item starts | checkpoint its `-start` boundary |
-| Unbounded burst or risky step is next | checkpoint first |
-| Findings are distilled and raw trail is no longer needed by NEXT | inspect timeline, then fold that boundary |
+| Phase, attempt, or batch item starts | checkpoint its `-start` boundary before acting |
+| Unbounded burst or risky step is next | checkpoint before output or side effects arrive |
+| Findings are distilled and raw trail is no longer needed by NEXT | inspect timeline evidence, then fold the named boundary |
 | Direction is rejected or superseded | put the dead direction in Exclusions, preserve surviving facts, then fold to its start |
 | Final answer is next | run a rebase check; if it is not ready, fold the task chain when that removes material structure or create a unique `-done` checkpoint and answer directly |
 | New request arrives over finished work | run a rebase check before starting the new chain; if it is not ready, fold the finished local chain |
-| Another fold would stack on an active summary, a stable subchain closes, or context pressure rises | run a rebase check |
+| Another fold would stack on an active summary, a stable subchain closes, or context pressure rises | run a rebase check before choosing a local fold or accepting native compaction |
 
 Context pressure triggers a rebase check. It does not lower the cold start gate or authorize travel by itself.
 
@@ -107,7 +107,7 @@ After travel, confirm resolved target, summary leaf, backup outcome, raw usage/m
 <!-- ACM:CORE:END -->
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Preflight a distinct user goal before its first substantive action, then checkpoint later phase, attempt, burst, risky-step, pause, or completion boundaries. Use a unique semantic `-start`, `-paused`, or `-done` name. This tool labels history while preserving the active context.
+Preflight a distinct user goal before its first substantive action, then checkpoint later phase, attempt, burst, risky step, pause, milestone, or completion boundaries. Use a semantic `-start`, `-paused`, or `-done` name; names are unique across the session tree and case-sensitive. Omitting target labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history. This tool creates recoverability by labeling history without branching or folding the active context.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->

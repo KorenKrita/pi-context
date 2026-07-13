@@ -30,7 +30,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Unique semantic anchor name. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, root-cause-done. Avoid generic names like start, checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic anchor name; unique and case-sensitive across the session tree. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
