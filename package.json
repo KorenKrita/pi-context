@@ -12,7 +12,7 @@
   "scripts": {
     "test": "bun test",
     "generate:guidance": "bun scripts/generate-guidance.mjs",
-    "test:guidance": "bun test scripts/generate-guidance.test.mjs",
+    "test:guidance": "bun test scripts/generate-guidance.test.mjs test/guidance-quality.test.ts",
     "test:host": "cd test/host-fixture && bun run verify",
     "typecheck": "tsc --noEmit",
     "verify:acm": "bun scripts/generate-guidance.mjs --check && bun run test:guidance && bun run typecheck && bun run test:host"

@@ -9,7 +9,7 @@ A context window is a **working set**: the exact material needed for the next ac
 
 ### ACM preflight
 
-A distinct user goal begins with an **ACM preflight**: call `acm_checkpoint` first with a semantic `<chain>-start` name. Managed work includes investigation, planning, delegation, any non-ACM tool call, file or external side effects, and multi-step reasoning. Complete the preflight before any managed work. It is complete only when the tool result confirms that the checkpoint was created or reused. If the call fails, follow the recovery guidance in its result before proceeding. A text-only direct reply requiring no managed work stays outside the managed-chain workflow.
+A distinct user goal begins with an **ACM preflight** on the branch that will carry it. First complete any required `New request arrives over finished work` transition; then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work. When no finished-chain transition is required, the checkpoint call is the first action. Managed work includes investigation, planning, delegation, any non-ACM tool call, file or external side effects, and multi-step reasoning. The preflight is complete only when the tool result confirms that the checkpoint was created or reused. If the call fails, follow the recovery guidance in its result before proceeding. A text-only direct reply requiring no managed work stays outside the managed-chain workflow.
 
 ### Vocabulary
 
@@ -107,7 +107,7 @@ After travel, confirm resolved target, summary leaf, backup outcome, raw usage/m
 <!-- ACM:CORE:END -->
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Preflight a distinct user goal before its first substantive action, then checkpoint later phase, attempt, burst, risky step, pause, milestone, or completion boundaries. Use a semantic `-start`, `-paused`, or `-done` name; names are unique across the session tree and case-sensitive. Omitting target labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history. This tool creates recoverability by labeling history without branching or folding the active context.
+Preflight a distinct user goal on the branch that will carry it: after any required finished-chain transition and before managed work, call this tool with a semantic `-start` name. Also checkpoint later phase, attempt, burst, risky step, pause, milestone, or completion boundaries with a semantic `-start`, `-paused`, or `-done` name. Names are unique across the session tree and case-sensitive. Omitting target labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history. This tool creates recoverability by labeling history without branching or folding the active context.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
