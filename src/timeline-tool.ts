@@ -190,24 +190,18 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     maximum: 50,
     description: "Maximum recent visible entries (active), sorted aliases (checkpoints), matches (search), or traversal depth per root (tree). Range 1..50; default 50.",
   }));
-  const schema = Type.Union([
-    Type.Object({
-      view: Type.Optional(Type.Literal("active")),
-      limit: limitSchema,
-      verbose: Type.Optional(Type.Boolean({ description: "Show all active-path messages, including internal tool traffic and system/custom metadata." })),
-    }, { additionalProperties: false }),
-    Type.Object({
-      view: Type.Literal("checkpoints"),
-      limit: limitSchema,
-      filter: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively." })),
-    }, { additionalProperties: false }),
-    Type.Object({
-      view: Type.Literal("search"),
-      limit: limitSchema,
-      query: Type.String({ minLength: 1, maxLength: 500, description: "Required non-blank full-tree query matching labels, node IDs, or rendered content case-insensitively." }),
-    }, { additionalProperties: false }),
-    Type.Object({ view: Type.Literal("tree"), limit: limitSchema }, { additionalProperties: false }),
-  ]);
+  const schema = Type.Object({
+    view: Type.Optional(Type.Union([
+      Type.Literal("active"),
+      Type.Literal("checkpoints"),
+      Type.Literal("search"),
+      Type.Literal("tree"),
+    ], { description: "Timeline view mode. Default: active." })),
+    limit: limitSchema,
+    verbose: Type.Optional(Type.Boolean({ description: "Show all active-path messages, including internal tool traffic and system/custom metadata. (active view only)" })),
+    filter: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively. (checkpoints view only)" })),
+    query: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
+  }, { additionalProperties: false });
 
   registerTool({
     name: "acm_timeline",
@@ -227,6 +221,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         | { view: "checkpoints"; limit: number; filter?: string }
         | { view: "search"; limit: number; query: string }
         | { view: "tree"; limit: number };
+      if (params.view === "search" && !params.query) {
+        return {
+          content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
+          details: { error: "missing_query" },
+        };
+      }
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
