@@ -20,7 +20,7 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("Structural reset passes only when");
     expect(ACM_CORE).toContain("projected summary depth does not grow");
     expect(ACM_CORE).toContain("Cold start passes only when");
-    expect(ACM_CORE.length).toBeLessThan(6000);
+    expect(ACM_CORE.length).toBeLessThan(7500);
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
   });
 
@@ -30,12 +30,21 @@ describe("ACM guidance quality", () => {
 
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal starts with an **ACM preflight**");
+    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight**");
     expect(ACM_CORE).toContain("call `acm_checkpoint` first with a semantic `<chain>-start` name");
-    expect(ACM_CORE).toContain("Start work after its result confirms the checkpoint was created or reused");
+    expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
+    expect(ACM_CORE).toContain("Complete the preflight before any managed work");
+    expect(ACM_CORE).toContain("the checkpoint was created or reused");
+    expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
+    expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
+    expect(ACM_CORE).toContain("live detail the next action will reason over");
+    expect(ACM_CORE).toContain("Name the boundary before choosing a target");
+    expect(ACM_CORE).toContain("without archived summaries");
+    expect(ACM_CORE).toContain("checkpoint its `-start` boundary before acting");
+    expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
     expect(ACM_CORE).not.toContain("| New chain starts |");
     expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
-    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(300);
+    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(600);
   });
 
   test("routes one advanced condition at a time and reroutes on state change", async () => {
