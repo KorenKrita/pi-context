@@ -29,6 +29,8 @@ describe("canonical guidance generation", () => {
     expect(GUIDANCE_CUES).toEqual(derived.guidanceCues);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
     expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
+    expect(ACM_CORE.indexOf("### ACM preflight")).toBeLessThan(ACM_CORE.indexOf("### Vocabulary"));
+    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
     expect(RECOVERY_GUIDANCE.hostCapability).toContain("supported Pi version");
     expect(RECOVERY_GUIDANCE.hostCapability).not.toContain("OMP");
   });
