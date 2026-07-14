@@ -186,7 +186,6 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 }
 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
-  const registerTool = (tool: Parameters<ExtensionAPI["registerTool"]>[0] & { strict?: boolean }) => pi.registerTool(tool);
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
     maximum: 50,
@@ -205,7 +204,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     query: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
   }, { additionalProperties: false });
 
-  registerTool({
+  pi.registerTool({
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
@@ -214,7 +213,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       "Use acm_timeline to gather structural evidence before choosing a non-obvious travel target; prefer active, checkpoints, or search unless tree topology is required.",
     ],
     parameters: schema,
-    strict: true,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
       const args = rawArgs as Static<typeof schema>;

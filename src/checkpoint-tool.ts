@@ -26,7 +26,6 @@ import {
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
-  const registerTool = (tool: Parameters<ExtensionAPI["registerTool"]>[0] & { strict?: boolean }) => pi.registerTool(tool);
   const schema = Type.Object({
     name: Type.String({
       minLength: 1,
@@ -41,7 +40,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     })),
   }, { additionalProperties: false });
 
-  registerTool({
+  pi.registerTool({
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
@@ -50,7 +49,6 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
     ],
     parameters: schema,
-    strict: false,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
       const args = rawArgs as Static<typeof schema>;
