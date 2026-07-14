@@ -53,6 +53,16 @@ function formatBackupText(name: string | undefined, entryId: string | undefined,
     : `${name}@${entryId}`;
 }
 
+function countContainingToolBatch(branch: SessionEntry[], toolCallId: string): number | null {
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index];
+    if (entry?.type !== "message" || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) continue;
+    const toolCalls = entry.message.content.filter((part) => part.type === "toolCall");
+    if (toolCalls.some((part) => part.id === toolCallId)) return toolCalls.length;
+  }
+  return null;
+}
+
 function formatNumericValue(value: number | null, fractionDigits = 0): string {
   return value === null || !Number.isFinite(value) ? "unknown" : value.toFixed(fractionDigits);
 }
@@ -77,9 +87,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
     promptGuidelines: [
       "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
+      "Call acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
     ],
     parameters: schema,
     strict: false,
+    executionMode: "sequential",
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
       const args = rawArgs as Static<typeof schema>;
@@ -165,6 +177,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return {
           content: [{ type: "text" as const, text: `Error: handoff must contain each non-empty slot once and in order: ${HANDOFF_SLOT_HINT}. Travel aborted before mutation.` }],
           details: { error: "invalid_handoff", validation: handoffValidation },
+        };
+      }
+
+      const containingToolCallCount = countContainingToolBatch(ctx.sessionManager.getBranch(), toolCallId);
+      if (containingToolCallCount !== null && containingToolCallCount > 1) {
+        return {
+          content: [{ type: "text" as const, text: `Error: acm_travel must run alone in its assistant tool batch; found ${containingToolCallCount} tool calls in the containing assistant message. Travel aborted before mutation. Reissue acm_travel in a new assistant message without sibling tools.` }],
+          details: { error: "mixed_tool_batch", toolCallId, toolCallCount: containingToolCallCount },
         };
       }
 
