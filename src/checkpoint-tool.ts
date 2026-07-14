@@ -8,6 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
   formatContextUsage,
+  isReservedTargetName,
   isValidEntryId,
   resolveTargetId,
   type MeaningfulResolveResult,
@@ -31,7 +32,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic anchor name; unique and case-sensitive across the session tree. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic anchor name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
@@ -111,6 +112,12 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       ctx: ExtensionContext,
     ) {
       const params = rawParams;
+      if (isReservedTargetName(params.name)) {
+        return {
+          content: [{ type: "text" as const, text: `Error: Checkpoint name '${params.name}' is reserved for the structural root target. Choose a different semantic name.` }],
+          details: { error: "reserved_name", name: params.name },
+        };
+      }
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const labelMaps = buildLabelMaps(sessionManager.getEntries());

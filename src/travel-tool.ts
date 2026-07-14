@@ -16,6 +16,7 @@ import {
   formatContextUsage,
   formatEntryLabels,
   HANDOFF_SLOT_HINT,
+  isReservedTargetName,
   isValidEntryId,
   resolveTargetId,
   validateHandoffStructure,
@@ -66,7 +67,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
   const schema = Type.Object({
     target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. For a local fold, choose a target before the named boundary. For a rebase, evaluate candidate bases from earliest to latest and choose the first whose target retires an active summary without growing projected depth and whose snapshot passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when topology matters." }),
     summary: Type.String({ minLength: 1, maxLength: 10000, description: `Handoff summary — the working state after travel. It must make the next action executable without rereading the folded trail. A rebase snapshot must pass cold start: a fresh agent can execute NEXT from this handoff and direct evidence pointers without reading archived summaries. Fill every slot, write 'none' rather than dropping one: ${HANDOFF_SLOT_HINT}. Include recovery pointers; pointers over dumps. Max 10000 chars.` }),
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
   }, { additionalProperties: false });
 
   registerTool({
@@ -153,6 +154,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       ctx: ExtensionContext,
     ) {
       const params = rawParams;
+      if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
+        return {
+          content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
+          details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
+        };
+      }
       const handoffValidation = validateHandoffStructure(params.summary);
       if (!handoffValidation.ok) {
         return {
@@ -323,22 +330,39 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       if (!mutation.ok) {
         if (mutation.refreshRequired) runtime.scheduleRefresh(sessionManager, mutation.refreshLeafId);
-        const recoveryAction = mutation.backupRollbackFailed
-          ? RECOVERY_GUIDANCE.rollbackFailed
-          : mutation.backupRollbackSkipped || mutation.branchState === "indeterminate"
-            ? RECOVERY_GUIDANCE.rollbackSkipped
-            : mutation.backupRolledBack
-              ? RECOVERY_GUIDANCE.branchRolledBack
-              : RECOVERY_GUIDANCE.hostCapability;
-        const backupNote = mutation.backupRollbackFailed
-          ? ` Backup label '${params.backupCurrentHeadAs}' remains at ${backupEntryId}; rollback failed.`
-          : mutation.backupRollbackSkipped && mutation.backupRollbackSkipReason === "branch_mutation_observed"
+        const backupRecoveryNode = backupEntryId ? `history node ${backupEntryId}` : "the reported history node";
+        let recoveryAction: string;
+        if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
+          recoveryAction = mutation.remainingBackupLabelState === "present"
+            ? (mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped)
+            : mutation.remainingBackupLabelState === "unknown"
+              ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
+              : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
+        } else if (mutation.branchState === "indeterminate") {
+          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
+        } else {
+          recoveryAction = mutation.backupRolledBack
+            ? RECOVERY_GUIDANCE.branchRolledBack
+            : RECOVERY_GUIDANCE.hostCapability;
+        }
+        let backupNote = "";
+        if (mutation.backupRollbackFailed) {
+          backupNote = mutation.remainingBackupLabelState === "present"
+            ? ` Backup label '${params.backupCurrentHeadAs}' remains at ${backupEntryId}; rollback failed.`
+            : mutation.remainingBackupLabelState === "unknown"
+              ? ` Backup label '${params.backupCurrentHeadAs}' may remain; rollback failed and label verification was unavailable.`
+              : ` Rollback failed, but backup label '${params.backupCurrentHeadAs}' is not currently present.`;
+        } else if (mutation.backupRollbackSkipped && mutation.backupRollbackSkipReason === "branch_mutation_observed") {
+          backupNote = mutation.remainingBackupLabelState === "present"
             ? ` Backup label '${params.backupCurrentHeadAs}' remains because branch mutation was observed or cannot be excluded.`
-            : mutation.backupRollbackSkipped
-              ? ` Backup label '${params.backupCurrentHeadAs}' may remain because its mutation state is indeterminate.`
-              : mutation.backupRolledBack
-                ? ` Backup label '${params.backupCurrentHeadAs}' was rolled back.`
-                : "";
+            : mutation.remainingBackupLabelState === "unknown"
+              ? ` Backup label '${params.backupCurrentHeadAs}' may remain because branch mutation was observed and label verification was unavailable.`
+              : ` Backup label '${params.backupCurrentHeadAs}' is not currently present; preserve ${backupRecoveryNode} instead.`;
+        } else if (mutation.backupRollbackSkipped) {
+          backupNote = ` Backup label '${params.backupCurrentHeadAs}' may remain because its mutation state is indeterminate.`;
+        } else if (mutation.backupRolledBack) {
+          backupNote = ` Backup label '${params.backupCurrentHeadAs}' was rolled back.`;
+        }
         const refreshNote = mutation.refreshRequired ? ` ${RECOVERY_GUIDANCE.refreshPending}` : "";
         const prefix = mutation.error === "backup_label_failed"
           ? `Error: archive bookmark '${params.backupCurrentHeadAs}' could not be set`
@@ -364,6 +388,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             backupRollbackSkipped: mutation.backupRollbackSkipped,
             backupRollbackSkipReason: mutation.backupRollbackSkipReason,
             remainingBackupLabel: mutation.remainingBackupLabel,
+            remainingBackupLabelState: mutation.remainingBackupLabelState,
             contextRefreshPending: mutation.refreshRequired,
             contextRefreshState: mutation.refreshRequired ? "pending" : "not_scheduled",
             liveAgentSessionSyncState: "skipped",
