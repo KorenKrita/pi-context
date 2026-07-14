@@ -21,15 +21,8 @@ function createToolInfo(overrides: Partial<ToolInfo> = {}): ToolInfo {
   } as ToolInfo;
 }
 
-async function renderContext(options: {
-  messages?: AgentMessage[];
-  tools?: ToolInfo[];
-  totalActual: number;
-  limit: number;
-  systemPrompt?: string;
-}): Promise<string> {
+function captureContextCommand(tools: ToolInfo[] = []): RegisteredCommand {
   let command: RegisteredCommand | undefined;
-  const tools = options.tools ?? [];
   const pi = {
     registerCommand(_name: string, commandOptions: Omit<RegisteredCommand, "name" | "sourceInfo">) {
       command = {
@@ -43,12 +36,26 @@ async function renderContext(options: {
     getAllTools: () => tools,
   } as unknown as ExtensionAPI;
   registerContextCommand(pi);
+  if (!command) throw new Error("Context command was not registered");
+  return command;
+}
+
+async function renderContext(options: {
+  messages?: AgentMessage[];
+  tools?: ToolInfo[];
+  totalActual: number;
+  limit: number;
+  systemPrompt?: string;
+}): Promise<string> {
+  const tools = options.tools ?? [];
+  const command = captureContextCommand(tools);
 
   const sessionManager = SessionManager.inMemory("/tmp/context-command-test");
   for (const message of options.messages ?? []) sessionManager.appendMessage(message as never);
 
   let rendered = "";
   const ctx = {
+    mode: "tui",
     sessionManager,
     getContextUsage: () => ({
       tokens: options.totalActual,
@@ -66,7 +73,7 @@ async function renderContext(options: {
     },
   } as unknown as ExtensionCommandContext;
 
-  await command!.handler("", ctx);
+  await command.handler("", ctx);
   return rendered;
 }
 
@@ -154,23 +161,81 @@ describe("/context accounting", () => {
 });
 
 describe("/context command", () => {
-  test("warns when official context usage is unavailable", async () => {
-    let command: RegisteredCommand | undefined;
-    const pi = {
-      registerCommand(_name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
-        command = { name: "context", invocationName: "context", sourceInfo: { source: "extension", path: "test" }, ...options };
-      },
-    } as unknown as ExtensionAPI;
-    registerContextCommand(pi);
+  test.each([
+    ["missing usage", undefined],
+    ["non-finite tokens", { tokens: Number.NaN, contextWindow: 100, percent: Number.NaN }],
+    ["negative tokens", { tokens: -1, contextWindow: 100, percent: -1 }],
+    ["non-finite context window", { tokens: 10, contextWindow: Number.POSITIVE_INFINITY, percent: 0 }],
+    ["negative percentage", { tokens: 10, contextWindow: 100, percent: -10 }],
+  ])("warns when official context usage is %s", async (_caseName, usage) => {
+    const command = captureContextCommand();
 
     const notifications: Array<{ message: string; type: string | undefined }> = [];
     const ctx = {
-      getContextUsage: () => undefined,
+      mode: "tui",
+      getContextUsage: () => usage,
       ui: { notify: (message: string, type?: string) => notifications.push({ message, type }) },
     } as unknown as ExtensionCommandContext;
 
-    await command!.handler("", ctx);
+    await command.handler("", ctx);
     expect(notifications).toEqual([{ message: "Context usage info not available.", type: "warning" }]);
+  });
+
+  test("contains host exceptions and reports actionable context", async () => {
+    const command = captureContextCommand();
+
+    const notifications: Array<{ message: string; type: string | undefined }> = [];
+    const ctx = {
+      mode: "tui",
+      getContextUsage: () => {
+        throw new Error("usage\u0000 exploded");
+      },
+      ui: { notify: (message: string, type?: string) => notifications.push({ message, type }) },
+    } as unknown as ExtensionCommandContext;
+
+    await command.handler("", ctx);
+    expect(notifications).toEqual([{
+      message: "Context usage visualization failed: usage exploded",
+      type: "warning",
+    }]);
+  });
+
+  test("warns instead of invoking terminal UI outside TUI mode", async () => {
+    const command = captureContextCommand();
+
+    const notifications: Array<{ message: string; type: string | undefined }> = [];
+    const ctx = {
+      mode: "rpc",
+      ui: { notify: (message: string, type?: string) => notifications.push({ message, type }) },
+    } as unknown as ExtensionCommandContext;
+
+    await command.handler("", ctx);
+    expect(notifications).toEqual([{
+      message: "Context usage visualization is only available in TUI mode.",
+      type: "warning",
+    }]);
+  });
+
+  test("warns when TUI does not open the visualization component", async () => {
+    const command = captureContextCommand();
+
+    const notifications: Array<{ message: string; type: string | undefined }> = [];
+    const ctx = {
+      mode: "tui",
+      sessionManager: SessionManager.inMemory("/tmp/context-command-noop-ui-test"),
+      getContextUsage: () => ({ tokens: 10, contextWindow: 100, percent: 10 }),
+      getSystemPrompt: () => "",
+      ui: {
+        notify: (message: string, type?: string) => notifications.push({ message, type }),
+        custom: async () => undefined,
+      },
+    } as unknown as ExtensionCommandContext;
+
+    await command.handler("", ctx);
+    expect(notifications).toEqual([{
+      message: "Context usage visualization could not be opened.",
+      type: "warning",
+    }]);
   });
 
   test("renders the active session breakdown", async () => {
