@@ -5,6 +5,7 @@ import type {
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
   ContextRefreshRegistry,
@@ -208,8 +209,96 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
+    promptSnippet: "Inspect session structure, context pressure, and travel candidates",
+    promptGuidelines: [
+      "Use acm_timeline to gather structural evidence before choosing a non-obvious travel target; prefer active, checkpoints, or search unless tree topology is required.",
+    ],
     parameters: schema,
     strict: true,
+    renderShell: "self",
+    renderCall(rawArgs, theme, context) {
+      const args = rawArgs as Static<typeof schema>;
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const view = args.view ?? "active";
+      const qualifiers = [`limit ${args.limit ?? 50}`];
+      if (view === "active" && args.verbose) qualifiers.push("verbose");
+      if (view === "checkpoints" && args.filter) qualifiers.push(`filter “${args.filter}”`);
+      if (view === "search" && args.query) qualifiers.push(`query “${args.query}”`);
+      component.setText(
+        theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
+          + theme.fg("accent", view)
+          + theme.fg("dim", `  ·  ${qualifiers.join(" · ")}`),
+      );
+      return component;
+    },
+    renderResult(result, { expanded, isPartial }, theme, context) {
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const details = result.details as Record<string, unknown> | undefined;
+
+      if (isPartial) {
+        component.setText(theme.fg("warning", "◌ Inspecting session evidence…"));
+        return component;
+      }
+
+      if (typeof details?.error === "string") {
+        component.setText(
+          theme.fg("error", "✕ TIMELINE UNAVAILABLE")
+            + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
+        );
+        return component;
+      }
+
+      const view = typeof details?.view === "string" ? details.view : "active";
+      const depth = typeof details?.activeSummaryDepth === "number" ? details.activeSummaryDepth : 0;
+      const usage = details?.contextUsage && typeof details.contextUsage === "object"
+        ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
+        : "unknown";
+      let evidence: string;
+      if (view === "checkpoints") {
+        const shown = typeof details?.checkpointsDisplayedAliases === "number" ? details.checkpointsDisplayedAliases : 0;
+        const total = typeof details?.checkpointsMatchingAliases === "number" ? details.checkpointsMatchingAliases : 0;
+        const root = typeof details?.rootCandidateEntryId === "string" ? ` · root ${details.rootCandidateEntryId}` : "";
+        evidence = `${shown}/${total} aliases shown${root}`;
+      } else if (view === "search") {
+        const matches = typeof details?.searchDisplayedMatches === "number" ? details.searchDisplayedMatches : 0;
+        evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
+      } else if (view === "tree") {
+        const lines = typeof details?.outputLines === "number" ? details.outputLines : 0;
+        evidence = `${lines} rendered lines${details?.treeTruncated ? " · truncated" : ""}`;
+      } else {
+        const nodes = typeof details?.activePathNodes === "number" ? details.activePathNodes : 0;
+        const shown = typeof details?.activeDisplayedEntries === "number" ? details.activeDisplayedEntries : 0;
+        const visible = typeof details?.activeVisibleEntries === "number" ? details.activeVisibleEntries : 0;
+        evidence = `${nodes} active nodes · ${shown}/${visible} visible entries shown`;
+      }
+
+      const sync = typeof details?.liveAgentSessionSyncState === "string"
+        ? details.liveAgentSessionSyncState
+        : "unknown";
+      const lines = [
+        theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${view.toUpperCase()}`),
+        theme.fg("muted", `  ${evidence} · summary depth ${depth}`),
+        theme.fg("dim", `  context ${usage} · live sync ${sync}`),
+      ];
+
+      if (expanded && raw) {
+        lines.push(theme.fg("dim", "  ─ full dashboard and view ─"), theme.fg("toolOutput", raw));
+      } else if (raw) {
+        const marker = "---------------------------------------------------\n";
+        const body = raw.includes(marker) ? raw.slice(raw.indexOf(marker) + marker.length) : "";
+        const bodyLines = body.split("\n").filter((line) => line.length > 0);
+        for (const line of bodyLines.slice(0, 4)) lines.push(theme.fg("toolOutput", `  ${line}`));
+        if (bodyLines.length > 4) lines.push(theme.fg("dim", `  … ${bodyLines.length - 4} more line(s); expand for full output`));
+      }
+
+      component.setText(lines.join("\n"));
+      return component;
+    },
     async execute(
       _id: string,
       rawParams: Static<typeof schema>,

@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
   calculateUsageDelta,
@@ -72,8 +73,78 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     name: "acm_travel",
     label: "ACM Travel",
     description: TOOL_DESCRIPTIONS.travel,
+    promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
+    promptGuidelines: [
+      "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
+    ],
     parameters: schema,
     strict: false,
+    renderShell: "self",
+    renderCall(rawArgs, theme, context) {
+      const args = rawArgs as Static<typeof schema>;
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const backup = args.backupCurrentHeadAs ? ` · backup ${args.backupCurrentHeadAs}` : "";
+      const target = args.target ?? "…";
+      const summaryLength = args.summary?.length ?? 0;
+      component.setText(
+        theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
+          + theme.fg("accent", `→ ${target}`)
+          + theme.fg("dim", `${backup} · handoff ${summaryLength} chars`),
+      );
+      return component;
+    },
+    renderResult(result, { expanded, isPartial }, theme, context) {
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const details = result.details as Record<string, unknown> | undefined;
+
+      if (isPartial) {
+        component.setText(theme.fg("warning", "◌ Applying recoverable context transition…"));
+        return component;
+      }
+
+      if (typeof details?.error === "string") {
+        component.setText(
+          theme.fg("warning", "⚠ TRAVEL NEEDS ATTENTION")
+            + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
+        );
+        return component;
+      }
+
+      const target = typeof details?.target === "string" ? details.target : "target";
+      const leaf = typeof details?.resultingLeafId === "string" ? details.resultingLeafId : "unknown leaf";
+      const beforeTokens = typeof details?.usageBeforeTokens === "number" ? details.usageBeforeTokens : null;
+      const afterTokens = typeof details?.estimatedUsageAfterTokens === "number" ? details.estimatedUsageAfterTokens : null;
+      const tokenDelta = typeof details?.tokenDelta === "number" ? details.tokenDelta : null;
+      const beforeMessages = typeof details?.structuralMessagesBefore === "number" ? details.structuralMessagesBefore : null;
+      const afterMessages = typeof details?.structuralMessagesAfter === "number" ? details.structuralMessagesAfter : null;
+      const direction = typeof details?.structuralMessageDirection === "string" ? details.structuralMessageDirection : "unknown";
+      const depthBefore = typeof details?.activeSummaryDepthBefore === "number" ? details.activeSummaryDepthBefore : null;
+      const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
+      const backup = typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none";
+      const liveSync = typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown";
+      const lines = [
+        theme.fg("success", "✓ TRAVEL COMPLETE")
+          + theme.fg("accent", `  ${target} → ${leaf}`),
+        theme.fg("muted",
+          `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
+            + ` (${formatSignedDelta(tokenDelta)}) · messages ${formatNumericValue(beforeMessages)} → ${formatNumericValue(afterMessages)} (${direction})`,
+        ),
+        theme.fg("dim",
+          `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
+            + ` · backup ${backup} · refresh pending · live sync ${liveSync}`,
+        ),
+      ];
+      if (expanded && raw) {
+        lines.push(theme.fg("dim", "  ─ full result ─"), theme.fg("toolOutput", raw));
+      }
+      component.setText(lines.join("\n"));
+      return component;
+    },
     async execute(
       toolCallId: string,
       rawParams: Static<typeof schema>,

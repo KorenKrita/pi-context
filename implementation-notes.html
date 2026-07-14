@@ -148,6 +148,16 @@
         <td>Classify ACM reminders against a working budget capped at 400K tokens while preserving hard-window usage as a separate metric.</td>
         <td><code>workingBudgetTokens = min(contextWindow, 400000)</code>: models at or below 400K retain their actual-window 30% / 50% / 70% behavior, while larger windows use 400K and therefore trigger at 120K / 200K / 280K active tokens. Existing persisted levels remain compatible; reminder details, baseline state, and the timeline dashboard expose both hard usage and ACM pressure rather than redefining <code>usagePercent</code>.</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>Give all three ACM tools explicit <code>promptSnippet</code>, <code>promptGuidelines</code>, self-owned shells, and custom call/result rendering.</td>
+        <td>The tools must be easier for the model to discover and use correctly while presenting checkpoint placement, timeline evidence, and travel outcomes more clearly in Pi's TUI.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Keep prompt metadata trigger-first and render compact evidence by default, with full raw tool output available only in the expanded view.</td>
+        <td>Each flat guideline names its tool as required by Pi. Renderers reuse row components, distinguish success from error or indeterminate outcomes, and remain presentation-only: the LLM-facing <code>content</code>, structured <code>details</code>, and mutation behavior are unchanged.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
