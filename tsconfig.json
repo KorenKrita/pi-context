@@ -3,14 +3,23 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "strict": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "erasableSyntaxOnly": true,
+    "esModuleInterop": true,
     "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
-    "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noEmit": true,
-    "esModuleInterop": true
+    "skipLibCheck": true,
+    "strict": true,
+    "verbatimModuleSyntax": true
   },
   "include": ["src"]
 }
