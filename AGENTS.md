@@ -179,6 +179,12 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 canonical 词汇固定为 working set、boundary、handoff、archive、chain、burst、rebase、cold start、anchor gravity。checkpoint 创建 recoverability；travel 才 fold boundary；rebase 仍复用 travel mutation contract。
 
+## Tool prompt 与 TUI 呈现
+
+三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。prompt metadata 只保留每个工具最关键的触发/安全门，不复制完整 CORE。
+
+self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content` 与 `details`，不得改变发送给 LLM 的工具结果或 mutation contract；错误/indeterminate 结果不得套用成功样式。
+
 ## 测试与验证
 
 Focused：

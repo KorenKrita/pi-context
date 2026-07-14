@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
   formatContextUsage,
@@ -43,8 +44,65 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
+    promptSnippet: "Label a recoverable session boundary without changing context",
+    promptGuidelines: [
+      "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
+    ],
     parameters: schema,
     strict: false,
+    renderShell: "self",
+    renderCall(rawArgs, theme, context) {
+      const args = rawArgs as Static<typeof schema>;
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const target = args.target ?? "nearest meaningful turn";
+      component.setText(
+        theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
+          + theme.fg("accent", args.name ?? "…")
+          + theme.fg("dim", `  →  ${target}`),
+      );
+      return component;
+    },
+    renderResult(result, { expanded, isPartial }, theme, context) {
+      const component = context.lastComponent instanceof Text
+        ? context.lastComponent
+        : new Text("", 0, 0);
+      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const details = result.details as Record<string, unknown> | undefined;
+
+      if (isPartial) {
+        component.setText(theme.fg("warning", "◌ Creating checkpoint…"));
+        return component;
+      }
+
+      if (typeof details?.error === "string") {
+        component.setText(
+          theme.fg("error", "✕ CHECKPOINT NOT CREATED")
+            + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
+        );
+        return component;
+      }
+
+      const status = details?.status === "already_present" ? "REUSED" : "CREATED";
+      const name = typeof details?.name === "string" ? details.name : "checkpoint";
+      const entryId = typeof details?.entryId === "string" ? details.entryId : "unknown entry";
+      const role = typeof details?.role === "string" ? details.role : "node";
+      const usage = details?.contextUsage && typeof details.contextUsage === "object"
+        ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
+        : "unknown";
+      const cue = typeof details?.cue === "string" ? details.cue : "";
+      const lines = [
+        theme.fg("success", `✓ CHECKPOINT ${status}`) + theme.fg("accent", `  ${name}`),
+        theme.fg("muted", `  ${role} · ${entryId} · context ${usage}`),
+      ];
+      if (cue) lines.push(theme.fg("dim", `  → ${cue}`));
+      if (expanded && raw) {
+        lines.push(theme.fg("dim", "  ─ full result ─"), theme.fg("toolOutput", raw));
+      }
+      component.setText(lines.join("\n"));
+      return component;
+    },
     async execute(
       _id: string,
       rawParams: Static<typeof schema>,
