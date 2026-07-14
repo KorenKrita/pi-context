@@ -36,7 +36,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Keep persistent tree mutation in Host Bridge and live-state replacement in a separate compatibility boundary.</td>
-        <td><code>appendLabelChange()</code>, <code>branchWithSummary()</code>, and <code>buildSessionContext()</code> are public Pi capabilities, but extension tool context exposes only a readonly manager type. Host Bridge performs guarded capability access; the adapter only synchronizes the matching live session after callers schedule it.</td>
+        <td><code>appendLabelChange()</code> and <code>branchWithSummary()</code> are public runtime capabilities, while <code>buildSessionContext()</code> is a public <code>@earendil-works/pi-coding-agent</code> package export. Extension tool context exposes only a readonly manager type, so Host Bridge performs guarded mutation access and centralizes package-level context reconstruction; the adapter only synchronizes the matching live session after callers schedule it.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>

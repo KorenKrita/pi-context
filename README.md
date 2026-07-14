@@ -90,10 +90,18 @@ pi install .
 pi install git:github.com/KorenKrita/pi-context
 ```
 
-也可以临时直接加载 source-first 入口：
+也可以临时直接加载 source-first 入口。只加载 `src/index.ts` 时，Pi 会注册三个 ACM tools 和 always-on CORE，但不会读取该项目 `package.json` 中声明的 `/context` 扩展或 advanced Skill：
 
 ```bash
 pi -e /path/to/pi-context/src/index.ts
+```
+
+若要让临时运行与 package 安装暴露相同的资源，请显式加载两个 extension 和 skills 目录：
+
+```bash
+pi -e /path/to/pi-context/src/index.ts \
+  -e /path/to/pi-context/src/context.ts \
+  --skill /path/to/pi-context/skills
 ```
 
 安装后无需手动调用命令。Agent 会根据 CORE 在任务边界主动使用三个 ACM tools；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
