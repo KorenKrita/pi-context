@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ThemeColor,
   type ToolInfo,
   DynamicBorder,
@@ -8,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text, Spacer } from "@earendil-works/pi-tui";
 import { buildSessionMessages } from "./host-bridge.js";
+import { sanitizeTerminalText } from "./lib.js";
 import { formatTokens } from "./utils.js";
 
 interface TokenBuckets {
@@ -129,22 +131,49 @@ function calculateContextUsageBreakdown(input: {
   };
 }
 
+async function containContextCommandFailures(
+  ctx: Pick<ExtensionCommandContext, "ui">,
+  action: () => Promise<void>,
+): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    const message = sanitizeTerminalText(error instanceof Error ? error.message : String(error));
+    ctx.ui.notify(`Context usage visualization failed: ${message}`, "warning");
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("context", {
     description: "Show context usage visualization",
-    handler: async (_args, ctx) => {
+    handler: async (_args, ctx) => containContextCommandFailures(ctx, async () => {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("Context usage visualization is only available in TUI mode.", "warning");
+        return;
+      }
       const usage = await ctx.getContextUsage();
       const totalActual = usage?.tokens;
       const limit = usage?.contextWindow;
       const usagePercent = usage?.percent;
-      if (totalActual == null || limit == null || usagePercent == null || limit <= 0) {
+      if (
+        totalActual == null ||
+        !Number.isFinite(totalActual) ||
+        totalActual < 0 ||
+        limit == null ||
+        !Number.isFinite(limit) ||
+        limit <= 0 ||
+        usagePercent == null ||
+        !Number.isFinite(usagePercent) ||
+        usagePercent < 0
+      ) {
         ctx.ui.notify("Context usage info not available.", "warning");
         return;
       }
 
       const contextMessagesResult = buildSessionMessages(ctx.sessionManager);
       if (!contextMessagesResult.ok) {
-        ctx.ui.notify(`Context messages could not be rebuilt: ${contextMessagesResult.message}`, "warning");
+        const message = sanitizeTerminalText(contextMessagesResult.message);
+        ctx.ui.notify(`Context messages could not be rebuilt: ${message}`, "warning");
         return;
       }
       const contextMessages = contextMessagesResult.value;
@@ -159,7 +188,9 @@ export default function (pi: ExtensionAPI) {
         activeToolDefs,
         messages: contextMessages,
       });
+      let componentOpened = false;
       await ctx.ui.custom((_tui, theme, _kb, done) => {
+        componentOpened = true;
         const container = new Container();
         container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
         container.addChild(new Text(theme.fg("accent", theme.bold(" Context Usage")), 1, 0));
@@ -226,6 +257,9 @@ export default function (pi: ExtensionAPI) {
           handleInput: () => done(undefined),
         };
       }, { overlay: true });
-    },
+      if (!componentOpened) {
+        ctx.ui.notify("Context usage visualization could not be opened.", "warning");
+      }
+    }),
   });
 }
