@@ -329,8 +329,8 @@ export function appendCheckpointLabel(
         targetId,
         name,
         priorAliases: prevalidation.value.aliases,
-        hostReturnedEntryId,
-        hostError,
+        ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
+        ...(hostError === undefined ? {} : { hostError }),
         cause,
       }),
       state: "indeterminate",
@@ -348,7 +348,7 @@ export function appendCheckpointLabel(
         status: "created",
         aliases: aliasesAfter,
         rollback,
-        hostReturnedEntryId,
+        ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
       },
     };
   }
@@ -363,9 +363,9 @@ export function appendCheckpointLabel(
         name,
         priorAliases: prevalidation.value.aliases,
         aliasesAfter,
-        observedLabelEntryId: observed?.id,
-        hostReturnedEntryId,
-        hostError,
+        ...(observed === undefined ? {} : { observedLabelEntryId: observed.id }),
+        ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
+        ...(hostError === undefined ? {} : { hostError }),
       },
     ),
     state: changed ? "indeterminate" : "not_applied",
@@ -439,7 +439,7 @@ export function rollbackCheckpointLabel(
         label: token.name,
         expectedAliases: token.priorAliases,
         aliasesBefore,
-        hostError,
+        ...(hostError === undefined ? {} : { hostError }),
         cause,
       }),
       state: "indeterminate",
@@ -458,7 +458,7 @@ export function rollbackCheckpointLabel(
         expectedAliases: token.priorAliases,
         aliasesBefore,
         aliasesAfter,
-        hostError,
+        ...(hostError === undefined ? {} : { hostError }),
       },
     ),
     state: "indeterminate",
@@ -523,8 +523,8 @@ export function applyBranchWithSummary(
       ...failure("host_operation_failed", `Could not verify branchWithSummary after mutation attempt: ${cause}`, {
         branchFromId,
         leafBefore,
-        hostReturnedEntryId,
-        hostError,
+        ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
+        ...(hostError === undefined ? {} : { hostError }),
         cause,
       }),
       state: "indeterminate",
@@ -534,7 +534,14 @@ export function applyBranchWithSummary(
     return {
       ok: true,
       state: "applied",
-      value: { summaryEntryId: leafAfter, branchFromId, summary, leafBefore, leafAfter, hostReturnedEntryId },
+      value: {
+        summaryEntryId: leafAfter,
+        branchFromId,
+        summary,
+        leafBefore,
+        leafAfter,
+        ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
+      },
     };
   }
 
@@ -542,9 +549,9 @@ export function applyBranchWithSummary(
     branchFromId,
     leafBefore,
     leafAfter,
-    actualSummaryEntryId,
-    hostReturnedEntryId,
-    hostError,
+    ...(actualSummaryEntryId === undefined ? {} : { actualSummaryEntryId }),
+    ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
+    ...(hostError === undefined ? {} : { hostError }),
   };
   return {
     ...failure(
