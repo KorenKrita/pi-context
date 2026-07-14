@@ -530,7 +530,7 @@ export function applyBranchWithSummary(
       state: "indeterminate",
     };
   }
-  if (exactSummary && leafAfter) {
+  if (exactSummary && leafAfter && leafAfter !== leafBefore) {
     return {
       ok: true,
       state: "applied",
@@ -556,7 +556,11 @@ export function applyBranchWithSummary(
   return {
     ...failure(
       hostError ? "host_operation_failed" : "branch_verification_failed",
-      hostError ? `branchWithSummary failed: ${hostError}` : "branchWithSummary did not create the expected summary entry at the resulting leaf",
+      hostError
+        ? `branchWithSummary failed: ${hostError}`
+        : exactSummary && leafAfter === leafBefore
+          ? "branchWithSummary left the active leaf unchanged; the matching summary predates this mutation attempt"
+          : "branchWithSummary did not create the expected summary entry at the resulting leaf",
       failureDetails,
     ),
     state: leafAfter === leafBefore ? "not_applied" : "indeterminate",
