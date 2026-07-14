@@ -188,6 +188,11 @@
         <td>Keep <code>/context</code> attribution aligned with Pi's provider-visible payload and native message estimator.</td>
         <td><code>getAllTools()</code> includes source metadata and prompt guidelines that are not part of the provider tool schema; guidelines already contribute through the effective system prompt. The panel therefore estimates only <code>name</code>, <code>description</code>, and <code>parameters</code>, reports zero tool-schema tokens when no tools are active, and splits assistant text/thinking/tool calls with the same character weights as Pi 0.80.6 <code>estimateTokens()</code>. Downward-only calibration and an explicit <code>Other</code> remainder preserve the official total without inventing attribution.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Treat an equivalent branch summary as applied only when the active leaf changes during the current host mutation attempt.</td>
+        <td>Summary-content equality alone cannot attribute a mutation: the active leaf may already contain the requested handoff before <code>branchWithSummary()</code> throws or performs no work. Host Bridge now classifies an unchanged equivalent leaf as <code>not_applied</code> while preserving any host error, accepts a changed exact-summary leaf as observed application even if the host return is malformed or throws afterward, and retains <code>indeterminate</code> for failed post-mutation observation.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
