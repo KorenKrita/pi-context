@@ -17,12 +17,12 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
   const result = [...messages];
 
   for (let index = result.length - 1; index >= 0; index--) {
-    const message = result[index];
+    const message = result[index]!;
     if (message.role !== "toolResult") continue;
     const toolCallId = message.toolCallId;
     let precedingIndex = index - 1;
-    while (precedingIndex >= 0 && result[precedingIndex].role === "toolResult") precedingIndex--;
-    const preceding = precedingIndex >= 0 ? result[precedingIndex] : undefined;
+    while (precedingIndex >= 0 && result[precedingIndex]!.role === "toolResult") precedingIndex--;
+    const preceding = precedingIndex >= 0 ? result[precedingIndex]! : undefined;
     const hasMatchingCall = Boolean(
       toolCallId &&
       preceding?.role === "assistant" &&
@@ -35,7 +35,7 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
   }
 
   for (let index = 0; index < result.length; index++) {
-    const message = result[index];
+    const message = result[index]!;
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
     if (message.stopReason === "error" || message.stopReason === "aborted") continue;
 
@@ -47,8 +47,8 @@ export function fixOrphanedToolUse(messages: AgentMessage[]): AgentMessage[] {
 
     const existingResults = new Map<string, AgentMessage>();
     let followingIndex = index + 1;
-    while (followingIndex < result.length && result[followingIndex].role === "toolResult") {
-      const following = result[followingIndex];
+    while (followingIndex < result.length && result[followingIndex]!.role === "toolResult") {
+      const following = result[followingIndex]!;
       if (following.role !== "toolResult") break; // Re-narrow indexed union access for TypeScript.
       if (following.toolCallId && !existingResults.has(following.toolCallId)) {
         existingResults.set(following.toolCallId, following);

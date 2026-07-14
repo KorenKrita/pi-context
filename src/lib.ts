@@ -193,7 +193,7 @@ export function isValidEntryId(id: string): boolean {
 
 /** Push tree children left-to-right so stack.pop() visits in document order. */
 export function pushTreeChildrenPreOrder(stack: SessionTreeNode[], children: SessionTreeNode[]): void {
- for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+ for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
 }
 
 export function extractTextFromContent(content: unknown): string {
@@ -429,7 +429,7 @@ export function findLastMeaningfulEntry(
   if (signal?.aborted) {
    return { entryId: null, skipped, aborted: true };
   }
-  const entry = branch[i];
+  const entry = branch[i]!;
   const skipReason = isSkipped(entry);
   if (skipReason) {
    skipped.push({ id: entry.id, reason: skipReason, role: getRole(entry) });
