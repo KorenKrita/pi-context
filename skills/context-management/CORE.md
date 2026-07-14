@@ -45,6 +45,8 @@ Travel only when all three criteria hold:
 2. **NEXT executable** — write one immediate action that can run from the handoff.
 3. **Raw recoverable** — preserve omitted detail through a checkpoint, node ID, file, command, URL, commit, or other pointer.
 
+Call `acm_travel` alone in its assistant tool batch; do not combine this context mutation with sibling tool calls.
+
 Boundary decides whether folding is valid. Timeline reports evidence; it does not decide for you. A target must sit before the named boundary. Nearest and earliest anchors are candidates, never defaults.
 
 ### Rebase gate
@@ -115,7 +117,7 @@ Inspect session structure and context evidence through one view: `active`, `chec
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Apply one recoverable context transition: fold a named boundary or rebase accumulated summaries to the earliest safe base. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but cannot prove boundary quality or cold start completeness.
+Apply one recoverable context transition: fold a named boundary or rebase accumulated summaries to the earliest safe base. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but cannot prove boundary quality or cold start completeness. It must run alone in its assistant tool batch; mixed tool batches are rejected before mutation.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 <!-- ACM:CUE_CHECKPOINT_START:START -->

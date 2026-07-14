@@ -9,6 +9,7 @@ interface CapturedTool {
   name: string;
   promptSnippet?: string;
   promptGuidelines?: string[];
+  executionMode?: "sequential" | "parallel";
   renderShell?: "default" | "self";
   renderCall?: (args: unknown, theme: Theme, context: unknown) => Component;
   renderResult?: (result: unknown, options: unknown, theme: Theme, context: unknown) => Component;
@@ -67,6 +68,10 @@ describe("ACM tool prompt metadata", () => {
     for (const guideline of tool.promptGuidelines ?? []) {
       expect(guideline).toContain(tool.name);
     }
+  });
+
+  test("acm_travel forces the containing tool batch to execute sequentially", () => {
+    expect(travel.executionMode).toBe("sequential");
   });
 
   test.each([checkpoint, timeline, travel])("$name owns its TUI shell and both render slots", (tool) => {

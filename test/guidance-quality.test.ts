@@ -22,6 +22,8 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("Cold start passes only when");
     expect(ACM_CORE.length).toBeLessThan(7500);
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
+    expect(ACM_CORE).toContain("Call `acm_travel` alone in its assistant tool batch");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("must run alone in its assistant tool batch");
   });
 
   test("front-loads a checkable checkpoint preflight", () => {

@@ -51,6 +51,22 @@ function travelToolCall(): AssistantMessage {
   };
 }
 
+function mixedTravelToolCall(travelFirst: boolean): AssistantMessage {
+  const base = travelToolCall();
+  const travelCall = base.content[0];
+  if (!travelCall) throw new Error("travel tool call fixture is empty");
+  const siblingCall = {
+    type: "toolCall" as const,
+    id: "sibling-read",
+    name: "read",
+    arguments: { path: "README.md" },
+  };
+  return {
+    ...base,
+    content: travelFirst ? [travelCall, siblingCall] : [siblingCall, travelCall],
+  };
+}
+
 function hasToolCall(messages: readonly AgentMessage[], toolCallId: string): boolean {
   return messages.some((message) => message.role === "assistant" && Array.isArray(message.content) &&
     message.content.some((part) => part.type === "toolCall" && part.id === toolCallId));
@@ -87,6 +103,50 @@ async function emit(handlers: Map<string, Array<(event: any, ctx: ExtensionConte
   return result;
 }
 
+describe("travel batch safety", () => {
+  for (const travelFirst of [true, false]) {
+    test(
+      `rejects a real-host mixed assistant tool batch before mutation when travel is ${travelFirst ? "first" : "after a sibling result"}`,
+      async () => {
+      const sessionManager = SessionManager.inMemory();
+      const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+      const assistantId = sessionManager.appendMessage(mixedTravelToolCall(travelFirst));
+      const leafId = travelFirst
+        ? assistantId
+        : sessionManager.appendMessage({
+          role: "toolResult",
+          toolCallId: "sibling-read",
+          toolName: "read",
+          content: [{ type: "text", text: "sibling completed" }],
+          isError: false,
+          timestamp: Date.now(),
+        });
+      const entriesBefore = sessionManager.getEntries();
+      const { context, travelTool } = createExtensionFixture(sessionManager);
+
+      const result = await travelTool.execute(
+        TOOL_CALL_ID,
+        { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "must-not-be-created" },
+        undefined,
+        undefined,
+        context,
+      );
+
+      expect(result.details).toMatchObject({
+        error: "mixed_tool_batch",
+        toolCallId: TOOL_CALL_ID,
+        toolCallCount: 2,
+      });
+      expect((result.content[0] as { text: string }).text).toContain("alone in its assistant tool batch");
+      expect(sessionManager.getLeafId()).toBe(leafId);
+      expect(sessionManager.getEntries()).toEqual(entriesBefore);
+      expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+      expect(sessionManager.getEntries().some((entry) => entry.type === "label")).toBe(false);
+      },
+    );
+  }
+});
+
 describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
   test("applies only after the matching tool_execution_end and preserves tree recovery", async () => {
     const sessionManager = SessionManager.inMemory();
@@ -101,10 +161,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       stopReason: "stop",
       timestamp: Date.now(),
     });
-    const staleMessages = [
-      ...(sessionManager.buildSessionContext().messages as AgentMessage[]),
-      travelToolCall(),
-    ];
+    sessionManager.appendMessage(travelToolCall());
+    const staleMessages = sessionManager.buildSessionContext().messages as AgentMessage[];
     const contextWindow = 100_000;
     const compactionSettings = { enabled: true, reserveTokens: 90_000, keepRecentTokens: 1_000 };
     const storedTokensBefore = staleMessages.reduce((sum, message) => sum + estimateTokens(message), 0);

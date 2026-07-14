@@ -173,6 +173,11 @@
         <td>Keep npm as the reproducible root installer and Bun as the test/build runtime, with host-fixture dependency resolution isolated behind its own frozen Bun lock.</td>
         <td>Pi 0.80.6 clones git packages and runs <code>npm install --omit=dev</code>, so the root <code>package-lock.json</code> is part of the production installation contract rather than disposable development state. Root <code>bun test</code> excludes <code>test/host-fixture/**</code>; the complete gate runs every root test and then lets the fixture install, build, and test against its exact Pi version independently. CI pins both toolchains and starts from <code>npm ci</code> so stale locks and residue-dependent passes fail.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Require <code>acm_travel</code> to execute alone in its assistant tool batch, force sequential dispatch, and reject a detected mixed batch before any session mutation.</td>
+        <td>Pi 0.80.6 persists the assistant tool-call message before dispatch but emits <code>tool_execution_end</code> before persisting each tool result. A successful travel replaces the live/session branch at that event, so sibling results from the removed assistant message can become orphaned and be sanitized away even though their external side effects already occurred. Sequential dispatch makes ordering deterministic; the runtime guard remains the safety boundary for both call orders, while canonical guidance prevents avoidable retries.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
