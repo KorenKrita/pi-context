@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type ExtensionAPI,
   type ThemeColor,
+  type ToolInfo,
   DynamicBorder,
   estimateTokens,
 } from "@earendil-works/pi-coding-agent";
@@ -13,6 +14,15 @@ interface TokenBuckets {
   messages: number;
   toolCalls: number;
   other: number;
+}
+
+interface ContextUsageBreakdown {
+  systemPrompt: number;
+  systemTools: number;
+  toolCalls: number;
+  messages: number;
+  other: number;
+  available: number;
 }
 
 interface UsageCategory {
@@ -40,13 +50,20 @@ function classifyMessageTokens(message: AgentMessage): TokenBuckets {
     let toolWeight = 0;
     for (const block of content) {
       if (!block || typeof block !== "object") continue;
-      const typed = block as { type?: string; text?: string };
-      if (typed.type === "toolCall" || typed.type === "tool_use") {
-        toolWeight += JSON.stringify(block).length;
-      } else if (typeof typed.text === "string") {
+      const typed = block as {
+        type?: string;
+        text?: string;
+        thinking?: string;
+        name?: string;
+        arguments?: unknown;
+      };
+      if (typed.type === "toolCall") {
+        const serializedArguments = JSON.stringify(typed.arguments);
+        toolWeight += (typed.name?.length ?? 0) + (serializedArguments?.length ?? 0);
+      } else if (typed.type === "text" && typeof typed.text === "string") {
         messageWeight += typed.text.length;
-      } else {
-        messageWeight += JSON.stringify(block).length;
+      } else if (typed.type === "thinking" && typeof typed.thinking === "string") {
+        messageWeight += typed.thinking.length;
       }
     }
 
@@ -60,6 +77,56 @@ function classifyMessageTokens(message: AgentMessage): TokenBuckets {
     return { messages: total, toolCalls: 0, other: 0 };
   }
   return { messages: 0, toolCalls: 0, other: total };
+}
+
+function estimateActiveToolDefinitionTokens(activeToolDefs: readonly ToolInfo[]): number {
+  if (activeToolDefs.length === 0) return 0;
+  const providerDefinitions = activeToolDefs.map(({ name, description, parameters }) => ({
+    name,
+    description,
+    parameters,
+  }));
+  return estimateTextTokens(JSON.stringify(providerDefinitions));
+}
+
+function calculateContextUsageBreakdown(input: {
+  totalActual: number;
+  limit: number;
+  systemPrompt: string;
+  activeToolDefs: readonly ToolInfo[];
+  messages: readonly AgentMessage[];
+}): ContextUsageBreakdown {
+  let messageTokensRaw = 0;
+  let toolCallTokensRaw = 0;
+  let unclassifiedMessageTokensRaw = 0;
+  for (const message of input.messages) {
+    const buckets = classifyMessageTokens(message);
+    messageTokensRaw += buckets.messages;
+    toolCallTokensRaw += buckets.toolCalls;
+    unclassifiedMessageTokensRaw += buckets.other;
+  }
+
+  const systemTokensRaw = estimateTextTokens(input.systemPrompt);
+  const toolDefTokensRaw = estimateActiveToolDefinitionTokens(input.activeToolDefs);
+  const knownRaw = systemTokensRaw + toolDefTokensRaw + messageTokensRaw + toolCallTokensRaw + unclassifiedMessageTokensRaw;
+  // Native/message estimates can overshoot provider accounting. Calibrate
+  // downward only; never inflate known categories to hide unknown overhead.
+  const downwardScale = knownRaw > input.totalActual && knownRaw > 0 ? input.totalActual / knownRaw : 1;
+  const systemPrompt = Math.floor(systemTokensRaw * downwardScale);
+  const systemTools = Math.floor(toolDefTokensRaw * downwardScale);
+  const messages = Math.floor(messageTokensRaw * downwardScale);
+  const toolCalls = Math.floor(toolCallTokensRaw * downwardScale);
+  const unclassifiedMessages = Math.floor(unclassifiedMessageTokensRaw * downwardScale);
+  const classifiedTotal = systemPrompt + systemTools + messages + toolCalls + unclassifiedMessages;
+
+  return {
+    systemPrompt,
+    systemTools,
+    toolCalls,
+    messages,
+    other: Math.max(0, input.totalActual - classifiedTotal) + unclassifiedMessages,
+    available: Math.max(0, input.limit - input.totalActual),
+  };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -85,30 +152,13 @@ export default function (pi: ExtensionAPI) {
       const activeToolNames = new Set(pi.getActiveTools());
       const activeToolDefs = pi.getAllTools().filter((tool) => activeToolNames.has(tool.name));
 
-      let messageTokensRaw = 0;
-      let toolCallTokensRaw = 0;
-      let unclassifiedMessageTokensRaw = 0;
-      for (const message of contextMessages) {
-        const buckets = classifyMessageTokens(message);
-        messageTokensRaw += buckets.messages;
-        toolCallTokensRaw += buckets.toolCalls;
-        unclassifiedMessageTokensRaw += buckets.other;
-      }
-
-      const systemTokensRaw = estimateTextTokens(systemPrompt);
-      const toolDefTokensRaw = estimateTextTokens(JSON.stringify(activeToolDefs));
-      const knownRaw = systemTokensRaw + toolDefTokensRaw + messageTokensRaw + toolCallTokensRaw + unclassifiedMessageTokensRaw;
-      // Native/message estimates can overshoot provider accounting. Calibrate
-      // downward only; never inflate known categories to hide unknown overhead.
-      const downwardScale = knownRaw > totalActual && knownRaw > 0 ? totalActual / knownRaw : 1;
-      const systemTokens = Math.floor(systemTokensRaw * downwardScale);
-      const toolDefTokens = Math.floor(toolDefTokensRaw * downwardScale);
-      const messageTokens = Math.floor(messageTokensRaw * downwardScale);
-      const toolCallTokens = Math.floor(toolCallTokensRaw * downwardScale);
-      const unclassifiedMessageTokens = Math.floor(unclassifiedMessageTokensRaw * downwardScale);
-      const classifiedTotal = systemTokens + toolDefTokens + messageTokens + toolCallTokens + unclassifiedMessageTokens;
-      const otherTokens = Math.max(0, totalActual - classifiedTotal);
-
+      const breakdown = calculateContextUsageBreakdown({
+        totalActual,
+        limit,
+        systemPrompt,
+        activeToolDefs,
+        messages: contextMessages,
+      });
       await ctx.ui.custom((_tui, theme, _kb, done) => {
         const container = new Container();
         container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
@@ -116,14 +166,13 @@ export default function (pi: ExtensionAPI) {
         container.addChild(new Spacer(1));
 
         const categories: UsageCategory[] = [
-          { label: "System Prompt", value: systemTokens, color: "muted" },
-          { label: "System Tools", value: toolDefTokens, color: "dim" },
-          { label: "Tool Call", value: toolCallTokens, color: "success" },
-          { label: "Messages", value: messageTokens, color: "accent" },
+          { label: "System Prompt", value: breakdown.systemPrompt, color: "muted" },
+          { label: "System Tools", value: breakdown.systemTools, color: "dim" },
+          { label: "Tool Call", value: breakdown.toolCalls, color: "success" },
+          { label: "Messages", value: breakdown.messages, color: "accent" },
         ];
-        const combinedOther = otherTokens + unclassifiedMessageTokens;
-        if (combinedOther > 10) categories.push({ label: "Other", value: combinedOther, color: "dim" });
-        categories.push({ label: "Available", value: Math.max(0, limit - totalActual), color: "borderMuted" });
+        if (breakdown.other > 0) categories.push({ label: "Other", value: breakdown.other, color: "dim" });
+        categories.push({ label: "Available", value: breakdown.available, color: "borderMuted" });
 
         const gridWidth = 10;
         const gridHeight = 5;
