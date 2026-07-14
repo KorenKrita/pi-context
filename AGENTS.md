@@ -187,9 +187,18 @@ self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expan
 
 ## 测试与验证
 
+依赖与 runner 契约：
+
+- 根目录提交 npm `package-lock.json`，因为 Pi 的 git package 安装会执行 `npm install --omit=dev`；不要删除或用未提交的 root `bun.lock` 取代它。
+- 开发与测试使用 Bun。CI 固定 Node `24.16.0`、npm `11.13.0`、Bun `1.3.14`；`package.json` 的 Node 下限跟随 Pi `0.80.6` 的 `>=22.19.0` 契约。
+- `bunfig.toml` 从根 `bun test` discovery 中排除 `test/host-fixture/**`。host fixture 必须通过自己的 frozen `bun.lock`、source build 和显式测试列表独立运行。
+- 修改 `package.json` 后必须重新生成并提交 `package-lock.json`，并从 committed tree 验证一次 clean `npm ci --ignore-scripts`。
+
 Focused：
 
 ```bash
+bun test
+bun run test:guidance
 bun run typecheck
 cd test/host-fixture
 bun ./build-source.mjs
@@ -199,8 +208,11 @@ bun test ./<focused>.test.ts
 完整 gate：
 
 ```bash
+npm ci --ignore-scripts
 bun run verify:acm
 ```
+
+`verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
 host fixture 必须覆盖 exact Pi version、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

@@ -121,10 +121,22 @@ Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节
 
 ## 验证
 
+Pi 的 git package 安装路径使用 npm，因此根目录以 `package-lock.json` 作为依赖复现契约；测试与 source build 使用 Bun。CI 固定 Node `24.16.0`、npm `11.13.0` 和 Bun `1.3.14`。
+
+```bash
+npm ci --ignore-scripts
+bun run verify:acm
+```
+
+`bun test` 只运行根目录 unit/guidance suite；`bunfig.toml` 会排除需要独立依赖与 source build 的 `test/host-fixture/`。完整 gate 会依次检查 generated guidance、全部根测试、TypeScript，以及使用自身 frozen `bun.lock` 的真实 Pi `0.80.6` host fixture。
+
+Focused checks：
+
 ```bash
 bun test
+bun run test:guidance
 bun run typecheck
-bun run verify:acm
+bun run test:host
 ```
 
 开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
