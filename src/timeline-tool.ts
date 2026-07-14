@@ -445,7 +445,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let stepsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
       for (let index = branch.length - 1; index >= 0; index--) {
-        const labels = getEntryLabels(labelMaps, branch[index].id);
+        const labels = getEntryLabels(labelMaps, branch[index]!.id);
         if (labels.length > 0) {
           nearestCheckpoint = labels.at(-1) ?? null;
           break;

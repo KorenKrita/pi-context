@@ -16,7 +16,7 @@
 
 ## 技术栈与版本契约
 
-- TypeScript ESM（`module: esnext`、`moduleResolution: bundler`、`target: esnext`、`strict: true`）
+- TypeScript ESM（`module: esnext`、`moduleResolution: bundler`、`target: esnext`、`strict: true`、`noUncheckedIndexedAccess: true`）
 - Source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
 - `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui` 的 peer/dev dependency 均精确固定为 **`0.80.6`**

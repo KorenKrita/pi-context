@@ -163,7 +163,7 @@ function sameStrings(left: string[], right: string[]): boolean {
 
 function findLastEntry<Entry>(entries: Entry[], predicate: (entry: Entry) => boolean): Entry | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
-    const entry = entries[index];
+    const entry = entries[index]!;
     if (predicate(entry)) return entry;
   }
   return undefined;

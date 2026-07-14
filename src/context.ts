@@ -143,7 +143,7 @@ export default function (pi: ExtensionAPI) {
         for (let row = 0; row < gridHeight; row++) {
           let rowText = "";
           for (let column = 0; column < gridWidth; column++) {
-            const block = blocks[row * gridWidth + column];
+            const block = blocks[row * gridWidth + column]!;
             rowText += theme.fg(block.color, block.filled ? "■ " : "□ ");
           }
           gridLines.push(rowText.trimEnd());
