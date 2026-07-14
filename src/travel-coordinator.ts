@@ -7,6 +7,7 @@ import {
   type CheckpointLabelPrevalidation,
   type LabelRollbackToken,
 } from "./host-bridge.js";
+import { buildLabelMaps } from "./label-journal.js";
 
 export interface TravelBackupPlan {
   targetId: string;
@@ -46,27 +47,24 @@ export interface TravelMutationFailure {
   backupRollbackSkipped: boolean;
   backupRollbackSkipReason: "branch_mutation_observed" | "backup_mutation_indeterminate" | null;
   remainingBackupLabel: string | null;
+  remainingBackupLabelState: "present" | "absent" | "unknown";
   refreshRequired: boolean;
   refreshLeafId?: string;
 }
 
 export type TravelMutationOutcome = TravelMutationSuccess | TravelMutationFailure;
 
-function labelRemains(
+function observeLabelPresence(
   sessionManager: ReadonlySessionManager,
   targetId: string,
   name: string,
-): boolean {
-  let aliases: string[] = [];
-  for (const entry of sessionManager.getEntries()) {
-    if (entry.type !== "label" || entry.targetId !== targetId) continue;
-    if (entry.label === undefined || entry.label === null) {
-      aliases = [];
-      continue;
-    }
-    if (!aliases.includes(entry.label)) aliases.push(entry.label);
+): "present" | "absent" | "unknown" {
+  try {
+    const owner = buildLabelMaps(sessionManager.getEntries()).labelToEntryId.get(name);
+    return owner === targetId ? "present" : "absent";
+  } catch {
+    return "unknown";
   }
-  return aliases.includes(name);
 }
 
 /**
@@ -87,6 +85,7 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
     } else {
       const append = appendCheckpointLabel(sessionManager, backup.targetId, backup.name);
       if (!append.ok) {
+        const remainingBackupLabelState = observeLabelPresence(sessionManager, backup.targetId, backup.name);
         return {
           ok: false,
           error: "backup_label_failed",
@@ -99,7 +98,8 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
           backupRollbackFailed: false,
           backupRollbackSkipped: append.state === "indeterminate",
           backupRollbackSkipReason: append.state === "indeterminate" ? "backup_mutation_indeterminate" : null,
-          remainingBackupLabel: labelRemains(sessionManager, backup.targetId, backup.name) ? backup.name : null,
+          remainingBackupLabel: remainingBackupLabelState === "present" ? backup.name : null,
+          remainingBackupLabelState,
           refreshRequired: false,
         };
       }
@@ -139,9 +139,10 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
     }
   }
 
-  const remainingBackupLabel = backup && labelRemains(sessionManager, backup.targetId, backup.name)
-    ? backup.name
-    : null;
+  const remainingBackupLabelState = backup
+    ? observeLabelPresence(sessionManager, backup.targetId, backup.name)
+    : "absent";
+  const remainingBackupLabel = backup && remainingBackupLabelState === "present" ? backup.name : null;
   const refreshLeafId = branchFailure?.actualSummaryEntryId ?? branchFailure?.leafAfter ?? undefined;
 
   return {
@@ -158,6 +159,7 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
     backupRollbackSkipped,
     backupRollbackSkipReason,
     remainingBackupLabel,
+    remainingBackupLabelState,
     refreshRequired: branch.state === "indeterminate",
     refreshLeafId,
   };

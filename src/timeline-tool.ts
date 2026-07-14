@@ -353,7 +353,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
-        lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap 50). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+        lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit}). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, AgentMessage[]>();
         const projectedDepthCache = new Map<string, number>();
         const rootEntry = tree[0]?.entry;

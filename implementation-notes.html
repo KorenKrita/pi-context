@@ -158,6 +158,16 @@
         <td>Keep prompt metadata trigger-first and render compact evidence by default, with full raw tool output available only in the expanded view.</td>
         <td>Each flat guideline names its tool as required by Pi. Renderers reuse row components, distinguish success from error or indeterminate outcomes, and remain presentation-only: the LLM-facing <code>content</code>, structured <code>details</code>, and mutation behavior are unchanged.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Reserve <code>root</code> case-insensitively across checkpoint and backup aliases, while keeping it exclusively as the structural first-root target.</td>
+        <td>Target resolution treats every letter-case variant of <code>root</code> as the structural keyword. Allowing the same spelling as a label creates an alias that can be written but never addressed, so validation now rejects it both at tool entry points and at the Host Bridge mutation boundary.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Contain every guarded SessionManager observation inside typed Host Bridge/coordinator outcomes and report backup-label presence as <code>present</code>, <code>absent</code>, or <code>unknown</code>.</td>
+        <td>Host getters and post-mutation reads can fail after a mutation may have landed. Pre-mutation failures remain <code>not_applied</code>; unverifiable post-mutation state is <code>indeterminate</code>. Recovery presence replays the complete global label journal so alias reassignment is honored, and user-facing guidance falls back to the backup history node rather than claiming an unverified alias remains.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

@@ -6,6 +6,11 @@ export { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 
 export const ACM_INTERNAL_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 
+/** `root` is a structural target keyword and cannot safely be used as an alias. */
+export function isReservedTargetName(name: string): boolean {
+ return name.toLowerCase() === "root";
+}
+
 /** Fixed token overhead for a branch_summary entry in travel usage estimates. */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
@@ -263,10 +268,11 @@ export function resolveTargetId(
  branchIds?: Set<string>,
  labelMaps?: LabelMaps,
 ): ResolvedTarget {
- if (target.toLowerCase() === "root") {
-  return { id: tree.length > 0 ? tree[0].entry.id : "", fromOffPath: false };
- }
  const ids = branchIds ?? new Set(view.getBranch().map((e: SessionEntry) => e.id));
+ if (target.toLowerCase() === "root") {
+  const id = tree[0]?.entry.id ?? "";
+  return { id, fromOffPath: id.length > 0 && !ids.has(id) };
+ }
  const maps = labelMaps ?? buildLabelMaps(view.getEntries());
 
  const owner = findCheckpointLabelOwner(maps, target, ids);
