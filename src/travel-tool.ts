@@ -333,7 +333,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const travelDetails: TravelSummaryDetails = {
         kind: "acm_travel",
         originId,
-        originLabel,
+        ...(originLabel === undefined ? {} : { originLabel }),
         target: params.target,
         targetId,
         backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
@@ -343,9 +343,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         targetId,
         summary: params.summary,
         details: travelDetails,
-        backup: params.backupCurrentHeadAs && backupEntryId && backupPrevalidation
-          ? { targetId: backupEntryId, name: params.backupCurrentHeadAs, prevalidation: backupPrevalidation }
-          : undefined,
+        ...(params.backupCurrentHeadAs && backupEntryId && backupPrevalidation
+          ? { backup: { targetId: backupEntryId, name: params.backupCurrentHeadAs, prevalidation: backupPrevalidation } }
+          : {}),
       });
 
       if (!mutation.ok) {

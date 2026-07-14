@@ -431,13 +431,14 @@ export function findLastMeaningfulEntry(
   }
   const entry = branch[i]!;
   const skipReason = isSkipped(entry);
+  const role = getRole(entry);
   if (skipReason) {
-   skipped.push({ id: entry.id, reason: skipReason, role: getRole(entry) });
+   skipped.push({ id: entry.id, reason: skipReason, ...(role === undefined ? {} : { role }) });
    continue;
   }
   return {
    entryId: entry.id,
-   role: getRole(entry),
+   ...(role === undefined ? {} : { role }),
    snippet: getSnippet(entry),
    skipped,
   };
