@@ -61,7 +61,7 @@ const timeline = captureTool((pi) => registerTimelineTool(pi, {} as never));
 const travel = captureTool((pi) => registerTravelTool(pi, {} as never));
 
 describe("ACM tool prompt metadata", () => {
-  test.each([checkpoint, timeline, travel])("$name opts into concise system-prompt metadata", (tool) => {
+  test.each([checkpoint, timeline, travel])("$name opts into concise system-prompt metadata", (tool: CapturedTool) => {
     expect(tool.promptSnippet?.length).toBeGreaterThan(0);
     expect(tool.promptSnippet?.includes("\n")).toBe(false);
     expect(tool.promptGuidelines?.length).toBeGreaterThan(0);
@@ -74,7 +74,7 @@ describe("ACM tool prompt metadata", () => {
     expect(travel.executionMode).toBe("sequential");
   });
 
-  test.each([checkpoint, timeline, travel])("$name owns its TUI shell and both render slots", (tool) => {
+  test.each([checkpoint, timeline, travel])("$name owns its TUI shell and both render slots", (tool: CapturedTool) => {
     expect(tool.renderShell).toBe("self");
     expect(tool.renderCall).toBeFunction();
     expect(tool.renderResult).toBeFunction();
