@@ -222,4 +222,79 @@ describe("ACM tool rendering", () => {
     );
     expect(render(travelWarning)).toContain("⚠ TRAVEL NEEDS ATTENTION");
   });
+
+  test("neutralizes terminal controls in dynamic call and result text", () => {
+    const payload = "before\u001b[2Jafter\u009B31m\u0007\roverwrite";
+    const unsafeControls = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
+
+    const components = [
+      checkpoint.renderCall!({ name: payload, target: payload }, theme, renderContext({ name: payload, target: payload })),
+      timeline.renderCall!({ view: "search", query: payload }, theme, renderContext({ view: "search", query: payload })),
+      travel.renderCall!({ target: payload, backupCurrentHeadAs: payload, summary: "x" }, theme, renderContext({ target: payload })),
+      checkpoint.renderResult!(
+        { content: [{ type: "text", text: payload }], details: { error: "unsafe" } },
+        { expanded: false, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+      timeline.renderResult!(
+        { content: [{ type: "text", text: payload }], details: { view: "active" } },
+        { expanded: true, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+      travel.renderResult!(
+        { content: [{ type: "text", text: payload }], details: { error: "unsafe" } },
+        { expanded: false, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+      checkpoint.renderResult!(
+        {
+          content: [{ type: "text", text: "ok" }],
+          details: { status: "created", name: payload, entryId: payload, role: payload, cue: payload },
+        },
+        { expanded: false, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+      timeline.renderResult!(
+        {
+          content: [{ type: "text", text: "ok" }],
+          details: {
+            view: "checkpoints",
+            checkpointsDisplayedAliases: 1,
+            checkpointsMatchingAliases: 1,
+            rootCandidateEntryId: payload,
+            liveAgentSessionSyncState: payload,
+          },
+        },
+        { expanded: false, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+      travel.renderResult!(
+        {
+          content: [{ type: "text", text: "ok" }],
+          details: {
+            target: payload,
+            resultingLeafId: payload,
+            structuralMessageDirection: payload,
+            backupCurrentHeadAs: payload,
+            liveAgentSessionSyncState: payload,
+          },
+        },
+        { expanded: false, isPartial: false },
+        theme,
+        renderContext({}),
+      ),
+    ];
+
+    const outputs = components.map((component) => render(component));
+    for (const output of outputs) {
+      expect(output).not.toMatch(unsafeControls);
+      expect(output).toContain("before[2Jafter");
+    }
+    expect(outputs.some((output) => output.includes("overwrite"))).toBe(true);
+  });
 });

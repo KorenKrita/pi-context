@@ -160,6 +160,11 @@
       </tr>
       <tr>
         <td>agent-resolved</td>
+        <td>Neutralize terminal control characters in dynamic ACM tool-renderer text without changing LLM-facing tool results.</td>
+        <td>Pi 0.80.6 custom <code>Text</code> components preserve embedded C0/C1 controls, while the default tool renderer strips them. Session snippets, host errors, and streaming arguments can therefore carry cursor-control or terminal-title sequences into the ACM self-owned shells. Shared presentation sanitization now normalizes carriage returns and removes unsafe controls before dynamic values enter <code>Text</code>; tabs, line breaks, structured <code>details</code>, and tool <code>content</code> remain unchanged.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
         <td>Reserve <code>root</code> case-insensitively across checkpoint and backup aliases, while keeping it exclusively as the structural first-root target.</td>
         <td>Target resolution treats every letter-case variant of <code>root</code> as the structural keyword. Allowing the same spelling as a label creates an alias that can be written but never addressed, so validation now rejects it both at tool entry points and at the Host Bridge mutation boundary.</td>
       </tr>

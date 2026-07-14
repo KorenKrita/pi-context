@@ -19,6 +19,7 @@ import {
   isReservedTargetName,
   isValidEntryId,
   resolveTargetId,
+  sanitizeTerminalText,
   validateHandoffStructure,
 } from "./lib.js";
 import {
@@ -96,8 +97,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const backup = args.backupCurrentHeadAs ? ` · backup ${args.backupCurrentHeadAs}` : "";
-      const target = args.target ?? "…";
+      const backup = args.backupCurrentHeadAs ? ` · backup ${sanitizeTerminalText(args.backupCurrentHeadAs)}` : "";
+      const target = sanitizeTerminalText(args.target ?? "…");
       const summaryLength = args.summary?.length ?? 0;
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
@@ -110,7 +111,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
@@ -126,18 +127,18 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return component;
       }
 
-      const target = typeof details?.target === "string" ? details.target : "target";
-      const leaf = typeof details?.resultingLeafId === "string" ? details.resultingLeafId : "unknown leaf";
+      const target = sanitizeTerminalText(typeof details?.target === "string" ? details.target : "target");
+      const leaf = sanitizeTerminalText(typeof details?.resultingLeafId === "string" ? details.resultingLeafId : "unknown leaf");
       const beforeTokens = typeof details?.usageBeforeTokens === "number" ? details.usageBeforeTokens : null;
       const afterTokens = typeof details?.estimatedUsageAfterTokens === "number" ? details.estimatedUsageAfterTokens : null;
       const tokenDelta = typeof details?.tokenDelta === "number" ? details.tokenDelta : null;
       const beforeMessages = typeof details?.structuralMessagesBefore === "number" ? details.structuralMessagesBefore : null;
       const afterMessages = typeof details?.structuralMessagesAfter === "number" ? details.structuralMessagesAfter : null;
-      const direction = typeof details?.structuralMessageDirection === "string" ? details.structuralMessageDirection : "unknown";
+      const direction = sanitizeTerminalText(typeof details?.structuralMessageDirection === "string" ? details.structuralMessageDirection : "unknown");
       const depthBefore = typeof details?.activeSummaryDepthBefore === "number" ? details.activeSummaryDepthBefore : null;
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
-      const backup = typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none";
-      const liveSync = typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown";
+      const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
+      const liveSync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown");
       const lines = [
         theme.fg("success", "✓ TRAVEL COMPLETE")
           + theme.fg("accent", `  ${target} → ${leaf}`),

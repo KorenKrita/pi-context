@@ -180,6 +180,7 @@ canonical 词汇固定为 working set、boundary、handoff、archive、chain、b
 三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。prompt metadata 只保留每个工具最关键的触发/安全门，不复制完整 CORE。
 
 self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content` 与 `details`，不得改变发送给 LLM 的工具结果或 mutation contract；错误/indeterminate 结果不得套用成功样式。
+所有来自 streaming 参数、host details 或 tool content 的动态文本，在进入自定义 `Text` renderer 前必须经过 `sanitizeTerminalText()`；保留换行和制表符，但不得把 C0/C1 终端控制字符带入 self-shell。
 
 ## 测试与验证
 

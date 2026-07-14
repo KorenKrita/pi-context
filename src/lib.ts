@@ -11,6 +11,13 @@ export function isReservedTargetName(name: string): boolean {
  return name.toLowerCase() === "root";
 }
 
+/** Neutralize terminal control characters in dynamic TUI text while preserving tabs and line breaks. */
+export function sanitizeTerminalText(value: string): string {
+ return value
+  .replace(/\r\n?/g, "\n")
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+}
+
 /** Fixed token overhead for a branch_summary entry in travel usage estimates. */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
