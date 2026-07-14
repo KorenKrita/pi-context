@@ -200,6 +200,23 @@ describe("/context command", () => {
     }]);
   });
 
+  test("does not rethrow when warning notification fails", async () => {
+    const command = captureContextCommand();
+    const ctx = {
+      mode: "tui",
+      getContextUsage: () => {
+        throw new Error("usage failed");
+      },
+      ui: {
+        notify: () => {
+          throw new Error("notification failed");
+        },
+      },
+    } as unknown as ExtensionCommandContext;
+
+    await command.handler("", ctx);
+  });
+
   test("warns instead of invoking terminal UI outside TUI mode", async () => {
     const command = captureContextCommand();
 

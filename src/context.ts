@@ -131,6 +131,14 @@ function calculateContextUsageBreakdown(input: {
   };
 }
 
+function notifyContextWarning(ctx: Pick<ExtensionCommandContext, "ui">, message: string): void {
+  try {
+    ctx.ui.notify(message, "warning");
+  } catch {
+    // The diagnostic command cannot recover when the host notification surface itself is unavailable.
+  }
+}
+
 async function containContextCommandFailures(
   ctx: Pick<ExtensionCommandContext, "ui">,
   action: () => Promise<void>,
@@ -139,19 +147,19 @@ async function containContextCommandFailures(
     await action();
   } catch (error) {
     const message = sanitizeTerminalText(error instanceof Error ? error.message : String(error));
-    ctx.ui.notify(`Context usage visualization failed: ${message}`, "warning");
+    notifyContextWarning(ctx, `Context usage visualization failed: ${message}`);
   }
 }
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("context", {
-    description: "Show context usage visualization",
+    description: "Show context usage visualization (TUI only)",
     handler: async (_args, ctx) => containContextCommandFailures(ctx, async () => {
       if (ctx.mode !== "tui") {
-        ctx.ui.notify("Context usage visualization is only available in TUI mode.", "warning");
+        notifyContextWarning(ctx, "Context usage visualization is only available in TUI mode.");
         return;
       }
-      const usage = await ctx.getContextUsage();
+      const usage = ctx.getContextUsage();
       const totalActual = usage?.tokens;
       const limit = usage?.contextWindow;
       const usagePercent = usage?.percent;
@@ -166,14 +174,14 @@ export default function (pi: ExtensionAPI) {
         !Number.isFinite(usagePercent) ||
         usagePercent < 0
       ) {
-        ctx.ui.notify("Context usage info not available.", "warning");
+        notifyContextWarning(ctx, "Context usage info not available.");
         return;
       }
 
       const contextMessagesResult = buildSessionMessages(ctx.sessionManager);
       if (!contextMessagesResult.ok) {
         const message = sanitizeTerminalText(contextMessagesResult.message);
-        ctx.ui.notify(`Context messages could not be rebuilt: ${message}`, "warning");
+        notifyContextWarning(ctx, `Context messages could not be rebuilt: ${message}`);
         return;
       }
       const contextMessages = contextMessagesResult.value;
@@ -258,7 +266,7 @@ export default function (pi: ExtensionAPI) {
         };
       }, { overlay: true });
       if (!componentOpened) {
-        ctx.ui.notify("Context usage visualization could not be opened.", "warning");
+        notifyContextWarning(ctx, "Context usage visualization could not be opened.");
       }
     }),
   });
