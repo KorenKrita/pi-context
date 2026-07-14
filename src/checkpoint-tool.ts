@@ -9,6 +9,7 @@ import {
   buildLabelMaps,
   formatContextUsage,
   isReservedTargetName,
+  sanitizeTerminalText,
   isValidEntryId,
   resolveTargetId,
   type MeaningfulResolveResult,
@@ -55,10 +56,11 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const target = args.target ?? "nearest meaningful turn";
+      const target = sanitizeTerminalText(args.target ?? "nearest meaningful turn");
+      const name = sanitizeTerminalText(args.name ?? "…");
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
-          + theme.fg("accent", args.name ?? "…")
+          + theme.fg("accent", name)
           + theme.fg("dim", `  →  ${target}`),
       );
       return component;
@@ -67,7 +69,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
@@ -84,13 +86,13 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       }
 
       const status = details?.status === "already_present" ? "REUSED" : "CREATED";
-      const name = typeof details?.name === "string" ? details.name : "checkpoint";
-      const entryId = typeof details?.entryId === "string" ? details.entryId : "unknown entry";
-      const role = typeof details?.role === "string" ? details.role : "node";
+      const name = sanitizeTerminalText(typeof details?.name === "string" ? details.name : "checkpoint");
+      const entryId = sanitizeTerminalText(typeof details?.entryId === "string" ? details.entryId : "unknown entry");
+      const role = sanitizeTerminalText(typeof details?.role === "string" ? details.role : "node");
       const usage = details?.contextUsage && typeof details.contextUsage === "object"
         ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
         : "unknown";
-      const cue = typeof details?.cue === "string" ? details.cue : "";
+      const cue = sanitizeTerminalText(typeof details?.cue === "string" ? details.cue : "");
       const lines = [
         theme.fg("success", `✓ CHECKPOINT ${status}`) + theme.fg("accent", `  ${name}`),
         theme.fg("muted", `  ${role} · ${entryId} · context ${usage}`),

@@ -18,6 +18,7 @@ import {
   getEntryLabels,
   projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
+  sanitizeTerminalText,
   type LabelMaps,
 } from "./lib.js";
 import { buildSessionMessages } from "./host-bridge.js";
@@ -220,13 +221,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         ? context.lastComponent
         : new Text("", 0, 0);
       const view = args.view ?? "active";
+      const displayView = sanitizeTerminalText(view);
       const qualifiers = [`limit ${args.limit ?? 50}`];
       if (view === "active" && args.verbose) qualifiers.push("verbose");
-      if (view === "checkpoints" && args.filter) qualifiers.push(`filter “${args.filter}”`);
-      if (view === "search" && args.query) qualifiers.push(`query “${args.query}”`);
+      if (view === "checkpoints" && args.filter) qualifiers.push(`filter “${sanitizeTerminalText(args.filter)}”`);
+      if (view === "search" && args.query) qualifiers.push(`query “${sanitizeTerminalText(args.query)}”`);
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
-          + theme.fg("accent", view)
+          + theme.fg("accent", displayView)
           + theme.fg("dim", `  ·  ${qualifiers.join(" · ")}`),
       );
       return component;
@@ -235,7 +237,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const raw = result.content.find((item) => item.type === "text")?.text ?? "";
+      const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
@@ -252,6 +254,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
 
       const view = typeof details?.view === "string" ? details.view : "active";
+      const displayView = sanitizeTerminalText(view);
       const depth = typeof details?.activeSummaryDepth === "number" ? details.activeSummaryDepth : 0;
       const usage = details?.contextUsage && typeof details.contextUsage === "object"
         ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
@@ -260,7 +263,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (view === "checkpoints") {
         const shown = typeof details?.checkpointsDisplayedAliases === "number" ? details.checkpointsDisplayedAliases : 0;
         const total = typeof details?.checkpointsMatchingAliases === "number" ? details.checkpointsMatchingAliases : 0;
-        const root = typeof details?.rootCandidateEntryId === "string" ? ` · root ${details.rootCandidateEntryId}` : "";
+        const root = typeof details?.rootCandidateEntryId === "string" ? ` · root ${sanitizeTerminalText(details.rootCandidateEntryId)}` : "";
         evidence = `${shown}/${total} aliases shown${root}`;
       } else if (view === "search") {
         const matches = typeof details?.searchDisplayedMatches === "number" ? details.searchDisplayedMatches : 0;
@@ -275,11 +278,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         evidence = `${nodes} active nodes · ${shown}/${visible} visible entries shown`;
       }
 
-      const sync = typeof details?.liveAgentSessionSyncState === "string"
+      const sync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string"
         ? details.liveAgentSessionSyncState
-        : "unknown";
+        : "unknown");
       const lines = [
-        theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${view.toUpperCase()}`),
+        theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${displayView.toUpperCase()}`),
         theme.fg("muted", `  ${evidence} · summary depth ${depth}`),
         theme.fg("dim", `  context ${usage} · live sync ${sync}`),
       ];
