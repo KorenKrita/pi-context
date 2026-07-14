@@ -168,6 +168,11 @@
         <td>Contain every guarded SessionManager observation inside typed Host Bridge/coordinator outcomes and report backup-label presence as <code>present</code>, <code>absent</code>, or <code>unknown</code>.</td>
         <td>Host getters and post-mutation reads can fail after a mutation may have landed. Pre-mutation failures remain <code>not_applied</code>; unverifiable post-mutation state is <code>indeterminate</code>. Recovery presence replays the complete global label journal so alias reassignment is honored, and user-facing guidance falls back to the backup history node rather than claiming an unverified alias remains.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Keep npm as the reproducible root installer and Bun as the test/build runtime, with host-fixture dependency resolution isolated behind its own frozen Bun lock.</td>
+        <td>Pi 0.80.6 clones git packages and runs <code>npm install --omit=dev</code>, so the root <code>package-lock.json</code> is part of the production installation contract rather than disposable development state. Root <code>bun test</code> excludes <code>test/host-fixture/**</code>; the complete gate runs every root test and then lets the fixture install, build, and test against its exact Pi version independently. CI pins both toolchains and starts from <code>npm ci</code> so stale locks and residue-dependent passes fail.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
