@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify": "bun install --frozen-lockfile && bun ./build-source.mjs && bun test ./version.test.ts ./message-sanitizer.test.ts ./agent-session-adapter.test.ts ./travel-live-sync.test.ts ./live-sync-failure-recovery.test.ts ./live-sync-repeat-resume.test.ts ./live-sync-isolation.test.ts"
+    "verify": "bun install --frozen-lockfile && bun ./build-source.mjs && bun test ./version.test.ts ./context-command-host.test.ts ./message-sanitizer.test.ts ./agent-session-adapter.test.ts ./travel-live-sync.test.ts ./live-sync-failure-recovery.test.ts ./live-sync-repeat-resume.test.ts ./live-sync-isolation.test.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.80.6",
     "@earendil-works/pi-ai": "0.80.6",
-    "@earendil-works/pi-coding-agent": "0.80.6"
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "@earendil-works/pi-tui": "0.80.6"
   }
 }

@@ -12,7 +12,7 @@
 | `acm_timeline` | 输出 active path / checkpoints / search / tree 单一视图及 context HUD |
 | `acm_travel` | 通过七槽 handoff 创建 summary continuation branch |
 
-`src/context.ts` 另行注册 Pi 独有的 `/context` TUI 命令，与 ACM 工具职责分离。
+`src/context.ts` 另行注册 Pi 独有的 `/context` TUI 命令，与 ACM 工具职责分离；非 TUI mode 必须在进入 custom terminal UI 前给出 warning 并返回。
 
 ## 技术栈与版本契约
 
@@ -211,6 +211,6 @@ bun run verify:acm
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
-host fixture 必须覆盖 exact Pi version、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
+host fixture 必须覆盖 exact Pi version、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 
 不要使用 `console.log`；用户可见 warning 使用 `ctx.ui.notify()`。
