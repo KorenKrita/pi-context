@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   type ExtensionAPI,
+  type ThemeColor,
   DynamicBorder,
   estimateTokens,
 } from "@earendil-works/pi-coding-agent";
@@ -12,6 +13,12 @@ interface TokenBuckets {
   messages: number;
   toolCalls: number;
   other: number;
+}
+
+interface UsageCategory {
+  label: string;
+  value: number;
+  color: ThemeColor;
 }
 
 function estimateTextTokens(text: string): number {
@@ -108,7 +115,7 @@ export default function (pi: ExtensionAPI) {
         container.addChild(new Text(theme.fg("accent", theme.bold(" Context Usage")), 1, 0));
         container.addChild(new Spacer(1));
 
-        const categories = [
+        const categories: UsageCategory[] = [
           { label: "System Prompt", value: systemTokens, color: "muted" },
           { label: "System Tools", value: toolDefTokens, color: "dim" },
           { label: "Tool Call", value: toolCallTokens, color: "success" },
@@ -121,7 +128,7 @@ export default function (pi: ExtensionAPI) {
         const gridWidth = 10;
         const gridHeight = 5;
         const totalBlocks = gridWidth * gridHeight;
-        const blocks: { color: string; filled: boolean }[] = [];
+        const blocks: { color: ThemeColor; filled: boolean }[] = [];
         for (const category of categories) {
           if (category.label === "Available") continue;
           let count = Math.round((category.value / limit) * totalBlocks);
@@ -137,7 +144,7 @@ export default function (pi: ExtensionAPI) {
           let rowText = "";
           for (let column = 0; column < gridWidth; column++) {
             const block = blocks[row * gridWidth + column];
-            rowText += theme.fg(block.color as any, block.filled ? "■ " : "□ ");
+            rowText += theme.fg(block.color, block.filled ? "■ " : "□ ");
           }
           gridLines.push(rowText.trimEnd());
         }
@@ -148,7 +155,7 @@ export default function (pi: ExtensionAPI) {
           const value = formatTokens(category.value).padStart(7);
           const percent = ((category.value / limit) * 100).toFixed(1).padStart(5);
           const icon = category.label === "Available" ? "□" : "■";
-          return `${theme.fg(category.color as any, icon)} ${theme.fg("text", label)} ${theme.fg("accent", value)} (${percent}%)`;
+          return `${theme.fg(category.color, icon)} ${theme.fg("text", label)} ${theme.fg("accent", value)} (${percent}%)`;
         });
 
         const allDetailLines = [totalUsageTitle, "", ...detailLines];
