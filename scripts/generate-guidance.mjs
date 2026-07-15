@@ -7,6 +7,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultSourcePath = join(repoRoot, "skills", "context-management", "CORE.md");
 const defaultOutputPath = join(repoRoot, "src", "generated-guidance.ts");
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/g, "\n");
+}
+
 export function extractGuidanceSection(source, name) {
   const startMarker = `<!-- ACM:${name}:START -->`;
   const endMarker = `<!-- ACM:${name}:END -->`;
@@ -20,7 +24,8 @@ export function extractGuidanceSection(source, name) {
 }
 
 export function deriveGuidance(source) {
-  const extract = (name) => extractGuidanceSection(source, name);
+  const normalizedSource = normalizeLineEndings(source);
+  const extract = (name) => extractGuidanceSection(normalizedSource, name);
   return {
     core: extract("CORE"),
     toolDescriptions: {
@@ -70,7 +75,7 @@ if (import.meta.main) {
   const outputPath = argumentPath("--output", defaultOutputPath);
   const generated = renderGuidance(readFileSync(sourcePath, "utf8"));
   if (process.argv.includes("--check")) {
-    const current = readFileSync(outputPath, "utf8");
+    const current = normalizeLineEndings(readFileSync(outputPath, "utf8"));
     if (current !== generated) throw new Error(`Generated guidance is stale: ${outputPath}`);
     process.stdout.write(`Verified ${outputPath}\n`);
   } else {

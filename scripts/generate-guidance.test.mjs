@@ -41,6 +41,36 @@ describe("canonical guidance generation", () => {
     expect(first).toBe(readFileSync(outputPath, "utf8"));
   });
 
+  test("renders identical guidance from Windows CRLF source", () => {
+    const crlfSource = source.replace(/\n/g, "\r\n");
+
+    expect(renderGuidance(crlfSource)).toBe(renderGuidance(source));
+  });
+
+  test("check mode accepts a Windows CRLF checkout", async () => {
+    const tempDirectory = mkdtempSync(join(tmpdir(), "pi-context-guidance-crlf-"));
+    const tempSource = join(tempDirectory, "CORE.md");
+    const tempOutput = join(tempDirectory, "generated-guidance.ts");
+    await Bun.write(tempSource, source.replace(/\n/g, "\r\n"));
+    await Bun.write(tempOutput, renderGuidance(source).replace(/\n/g, "\r\n"));
+    try {
+      const process = Bun.spawn(["bun", fileURLToPath(new URL("./generate-guidance.mjs", import.meta.url)), "--source", tempSource, "--output", tempOutput, "--check"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([
+        process.exited,
+        new Response(process.stdout).text(),
+        new Response(process.stderr).text(),
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("Verified");
+      expect(stderr).toBe("");
+    } finally {
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("check mode reports stale output without writing", async () => {
     const tempDirectory = mkdtempSync(join(tmpdir(), "pi-context-guidance-"));
     const tempOutput = join(tempDirectory, "generated-guidance.ts");

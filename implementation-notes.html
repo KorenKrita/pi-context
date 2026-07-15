@@ -198,6 +198,11 @@
         <td>Treat <code>/context</code> as a TUI-only diagnostic surface, contain host/UI failures, and verify its public contract through the exact Pi <code>0.80.6</code> runner.</td>
         <td>Pi exposes <code>mode</code> specifically to guard terminal-only custom components, while non-TUI hosts may provide a silent <code>ui.custom()</code>. The command now rejects unavailable or non-finite usage, sanitizes host-derived warning text, reports a custom-UI no-op, and keeps failures from escaping normal command execution. The host fixture loads the built extension through the exact <code>ExtensionRunner</code> and renders it with exact <code>pi-tui</code>, so registration, command context, and component compatibility remain regression-tested.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Canonicalize guidance source and generated-output line endings to LF, and enforce LF text checkouts through <code>.gitattributes</code>.</td>
+        <td>Windows Git checkouts can convert repository text to CRLF. Without normalization, <code>JSON.stringify()</code> preserves CRLF inside generated runtime strings and the strict generated-guidance check reports a false stale artifact before tests run. The generator now normalizes source and comparison input, while the repository attribute keeps normal working trees deterministic across operating systems.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
