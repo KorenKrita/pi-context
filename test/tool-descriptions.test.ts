@@ -12,29 +12,30 @@ describe("ACM tool description contract", () => {
     expect(checkpointTool).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(timelineTool).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(travelTool).toContain("description: TOOL_DESCRIPTIONS.travel");
-    expect(generatedGuidance).toContain("Preflight a distinct user goal on the branch that will carry it");
-    expect(generatedGuidance).toContain("Names are unique across the session tree and case-sensitive");
-    expect(generatedGuidance).toContain("Omitting target labels the nearest meaningful USER/AI turn");
-    expect(generatedGuidance).toContain("without branching or folding the active context");
-    expect(checkpointTool).toContain("Semantic anchor name; unique and case-sensitive across the session tree");
+    expect(generatedGuidance).toContain("FIRST TOOL for each distinct managed goal—even when");
+    expect(generatedGuidance).toContain("Names are tree-wide, unique, and case-sensitive");
+    expect(generatedGuidance).toContain("Immediate text-only answers need none");
+    expect(checkpointTool).toContain("Tree-wide unique, case-sensitive semantic name");
     expect(generatedGuidance).not.toContain("Zero cost: no branch, no handoff, no context change.");
   });
 
   test("keeps rebase semantics agent-owned and runtime evidence factual", () => {
-    expect(travelTool).toContain("retires an active summary without growing projected depth");
-    expect(travelTool).toContain("whose snapshot passes cold start");
-    expect(travelTool).toContain("root is a candidate, not a default");
+    expect(travelTool).toContain("retires an active summary");
+    expect(travelTool).toContain("does not grow projected depth");
+    expect(travelTool).toContain("passes cold start");
+    expect(travelTool).toContain("root is only a candidate");
     expect(travelTool).toContain("activeSummaryDepthBefore");
     expect(timelineTool).toContain("structural candidate, not a checkpoint");
-    expect(generatedGuidance).toContain("rebase accumulated summaries");
+    expect(generatedGuidance).toContain("replaces accumulated summary depth");
     expect(generatedGuidance).toContain("cold start");
     expect(generatedGuidance).not.toContain("acm_rebase");
   });
 
-  test("keeps task-end travel conditional on meaningful structural saving", () => {
-    expect(travelTool).toContain("when the preview shows meaningful structural saving");
-    expect(travelTool).toContain("If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly");
-    expect(generatedGuidance).toContain("or create a unique `-done` checkpoint and answer directly");
+  test("keeps the explicit requested-fold exception bounded to task-end travel", () => {
+    expect(travelTool).toContain("value itself must end in literal '-done'");
+    expect(travelTool).toContain("Otherwise create a -done checkpoint instead");
+    expect(generatedGuidance).toContain("explicit user-requested fold uses one task-end travel");
+    expect(generatedGuidance).toContain("falling back to the `-done` checkpoint");
     expect(travelTool).not.toContain("At task end, set backupCurrentHeadAs to '<task>-done', travel");
   });
 
@@ -47,7 +48,7 @@ describe("ACM tool description contract", () => {
     expect(timelineTool).toContain('Type.Literal("tree")');
     expect(timelineTool).toContain("if (params.view === \"search\" && !params.query)");
     expect(timelineTool).not.toContain("const schema = Type.Union([");
-    expect(travelTool).toContain("On large trees use acm_timeline with view checkpoints or search");
+    expect(travelTool).toContain("Use timeline checkpoints/search when placement is unknown");
     expect(timelineTool).not.toContain("list_checkpoints");
     expect(timelineTool).not.toContain("full_tree");
   });

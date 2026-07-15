@@ -4,62 +4,66 @@ import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-gui
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
 describe("ACM guidance quality", () => {
-  test("preserves the base workflow while bounding semantic rebase", () => {
+  test("preserves the normal boundary workflow while bounding semantic rebase", () => {
     for (const baseBehavior of [
       "Phase, attempt, or batch item starts",
-      "Unbounded burst or risky step is next",
-      "Findings are distilled",
+      "Unbounded read/log/search/diff/subagent burst or risky step starts",
+      "Findings are captured in `State`/`Evidence`",
       "Direction is rejected or superseded",
-      "Final answer is next",
+      "Managed goal is ready for its final answer",
     ]) {
       expect(ACM_CORE).toContain(baseBehavior);
     }
-    expect(ACM_CORE).toContain("Local fold example");
-    expect(ACM_CORE).toContain("Finished-chain rebase example");
-    expect(ACM_CORE).not.toContain("Failed-direction example");
-    expect(ACM_CORE).toContain("Structural reset passes only when");
+    expect(ACM_CORE).toContain("Structural reset");
     expect(ACM_CORE).toContain("projected summary depth does not grow");
-    expect(ACM_CORE).toContain("Cold start passes only when");
+    expect(ACM_CORE).toContain("Cold start");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("requested task-end fold");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("`acm_timeline` after findings are distilled");
+    expect(GUIDANCE_CUES.travelTask).toContain("Do not checkpoint, reread, inspect timeline, or travel again");
+    expect(ACM_CORE).toContain("explicit user-requested fold uses one task-end travel");
     expect(ACM_CORE.length).toBeLessThan(7500);
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
-    expect(ACM_CORE).toContain("Call `acm_travel` alone in its assistant tool batch");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("must run alone in its assistant tool batch");
+    expect(GUIDANCE_CUES.travelTask.startsWith("FINAL ANSWER")).toBe(true);
+    expect(ACM_CORE).toContain("Call `acm_travel` as the only tool in its assistant message");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("`acm_travel` alone");
   });
 
-  test("front-loads a checkable checkpoint preflight", () => {
-    const preflightIndex = ACM_CORE.indexOf("### ACM preflight");
-    const vocabularyIndex = ACM_CORE.indexOf("### Vocabulary");
+  test("front-loads literal checkpoint-first classification and repeats the gate at the tail", () => {
+    const checkpointIndex = ACM_CORE.indexOf("### CHECKPOINT-FIRST");
+    const boundaryIndex = ACM_CORE.indexOf("### Boundary loop");
+    const tailIndex = ACM_CORE.lastIndexOf("**CHECKPOINT-FIRST:**");
 
-    expect(preflightIndex).toBeGreaterThan(-1);
-    expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight** on the branch that will carry it");
-    expect(ACM_CORE).toContain("First complete any required `New request arrives over finished work` transition");
-    expect(ACM_CORE).toContain("then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
-    expect(ACM_CORE).toContain("When no finished-chain transition is required, the checkpoint call is the first action");
-    expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
-    expect(ACM_CORE).toContain("the checkpoint was created or reused");
-    expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
-    expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
-    expect(ACM_CORE).toContain("live detail the next action will reason over");
-    expect(ACM_CORE).toContain("Name the boundary before choosing a target");
-    expect(ACM_CORE).toContain("without archived summaries");
-    expect(ACM_CORE).toContain("checkpoint its `-start` boundary before acting");
-    expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
-    expect(ACM_CORE).not.toContain("| New chain starts |");
-    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
+    expect(checkpointIndex).toBeGreaterThan(-1);
+    expect(ACM_CORE).toContain("CHECKPOINT-FIRST: before ANY tool on a distinct goal");
+    expect(ACM_CORE).toContain("PLANNING-ONLY is also Managed");
+    expect(ACM_CORE).toContain("read, inspect, or run something and fold later");
+    expect(ACM_CORE).toContain("it needs a tool, delegation, investigation, planning");
+    expect(ACM_CORE).toContain("STOP before every other tool");
+    expect(checkpointIndex).toBeLessThan(boundaryIndex);
+    expect(ACM_CORE).toContain("complete it now with text only");
+    expect(ACM_CORE).toContain("emit only `acm_checkpoint`");
+    expect(ACM_CORE).toContain("wait for created/reused");
+    expect(ACM_CORE).toContain("Follow recovery guidance on error");
+    expect(tailIndex).toBeGreaterThan(ACM_CORE.indexOf("### Handoff contract"));
+    expect(ACM_CORE.slice(tailIndex)).toContain("inspect/read now, fold later");
+    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("FIRST TOOL")).toBe(true);
+    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("before `bash`, `read`, `write`");
     expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(800);
   });
 
-  test("routes one advanced condition at a time and reroutes on state change", async () => {
+  test("routes one managed advanced condition at a time and reroutes on state change", async () => {
     const skill = await skillFile("SKILL.md");
+    expect(skill).toContain("Managed advanced ACM exception handling");
+    expect(skill).toContain("CHECKPOINT-FIRST before reading this skill or a reference");
+    expect(skill).toContain("Reading this Skill or one of its references is **Managed**");
+    expect(skill).toContain("`acm_checkpoint` must already have completed before the first read");
     expect(skill).toContain("CORE owns the normal path");
     expect(skill).toContain("ordinary checkpointing");
-    expect(skill).toContain("clear phase folds");
-    expect(skill).toContain("clear burst folds");
-    expect(skill).toContain("task-end handling");
-    expect(skill).toContain("Load one reference at a time");
-    expect(skill).toContain("observable condition changes");
-    expect(skill).toContain("replace the active reference");
+    expect(skill).toContain("clear folds");
+    expect(skill).toContain("task close");
+    expect(skill).toContain("Load one reference");
+    expect(skill).toContain("condition changes");
+    expect(skill).toContain("replace the reference");
   });
 
   test("keeps target and recovery criteria factual and checkable", async () => {

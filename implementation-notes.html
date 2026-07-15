@@ -203,6 +203,11 @@
         <td>Canonicalize guidance source and generated-output line endings to LF, and enforce LF text checkouts through <code>.gitattributes</code>.</td>
         <td>Windows Git checkouts can convert repository text to CRLF. Without normalization, <code>JSON.stringify()</code> preserves CRLF inside generated runtime strings and the strict generated-guidance check reports a false stale artifact before tests run. The generator now normalizes source and comparison input, while the repository attribute keeps normal working trees deterministic across operating systems.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Classify final-answer-only travel from both a literal <code>-done</code> archive suffix and a final-answer verb at the start of the handoff <code>NEXT</code>, then temporarily suppress tools for that immediate response.</td>
+        <td>A <code>-done</code> bookmark alone is insufficient because non-final rebases can legitimately continue with <code>NEXT: Read...</code>. A qualifying task-end travel snapshots the active tool names, queues a hidden final-answer steer containing the exact handoff, disables tools for the continuation, and restores the snapshot at <code>agent_end</code>, compaction, session start, or shutdown. Carrying the handoff in the steer prevents post-travel context reconstruction from making the model rediscover and restart the completed goal.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

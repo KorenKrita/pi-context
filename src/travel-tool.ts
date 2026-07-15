@@ -64,6 +64,12 @@ function countContainingToolBatch(branch: SessionEntry[], toolCallId: string): n
   return null;
 }
 
+function isTaskEndTravel(summary: string, backupName: string | undefined): boolean {
+  if (!backupName?.endsWith("-done")) return false;
+  const next = summary.split(/\r?\n/).find((line) => line.startsWith("NEXT:"));
+  return /^NEXT:\s*(?:answer|report|deliver|present|provide|give|respond|reply|state|summarize|output|final(?:\s+answer)?)(?:\b|:)/i.test(next ?? "");
+}
+
 function formatNumericValue(value: number | null, fractionDigits = 0): string {
   return value === null || !Number.isFinite(value) ? "unknown" : value.toFixed(fractionDigits);
 }
@@ -75,19 +81,18 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. For a local fold, choose a target before the named boundary. For a rebase, evaluate candidate bases from earliest to latest and choose the first whose target retires an active summary without growing projected depth and whose snapshot passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when topology matters." }),
-    summary: Type.String({ minLength: 1, maxLength: 10000, description: `Handoff summary — the working state after travel. It must make the next action executable without rereading the folded trail. A rebase snapshot must pass cold start: a fresh agent can execute NEXT from this handoff and direct evidence pointers without reading archived summaries. Fill every slot, write 'none' rather than dropping one: ${HANDOFF_SLOT_HINT}. Include recovery pointers; pointers over dumps. Max 10000 chars.` }),
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
+    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint, node ID, or 'root' before the named boundary. For rebase, choose the earliest candidate that retires an active summary, does not grow projected depth, and passes cold start. Use timeline checkpoints/search when placement is unknown; root is only a candidate." }),
+    summary: Type.String({ minLength: 1, maxLength: 10000, description: `Seven-slot handoff that makes NEXT executable without the folded trail. A rebase handoff must let a fresh agent continue from this text and direct evidence pointers. Fill every slot; use 'none' for empty: ${HANDOFF_SLOT_HINT}. Pointers over dumps. Max 10000 chars.` }),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional tree-wide unique bookmark for the raw path; 'root' is reserved. For task-end travel, this value itself must end in literal '-done' (never '-done-backup') and the handoff NEXT must say to answer now without more tools. Otherwise create a -done checkpoint instead. This bookmark is recovery evidence, never the travel target or a substitute for the handoff." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
     name: "acm_travel",
     label: "ACM Travel",
     description: TOOL_DESCRIPTIONS.travel,
-    promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
+    promptSnippet: "TASK-END FOLD: timeline first, then EXCLUSIVE seven-slot travel",
     promptGuidelines: [
-      "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
-      "Call acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
+      "For a requested task-end fold after investigation, call acm_timeline after findings are distilled and before travel; then run acm_travel alone. Use a backupCurrentHeadAs value that itself ends in literal -done, never -done-backup, plus a final-answer NEXT. After success, answer without checkpointing, rereading, timeline inspection, or another travel.",
     ],
     parameters: schema,
     executionMode: "sequential",
@@ -469,12 +474,31 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      const nextCue = params.backupCurrentHeadAs?.endsWith("-done") ? GUIDANCE_CUES.travelTask : GUIDANCE_CUES.travelPhase;
+      const finalAnswerOnly = isTaskEndTravel(params.summary, params.backupCurrentHeadAs);
+      const nextCue = finalAnswerOnly ? GUIDANCE_CUES.travelTask : GUIDANCE_CUES.travelPhase;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
         && activeSummaryDepthAfter === targetSummaryDepth + 1
         ? `Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
         : null;
+      if (finalAnswerOnly) {
+        runtime.armFinalAnswerOnly(sessionManager, pi.getActiveTools());
+        pi.sendMessage({
+          customType: "acm-final-answer-only",
+          content: [
+            "FINAL-ANSWER-ONLY CONTINUATION.",
+            "The exact seven-slot handoff below is authoritative and its Goal is already complete.",
+            "Execute its NEXT now using its State and Evidence.",
+            "Reply with normal user-facing prose only; do not restart the Goal, emit a checkpoint or tool name, or mention this control message.",
+            "",
+            "--- HANDOFF ---",
+            params.summary,
+            "--- END HANDOFF ---",
+          ].join("\n"),
+          display: false,
+        }, { deliverAs: "steer" });
+        pi.setActiveTools([]);
+      }
 
       return {
         content: [{
@@ -531,6 +555,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           fromOffPath: resolved.fromOffPath,
+          finalAnswerToolGuard: finalAnswerOnly ? "armed" : "not_requested",
         },
       };
     },

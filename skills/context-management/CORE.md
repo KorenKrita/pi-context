@@ -5,65 +5,63 @@ This file is the editable source for always-on ACM guidance and generated tool/r
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE v1
 
-A context window is a **working set**: the exact material needed for the next action. Keep that detail live. Compress finished process into a recoverable **handoff** only at a named **boundary**.
+**CHECKPOINT-FIRST: before ANY tool on a distinct goal, first emit only `acm_checkpoint` and wait.**
 
-### ACM preflight
+**PLANNING-ONLY is also Managed: first emit `acm_checkpoint`, not the plan.**
 
-A distinct user goal begins with an **ACM preflight** on the branch that will carry it. First complete any required `New request arrives over finished work` transition; then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work. When no finished-chain transition is required, the checkpoint call is the first action. Managed work includes investigation, planning, delegation, any non-ACM tool call, file or external side effects, and multi-step reasoning. The preflight is complete only when the tool result confirms that the checkpoint was created or reused. If the call fails, follow the recovery guidance in its result before proceeding. A text-only direct reply requiring no managed work stays outside the managed-chain workflow.
+**If a request says to read, inspect, or run something and fold later, `acm_checkpoint` is still the first tool; never perform the named action first.**
 
-### Vocabulary
+**EXPLICIT FOLD REQUEST:** When the user requires folding the investigation before the final answer, one successful task-end `acm_travel` is required after the findings and timeline check. Do not substitute a `-done` checkpoint because the investigation is small.
 
-- **working set** — live detail the next action will reason over.
-- **boundary** — the semantic edge being compressed: a burst, phase, failed direction, batch item, or task chain.
-- **handoff** — the executable state that survives a fold; an evidence index, not a dump.
-- **archive** — the raw off-path history and its recovery checkpoint or node ID.
-- **chain** — continuous work serving one user goal.
-- **burst** — temporary expansion from broad reads, logs, searches, diffs, or subagents.
-- **anchor gravity** — the misleading pull of the nearest checkpoint. Name the boundary before choosing a target.
-- **rebase** — move all surviving state into one authoritative snapshot at the earliest safe base, retiring accumulated summary depth.
-- **cold start** — a fresh agent can execute `NEXT` from the snapshot and its pointers without archived summaries.
+A context window is a **working set**: keep the exact material needed for the next action live. Compress finished raw process only at a named **boundary**, into an executable **handoff** with a recovery pointer.
 
-### Normal state transitions
+### CHECKPOINT-FIRST
+
+Classify the new user turn before acting:
+
+- **Direct** — complete it now with text only. Use no tool and no checkpoint.
+- **Managed** — it needs a tool, delegation, investigation, planning, side effect, or multiple actions. For a distinct managed goal, **STOP before every other tool**: emit only `acm_checkpoint` with a semantic `<chain>-start` name, wait for created/reused, then work. The user's requested action order never displaces this sequence: checkpoint first, requested tool(s) second. Follow recovery guidance on error.
+
+A fresh session needs no timeline. Continuing the same goal does not repeat chain preflight. Finished work on the active path takes the new-request transition before the next start checkpoint.
+
+### Boundary loop
 
 | Event | Required transition |
 |---|---|
-| Phase, attempt, or batch item starts | checkpoint its `-start` boundary before acting |
-| Unbounded burst or risky step is next | checkpoint before output or side effects arrive |
-| Findings are distilled and raw trail is no longer needed by NEXT | inspect timeline evidence, then fold the named boundary |
-| Direction is rejected or superseded | put the dead direction in Exclusions, preserve surviving facts, then fold to its start |
-| Final answer is next | run a rebase check; if it is not ready, fold the task chain when that removes material structure or create a unique `-done` checkpoint and answer directly |
-| New request arrives over finished work | run a rebase check before starting the new chain; if it is not ready, fold the finished local chain |
-| Another fold would stack on an active summary, a stable subchain closes, or context pressure rises | run a rebase check before choosing a local fold or accepting native compaction |
+| Phase, attempt, or batch item starts | Checkpoint its semantic `-start` boundary before acting |
+| Unbounded read/log/search/diff/subagent burst or risky step starts | Checkpoint before its output or side effects arrive |
+| Findings are captured in `State`/`Evidence` and `NEXT` no longer needs the raw entries | Call `acm_timeline` to verify target placement, then fold the named boundary with isolated `acm_travel` |
+| Direction is rejected or superseded | Preserve surviving facts, put the dead direction in `Exclusions`, then fold to its start |
+| Managed goal is ready for its final answer | Run the task-close rule below |
+| New request arrives over finished work | Rebase-check summarized history if present, close the finished chain, then checkpoint the new goal |
+| Another fold would stack, a stable subchain closes, or context pressure rises | Run a rebase check before another local fold |
 
-Context pressure triggers a rebase check. It does not lower the cold start gate or authorize travel by itself.
+**Task close.** Before the final user-facing answer, close every managed goal. An explicit user-requested fold uses one task-end travel after its fold gates pass, regardless of small savings. Otherwise: known active summary depth zero creates a unique `<chain>-done` checkpoint, waits, then answers; unknown or positive depth runs a rebase check and travels only when every gate passes and material structure leaves the spine, falling back to the `-done` checkpoint.
+
+**Rebase check.** Start from known active summary depth; call `acm_timeline` with `view=checkpoints` when depth or candidate placement is unknown. Depth zero means no rebase. With active summaries, apply the rebase gate from earliest candidate to latest. Context pressure leaves every gate unchanged.
 
 ### Fold gate
 
-Travel only when all three criteria hold:
+Travel only when all three criteria pass:
 
-1. **Boundary named** — say exactly what raw process leaves the working set.
-2. **NEXT executable** — write one immediate action that can run from the handoff.
-3. **Raw recoverable** — preserve omitted detail through a checkpoint, node ID, file, command, URL, commit, or other pointer.
+1. **Boundary named** — identify exactly which raw process leaves the working set.
+2. **NEXT executable** — write one immediate verb + target that another agent can execute from the handoff without the folded trail.
+3. **Raw recoverable** — point to the omitted detail through a checkpoint, node ID, file, command, URL, commit, or equivalent evidence.
 
-Call `acm_travel` alone in its assistant tool batch; do not combine this context mutation with sibling tool calls.
-
-Boundary decides whether folding is valid. Timeline reports evidence; it does not decide for you. A target must sit before the named boundary. Nearest and earliest anchors are candidates, never defaults.
+Call `acm_travel` as the only tool in its assistant message. A target must precede the named boundary on the intended branch. Timeline supplies evidence; boundary semantics decide. Nearest, earliest, and `root` are candidates, never defaults.
 
 ### Rebase gate
 
-A **rebase** is a structural reset across accumulated summary depth. It uses the fold gate and adds two completion criteria: **structural reset** and **cold start**.
+A **rebase** replaces accumulated summary depth with one authoritative snapshot. It passes only when both criteria hold:
 
-Structural reset passes only when the target precedes an active `branch_summary` that leaves the spine and projected summary depth does not grow. Equal depth passes only when the new snapshot replaces an old summary; a target after all active summaries fails.
+1. **Structural reset** — the target precedes an active `branch_summary` that leaves the spine, and projected summary depth does not grow. Equal depth passes only when the new snapshot replaces an old summary; a target after every active summary fails.
+2. **Cold start** — a fresh agent can execute `NEXT` from the snapshot and direct evidence pointers. The snapshot or pointers contain every surviving front, invariant, external effect, and recovery path; ordinary execution needs no archived summary.
 
-Cold start passes only when `NEXT` is immediately executable, every surviving front and invariant is in the snapshot or a usable direct pointer, and ordinary execution needs no archived summary.
-
-Build one authoritative snapshot, then evaluate candidate bases from earliest to latest. Choose the earliest base that passes both criteria. Root is ideal when it passes; it is never presumed safe.
-
-If no candidate passes, rebase is not ready: keep required detail live, use a local fold, or accept native compaction.
+Build the snapshot once. Evaluate candidates from earliest to latest and choose the first that passes both criteria. If none passes, keep required detail live, use a local fold, or accept native compaction.
 
 ### Handoff contract
 
-Every handoff uses these seven slots in this order. Write `none` when a category is empty.
+Every handoff uses these seven slots in this order. Write `none` rather than omitting an empty slot.
 
 ```text
 Goal: <current goal; quote a new triggering request when its turn will leave context>
@@ -72,56 +70,30 @@ Evidence: <paths, commands, URLs, commits, errors, checkpoints or node IDs>
 External: <file, process, browser, remote, ticket, or other side effects>
 Exclusions: <dead ends and directions not to repeat, with reasons>
 Recover: <archive checkpoint, backup label, or raw node pointer>
-NEXT: <one executable next action>
+NEXT: <one executable verb + target>
 ```
 
-The runtime can validate slot structure. Semantic completeness, target quality, recoverability sufficiency, and whether NEXT is genuinely executable remain agent completion criteria.
+Before travel, verify: `Goal` matches the active request; `State` carries every surviving front and invariant; `Evidence` and `Recover` name usable pointers; `External` records side effects; `NEXT` is immediately executable. The runtime validates slot structure, not semantic completeness.
 
-### Representative transitions
+After travel, confirm the resolved target, summary leaf, backup outcome, usage/message/summary-depth deltas, and context-sync state. Execute from the handoff branch. If `NEXT` opens a phase, checkpoint that phase first. Travel changes conversation context only; inspect external systems directly.
 
-**Local fold example**
-
-```text
-Goal: Fix high CPU while preserving the sidebar.
-State: Profiling proved hidden tabs retain workers; implementation is next.
-Evidence: artifacts/sidebar-profile.json; src/sidebar/session-manager.ts.
-External: profiler stopped; no files changed.
-Exclusions: disabling the sidebar violates the goal.
-Recover: sidebar-profile-start.
-NEXT: Checkpoint sidebar-lifecycle-fix-start, then inspect worker disposal.
-```
-
-**Finished-chain rebase example**
-
-Rebase the finished chain to the earliest base that passes cold start:
-
-```text
-Goal: Release fix complete; new request is "Add dry-run mode to migration."
-State: v2.4.1 is validated and pushed; migration work has not started.
-Evidence: commit 1a2b3c4; tag v2.4.1; full test output.
-External: commit and tag pushed to origin.
-Exclusions: version-detection workaround remains rejected.
-Recover: release-fix-done.
-NEXT: Checkpoint migration-dry-run-start, then inspect the migration command entry point.
-```
-
-After travel, confirm resolved target, summary leaf, backup outcome, raw usage/message/summary-depth deltas, and context-sync state. After a rebase, execute from the snapshot without rereading archived summaries. If NEXT begins a new phase, checkpoint that phase before acting. Travel changes conversation context only; inspect disk and external systems directly.
+**CHECKPOINT-FIRST:** any tool or requested plan makes the goal Managed. Even “inspect/read now, fold later” starts by emitting `acm_checkpoint` alone. If that request explicitly requires a fold before answering, finish with one task-end travel rather than a `-done` checkpoint.
 <!-- ACM:CORE:END -->
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Preflight a distinct user goal on the branch that will carry it: after any required finished-chain transition and before managed work, call this tool with a semantic `-start` name. Also checkpoint later phase, attempt, burst, risky step, pause, milestone, or completion boundaries with a semantic `-start`, `-paused`, or `-done` name. Names are unique across the session tree and case-sensitive. Omitting target labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history. This tool creates recoverability by labeling history without branching or folding the active context.
+FIRST TOOL for each distinct managed goal—even when the request explicitly says to read, inspect, or run something before folding later. Call `acm_checkpoint` alone with a semantic `-start` name and wait for created/reused before `bash`, `read`, `write`, `edit`, `grep`, `find`, delegation, or other multi-action work. Immediate text-only answers need none. Also label resumable phase, burst, pause, and completion boundaries with semantic `-start`, `-paused`, or `-done` names. Names are tree-wide, unique, and case-sensitive.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-Inspect session structure and context evidence through one view: `active`, `checkpoints`, `search`, or `tree`. Omit view for `active`. Timeline reports active summary depth and projected depth for candidate bases. Use `checkpoints` or `search` to compare non-obvious targets; use `tree` only when topology matters. Choose a target by boundary or cold start, not proximity.
+Read one session-structure view: `active`, `checkpoints`, `search`, or `tree` (`active` by default). Use `checkpoints` for rebase candidates and projected depths, `search` to locate semantic anchors, and `tree` only for unresolved topology. This tool supplies evidence; choose targets by boundary and cold start.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Apply one recoverable context transition: fold a named boundary or rebase accumulated summaries to the earliest safe base. Resolve a checkpoint, node ID, or root; complete validation before mutation; optionally bookmark the abandoned raw path. Use timeline evidence for target comparison. Travel reports structural and context deltas but cannot prove boundary quality or cold start completeness. It must run alone in its assistant tool batch; mixed tool batches are rejected before mutation.
+EXCLUSIVE fold/rebase into a seven-slot handoff. For a requested task-end fold, follow this order: checkpoint first, investigation tool(s), `acm_timeline` after findings are distilled, then `acm_travel` alone, then final answer with no more tools. The task-end backup name itself ends in literal `-done`, never `-done-backup`. Results report evidence, not semantic approval.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 <!-- ACM:CUE_CHECKPOINT_START:START -->
-Recoverability created. Continue the current working set; choose any later fold target by boundary, not by nearest-anchor gravity.
+Start boundary secured. Execute the managed goal. The last tool before final user-facing text MUST be a semantic `-done` checkpoint or valid task-end travel; for a text-only plan, prepare it internally, emit `-done`, wait, then answer.
 <!-- ACM:CUE_CHECKPOINT_START:END -->
 
 <!-- ACM:CUE_CHECKPOINT_DONE:START -->
@@ -153,7 +125,7 @@ Checkpoint the next phase before its first action, then execute the handoff NEXT
 <!-- ACM:CUE_TRAVEL_PHASE:END -->
 
 <!-- ACM:CUE_TRAVEL_TASK:START -->
-Answer from the handoff branch; do not reintroduce archived process into the final response.
+FINAL ANSWER: answer now using the handoff `Goal`, `State`, and `Evidence`. Do not checkpoint, reread, inspect timeline, or travel again; archived process stays behind `Recover`.
 <!-- ACM:CUE_TRAVEL_TASK:END -->
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->

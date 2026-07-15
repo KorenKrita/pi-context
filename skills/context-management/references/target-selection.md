@@ -9,7 +9,7 @@ When a rebase trigger is known but the earliest safe base is unclear:
 1. Inventory every surviving item: active and parked fronts, unresolved invariants, external effects, and recovery pointers.
 2. Collect candidate bases from root, chain/phase/attempt starts, and verified raw pre-boundary nodes. Keep only candidates on the intended branch, deduplicate them, then sort by actual ancestor order from earliest to latest; semantic labels suggest candidates, tree topology orders them.
 3. Apply structural reset. The candidate must precede at least one active `branch_summary` that will leave the spine, and projected summary depth must not grow. Equal depth is valid only when an old summary is replaced by the new authoritative snapshot.
-4. Apply cold start. `NEXT` must be immediately executable; every surviving item must live in the snapshot or a usable direct evidence pointer; ordinary execution must not require an archived summary.
+4. Apply **cold start** exactly as defined in CORE. Map every item from step 1 to the snapshot or one direct evidence pointer; any unmapped item fails the candidate.
 5. Choose the first candidate that passes both criteria. Usage and message deltas are supporting evidence, not substitutes for structural reset or cold start.
 6. If none passes, keep required detail live or use a local fold. A transcript-sized snapshot or a target after every active summary means rebase is not ready.
 

@@ -19,6 +19,10 @@ import type { AcmSessionRuntime } from "./runtime.js";
 
 export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const contextRefresh = runtime.contextRefresh;
+  const restoreFinalAnswerTools = (sessionManager: object) => {
+    const snapshot = runtime.takeFinalAnswerToolSnapshot(sessionManager);
+    if (snapshot !== undefined) pi.setActiveTools(snapshot);
+  };
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
@@ -36,6 +40,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("agent_end", (event, ctx: ExtensionContext) => {
+    restoreFinalAnswerTools(ctx.sessionManager);
     const lastAssistant = [...event.messages].reverse().find((message) => message.role === "assistant");
     if (lastAssistant?.role !== "assistant" || lastAssistant.stopReason !== "stop") return;
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
@@ -134,11 +139,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("session_compact", (_event, ctx: ExtensionContext) => {
+    restoreFinalAnswerTools(ctx.sessionManager);
     runtime.clear(ctx.sessionManager);
     runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
   });
   pi.on("session_start", (_event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
+    restoreFinalAnswerTools(sessionManager);
     runtime.clear(sessionManager);
     const getBranch = (sessionManager as { getBranch?: () => readonly unknown[] }).getBranch;
     const branch = typeof getBranch === "function" ? getBranch.call(sessionManager) : [];
@@ -147,5 +154,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       restoreContextUsageNudgeState(branch),
     );
   });
-  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
+  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
+    restoreFinalAnswerTools(ctx.sessionManager);
+    runtime.clear(ctx.sessionManager);
+  });
 }

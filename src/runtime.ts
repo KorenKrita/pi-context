@@ -20,6 +20,7 @@ export class AcmSessionRuntime {
   readonly liveAgentSessions: LiveAgentSessionAdapter;
   private readonly cachedUsage = new WeakMap<object, UsageLike>();
   private readonly refreshTargets = new WeakMap<object, string>();
+  private readonly finalAnswerToolSnapshots = new WeakMap<object, string[]>();
   private readonly contextUsageNudges = new WeakMap<object, {
     highestReachedLevel: 0 | ContextUsageNudgeLevel;
     baselinePending?: boolean;
@@ -54,6 +55,18 @@ export class AcmSessionRuntime {
 
   getLiveAgentSyncStatus(session: object): AgentSessionSyncOutcome {
     return this.liveAgentSessions.getStatus(session);
+  }
+
+  armFinalAnswerOnly(session: object, activeTools: string[]): void {
+    if (!this.finalAnswerToolSnapshots.has(session)) {
+      this.finalAnswerToolSnapshots.set(session, [...activeTools]);
+    }
+  }
+
+  takeFinalAnswerToolSnapshot(session: object): string[] | undefined {
+    const snapshot = this.finalAnswerToolSnapshots.get(session);
+    this.finalAnswerToolSnapshots.delete(session);
+    return snapshot;
   }
 
   setUsage(session: object, usage: UsageLike): void {
@@ -113,6 +126,7 @@ export class AcmSessionRuntime {
   clear(session: object): void {
     this.contextRefresh.clear(session);
     this.refreshTargets.delete(session);
+    this.finalAnswerToolSnapshots.delete(session);
     this.cachedUsage.delete(session);
     this.contextUsageNudges.delete(session);
     this.liveAgentSessions.clear(session);

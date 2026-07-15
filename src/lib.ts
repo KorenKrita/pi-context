@@ -78,9 +78,9 @@ export function formatFoldCandidatePreview(previewParts: string[]): string {
 
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
-  return "name the boundary first; no anchor is on this path, so checkpoint now or fold directly to the last clean node ID before the boundary";
+  return "No anchor is on this path. 1. Name the boundary. 2. Checkpoint current HEAD as recovery evidence. 3. Use timeline search to identify the last clean pre-boundary node before travel";
  }
- return `name the boundary first. '${nearestCheckpointName}' is only a candidate target. Choose the target that sits before the boundary: phase start, pre-burst node, attempt start, method anchor, or semantic chain start. Load Advanced Target Selection if the target remains ambiguous`;
+ return `Name the boundary. Treat '${nearestCheckpointName}' as one candidate. Verify that it precedes the boundary on the intended front; load Advanced Target Selection only if placement remains ambiguous`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };

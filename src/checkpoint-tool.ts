@@ -32,7 +32,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic anchor name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Tree-wide unique, case-sensitive semantic name; 'root' is reserved. Use '<scope>-start' before a chain/phase/burst, '<scope>-paused' when stopping with executable NEXT, and '<scope>-done' after evidence is complete. '-done' triggers milestone guidance; other suffixes continue the working set. Letters, digits, hyphens, underscores, dots; max 64.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
@@ -45,9 +45,9 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
-    promptSnippet: "Label a recoverable session boundary without changing context",
+    promptSnippet: "FIRST TOOL—even before a named read, inspect, or run action",
     promptGuidelines: [
-      "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
+      "A request like ‘read/inspect/run X, then fold’ does not authorize the named tool first: STOP and emit only acm_checkpoint now, wait for created/reused, then perform the requested tool. The same checkpoint-first order applies before writing, editing, grep, find, delegation, planning, or other multi-action work. Close managed work with -done or task-end travel before the final answer.",
     ],
     parameters: schema,
     renderShell: "self",

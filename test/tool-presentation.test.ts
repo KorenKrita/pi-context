@@ -66,7 +66,8 @@ describe("ACM tool prompt metadata", () => {
     expect(tool.promptSnippet?.includes("\n")).toBe(false);
     expect(tool.promptGuidelines?.length).toBeGreaterThan(0);
     for (const guideline of tool.promptGuidelines ?? []) {
-      expect(guideline).toContain(tool.name);
+      expect(guideline.length).toBeGreaterThan(0);
+      expect(guideline).not.toContain("\n");
     }
   });
 

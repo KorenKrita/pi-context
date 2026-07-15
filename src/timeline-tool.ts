@@ -190,7 +190,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
     maximum: 50,
-    description: "Maximum recent visible entries (active), sorted aliases (checkpoints), matches (search), or traversal depth per root (tree). Range 1..50; default 50.",
+    description: "Result limit or tree depth, 1..50; default 50.",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -209,9 +209,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
-    promptSnippet: "Inspect session structure, context pressure, and travel candidates",
+    promptSnippet: "Read summary depth, target placement, or branch topology",
     promptGuidelines: [
-      "Use acm_timeline to gather structural evidence before choosing a non-obvious travel target; prefer active, checkpoints, or search unless tree topology is required.",
+      "Use checkpoints when rebase depth or candidate placement is unknown, search for semantic anchors, and tree only for unresolved topology.",
     ],
     parameters: schema,
     renderShell: "self",
