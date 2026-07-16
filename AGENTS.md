@@ -215,6 +215,6 @@ bun run verify:acm
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
-host fixture 必须覆盖 exact Pi version、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
+host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 
 不要使用 `console.log`；用户可见 warning 使用 `ctx.ui.notify()`。
