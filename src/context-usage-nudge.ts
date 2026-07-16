@@ -154,17 +154,17 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Continue the current work normally. At the next natural semantic boundary, consider whether current task requirements permit a safe fold or rebase travel.",
-        "Travel is optional, but keeping the active context small is preferred when it can be done without losing needed working state.",
+        "Continue the current work normally. At the next natural semantic boundary, check decision smells and whether fold criteria can pass against the working-set invariant.",
+        "Prefer a smaller active working set when a complete handoff can preserve needed state and make NEXT executable; otherwise keep required detail live.",
       ]
     : nudge.level === 50
       ? [
-          "Context pressure is becoming material. Based on the current task requirements, actively look for the next safe opportunity for a fold or rebase travel.",
-          "Travel is recommended when a complete handoff can preserve the required working state and make NEXT executable. Do not travel if important context is still needed, but prefer returning to a smaller active context when safely possible.",
+          "Context pressure is becoming material. Raise the priority of a rebase check, and look for the next recognizable moment where fold criteria and cold start can pass.",
+          "Travel earns its place only when the handoff preserves required working state and makes NEXT executable. Prefer restoring a smaller working set when those criteria hold.",
         ]
       : [
-          "Context pressure is high. At the earliest safe semantic boundary, strongly consider a fold or rebase travel if current task requirements allow a complete and recoverable handoff.",
-          "Keeping the active context small is strongly preferred, but correctness, task continuity, and recoverability take priority. If no safe travel is available, continue normally; native compaction is acceptable for a genuinely long task.",
+          "Context pressure is high. At the earliest safe semantic boundary, prefer a fold or rebase when fold criteria and cold start pass.",
+          "Correctness, task continuity, recoverability, and cold start outrank pressure. If no safe transition is available, continue with required detail live; native compaction is acceptable for a genuinely long task.",
         ];
 
   return {
