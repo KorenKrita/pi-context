@@ -4,79 +4,73 @@ import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-gui
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
 describe("ACM guidance quality", () => {
-  test("preserves the base workflow while bounding semantic rebase", () => {
-    for (const baseBehavior of [
+  test("unifies judgment layers on the working-set invariant", () => {
+    for (const situation of [
       "Phase, attempt, or batch item starts",
       "Unbounded burst or risky step is next",
       "Findings are distilled",
       "Direction is rejected or superseded",
       "Final answer is next",
     ]) {
-      expect(ACM_CORE).toContain(baseBehavior);
+      expect(ACM_CORE).toContain(situation);
     }
-    expect(ACM_CORE).toContain("Local fold example");
-    expect(ACM_CORE).toContain("Finished-chain rebase example");
-    expect(ACM_CORE).not.toContain("Failed-direction example");
-    expect(ACM_CORE).toContain("Structural reset passes only when");
-    expect(ACM_CORE).toContain("projected summary depth does not grow");
-    expect(ACM_CORE).toContain("Cold start passes only when");
-    expect(ACM_CORE.length).toBeLessThan(7500);
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
-    expect(ACM_CORE).toContain("Call `acm_travel` alone in its assistant tool batch");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("must run alone in its assistant tool batch");
+    expect(ACM_CORE).toContain("Process detail accumulates naturally");
+    expect(ACM_CORE).toContain("keep live what NEXT needs");
+    expect(ACM_CORE).toContain("### Working-set invariant");
+    expect(ACM_CORE).toContain("### How judgment layers fit together");
+    expect(ACM_CORE).toContain("**Decision smells** prompt a pause");
+    expect(ACM_CORE).toContain("**Recognizable moments** map a situation");
+    expect(ACM_CORE).toContain("**Failure shapes** describe what went wrong");
+    expect(ACM_CORE).toContain("### Decision smells");
+    expect(ACM_CORE).toContain("### Recognizable moments");
+    expect(ACM_CORE).toContain("lightest transition that does");
+    expect(ACM_CORE).not.toContain("| Event | Required transition |");
+    expect(ACM_CORE).not.toContain("| Situation | Judgment |");
+    expect(ACM_CORE).toContain("### Fold criteria");
+    expect(ACM_CORE).toContain("### Rebase criteria");
+    expect(ACM_CORE).toContain("### Failure shapes");
+    expect(ACM_CORE).toContain("Before `acm_travel`, answer in one line");
+    expect(ACM_CORE).toContain("Cold start remains hard");
+    expect(ACM_CORE).toContain("not answers by proximity or anchor gravity");
+    expect(ACM_CORE).toContain("Why: findings are distilled");
+    expect(ACM_CORE).not.toContain("**NEXT stalls**");
+    expect(ACM_CORE).toContain("Ambiguous base selection, interleaved fronts, or raw-node fallback");
+    expect(ACM_CORE).toContain("load the context-management skill");
+    expect(ACM_CORE).toContain("managed-chain workflow");
+    expect(ACM_CORE).toContain("without rereading archived summaries");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start test passes");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("Mixed tool batches are rejected");
   });
 
-  test("front-loads a checkable checkpoint preflight", () => {
+  test("front-loads recoverability preflight as a cost judgment", () => {
+    const invariantIndex = ACM_CORE.indexOf("### Working-set invariant");
+    const layersIndex = ACM_CORE.indexOf("### How judgment layers fit together");
     const preflightIndex = ACM_CORE.indexOf("### ACM preflight");
     const vocabularyIndex = ACM_CORE.indexOf("### Vocabulary");
 
-    expect(preflightIndex).toBeGreaterThan(-1);
-    expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight** on the branch that will carry it");
-    expect(ACM_CORE).toContain("First complete any required `New request arrives over finished work` transition");
-    expect(ACM_CORE).toContain("then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
-    expect(ACM_CORE).toContain("When no finished-chain transition is required, the checkpoint call is the first action");
-    expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
-    expect(ACM_CORE).toContain("the checkpoint was created or reused");
-    expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
-    expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
-    expect(ACM_CORE).toContain("live detail the next action will reason over");
-    expect(ACM_CORE).toContain("Name the boundary before choosing a target");
-    expect(ACM_CORE).toContain("without archived summaries");
-    expect(ACM_CORE).toContain("checkpoint its `-start` boundary before acting");
-    expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
-    expect(ACM_CORE).not.toContain("| New chain starts |");
-    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
-    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(800);
+    expect(invariantIndex).toBeGreaterThan(-1);
+    expect(invariantIndex).toBeLessThan(layersIndex);
+    expect(layersIndex).toBeLessThan(vocabularyIndex);
+    expect(preflightIndex).toBeGreaterThan(vocabularyIndex);
+    expect(ACM_CORE).toContain("against this invariant");
+    expect(ACM_CORE).toContain("Recoverability has a cost curve");
+    expect(ACM_CORE).toContain("opening a **managed chain**");
+    expect(ACM_CORE).not.toContain("the checkpoint call is the first action");
+    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("before managed work makes rewind expensive");
   });
 
   test("routes one advanced condition at a time and reroutes on state change", async () => {
     const skill = await skillFile("SKILL.md");
-    expect(skill).toContain("CORE owns the normal path");
-    expect(skill).toContain("ordinary checkpointing");
-    expect(skill).toContain("clear phase folds");
-    expect(skill).toContain("clear burst folds");
-    expect(skill).toContain("task-end handling");
+    expect(skill).toContain("working-set invariant");
+    expect(skill).toContain("decision smells");
+    expect(skill).toContain("judgment layers");
     expect(skill).toContain("Load one reference at a time");
-    expect(skill).toContain("observable condition changes");
-    expect(skill).toContain("replace the active reference");
   });
 
-  test("keeps target and recovery criteria factual and checkable", async () => {
-    const target = await skillFile("references/target-selection.md");
-    const archive = await skillFile("references/archive-recovery.md");
-    const exceptional = await skillFile("references/exceptional-recovery.md");
-
-    expect(target).toContain("tree topology orders them");
-    expect(target).toContain("must precede at least one active `branch_summary`");
-    expect(target).toContain("projected summary depth must not grow");
-    expect(target).toContain("every surviving item has one authoritative home");
-    expect(archive).toContain("Pending is scheduled work, not success");
-    expect(archive).toContain("return to the Skill router and replace this reference");
-    expect(archive).not.toContain("structural effect");
-    expect(exceptional).toContain("Backup rollback failure");
-    expect(exceptional).toContain("branch creation was not applied");
-    expect(exceptional).toContain("Indeterminate branch mutation");
-    expect(exceptional).toContain("mutation may have landed");
+  test("re-anchors tool cues with observables and positive targets", () => {
+    expect(GUIDANCE_CUES.checkpointStart).toContain("Recoverability confirmed");
+    expect(GUIDANCE_CUES.travelTask).toContain("handoff working set");
+    expect(GUIDANCE_CUES.travelTask).not.toContain("do not reintroduce");
+    expect(GUIDANCE_CUES.checkpointDone).toContain("working-set invariant");
   });
 });
