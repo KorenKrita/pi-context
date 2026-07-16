@@ -15,7 +15,7 @@ A **boundary** is semantic: a goal, phase, attempt, burst, or front—not whiche
 
 An **evidence chain** is the measurements, baselines, deltas, and causal links that can still resolve an open loop. A rejected attempt may leave a live evidence chain. Keep it until the conclusion no longer depends on it.
 
-A **receipt** separates intent from fact. Plans, drafts, parameters, and assistant prose describe a proposed action; only the matching tool result establishes whether it was applied, not applied, or remains indeterminate. Update the working set from the receipt, never from anticipation.
+A tool call is a **request**; its matching result is the **receipt**. Plans, drafts, parameters, and assistant prose are intent. Record mutation fact only from the receipt: applied, not applied, or indeterminate.
 
 **Recoverability** is the seatbelt of expansion. **Unlabeled return state + imminent working-set expansion = unbuckled seatbelt.** Before accelerating into a distinct goal, risky attempt, broad burst, or parked front, attach a semantic checkpoint to the state worth returning to. The checkpoint is a bookmark, not a closing bracket: it changes what can be recovered, not whether the boundary is closed.
 

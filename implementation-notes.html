@@ -226,22 +226,27 @@
       <tr>
         <td>agent-resolved</td>
         <td>Run the non-CI behavior eval through real candidate tool calls against a mock ACM extension, then judge the resulting assistant-message batches.</td>
-        <td>A prose-only simulation produced both false negatives (the model claimed tools were unavailable) and false positives (invented checkpoint/travel success). The mock extension reuses canonical tool descriptions and schemas, safely records actual checkpoint/timeline/travel calls, and makes travel isolation observable without mutating a real session tree.</td>
+        <td>A prose-only simulation produced both false negatives (the model claimed tools were unavailable) and false positives (invented checkpoint/travel success). The mock extension reuses canonical tool descriptions, prompt snippets, prompt guidelines, schemas, and receipts, safely records actual checkpoint/timeline/travel calls, and makes travel isolation observable without mutating a real session tree.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
         <td>Split ACM guidance ownership between one always-on doctrine source and one generated tool-contract source.</td>
-        <td><code>CORE.md</code> now owns only working-set judgment. <code>TOOL-CONTRACTS.md</code> owns tool descriptions, prompt guidelines, result cues, and recovery text, while <code>SKILL.md</code> only routes exceptional mechanics. This removes competing control planes and makes each behavior a one-place edit.</td>
+        <td><code>CORE.md</code> now owns only working-set judgment. <code>TOOL-CONTRACTS.md</code> owns tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text, while <code>SKILL.md</code> only routes exceptional mechanics. This removes competing control planes and makes each behavior a one-place edit.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
         <td>Make a matching structured receipt the only authority that converts ACM tool intent into operation fact.</td>
-        <td>Every checkpoint, timeline, and travel result appends the same versioned receipt to provider-visible <code>content</code> and structured <code>details</code>. It carries the tool-call ID, overall outcome, mutation state, and working-set state. Renderers distinguish applied, not applied, and indeterminate results, including travel that applied but lost later message evidence. Public parameter schemas remain compatible; no required execute flag was added.</td>
+        <td>A tool call is modeled as a request and its matching result as the receipt. Every checkpoint, timeline, and travel result appends the same versioned receipt to provider-visible <code>content</code> and structured <code>details</code>; it carries the tool-call ID, overall outcome, mutation state, and working-set state. Generated descriptions and snippets use request language so authorization permits an attempt without pre-claiming success. Renderers distinguish applied, not applied, and indeterminate results. Public parameter schemas remain compatible; no required execute flag was added.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
         <td>Keep regression measurements and causal baselines as a live evidence chain after a code direction is rejected.</td>
         <td>The rejected implementation can leave the working set, but measurements, baseline, rollback result, variance, trace pointers, and deltas remain until attribution closes the open loop. This directly addresses the behavior-eval failure that discarded evidence needed to explain a 40% regression.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Split receipt behavior evaluation by observable branch instead of requiring receipt vocabulary before a result exists.</td>
+        <td>The draft-only scenario verifies authorization and absence of a false applied claim. The indeterminate-result scenario separately verifies that a matching receipt controls post-call truth. Requiring every draft explanation to mention a future receipt duplicated the second branch and produced lexical false negatives despite safe behavior.</td>
       </tr>
     </tbody>
   </table>

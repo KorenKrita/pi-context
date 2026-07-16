@@ -47,6 +47,12 @@ describe("ACM open-ended behavior eval contract", () => {
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.travel");
+    expect(mockExtension).toContain("promptSnippet: PROMPT_SNIPPETS.checkpoint");
+    expect(mockExtension).toContain("promptSnippet: PROMPT_SNIPPETS.timeline");
+    expect(mockExtension).toContain("promptSnippet: PROMPT_SNIPPETS.travel");
+    expect(mockExtension).toContain("promptGuidelines: [PROMPT_GUIDELINES.checkpoint]");
+    expect(mockExtension).toContain("promptGuidelines: [PROMPT_GUIDELINES.timeline]");
+    expect(mockExtension).toContain("promptGuidelines: [PROMPT_GUIDELINES.travel]");
     expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_checkpoint\"");
     expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_timeline\"");
     expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_travel\"");

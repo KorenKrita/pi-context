@@ -171,16 +171,16 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 - `CONTEXT.md`：ACM ubiquitous language；只定义 domain terms，不写实现细节
 - `skills/context-management/CORE.md`：always-on working-set doctrine 的 canonical source（道）
-- `skills/context-management/TOOL-CONTRACTS.md`：tool descriptions、prompt guidelines、result cues 与 recovery text 的 canonical source
+- `skills/context-management/TOOL-CONTRACTS.md`：tool descriptions、prompt snippets、prompt guidelines、result cues 与 recovery text 的 canonical source
 - `skills/context-management/SKILL.md`：advanced technique router（术）
 - `skills/context-management/references/`：handoff wire format、target selection、travel isolation、archive recovery 与 exceptional host recovery
 - `src/generated-guidance.ts`：generated runtime artifact，不应手工漂移
 
-canonical leading words 固定为 working set、active uncertainty、boundary、evidence chain、receipt、recoverability、checkpoint、handoff、archive、fold、rebase、cold start、summary debt、anchor gravity、front。receipt 区分 intent 与 matching tool result 所证明的 fact；evidence chain 保留解决 open loop 所需的 measurements、baselines、deltas 与 causal links。checkpoint 只创建 recoverability；timeline 只提供 factual evidence；travel 才可能改变 working set。工具名、checkpoint suffix、context pressure 与 summary depth 都不是 semantic state classifier。
+canonical leading words 固定为 working set、active uncertainty、boundary、evidence chain、request、receipt、recoverability、checkpoint、handoff、archive、fold、rebase、cold start、summary debt、anchor gravity、front。tool call 是 request，matching tool result 才是 receipt；receipt 区分 intent 与 applied / not-applied / indeterminate fact。evidence chain 保留解决 open loop 所需的 measurements、baselines、deltas 与 causal links。checkpoint 只请求创建 recoverability；timeline 只提供 factual evidence；travel receipt 才能证明 working set 是否改变。工具名、checkpoint suffix、context pressure 与 summary depth 都不是 semantic state classifier。
 
 ## Tool prompt 与 TUI 呈现
 
-三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 generated `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。`TOOL-CONTRACTS.md` 是 descriptions、guidelines、cues 与 recovery text 的唯一真源；prompt metadata 不得在 behavior-owned modules 内复制 CORE。每个 tool result 的 provider-visible `content` 和 structured `details` 都必须附同一份 `ACM_RECEIPT`，公共参数 schema 不增加 required execute flag。
+三个 ACM 工具都必须使用 generated `promptSnippet`、以工具名开头的 generated `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。`TOOL-CONTRACTS.md` 是 descriptions、snippets、guidelines、cues 与 recovery text 的唯一真源；prompt metadata 不得在 behavior-owned modules 内复制 CORE。每个 tool result 的 provider-visible `content` 和 structured `details` 都必须附同一份 `ACM_RECEIPT`，公共参数 schema 不增加 required execute flag。
 
 self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content`、`details` 与 validated receipt，不得改变发送给 LLM 的 mutation contract；`applied`、`not_applied`、`indeterminate` 必须使用不同 chrome，applied-but-evidence-incomplete 也必须与未执行区分。
 所有来自 streaming 参数、host details 或 tool content 的动态文本，在进入自定义 `Text` renderer 前必须经过 `sanitizeTerminalText()`；保留换行和制表符，但不得把 C0/C1 终端控制字符带入 self-shell。
@@ -214,7 +214,7 @@ bun run verify:acm
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
-开放式 model behavior eval 是非 CI 证据：`bun run eval:acm -- --candidate <model> --judge <model>`。场景族必须至少覆盖 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty、receipt discipline 与 summary-debt judgment，并使用多种措辞；judge 只评 semantic invariants，不锁 exact tool order。评测 runner、场景和说明分别位于 `scripts/eval-acm-behavior.mjs`、`eval/acm-behavior-scenarios.mjs` 与 `eval/README.md`。
+开放式 model behavior eval 是非 CI 证据：`bun run eval:acm -- --candidate <model> --judge <model>`。mock ACM tools 必须复用 canonical descriptions、prompt snippets、prompt guidelines、schemas 与 receipts。场景族必须至少覆盖 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty、receipt discipline 与 summary-debt judgment，并使用多种措辞；judge 只评 semantic invariants，不锁 exact tool order。评测 runner、场景和说明分别位于 `scripts/eval-acm-behavior.mjs`、`eval/acm-behavior-scenarios.mjs` 与 `eval/README.md`。
 
 host fixture 必须覆盖 exact Pi version、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

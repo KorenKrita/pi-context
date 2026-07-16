@@ -29,8 +29,9 @@ A semantic label attached to history to create recoverability without changing t
 _Avoid_: snapshot, branch, fold
 
 **Receipt**:
-The structured outcome attached to one matching tool call. It distinguishes proposed intent from established fact by reporting whether an operation was applied, not applied, or remains indeterminate.
+The structured outcome attached to one matching tool request. The call asks; the receipt reports whether the operation was applied, not applied, or remains indeterminate.
 _Avoid_: assistant claim, tool parameters, planned action
+
 
 **Handoff**:
 The compact, authoritative working state that survives a fold. It carries the next action and direct evidence pointers rather than replaying the process that produced them.

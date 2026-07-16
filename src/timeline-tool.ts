@@ -25,7 +25,7 @@ import { buildSessionMessages } from "./host-bridge.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 interface CheckpointListing {
@@ -210,7 +210,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
-    promptSnippet: "Inspect session structure, context pressure, and travel candidates",
+    promptSnippet: PROMPT_SNIPPETS.timeline,
     promptGuidelines: [PROMPT_GUIDELINES.timeline],
     parameters: schema,
     renderShell: "self",

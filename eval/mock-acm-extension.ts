@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
+import { PROMPT_GUIDELINES, PROMPT_SNIPPETS, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 import { HANDOFF_SLOT_HINT } from "../src/lib.js";
 import { attachAcmReceipt } from "../src/tool-receipt.js";
 
@@ -9,6 +9,8 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Eval Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
+    promptSnippet: PROMPT_SNIPPETS.checkpoint,
+    promptGuidelines: [PROMPT_GUIDELINES.checkpoint],
     parameters: Type.Object({
       name: Type.String({
         minLength: 1,
@@ -34,6 +36,8 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
     name: "acm_timeline",
     label: "ACM Eval Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
+    promptSnippet: PROMPT_SNIPPETS.timeline,
+    promptGuidelines: [PROMPT_GUIDELINES.timeline],
     parameters: Type.Object({
       view: Type.Optional(Type.Union([
         Type.Literal("active"),
@@ -77,6 +81,8 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
     name: "acm_travel",
     label: "ACM Eval Travel",
     description: TOOL_DESCRIPTIONS.travel,
+    promptSnippet: PROMPT_SNIPPETS.travel,
+    promptGuidelines: [PROMPT_GUIDELINES.travel],
     parameters: Type.Object({
       target: Type.String({
         minLength: 1,

@@ -12,12 +12,15 @@ describe("ACM tool description contract", () => {
     expect(checkpointTool).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(timelineTool).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(travelTool).toContain("description: TOOL_DESCRIPTIONS.travel");
+    expect(checkpointTool).toContain("promptSnippet: PROMPT_SNIPPETS.checkpoint");
+    expect(timelineTool).toContain("promptSnippet: PROMPT_SNIPPETS.timeline");
+    expect(travelTool).toContain("promptSnippet: PROMPT_SNIPPETS.travel");
     expect(checkpointTool).toContain("promptGuidelines: [PROMPT_GUIDELINES.checkpoint]");
     expect(timelineTool).toContain("promptGuidelines: [PROMPT_GUIDELINES.timeline]");
     expect(travelTool).toContain("promptGuidelines: [PROMPT_GUIDELINES.travel]");
-    expect(generatedGuidance).toContain("Create recoverability by attaching a semantic label");
+    expect(generatedGuidance).toContain("Request recoverability by attaching a semantic label");
     expect(generatedGuidance).toContain("Inspect session topology and working-set evidence");
-    expect(generatedGuidance).toContain("Apply one recoverable context transition");
+    expect(generatedGuidance).toContain("Request one recoverable context transition");
     expect(generatedGuidance).toContain("names are recovery cues, not state classifiers");
     expect(generatedGuidance).toContain("Omitting `target` labels the nearest meaningful USER/AI turn");
   });
@@ -48,7 +51,7 @@ describe("ACM tool description contract", () => {
 
   test("keeps travel isolation in the technique layer and runtime guard", () => {
     expect(generatedGuidance).not.toContain("Call `acm_travel` alone in its assistant tool batch");
-    expect(generatedGuidance).toContain("`acm_travel` must run alone in its assistant tool batch");
+    expect(generatedGuidance).toContain("Run the request alone in its assistant tool batch");
     expect(travelTool).toContain("acm_travel must run alone in its assistant tool batch");
     expect(travelTool).toContain("executionMode: \"sequential\"");
     expect(travelTool).toContain("mixed_tool_batch");
@@ -72,7 +75,7 @@ describe("ACM tool description contract", () => {
     expect(agents).toContain("`acm_timeline` 使用 strict `view` discriminator");
     expect(agents).toContain("不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict");
     expect(agents).toContain("`skills/context-management/CORE.md`：always-on working-set doctrine 的 canonical source");
-    expect(agents).toContain("`skills/context-management/TOOL-CONTRACTS.md`：tool descriptions、prompt guidelines、result cues 与 recovery text 的 canonical source");
+    expect(agents).toContain("`skills/context-management/TOOL-CONTRACTS.md`：tool descriptions、prompt snippets、prompt guidelines、result cues 与 recovery text 的 canonical source");
     expect(agents).toContain("`CONTEXT.md`：ACM ubiquitous language");
   });
 });

@@ -12,6 +12,7 @@ import {
   ACM_CORE_MARKER,
   GUIDANCE_CUES,
   PROMPT_GUIDELINES,
+  PROMPT_SNIPPETS,
   RECOVERY_GUIDANCE,
   TOOL_DESCRIPTIONS,
 } from "../src/generated-guidance.ts";
@@ -29,6 +30,7 @@ describe("canonical guidance generation", () => {
 
     expect(ACM_CORE).toBe(derived.core);
     expect(TOOL_DESCRIPTIONS).toEqual(derived.toolDescriptions);
+    expect(PROMPT_SNIPPETS).toEqual(derived.promptSnippets);
     expect(PROMPT_GUIDELINES).toEqual(derived.promptGuidelines);
     expect(GUIDANCE_CUES).toEqual(derived.guidanceCues);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
@@ -139,16 +141,22 @@ describe("canonical guidance generation", () => {
       "timelineTree",
       "travel",
     ]);
+    expect(Object.keys(PROMPT_SNIPPETS).sort()).toEqual(["checkpoint", "timeline", "travel"]);
     expect(Object.keys(PROMPT_GUIDELINES).sort()).toEqual(["checkpoint", "timeline", "travel"]);
 
-    for (const cue of [...Object.values(GUIDANCE_CUES), ...Object.values(PROMPT_GUIDELINES)]) {
+    for (const cue of [
+      ...Object.values(GUIDANCE_CUES),
+      ...Object.values(PROMPT_SNIPPETS),
+      ...Object.values(PROMPT_GUIDELINES),
+    ]) {
       expect(cue.length).toBeLessThan(350);
       expect(cue).not.toContain("### Tend the working set");
       expect(cue).not.toContain("Goal: <");
     }
-    expect(PROMPT_GUIDELINES.checkpoint).toContain("matching receipt");
+    expect(PROMPT_SNIPPETS.travel).toContain("receipt establishes the outcome");
+    expect(PROMPT_GUIDELINES.checkpoint).toContain("matching receipt establishes the outcome");
     expect(PROMPT_GUIDELINES.timeline).toContain("factual topology");
-    expect(PROMPT_GUIDELINES.travel).toContain("alone in its assistant tool batch");
+    expect(PROMPT_GUIDELINES.travel).toContain("Run the request alone");
     expect(GUIDANCE_CUES.checkpoint).toContain("working set is unchanged");
     expect(GUIDANCE_CUES.checkpoint).toContain("bookmark, not a closing bracket");
     expect(GUIDANCE_CUES.rebaseCheck).toContain("summary debt");

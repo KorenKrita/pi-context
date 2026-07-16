@@ -24,7 +24,7 @@ import {
   getMessageRoleLabel,
   isCheckpointableMessage,
 } from "./entry-resolution.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
@@ -46,7 +46,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
-    promptSnippet: "Label a recoverable session boundary without changing context",
+    promptSnippet: PROMPT_SNIPPETS.checkpoint,
     promptGuidelines: [PROMPT_GUIDELINES.checkpoint],
     parameters: schema,
     renderShell: "self",

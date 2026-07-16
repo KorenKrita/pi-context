@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ACM_CORE, GUIDANCE_CUES, PROMPT_GUIDELINES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
+import { ACM_CORE, GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 const occurrences = (text: string, phrase: string) => text.toLowerCase().split(phrase.toLowerCase()).length - 1;
@@ -8,7 +8,7 @@ describe("ACM guidance quality", () => {
   test("uses leading words as a working-set doctrine instead of a tool choreography", () => {
     expect(ACM_CORE).toContain("The CORE is the **way** (道)");
     expect(ACM_CORE).toContain("a compass, not a fixed tool sequence");
-    expect(ACM_CORE).toContain("A **receipt** separates intent from fact");
+    expect(ACM_CORE).toContain("A tool call is a **request**; its matching result is the **receipt**");
     expect(ACM_CORE).toContain("An **evidence chain**");
 
     const minimumDensity: Record<string, number> = {
@@ -48,11 +48,12 @@ describe("ACM guidance quality", () => {
       expect(ACM_CORE).toContain(invariant);
     }
 
-    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("Create recoverability");
+    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("Request recoverability");
     expect(TOOL_DESCRIPTIONS.timeline).toContain("Inspect session topology");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("Apply one recoverable context transition");
-    expect(PROMPT_GUIDELINES.travel).toContain("alone in its assistant tool batch");
-    expect(PROMPT_GUIDELINES.travel).toContain("only a matching applied receipt");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("Request one recoverable context transition");
+    expect(PROMPT_SNIPPETS.travel).toContain("receipt establishes the outcome");
+    expect(PROMPT_GUIDELINES.travel).toContain("Run the request alone");
+    expect(PROMPT_GUIDELINES.travel).toContain("matching receipt establishes the outcome");
     expect(TOOL_DESCRIPTIONS.travel).toContain("live evidence chains survive");
     expect(GUIDANCE_CUES.checkpoint).toContain("working set is unchanged");
     expect(GUIDANCE_CUES.travel).toContain("new working set");

@@ -1,9 +1,9 @@
 # ACM Tool Contracts
 
-This file is the single source of truth for generated ACM tool descriptions, prompt guidelines, result cues, and recovery text. It owns invocation and observable mechanics; `CORE.md` owns semantic working-set judgment.
+This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text. It owns invocation and observable mechanics; `CORE.md` owns semantic working-set judgment.
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Create recoverability by attaching a semantic label to session history without changing the active working set. Use before a distinct or risky expansion, when parking a front, or when raw history may later leave context. Omitting `target` labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history.
+Request recoverability by attaching a semantic label to session history without changing the active working set. Use before a distinct or risky expansion, when parking a front, or when raw history may later leave context. Omitting `target` labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID can label older history.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
@@ -11,11 +11,23 @@ Inspect session topology and working-set evidence through one view: `active`, `c
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Apply one recoverable context transition: fold a named closed boundary or rebase accumulated handoffs. Travel is ready only when active uncertainty and live evidence chains survive, omitted detail has a recovery pointer, and the handoff passes cold start.
+Request one recoverable context transition: fold a named closed boundary or rebase accumulated handoffs. Travel is ready only when active uncertainty and live evidence chains survive, omitted detail has a recovery pointer, and the handoff passes cold start.
 <!-- ACM:TOOL_TRAVEL:END -->
 
+<!-- ACM:SNIPPET_CHECKPOINT:START -->
+Request a recoverable history label without changing context
+<!-- ACM:SNIPPET_CHECKPOINT:END -->
+
+<!-- ACM:SNIPPET_TIMELINE:START -->
+Inspect session topology and working-set evidence
+<!-- ACM:SNIPPET_TIMELINE:END -->
+
+<!-- ACM:SNIPPET_TRAVEL:START -->
+Request a fold or rebase; the receipt establishes the outcome
+<!-- ACM:SNIPPET_TRAVEL:END -->
+
 <!-- ACM:GUIDELINE_CHECKPOINT:START -->
-`acm_checkpoint` names are recovery cues, not state classifiers. A checkpoint neither closes nor folds a boundary; treat its matching receipt, not the call or surrounding prose, as fact.
+`acm_checkpoint` names are recovery cues, not state classifiers. A checkpoint neither closes nor folds a boundary; the request asks for a label and its matching receipt establishes the outcome.
 <!-- ACM:GUIDELINE_CHECKPOINT:END -->
 
 <!-- ACM:GUIDELINE_TIMELINE:START -->
@@ -23,7 +35,7 @@ Apply one recoverable context transition: fold a named closed boundary or rebase
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-`acm_travel` must run alone in its assistant tool batch. A draft handoff or proposed call is intent; only a matching applied receipt establishes that travel occurred.
+`acm_travel` has two moments: user authorization permits the request; its matching receipt establishes the outcome. Run the request alone in its assistant tool batch.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 <!-- ACM:CUE_CHECKPOINT:START -->

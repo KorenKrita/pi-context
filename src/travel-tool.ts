@@ -36,7 +36,7 @@ import {
   type AgentSessionSyncOutcome,
 } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 interface TravelSummaryDetails {
@@ -85,7 +85,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     name: "acm_travel",
     label: "ACM Travel",
     description: TOOL_DESCRIPTIONS.travel,
-    promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
+    promptSnippet: PROMPT_SNIPPETS.travel,
     promptGuidelines: [PROMPT_GUIDELINES.travel],
     parameters: schema,
     executionMode: "sequential",
