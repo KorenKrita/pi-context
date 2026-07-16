@@ -154,17 +154,17 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Continue the current work normally. At the next natural semantic boundary, consider whether current task requirements permit a safe fold or rebase travel.",
-        "Travel is optional, but keeping the active context small is preferred when it can be done without losing needed working state.",
+        "Working-budget pressure has left the comfortable cruise range. Keep integrating as you work, and note where a distilled burst, closed direction, or finished phase would make a clean fold.",
+        "Nothing is required now: a fold is only as good as its cold-start handoff, and correctness always outranks a smaller number.",
       ]
     : nudge.level === 50
       ? [
-          "Context pressure is becoming material. Based on the current task requirements, actively look for the next safe opportunity for a fold or rebase travel.",
-          "Travel is recommended when a complete handoff can preserve the required working state and make NEXT executable. Do not travel if important context is still needed, but prefer returning to a smaller active context when safely possible.",
+          "Working-budget pressure is material. Actively look for the next worthwhile fold or rebase — distilled findings, rejected directions, stacked summaries — and commit them as one batched handoff rather than paying travel cost per step.",
+          "Carry the hot set and honest uncertainty through the fold; a save point plus pointers keeps everything else recoverable.",
         ]
       : [
-          "Context pressure is high. At the earliest safe semantic boundary, strongly consider a fold or rebase travel if current task requirements allow a complete and recoverable handoff.",
-          "Keeping the active context small is strongly preferred, but correctness, task continuity, and recoverability take priority. If no safe travel is available, continue normally; native compaction is acceptable for a genuinely long task.",
+          "Working-budget pressure is high; attention is the scarce resource now. Shape the smallest handoff that passes cold start — knowns, open unknowns, hot set, evidence pointers, external effects, one executable NEXT — and fold or rebase at the next safe moment.",
+          "If no safe fold exists, continue correctly and let native compaction handle a genuinely long run. Never trade cold start for a smaller number.",
         ];
 
   return {

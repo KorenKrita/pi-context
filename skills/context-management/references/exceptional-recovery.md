@@ -1,6 +1,6 @@
 # Exceptional Recovery
 
-Use this reference only when an ACM result reports an exceptional outcome. CORE remains authoritative for the normal process; this file maps each observable failure state to one bounded recovery action.
+Use this reference only when an ACM result reports an exceptional outcome. CORE remains authoritative for normal judgment; this file maps each observable failure state to one bounded recovery action.
 
 ## Travel failure
 
@@ -24,11 +24,11 @@ Travel can restore or grow raw history when the destination is later, off-path, 
 
 1. Verify that the requested destination is active.
 2. Decide whether the restored detail is required by the current action.
-3. When required, continue with that detail live.
-4. When accidental, return to the prior summary checkpoint with a handoff carrying only the needed extract.
+3. When required — an intentional rehydration — take the exact detail and continue the round trip.
+4. When accidental, travel back to the prior summary save point with a handoff carrying only the needed extract.
 
 Increased usage is structural evidence, not proof of failure.
 
-## No-saving recovery
+## Low-yield fold
 
-When a task-end travel preview or result shows no meaningful structural saving, create a unique semantic `<task>-done` checkpoint on the current branch and answer directly. If an attempted no-saving travel already landed, verify the surviving branch, preserve its summary entry as evidence, and use that branch without repeating the same fold.
+When a travel preview or result shows little structural saving, check whether the handoff still delivers a durable representation improvement. If it does, continue from the applied branch and let later work amortize the transition. If it does not, keep the current authoritative branch, keep integrating until a larger semantic batch is ready, and avoid repeating the same tiny fold. A save point is enough to mark a milestone; travel is never required merely to record completion.

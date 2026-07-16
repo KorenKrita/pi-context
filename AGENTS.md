@@ -2,15 +2,17 @@
 
 ## 概述
 
-**pi-context** 是 [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) 的 fork，由 KorenKrita 独立维护。它为 Pi agent 提供主动上下文管理能力：agent 可以创建 recoverable checkpoint、查看会话树，并通过 summary branch 折叠、恢复或 rebase 上下文。
+**pi-context** 是 [pi-context (ttttmr)](https://github.com/ttttmr/pi-context) 的 fork，由 KorenKrita 独立维护。它为 Pi agent 提供主动上下文管理能力：agent 可以创建 recoverable save point、查看会话树，并通过 summary branch fold、rebase 或 rehydrate 上下文。
+
+设计遵循道/术/度分层：CORE 注入压缩即智能的判断力（道）与 cadence 偏好（度），工具描述和 result cue 承载可执行机制（术），advanced Skill 只在复杂场景按需加载。guidance 不规定固定流程、后缀状态机或全局调用次数；agent 默认拥有 ACM 自主权，只有用户明确要求暂停 travel 时在所述范围内暂停。
 
 项目暴露三个 ACM 工具：
 
 | 工具 | 作用 |
 |---|---|
-| `acm_checkpoint` | 给会话历史节点追加语义 checkpoint alias |
+| `acm_checkpoint` | 给会话历史节点追加语义 checkpoint alias（save point） |
 | `acm_timeline` | 输出 active path / checkpoints / search / tree 单一视图及 context HUD |
-| `acm_travel` | 通过七槽 handoff 创建 summary continuation branch |
+| `acm_travel` | 通过七槽 handoff 创建 summary continuation branch（fold / rebase / rehydrate） |
 
 `src/context.ts` 另行注册 Pi 独有的 `/context` TUI 命令，与 ACM 工具职责分离；非 TUI mode 必须在进入 custom terminal UI 前给出 warning 并返回。
 
@@ -108,16 +110,17 @@ travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、
 
 结果报告 raw evidence：usage before/estimated after、token delta、percentage-point delta、message counts/direction、summary-depth before/after/delta、summary entry、backup、refresh 与 live sync state。不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict。
 
-## Semantic rebase
+## Semantic rebase 与 rehydrate
 
-rebase 是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 runtime mode。目标是把所有 surviving state 合并成一个 authoritative snapshot，并移动到**最早安全基底**。
+rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 runtime mode。rebase 把所有 surviving state 合并成一个 authoritative handoff 并移动到**最早安全基底**；rehydrate 通过 save point + off-path travel + 返回 travel 取回单个归档细节。
 
-- 触发 rebase check：summary 已堆叠、稳定 chain/subchain 完成、新目标将开始、context pressure 上升
-- 候选从 earliest 到 latest 评估；`root` 是理想候选但不是默认 target
+- summary 堆叠或互相竞争时值得做 rebase check；这是 recognition cue，不是 required transition
+- 候选从 earliest 到 latest 评估；`root` 是候选但不是默认 target
 - cold start 是硬门槛：fresh agent 必须能只凭新 handoff 与 direct evidence pointers 执行 `NEXT`
-- context pressure 不得降低 snapshot 完整性要求
+- context pressure 不得降低 handoff 完整性要求
 - native `compaction` 不计入 semantic summary depth；只有 `branch_summary` 计入
 - runtime 只报告 summary depth、projected depth 和 deltas，不自动判断或执行 rebase
+- runtime 不以 checkpoint 后缀、固定阶段名或固定调用顺序推断语义状态；cue 选择不得依赖名称后缀
 
 ## Context usage nudge contract
 
@@ -168,16 +171,17 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 ## Guidance ownership
 
-- `skills/context-management/CORE.md`：normal-path guidance 的 canonical source
+- `skills/context-management/CORE.md`：道与度（judgment doctrine）的 canonical source，只含 `ACM:CORE` 标记段
+- `skills/context-management/TOOL-CONTRACTS.md`：术（tool mechanics text）的 canonical source——tool descriptions、prompt snippets、prompt guidelines、result cues、recovery 文案
 - `skills/context-management/SKILL.md`：advanced-only router
 - `skills/context-management/references/`：target selection、archive recovery、exceptional recovery
-- `src/generated-guidance.ts`：generated runtime artifact，不应手工漂移
+- `src/generated-guidance.ts`：由 `bun run generate:guidance` 从上述两个 canonical 文件生成的 runtime artifact，不应手工漂移
 
-canonical 词汇固定为 working set、boundary、handoff、archive、chain、burst、rebase、cold start、anchor gravity。checkpoint 创建 recoverability；travel 才 fold boundary；rebase 仍复用 travel mutation contract。
+canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、anchor gravity、receipt。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 
 ## Tool prompt 与 TUI 呈现
 
-三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。prompt metadata 只保留每个工具最关键的触发/安全门，不复制完整 CORE。
+三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`；prompt metadata 全部来自 generated guidance（`PROMPT_SNIPPETS` / `PROMPT_GUIDELINES`），只保留每个工具最关键的触发/安全门，不复制完整 CORE。
 
 self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content` 与 `details`，不得改变发送给 LLM 的工具结果或 mutation contract；错误/indeterminate 结果不得套用成功样式。
 所有来自 streaming 参数、host details 或 tool content 的动态文本，在进入自定义 `Text` renderer 前必须经过 `sanitizeTerminalText()`；保留换行和制表符，但不得把 C0/C1 终端控制字符带入 self-shell。

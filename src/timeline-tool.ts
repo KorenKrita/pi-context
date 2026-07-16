@@ -25,7 +25,7 @@ import { buildSessionMessages } from "./host-bridge.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -209,10 +209,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
-    promptSnippet: "Inspect session structure, context pressure, and travel candidates",
-    promptGuidelines: [
-      "Use acm_timeline to gather structural evidence before choosing a non-obvious travel target; prefer active, checkpoints, or search unless tree topology is required.",
-    ],
+    promptSnippet: PROMPT_SNIPPETS.timeline,
+    promptGuidelines: PROMPT_GUIDELINES.timeline.split("\n"),
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
@@ -463,8 +461,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
-        `• Segment Size:     ${stepsSinceCheckpoint} steps since last checkpoint '${nearestCheckpoint ?? "None"}'`,
-        `• Travel Cue:       ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
+        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ?? "None"}'`,
+        `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
       ];
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);

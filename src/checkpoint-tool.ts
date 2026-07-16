@@ -24,7 +24,7 @@ import {
   getMessageRoleLabel,
   isCheckpointableMessage,
 } from "./entry-resolution.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
@@ -32,12 +32,12 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic anchor name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic save-point name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the state a future search should find, e.g. payments-retry-baseline, flaky-test-attempt-2, latency-hunt-scan. Suffixes are naming convention only; they never classify workflow state. Avoid generic names like checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
       maxLength: 256,
-      description: "History node ID or checkpoint name to label. Defaults to current meaningful position near HEAD.",
+      description: "History node ID or checkpoint name to label. Defaults to the nearest meaningful USER/AI turn; use an explicit target to label an older return state.",
     })),
   }, { additionalProperties: false });
 
@@ -45,10 +45,8 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
-    promptSnippet: "Label a recoverable session boundary without changing context",
-    promptGuidelines: [
-      "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
-    ],
+    promptSnippet: PROMPT_SNIPPETS.checkpoint,
+    promptGuidelines: PROMPT_GUIDELINES.checkpoint.split("\n"),
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
@@ -144,7 +142,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         }
         targetEntry = findEntryInTree(tree, entryId);
         if (!targetEntry) {
-          const hint = " Use acm_timeline to choose the last clean node before the boundary you want to label; raw node IDs are valid targets.";
+          const hint = " Use acm_timeline to locate the node you want to label; raw node IDs are valid targets.";
           return {
             content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
             details: { error: "target_not_found", requestedTarget: params.target },
@@ -222,7 +220,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined;
       const usageText = usageLike ? formatContextUsage(usageLike, true) : "unknown";
-      const cue = params.name.endsWith("-done") ? GUIDANCE_CUES.checkpointDone : GUIDANCE_CUES.checkpointStart;
+      const cue = GUIDANCE_CUES.checkpoint;
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
         ? `${role}${skippedCount ? `; skipped ${skippedCount} nearer transient/non-meaningful entr${skippedCount === 1 ? "y" : "ies"}` : ""}`

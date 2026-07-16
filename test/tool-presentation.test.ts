@@ -104,7 +104,7 @@ describe("ACM tool rendering", () => {
           entryId: "entry-123",
           role: "USER",
           contextUsage: { tokens: 120000, contextWindow: 400000, percent: 30 },
-          cue: "Recoverability created.",
+          cue: "Save point applied.",
         },
       },
       { expanded: false, isPartial: false },
@@ -114,7 +114,7 @@ describe("ACM tool rendering", () => {
     const output = render(result);
     expect(output).toContain("✓ CHECKPOINT CREATED  parser-fix-start");
     expect(output).toContain("USER · entry-123 · context 30.0% (120.0K/400.0K)");
-    expect(output).toContain("→ Recoverability created.");
+    expect(output).toContain("→ Save point applied.");
   });
 
   test("timeline keeps the collapsed view compact and exposes full output when expanded", () => {

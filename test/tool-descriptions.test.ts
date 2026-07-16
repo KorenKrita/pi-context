@@ -8,34 +8,42 @@ const generatedGuidance = readFileSync(new URL("../src/generated-guidance.ts", i
 const agents = readFileSync(new URL("../AGENTS.md", import.meta.url), "utf8");
 
 describe("ACM tool description contract", () => {
-  test("keeps runtime descriptions owned by generated canonical guidance", () => {
+  test("keeps runtime descriptions and prompt metadata owned by generated canonical guidance", () => {
     expect(checkpointTool).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(timelineTool).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(travelTool).toContain("description: TOOL_DESCRIPTIONS.travel");
-    expect(generatedGuidance).toContain("Preflight a distinct user goal on the branch that will carry it");
-    expect(generatedGuidance).toContain("Names are unique across the session tree and case-sensitive");
-    expect(generatedGuidance).toContain("Omitting target labels the nearest meaningful USER/AI turn");
-    expect(generatedGuidance).toContain("without branching or folding the active context");
-    expect(checkpointTool).toContain("Semantic anchor name; unique and case-sensitive across the session tree");
-    expect(generatedGuidance).not.toContain("Zero cost: no branch, no handoff, no context change.");
+    expect(checkpointTool).toContain("promptSnippet: PROMPT_SNIPPETS.checkpoint");
+    expect(timelineTool).toContain("promptSnippet: PROMPT_SNIPPETS.timeline");
+    expect(travelTool).toContain("promptSnippet: PROMPT_SNIPPETS.travel");
+    expect(checkpointTool).toContain("promptGuidelines: PROMPT_GUIDELINES.checkpoint.split(\"\\n\")");
+    expect(timelineTool).toContain("promptGuidelines: PROMPT_GUIDELINES.timeline.split(\"\\n\")");
+    expect(travelTool).toContain("promptGuidelines: PROMPT_GUIDELINES.travel.split(\"\\n\")");
+    expect(generatedGuidance).toContain("Save point: attach a semantic label to a session node");
+    expect(generatedGuidance).toContain("Omitting `target` labels the nearest meaningful USER/AI turn");
+  });
+
+  test("keeps checkpoint names and backup labels free of workflow-state semantics", () => {
+    expect(checkpointTool).not.toContain("endsWith(\"-done\")");
+    expect(travelTool).not.toContain("endsWith(\"-done\")");
+    expect(checkpointTool).toContain("Suffixes are naming convention only");
+    expect(travelTool).toContain("never a workflow state");
+    expect(checkpointTool).toContain("unique and case-sensitive across the session tree");
   });
 
   test("keeps rebase semantics agent-owned and runtime evidence factual", () => {
-    expect(travelTool).toContain("retires an active summary without growing projected depth");
-    expect(travelTool).toContain("whose snapshot passes cold start");
+    expect(travelTool).toContain("projected summary depth does not grow");
+    expect(travelTool).toContain("passes cold start");
     expect(travelTool).toContain("root is a candidate, not a default");
     expect(travelTool).toContain("activeSummaryDepthBefore");
     expect(timelineTool).toContain("structural candidate, not a checkpoint");
-    expect(generatedGuidance).toContain("rebase accumulated summaries");
+    expect(generatedGuidance).toContain("rebase stacked summaries onto an earlier base");
     expect(generatedGuidance).toContain("cold start");
     expect(generatedGuidance).not.toContain("acm_rebase");
   });
 
-  test("keeps task-end travel conditional on meaningful structural saving", () => {
-    expect(travelTool).toContain("when the preview shows meaningful structural saving");
-    expect(travelTool).toContain("If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly");
-    expect(generatedGuidance).toContain("or create a unique `-done` checkpoint and answer directly");
-    expect(travelTool).not.toContain("At task end, set backupCurrentHeadAs to '<task>-done', travel");
+  test("presents rehydration as a first-class travel direction", () => {
+    expect(generatedGuidance).toContain("rehydrate an archived branch");
+    expect(generatedGuidance).toContain("rehydrate the archive if one exact detail is missing");
   });
 
   test("uses the strict single-object timeline contract", () => {
@@ -47,7 +55,7 @@ describe("ACM tool description contract", () => {
     expect(timelineTool).toContain('Type.Literal("tree")');
     expect(timelineTool).toContain("if (params.view === \"search\" && !params.query)");
     expect(timelineTool).not.toContain("const schema = Type.Union([");
-    expect(travelTool).toContain("On large trees use acm_timeline with view checkpoints or search");
+    expect(travelTool).toContain("use acm_timeline with view checkpoints or search");
     expect(timelineTool).not.toContain("list_checkpoints");
     expect(timelineTool).not.toContain("full_tree");
   });
@@ -55,6 +63,7 @@ describe("ACM tool description contract", () => {
   test("keeps repository guidance aligned with modular runtime ownership", () => {
     expect(agents).toContain("`acm_timeline` 使用 strict `view` discriminator");
     expect(agents).toContain("不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict");
-    expect(agents).toContain("`skills/context-management/CORE.md`：normal-path guidance 的 canonical source");
+    expect(agents).toContain("`skills/context-management/CORE.md`：道与度（judgment doctrine）的 canonical source");
+    expect(agents).toContain("`skills/context-management/TOOL-CONTRACTS.md`：术（tool mechanics text）的 canonical source");
   });
 });

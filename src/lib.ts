@@ -70,7 +70,7 @@ export function validateHandoffStructure(summary: string): HandoffValidationResu
  return { ok: false, missing, empty, duplicate, outOfOrder };
 }
 
-export const BOUNDARY_SELECTION_GUIDANCE = "Choose by boundary, not proximity. A candidate is correct only when it sits before the boundary being compressed; use an earliest on-path -start only when it begins the semantic chain being compressed.";
+export const BOUNDARY_SELECTION_GUIDANCE = "Choose a target by what it precedes, not by proximity or name. A candidate is correct only when it sits immediately before the material being folded — anchor gravity misleads.";
 
 export function formatFoldCandidatePreview(previewParts: string[]): string {
  return ` Fold candidates (+handoff): ${previewParts.join("; ")}. ${BOUNDARY_SELECTION_GUIDANCE}`;
@@ -78,9 +78,9 @@ export function formatFoldCandidatePreview(previewParts: string[]): string {
 
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
-  return "name the boundary first; no anchor is on this path, so checkpoint now or fold directly to the last clean node ID before the boundary";
+  return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
  }
- return `name the boundary first. '${nearestCheckpointName}' is only a candidate target. Choose the target that sits before the boundary: phase start, pre-burst node, attempt start, method anchor, or semantic chain start. Load Advanced Target Selection if the target remains ambiguous`;
+ return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads. Load Advanced Target Selection only if the target stays ambiguous`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };

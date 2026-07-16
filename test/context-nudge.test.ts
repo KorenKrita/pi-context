@@ -97,8 +97,8 @@ describe("ACM context usage reminders", () => {
       options: { deliverAs: "steer" },
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
-    expect(fixture.sentMessages[0]?.message.content).toContain("next natural semantic boundary");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Travel is optional");
+    expect(fixture.sentMessages[0]?.message.content).toContain("comfortable cruise range");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Nothing is required now");
 
     fixture.setUsagePercent(35);
     await fixture.emit("context", { messages: [] });
@@ -112,8 +112,8 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 70 });
     expect(fixture.sentMessages[1]?.message.content).toContain("[ACM Context Reminder · 70% tier · Final reminder]");
-    expect(fixture.sentMessages[1]?.message.content).toContain("earliest safe semantic boundary");
-    expect(fixture.sentMessages[1]?.message.content).toContain("native compaction is acceptable");
+    expect(fixture.sentMessages[1]?.message.content).toContain("attention is the scarce resource");
+    expect(fixture.sentMessages[1]?.message.content).toContain("native compaction");
     expect(fixture.sentMessages.some(({ message }) => message.details?.level === 50)).toBe(false);
   });
 
@@ -248,8 +248,8 @@ describe("ACM context usage reminders", () => {
       },
       options: { deliverAs: "followUp" },
     });
-    expect(fixture.sentMessages[0]?.message.content).toContain("actively look for the next safe opportunity");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Travel is recommended");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Actively look for the next worthwhile fold or rebase");
+    expect(fixture.sentMessages[0]?.message.content).toContain("one batched handoff");
   });
 
   test("a successful travel starts a new baseline-only reminder cycle", async () => {

@@ -36,7 +36,7 @@ import {
   type AgentSessionSyncOutcome,
 } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface TravelSummaryDetails {
   kind: "acm_travel";
@@ -75,20 +75,17 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. For a local fold, choose a target before the named boundary. For a rebase, evaluate candidate bases from earliest to latest and choose the first whose target retires an active summary without growing projected depth and whose snapshot passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when topology matters." }),
-    summary: Type.String({ minLength: 1, maxLength: 10000, description: `Handoff summary — the working state after travel. It must make the next action executable without rereading the folded trail. A rebase snapshot must pass cold start: a fresh agent can execute NEXT from this handoff and direct evidence pointers without reading archived summaries. Fill every slot, write 'none' rather than dropping one: ${HANDOFF_SLOT_HINT}. Include recovery pointers; pointers over dumps. Max 10000 chars.` }),
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
+    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest or best-named label. For a rebase, compare candidates from earliest to latest and take the first whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when ancestry matters." }),
+    summary: Type.String({ minLength: 1, maxLength: 10000, description: `The handoff that becomes the working set after travel. Cold start is the bar: a fresh agent must be able to continue from this text and its pointers alone, without rereading the folded trail. Fill every slot once and in order, 'none' when empty: ${HANDOFF_SLOT_HINT}. State may carry live cognition — knowns, open unknowns, competing hypotheses, and the hot set of exact values the next steps reuse. Keep surviving fronts, external effects, exclusions, and recovery pointers; pointers over dumps. Max 10000 chars.` }),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional save point for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. Use a unique semantic name that makes the archive discoverable, e.g. latency-hunt-scan or parser-attempt-2. The name is a recovery cue, never a workflow state, the travel target, or a substitute for a cold-start handoff." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
     name: "acm_travel",
     label: "ACM Travel",
     description: TOOL_DESCRIPTIONS.travel,
-    promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
-    promptGuidelines: [
-      "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
-      "Call acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
-    ],
+    promptSnippet: PROMPT_SNIPPETS.travel,
+    promptGuidelines: PROMPT_GUIDELINES.travel.split("\n"),
     parameters: schema,
     executionMode: "sequential",
     renderShell: "self",
@@ -207,7 +204,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ctx.ui.notify(`Note: 'root' resolved to the first top-level node (${targetId}); this session has ${tree.length} top-level roots.`, "info");
       }
       if (!findInTree(tree, (node) => node.entry.id === targetId)) {
-        const hint = " Use acm_timeline to choose the last clean node before the boundary you want to compress; raw node IDs are valid targets.";
+        const hint = " Use acm_timeline to choose the last clean node before the material being folded; raw node IDs are valid targets.";
         return {
           content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
           details: { error: "target_not_found", requestedTarget: params.target, resolvedTargetId: targetId },
@@ -469,7 +466,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      const nextCue = params.backupCurrentHeadAs?.endsWith("-done") ? GUIDANCE_CUES.travelTask : GUIDANCE_CUES.travelPhase;
+      const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
         && activeSummaryDepthAfter === targetSummaryDepth + 1

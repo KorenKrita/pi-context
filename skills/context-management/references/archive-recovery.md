@@ -1,12 +1,12 @@
 # Archive Recovery
 
-Use this reference only when one exact value, wording, error, or decision must be recovered from an archived conversation branch and work must continue on the present summary branch.
+Use this reference only when one exact value, wording, error, or decision must be rehydrated from an archived conversation branch and work must continue on the present summary branch.
 
-## Archive recovery round trip
+## Rehydration round trip
 
 Before leaving, record the current action and complete this round trip:
 
-1. Create a unique `<front>-resume` checkpoint on the current summary branch.
+1. Create a unique `<front>-resume` save point on the current summary branch.
 2. Travel to the archive pointer with a temporary handoff whose sole `NEXT` is the exact lookup and whose `Recover` names `<front>-resume`.
 3. Keep the archive branch bounded to that lookup. Extract the required detail and its direct evidence pointer.
 4. Make the return travel to `<front>-resume` the next tool call. Its handoff carries the extract, evidence, and original action.
@@ -24,4 +24,4 @@ If either travel changes the observable condition to a failure or indeterminate 
 - the recovered detail returns to `<front>-resume` immediately;
 - the return result establishes the summary branch before ordinary work resumes.
 
-Stay on the archive branch only when it intentionally replaces the summary branch. State that transition and preserve a recovery pointer to the abandoned branch.
+Stay on the archive branch only when it intentionally becomes the new working set. State that transition and preserve a recovery pointer to the abandoned branch.
