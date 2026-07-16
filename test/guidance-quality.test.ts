@@ -4,18 +4,26 @@ import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-gui
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
 describe("ACM guidance quality", () => {
-  test("preserves the base workflow while bounding semantic rebase", () => {
-    for (const baseBehavior of [
+  test("preserves judgment triggers while bounding semantic rebase", () => {
+    for (const situation of [
       "Phase, attempt, or batch item starts",
       "Unbounded burst or risky step is next",
       "Findings are distilled",
       "Direction is rejected or superseded",
       "Final answer is next",
     ]) {
-      expect(ACM_CORE).toContain(baseBehavior);
+      expect(ACM_CORE).toContain(situation);
     }
+    expect(ACM_CORE).toContain("### Working-set invariant");
+    expect(ACM_CORE).toContain("### Judgment triggers");
+    expect(ACM_CORE).toContain("| Situation | Judgment |");
+    expect(ACM_CORE).not.toContain("| Event | Required transition |");
+    expect(ACM_CORE).toContain("### Fold criteria");
+    expect(ACM_CORE).toContain("### Rebase criteria");
     expect(ACM_CORE).toContain("Local fold example");
     expect(ACM_CORE).toContain("Finished-chain rebase example");
+    expect(ACM_CORE).toContain("Why: findings are distilled");
+    expect(ACM_CORE).toContain("Why: prior chain is stable");
     expect(ACM_CORE).not.toContain("Failed-direction example");
     expect(ACM_CORE).toContain("Structural reset passes only when");
     expect(ACM_CORE).toContain("projected summary depth does not grow");
@@ -26,17 +34,21 @@ describe("ACM guidance quality", () => {
     expect(TOOL_DESCRIPTIONS.travel).toContain("must run alone in its assistant tool batch");
   });
 
-  test("front-loads a checkable checkpoint preflight", () => {
+  test("front-loads recoverability preflight as a cost judgment", () => {
+    const invariantIndex = ACM_CORE.indexOf("### Working-set invariant");
     const preflightIndex = ACM_CORE.indexOf("### ACM preflight");
     const vocabularyIndex = ACM_CORE.indexOf("### Vocabulary");
 
-    expect(preflightIndex).toBeGreaterThan(-1);
-    expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight** on the branch that will carry it");
-    expect(ACM_CORE).toContain("First complete any required `New request arrives over finished work` transition");
-    expect(ACM_CORE).toContain("then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
-    expect(ACM_CORE).toContain("When no finished-chain transition is required, the checkpoint call is the first action");
-    expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
+    expect(invariantIndex).toBeGreaterThan(-1);
+    expect(invariantIndex).toBeLessThan(vocabularyIndex);
+    expect(preflightIndex).toBeGreaterThan(vocabularyIndex);
+    expect(ACM_CORE).toContain("Tools enforce structure; you judge when a transition earns its place");
+    expect(ACM_CORE).toContain("Recoverability has a cost curve");
+    expect(ACM_CORE).toContain("A distinct user goal therefore begins with an **ACM preflight** on the branch that will carry it");
+    expect(ACM_CORE).toContain("After any needed `New request arrives over finished work` transition");
+    expect(ACM_CORE).toContain("call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
+    expect(ACM_CORE).not.toContain("the checkpoint call is the first action");
+    expect(ACM_CORE).toContain("investigation, planning, delegation, any non-ACM tool call");
     expect(ACM_CORE).toContain("the checkpoint was created or reused");
     expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
     expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
@@ -47,12 +59,14 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
     expect(ACM_CORE).not.toContain("| New chain starts |");
     expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
+    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("before managed work makes rewind expensive");
     expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(800);
   });
 
   test("routes one advanced condition at a time and reroutes on state change", async () => {
     const skill = await skillFile("SKILL.md");
     expect(skill).toContain("CORE owns the normal path");
+    expect(skill).toContain("working-set invariant");
     expect(skill).toContain("ordinary checkpointing");
     expect(skill).toContain("clear phase folds");
     expect(skill).toContain("clear burst folds");

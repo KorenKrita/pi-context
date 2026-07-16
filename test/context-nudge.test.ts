@@ -98,7 +98,8 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
     expect(fixture.sentMessages[0]?.message.content).toContain("next natural semantic boundary");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Travel is optional");
+    expect(fixture.sentMessages[0]?.message.content).toContain("working-set invariant");
+    expect(fixture.sentMessages[0]?.message.content).toContain("fold criteria");
 
     fixture.setUsagePercent(35);
     await fixture.emit("context", { messages: [] });
@@ -248,8 +249,8 @@ describe("ACM context usage reminders", () => {
       },
       options: { deliverAs: "followUp" },
     });
-    expect(fixture.sentMessages[0]?.message.content).toContain("actively look for the next safe opportunity");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Travel is recommended");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Raise the priority of a rebase check");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Travel earns its place only when");
   });
 
   test("a successful travel starts a new baseline-only reminder cycle", async () => {
