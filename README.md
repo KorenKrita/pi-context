@@ -67,9 +67,9 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 ```
 
 物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：离开舒适巡航区，留意下一个已提炼完、可干净折叠的语义批次；
-- **50%**：主动寻找下一个值得 fold 或 rebase 的表示增益，按批次提交而不是逐步支付；
-- **70%**：当前周期最后一次提醒，构造能通过 cold start 的最小 handoff，在最近的安全时机 fold 或 rebase。
+- **30%**：离开舒适巡航区，留意下一个已提炼完、可干净折叠的语义批次——现在在边界打一个 `acm_checkpoint` 会让之后的 fold 更便宜；
+- **50%**：主动寻找下一个值得 fold 或 rebase 的表示增益，按批次提交而不是逐步支付；批次不明确时用 `acm_timeline`（active 视图）查看 spine 上还承载着什么；
+- **70%**：当前周期最后一次提醒，构造能通过 cold start 的最小 handoff，在最近的安全时机 `acm_travel`。
 
 提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
 

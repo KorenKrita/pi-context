@@ -233,6 +233,11 @@
         <td>Treat manual <code>/tree</code> navigation as a first-class context transition: reset volatile ACM runtime state on <code>session_tree</code>, shape plain summarize requests through <code>session_before_tree</code> into the seven-slot handoff, and count every active-branch summary or compaction as a reminder-cycle boundary on restore.</td>
         <td>Manual navigation bypasses <code>acm_travel</code>, so stale refresh targets, live-sync tickets, and reminder baselines could otherwise survive onto the newly selected branch, and native summaries spoke a different vocabulary than travel handoffs. User-authored summarization instructions always win; the extension only replaces the default prompt when the user asked for a plain summary. Restore-boundary detection now matches live behavior, which resets the cycle on travel, compaction, and manual navigation alike.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Make every prompt surface name its concrete next move: the checkpoint cue teaches the checkpoint→travel chain, each reminder tier carries one tool step, and the handoff contract states line-per-slot shape with an immediately executable <code>NEXT</code>.</td>
+        <td>Weaker models act on named tools, not abstract advice: "weigh a fold" gives no callable action, while "acm_travel targeting this point folds that process" does. The additions stay advisory — no tier or cue mandates a call — so stronger models keep full judgment while the action gradient still points the same direction at every capability level.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
