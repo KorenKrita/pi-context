@@ -17,6 +17,16 @@ import { fixOrphanedToolUse } from "./message-sanitizer.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 
+/**
+ * The summarizer model cannot see session node IDs, so the abandoned branch tip
+ * is handed to it as a concrete fact: a Recover pointer that acm_travel can
+ * rehydrate directly.
+ */
+export function buildTreeSummaryInstructions(oldLeafId: string | null): string {
+  if (!oldLeafId) return TREE_SUMMARY_INSTRUCTIONS;
+  return `${TREE_SUMMARY_INSTRUCTIONS}\n\nThe abandoned branch tip is node ${oldLeafId}. Name it in the Recover slot unless the branch contains a more specific save point.`;
+}
+
 export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const contextRefresh = runtime.contextRefresh;
 
@@ -145,7 +155,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (!preparation.userWantsSummary) return;
     if (preparation.customInstructions?.trim()) return;
     if (preparation.entriesToSummarize.length === 0) return;
-    return { customInstructions: TREE_SUMMARY_INSTRUCTIONS, replaceInstructions: true };
+    return {
+      customInstructions: buildTreeSummaryInstructions(preparation.oldLeafId),
+      replaceInstructions: true,
+    };
   });
   // Manual /tree navigation bypasses acm_travel: the host already rebuilds live
   // messages itself, so stale refresh targets, sync tickets, and usage baselines

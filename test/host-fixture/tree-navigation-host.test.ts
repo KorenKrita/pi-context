@@ -32,22 +32,22 @@ test("plain /tree summarize receives the handoff prompt through the exact Pi run
     const runner = await createRunner(tempDir, sessionManager);
 
     const abandoned = sessionManager.getBranch().filter((entry: SessionEntry) => entry.id !== rootId);
+    const oldLeafId = sessionManager.getLeafId();
     const result = await runner.emit({
       type: "session_before_tree",
       preparation: {
         targetId: rootId,
-        oldLeafId: sessionManager.getLeafId(),
+        oldLeafId,
         commonAncestorId: rootId,
         entriesToSummarize: abandoned,
         userWantsSummary: true,
       },
       signal: new AbortController().signal,
-    });
+    }) as { customInstructions: string; replaceInstructions: boolean };
 
-    expect(result).toEqual({
-      customInstructions: TREE_SUMMARY_INSTRUCTIONS,
-      replaceInstructions: true,
-    });
+    expect(result.replaceInstructions).toBe(true);
+    expect(result.customInstructions.startsWith(TREE_SUMMARY_INSTRUCTIONS)).toBe(true);
+    expect(result.customInstructions).toContain(`The abandoned branch tip is node ${oldLeafId}`);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

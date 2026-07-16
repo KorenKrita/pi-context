@@ -153,7 +153,7 @@ successful travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记
 
 手动 `/tree` 导航绕过 `acm_travel`，host 自己重建 live messages，因此 `session_tree` handler 必须清空该 SessionManager 的易失 runtime state（refresh target、live sync ticket、cached usage、nudge state）并开启 baseline-only 提醒周期。
 
-`session_before_tree` handler 在用户选择 plain "Summarize"（`userWantsSummary === true` 且无非空 `customInstructions`、`entriesToSummarize` 非空）时，以 `replaceInstructions: true` 注入 `TREE_SUMMARY_INSTRUCTIONS`，让 native branch summary 也生成七槽 handoff 形态。用户提供的 instructions 永远优先；handler 不设置 `cancel`、`summary` 或 `label`，不做其他干预。
+`session_before_tree` handler 在用户选择 plain "Summarize"（`userWantsSummary === true` 且无非空 `customInstructions`、`entriesToSummarize` 非空）时，以 `replaceInstructions: true` 注入 `TREE_SUMMARY_INSTRUCTIONS`，让 native branch summary 也生成七槽 handoff 形态；`buildTreeSummaryInstructions()` 会附加 abandoned branch tip 的 node ID 作为 Recover pointer 事实（summarizer 看不到 node ID）。用户提供的 instructions 永远优先；handler 不设置 `cancel`、`summary` 或 `label`，不做其他干预。
 
 ## Live AgentSession synchronization
 

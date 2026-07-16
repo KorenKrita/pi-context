@@ -106,11 +106,25 @@ describe("manual tree navigation summaries", () => {
         return handler?.({ type: "session_before_tree", preparation }, { sessionManager: {} });
     };
 
-    it("shapes plain summarize requests as a seven-slot handoff prompt", async () => {
+    it("shapes plain summarize requests as a seven-slot handoff prompt with a recover pointer", async () => {
         const result = await emitBeforeTree({
             targetId: "node-1",
             oldLeafId: "node-9",
             commonAncestorId: "node-0",
+            entriesToSummarize: [{ type: "message" }],
+            userWantsSummary: true,
+        }) as { customInstructions: string; replaceInstructions: boolean };
+
+        expect(result.replaceInstructions).toBe(true);
+        expect(result.customInstructions.startsWith(TREE_SUMMARY_INSTRUCTIONS)).toBe(true);
+        expect(result.customInstructions).toContain("The abandoned branch tip is node node-9");
+    });
+
+    it("omits the recover pointer when the abandoned branch has no tip", async () => {
+        const result = await emitBeforeTree({
+            targetId: "node-1",
+            oldLeafId: null,
+            commonAncestorId: null,
             entriesToSummarize: [{ type: "message" }],
             userWantsSummary: true,
         });
