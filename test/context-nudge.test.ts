@@ -252,6 +252,33 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[0]?.message.content).toContain("one batched handoff");
   });
 
+  test("manual tree navigation clears pending reminders and starts a baseline-only cycle", async () => {
+    const fixture = createFixture();
+
+    fixture.setUsagePercent(50);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("session_tree", { newLeafId: "node-1", oldLeafId: "node-9" });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setUsagePercent(65);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    fixture.setUsagePercent(31);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-3", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]?.message.details).toMatchObject({ level: 30 });
+  });
+
   test("a successful travel starts a new baseline-only reminder cycle", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
