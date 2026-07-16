@@ -154,17 +154,17 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Context pressure is a weather report, not a travel command. Continue normally and notice the next semantic boundary.",
-        "Protect active uncertainty. Create recoverability before the working set expands; fold only after the boundary closes and a handoff can pass cold start.",
+        "Context pressure increases the value of attention. Keep compressing cognition continuously and notice when a coherent representation update is ready for a batched fold.",
+        "Carry the hot set, encode uncertainty faithfully, and checkpoint when the value of returning to the current state materially changes.",
       ]
     : nudge.level === 50
       ? [
-          "Review the working set for closed boundaries and real summary debt: obsolete handoff layers, competing summaries, or fronts without one authoritative home.",
-          "If raw detail still serves active uncertainty, hold it live. Travel only when omitted history is recoverable and one cold-start handoff preserves every surviving front and invariant.",
+          "Review the working set for sediment, repeated reasoning, competing handoffs, and a representation delta large enough to serve the next stretch of work.",
+          "Prefer a high-yield fold when its attention gain will persist; batch related observations so travel cost is amortized rather than paid for every action.",
         ]
       : [
-          "Context pressure is high. Make the working-set judgment explicit now: what uncertainty is active, which boundaries are closed, and whether summary debt can actually be paid.",
-          "A closed boundary, recoverability, and cold start authorize travel; pressure alone does not. If those gates fail, continue normally and allow native compaction for genuinely long work.",
+          "Context pressure is high and attention gain is valuable now. Form the smallest authoritative representation that carries the hot set, faithful uncertainty, evidence provenance, external effects, and an executable NEXT.",
+          "Use the next viable compression seam for a batched fold or rebase when it improves that representation; let pressure shorten cadence without turning each action into travel or dropping detail that would be reread immediately.",
         ];
 
   return {

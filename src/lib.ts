@@ -70,7 +70,7 @@ export function validateHandoffStructure(summary: string): HandoffValidationResu
  return { ok: false, missing, empty, duplicate, outOfOrder };
 }
 
-export const BOUNDARY_SELECTION_GUIDANCE = "Name the boundary before choosing an anchor. A candidate is correct only when it sits immediately before the raw history being folded; chronology, proximity, and label spelling are evidence, not verdicts.";
+export const BOUNDARY_SELECTION_GUIDANCE = "Name the compression seam before choosing an anchor. A candidate is correct only when it sits immediately before the process being replaced; chronology, proximity, and label spelling are evidence, not verdicts.";
 
 export function formatFoldCandidatePreview(previewParts: string[]): string {
  return ` Fold candidates (+handoff): ${previewParts.join("; ")}. ${BOUNDARY_SELECTION_GUIDANCE}`;
@@ -78,9 +78,9 @@ export function formatFoldCandidatePreview(previewParts: string[]): string {
 
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
-  return "no semantic recovery label is visible on this path. Protect the next distinct or risky expansion with a checkpoint; keep the present raw detail live while active uncertainty remains";
+  return "no semantic recovery label is visible on this path. Check whether the current state has distinct return value, and look for a coherent representation update whose attention gain can amortize travel";
  }
- return `recoverability exists at '${nearestCheckpointName}', but the working set is unchanged. Decide whether its boundary is still open, whether active uncertainty remains, and whether summary debt is real before considering a fold. Load Advanced Target Selection only when a named closed boundary has no obvious pre-boundary anchor`;
+ return `recoverability exists at '${nearestCheckpointName}' and the working set is unchanged. Judge the next fold by representation delta, hot-set carriage, provenance, continuation fidelity, and durable attention yield; load Advanced Target Selection only when the compression seam is clear but its pre-seam anchor is ambiguous`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };

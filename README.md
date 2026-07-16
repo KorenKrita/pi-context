@@ -4,12 +4,13 @@
 
 `pi-context` 是由 KorenKrita 维护的第三方 Pi 扩展。它让 agent 能够：
 
-- 在 distinct goal、阶段、风险尝试和 burst 扩张前建立 recoverability；
-- 区分仍需保留原始细节的 **active uncertainty**，并把仍用于归因的 measurements、baselines 与 deltas 保持为一条 **evidence chain**；
+- 在返回价值发生实质变化时建立 recoverability，而不是按步骤仪式性打点；
+- 持续把观察压缩成 knowns、unknowns、hypotheses、attribution 与 evidence provenance；
+- 携带下一段工作会复用的 **hot set**，把其余过程批量 fold 成七槽 authoritative representation；
+- 让 compression cadence 跟随 durable representation gain，而不是 action count、固定阶段或 token 阈值；
 - 通过 matching **receipt** 区分计划、draft、tool parameters 与真正发生的操作事实；
-- 查看当前会话 spine、历史分支、checkpoint、summary debt 与上下文占用；
-- 把已经关闭的过程折叠成可 cold-start 的 executable handoff；
-- 在真实 summary debt 出现且 surviving state 完整时，将累计 handoff layers **rebase** 到最早安全基底；
+- 查看当前 spine、checkpoint、representation competition、projected depth 与上下文占用；
+- 在 handoff 重复、竞争或失去唯一权威归属时，将它们 **rebase** 到最早安全基底；
 - 在 travel 后同步持久会话树、下一轮模型上下文与 live AgentSession。
 
 ## 为什么需要它
@@ -22,25 +23,25 @@
 root → summary A → summary B → summary C → current work
 ```
 
-这些历史 handoff 会持续占用上下文和注意力。`pi-context` 不把压缩当作单纯的 token 操作，而是按**语义边界**管理 working set：保留下一步真正需要的内容，把已完成过程移到可恢复的 archive。
+这些历史 handoff 会持续占用上下文和注意力。`pi-context` 把压缩视为智能本身：认知持续整合，显式 fold 批量��交。Agent 在 **compression seam** 用更好的 representation 替换旧过程，准确保留 uncertainty、attribution、hot set 与 provenance，并让每次 transition 的注意力收益足以摊销 tool latency、context rebuild、cache disruption 和 summary layer 成本。
 
 ## 三个工具
 
 | Tool | 作用 |
 |---|---|
-| `acm_checkpoint` | 给会话节点建立唯一、可恢复的语义 checkpoint |
-| `acm_timeline` | 查看 active spine、checkpoint catalog、全文搜索、完整树和 summary depth |
-| `acm_travel` | 将一个 boundary 折叠为七槽 handoff，或把累计 summaries rebase 到最早安全基底 |
+| `acm_checkpoint` | 在 recoverability delta 出现时保存一个可返回的语义状态 |
+| `acm_timeline` | 查看 active representation、checkpoint catalog、全文搜索、完整树和 projected depth |
+| `acm_travel` | 在 compression seam 提交一次 batched fold，或把 competing handoffs rebase 为一个权威 representation |
 
-扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。CORE 是“道”：用 working set、active uncertainty、evidence chain、receipt、boundary、recoverability、cold start、summary debt 与 anchor gravity 做判断，不规定固定工具轨迹。三个工具及 advanced Skill 是“术”：按需披露七槽 wire format、target selection、isolated travel batch、archive round trip 和异常 host 恢复。项目的 ubiquitous language 见 [`CONTEXT.md`](CONTEXT.md)。
+扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。CORE 是“道”：以 working set、representation、uncertainty fidelity、hot set、compression cadence、recoverability、continuation fidelity、sediment、thrash 与 anchor gravity 形成自主判断。工具合同和 advanced Skill 是“术”：按需披露七槽 wire format、target selection、isolated travel、archive rehydration 和异常 host 恢复。“度”由 attention yield 与 transition friction 的摊销关系决定，不规定固定工具轨迹或全局调用次数。项目的 ubiquitous language 见 [`CONTEXT.md`](CONTEXT.md)。
 
-## Semantic rebase
+## Representation rebase
 
-普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。
+普通 fold 提交一个局部 representation update；rebase 处理 active handoff 的重复、冲突与 split authority。
 
-agent 会在新目标、阶段收束、summary layer 增长或 context pressure 上升等时机重新审视 working set，但这些事件不会自动批准 rebase。只有旧 handoff 竞争、重复或失去唯一权威归属，形成真实 **summary debt**，并且一个新的 cold-start handoff 能完整保存全部 active/parked fronts 与 invariants 时，才值得 rebase。
+Agent 在发现 representation competition 时，从最早候选开始检查 structural replacement 与 **continuation fidelity**：新的七槽 handoff 必须保存 hot set、faithful uncertainty、surviving fronts、invariants、evidence chains、external effects 与 recovery pointers，并让 fresh agent 无需重读被折叠过程即可继续当前 cognition。
 
-rebase 不等于强制跳到 `root`。agent 会从最早候选开始执行 **cold start** 检查：如果一个全新的 agent 只依赖当前 snapshot 和直接 evidence pointers 就能执行 `NEXT`，该基底才安全。root 是理想候选，不是默认答案。
+Rebase 不等于强制跳到 `root`。Root 是最早的 structural candidate，不是默认答案；选择仍由 compression seam、branch topology 与 surviving state 决定。
 
 Timeline 会提供事实证据：
 
@@ -49,7 +50,7 @@ Timeline 会提供事实证据：
 - 每个 checkpoint travel 后的 projected summary depth；
 - usage、message count 与 branch topology。
 
-Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase.
+Runtime 只报告 topology、usage 与 receipt fact，不伪装成能判断 representation quality、attention yield 或 continuation fidelity，也不会自动批准或执行 rebase。
 
 ## ACM 上下文占用提醒
 
@@ -61,11 +62,11 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 ```
 
 物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：把 pressure 当作天气报告；继续当前工作，并留意下一个 semantic boundary；
-- **50%**：检查 working set 是否存在已经关闭的 boundary 与真实 summary debt；
-- **70%**：显式盘点 active uncertainty、关闭边界和 cold-start 条件；pressure 本身仍不授权 travel。
+- **30%**：持续整合认知，留意可形成 coherent representation update 的 compression seam；
+- **50%**：检查 sediment、重复推理、competing handoffs，以及足以服务下一段工作的 representation delta；
+- **70%**：优先形成携带 hot set、faithful uncertainty、provenance、external effects 与 executable `NEXT` 的最小权威 representation，并在下一处高收益 seam fold 或 rebase。
 
-提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
+提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。Pressure 会提高 attention gain 的价值并缩短合理 cadence，但不会把每个 action 变成 travel。Agent 仍需让每次显式 fold 被后续工作摊销，避免 sediment，也避免 tiny-delta refold、immediate recall 和 reread 形成 compression thrash。
 
 同一上下文周期只提醒更高的新档位：普通 usage 回落不会重新触发旧档。一次采样跨越多个档位时只发送当前最高档。只有明确成功的 `acm_travel` 或 Pi 原生 compaction 才开启新周期；transition 后先用下一次真实 LLM prompt usage 建立无提醒基线，再继续观察后续增长。Session resume/reload 会从 active branch 中已持久化的 ACM reminder 恢复本周期最高档位，不会仅因重载而重复提醒。
 
@@ -101,7 +102,7 @@ pi -e /path/to/pi-context/src/index.ts \
   --skill /path/to/pi-context/skills
 ```
 
-安装后无需手动调用命令。Agent 会依据 working-set doctrine 自主判断何时创建 recoverability、保留 active uncertainty、查看 timeline 或折叠已关闭 boundary；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
+安装后无需手动调用命令。Agent 默认有权依据 integrated doctrine 自主 checkpoint、timeline、travel、rehydrate 与 rebase；只有用户明确表示接下来不要 travel，才在该语义范围内暂停 travel，checkpoint 和 timeline 仍可用。
 
 ## 可观察性与恢复
 
@@ -122,7 +123,7 @@ Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节
 - Travel 只改变 Pi 会话树和后续模型上下文。
 - 它不会回滚文件、进程、浏览器、Git commit 或远端服务。
 - 扩展不会取消、替换或延迟 Pi 原生 compaction。
-- 如果当前任务仍依赖不可压缩的中间推理，agent 会保留 working set 或接受 native compaction，而不是为了降低数字强行 rebase。
+- 未解决的问题同样可以被压缩；handoff 必须以 uncertainty fidelity 保留 hypotheses、attribution gaps、discriminators、hot details 与 provenance，而不是把 unknown 伪装成 conclusion。
 - Host 不支持 live synchronization 时，持久 branch 和公开 context rebuild 仍然保留；结果会给出明确恢复指引。
 
 ## 验证
@@ -145,7 +146,7 @@ bun run typecheck
 bun run test:host
 ```
 
-非 CI 的开放式行为评测会用多种场景措辞检查 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty 与 summary-debt judgment。它需要已配置的模型 provider，不进入 deterministic gate：
+非 CI 的开放式行为评测仍通过真实 mock ACM tool calls 观察模型行为。当前 core PR 先统一 doctrine、tool contracts 与 runtime guidance；compression quality、uncertainty fidelity、continuation fidelity、under-compression、sediment/thrash 和 acceptable cadence 场景将在后续评测更新中落地：
 
 ```bash
 bun run eval:acm -- \

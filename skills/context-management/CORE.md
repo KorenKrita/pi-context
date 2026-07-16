@@ -5,44 +5,44 @@ This file owns the always-on ACM doctrine. Runtime tool descriptions, prompt gui
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE
 
-The CORE is the **way** (道): judge what belongs in the **working set** and let mechanics follow that judgment.
+The CORE is the **way** (道): continuously improve the representation in the **working set**, and let tool mechanics follow that judgment.
 
-### Working-set doctrine
+### Compression is intelligence
 
-A context window is a **working set**, not a transcript. Keep the exact material that can still change the next action; let finished process leave only when its outcome can stand on its own.
+A context window is a working set, not a transcript. Its job is to carry the most useful representation for the next stretch of reasoning: settled knowledge, faithful uncertainty, current constraints, the **hot set** of exact detail likely to be reused soon, and direct provenance for everything archived.
 
-A **boundary** is semantic: a goal, phase, attempt, burst, or front—not whichever checkpoint happens to be nearest. A boundary stays open while its raw process serves **active uncertainty**. Conflicting reports, an unexplained failure, or a next action that resolves an unknown are an **open loop**: keep their raw evidence in the working set until the loop closes.
+Compression is continuous; explicit **folding is batched**. Integrate observations as reasoning proceeds, then use travel when a coherent representation update offers durable attention gain. Cadence follows **representation change**, not action count, phase names, token thresholds, or a fixed tool sequence.
 
-An **evidence chain** is the measurements, baselines, deltas, and causal links that can still resolve an open loop. A rejected attempt may leave a live evidence chain. Keep it until the conclusion no longer depends on it.
+A **representation** is task-sufficient state: what is known, what remains unknown, competing hypotheses, attribution and evidence, constraints, external effects, excluded directions, parked fronts, and the next discriminator or action. Preserve **uncertainty fidelity**: compress unresolved work into an accurate model of the uncertainty instead of turning unknowns into conclusions or carrying the whole raw process.
 
-A tool call is a **request**; its matching result is the **receipt**. Plans, drafts, parameters, and assistant prose are intent. Record mutation fact only from the receipt: applied, not applied, or indeterminate.
+An **evidence chain** preserves the measurements, baselines, deltas, causal links, and provenance that make attribution checkable. The representation may compress that chain into sufficient statistics and direct pointers; exact raw evidence belongs in the hot set only while near-term reasoning will reuse it.
 
-**Recoverability** is the seatbelt of expansion. **Unlabeled return state + imminent working-set expansion = unbuckled seatbelt.** Before accelerating into a distinct goal, risky attempt, broad burst, or parked front, attach a semantic checkpoint to the state worth returning to. The checkpoint is a bookmark, not a closing bracket: it changes what can be recovered, not whether the boundary is closed.
+### Recoverability and continuation
 
-A **handoff** replaces a closed boundary's process with executable state. It passes **cold start** only when a fresh agent can run the next action from the handoff and direct evidence pointers without reading archived conversation. A concise handoff that loses a live constraint or evidence chain is worse than keeping the raw detail.
+**Recoverability** makes compression and exploration reversible. A checkpoint preserves a return state whose recovery value has materially changed: a verified baseline, valuable fork, risky attempt entrance, parked front, or durable milestone. Checkpoint cadence follows **recoverability delta**, not every action. A checkpoint changes what can be recovered; its name does not classify workflow state or trigger a fold.
 
-**Summary debt** grows when handoff layers accumulate, old and new summaries compete, or parked fronts lose one authoritative home. Summary depth and context pressure are evidence of possible debt, not permission to travel. Pay summary debt by replacing obsolete layers with one cold-start handoff only when the surviving state is complete.
+A **compression seam** is any point where the process behind it can be replaced by a better representation. It does not require a completed task, closed phase, or resolved uncertainty. A **handoff** crosses that seam through the seven-slot wire shell while carrying the hot set, faithful uncertainty, evidence pointers, external effects, exclusions, recovery, and one executable `NEXT`. It has **continuation fidelity** when a fresh agent can continue the current cognition from that representation and its direct pointers without rereading the folded process.
 
-**Anchor gravity** pulls toward the newest label, the root, or the easiest target. A travel target marks where the retained spine begins; it is not the place where the newest state happens to live. Name the boundary first and choose the last clean anchor before it. To retire stacked handoffs, the target must precede the layers being retired. Earliest and nearest are candidates; boundary and cold start decide.
+A tool call is a **request**; its matching result is the **receipt**. Plans, drafts, parameters, and assistant prose remain intent. Record operation fact only from the receipt: applied, not applied, or indeterminate. The agent owns ACM autonomously by default. An explicit user instruction that the next response or context transition must not travel temporarily suspends travel for that stated scope; checkpoint and timeline remain available.
 
-### Tend the working set
+### Compression cadence
 
-Use these judgments whenever the working set changes; they are a compass, not a fixed tool sequence:
+Every explicit fold spends transition friction: tool latency, context reconstruction, possible cache disruption, another summary layer, and the risk of immediate rehydration. A useful fold earns that cost through attention gain that persists across the next stretch of work.
 
-- **Protect** — buckle the recoverability seatbelt before the working set expands into a distinct goal, risky attempt, unbounded burst, or parked front. Create the semantic checkpoint before motion, while the return state is still obvious.
-- **Hold** — an open loop stays on the desk. While active uncertainty remains, keep its evidence chain, raw observations, alternatives, citations, and failure evidence live. A checkpoint is only a bookmark; context pressure raises attention but closes nothing.
-- **Distill** — when a boundary closes, preserve conclusions, decisions, invariants, external effects, exclusions, live evidence chains, and direct evidence; let exploratory process become archive.
-- **Fold** — travel only when the omitted raw path is recoverable and the handoff passes cold start. A checkpoint alone is not a reason to fold.
-- **Rebase** — when summary debt is real, seek the earliest safe base that can replace obsolete active handoffs with one authoritative handoff. If no candidate preserves every front, invariant, and live evidence chain, keep the needed state live.
-- **Verify** — after any mutation, read its matching receipt. When travel was applied, treat the handoff as the new working set, then confirm the selected branch, recovery pointer, context-sync state, and external side effects before continuing.
+Use these judgments as one integrated compass:
 
-### Boundary moments
+- **Preserve** — checkpoint when the option value of returning to the current state materially increases.
+- **Integrate** — continuously turn observations and process into knowns, unknowns, hypotheses, attribution, constraints, and discriminators.
+- **Fold** — commit a coherent representation update when its durable attention gain can amortize the transition. Compress integrated process, carry the hot set, and preserve provenance for archived precision.
+- **Rehydrate** — recover exact archived detail when the current representation cannot support a precise decision, then integrate only the resulting knowledge that improves the authoritative state.
+- **Rebase** — when active handoffs repeat, compete, or split authority, replace obsolete layers with one representation that preserves every surviving front and passes continuation fidelity.
+- **Verify** — read each matching receipt. After applied travel, treat the handoff as the working set and confirm the resolved target, recovery pointer, resulting summary, context synchronization, and external effects.
 
-These moments call for judgment, not an automatic trajectory:
+The two cadence failures are **sediment** and **thrash**. Sediment leaves replaceable process in the working set after a better representation exists. Thrash pays transition cost for tiny deltas, then immediately folds again, recalls, or rereads detail that should have stayed hot. Healthy cadence batches a semantic unit large enough to improve attention and stable enough to serve more than the next instant.
 
-- A new request may open a new boundary while the previous result is stable. If no semantic recovery label protects that result, checkpointing that return state is the next action before any broad read or scan for the unrelated goal; the new request alone is not a reason to fold.
-- A broad read, log stream, subagent fan-out, or risky mutation may create a burst. Protect its entrance; fold only after its uncertainty is distilled.
-- A rejected direction closes one attempt but may leave an evidence chain that constrains the next. Keep the chain, archive the dead process, and move the authoritative state forward.
-- A final answer closes user-facing work only when no active uncertainty, external effect, promised verification, or indeterminate receipt remains. Report results established by evidence, not proposed actions or archived process.
-- Rising context pressure is a weather report. Re-examine boundaries and summary debt; continue normally when cold start or recoverability would fail.
+Context pressure, summary depth, new requests, agent fan-out, completed commands, rejected approaches, and final answers are observations about compression economics. They invite a representation check; none supplies a universal call count or scripted trajectory. Different models may choose different batch sizes while remaining sound when each fold has attribution integrity, continuation fidelity, recoverability, and durable attention yield.
+
+### Target judgment
+
+A travel target marks where the retained spine begins. **Anchor gravity** pulls toward the nearest label, the root, or the easiest candidate; resist it by naming the compression seam and selecting the last clean anchor before the process being replaced. For a rebase, choose the earliest candidate that retires competing representations without losing the hot set, surviving fronts, invariants, evidence chains, or continuation fidelity. Root is a candidate, never a default.
 <!-- ACM:CORE:END -->

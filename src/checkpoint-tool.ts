@@ -33,12 +33,12 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic recovery label; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the boundary or state a future agent would search for, for example parser-investigation, timeout-attempt-2, migration-paused, or root-cause-verified. Suffixes are naming conventions only; they do not classify checkpoint state. Avoid generic names such as checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic recovery label; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the return state a future agent would search for, such as parser-baseline-verified, timeout-attempt-2, migration-parked, or root-cause-evidence. Suffixes are naming conventions only and do not classify workflow state. Avoid generic names such as checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
       maxLength: 256,
-      description: "History node ID or checkpoint name to label. Defaults to current meaningful position near HEAD.",
+      description: "History node ID or checkpoint name to label. Defaults to the nearest meaningful USER/AI turn; use an explicit target for an older return state.",
     })),
   }, { additionalProperties: false });
 
@@ -152,7 +152,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         }
         targetEntry = findEntryInTree(tree, entryId);
         if (!targetEntry) {
-          const hint = " Use acm_timeline to choose the last clean node before the boundary you want to label; raw node IDs are valid targets.";
+          const hint = " Use acm_timeline to locate the return state or clean pre-seam node you want to label; raw node IDs are valid targets.";
           return {
             content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
             details: { error: "target_not_found", requestedTarget: params.target },
