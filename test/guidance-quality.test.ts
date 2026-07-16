@@ -15,10 +15,11 @@ describe("ACM guidance quality", () => {
       expect(ACM_CORE).toContain(situation);
     }
     expect(ACM_CORE).toContain("### Working-set invariant");
-    expect(ACM_CORE).toContain("Process accumulates naturally");
     expect(ACM_CORE).toContain("keep live what NEXT needs");
+    expect(ACM_CORE).toContain("earns its place against this invariant");
     expect(ACM_CORE).toContain("### Decision smells");
     expect(ACM_CORE).toContain("### Recognizable moments");
+    expect(ACM_CORE).toContain("When one of these situations arises");
     expect(ACM_CORE).toContain("lightest transition that does");
     expect(ACM_CORE).toContain("| What you can observe | What becomes reasonable |");
     expect(ACM_CORE).not.toContain("| Event | Required transition |");
@@ -29,6 +30,11 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).not.toContain("### Fold gate");
     expect(ACM_CORE).toContain("### Failure shapes");
     expect(ACM_CORE).toContain("Before `acm_travel`, answer in one line");
+    expect(ACM_CORE).toContain("candidates against that boundary");
+    expect(ACM_CORE).toContain("compare candidates against boundary placement and cold start");
+    expect(ACM_CORE).toContain("Ambiguous base selection, interleaved fronts, or raw-node fallback → load the context-management skill");
+    expect(ACM_CORE).toContain("For archive round trips, checkpoint-name collisions, travel failure, indeterminate mutation, or exhausted context refresh → load the context-management skill");
+    expect(ACM_CORE).not.toContain("ambiguous bases → load");
     expect(ACM_CORE).toContain("Local fold example");
     expect(ACM_CORE).toContain("Finished-chain rebase example");
     expect(ACM_CORE).toContain("Why: findings are distilled");
@@ -39,7 +45,7 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("Structural reset passes only when");
     expect(ACM_CORE).toContain("projected summary depth does not grow");
     expect(ACM_CORE).toContain("Cold start passes only when");
-    expect(ACM_CORE.length).toBeLessThan(8500);
+    expect(ACM_CORE.length).toBeLessThan(10000);
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
     expect(ACM_CORE).toContain("rejects mixed tool batches");
     expect(TOOL_DESCRIPTIONS.travel).toContain("Mixed tool batches are rejected");
