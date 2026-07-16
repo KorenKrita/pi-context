@@ -15,9 +15,11 @@ describe("ACM guidance quality", () => {
       expect(ACM_CORE).toContain(situation);
     }
     expect(ACM_CORE).toContain("### Working-set invariant");
-    expect(ACM_CORE).toContain("Process accumulates");
+    expect(ACM_CORE).toContain("Process accumulates naturally");
+    expect(ACM_CORE).toContain("keep live what NEXT needs");
     expect(ACM_CORE).toContain("### Decision smells");
     expect(ACM_CORE).toContain("### Recognizable moments");
+    expect(ACM_CORE).toContain("lightest transition that does");
     expect(ACM_CORE).toContain("| What you can observe | What becomes reasonable |");
     expect(ACM_CORE).not.toContain("| Event | Required transition |");
     expect(ACM_CORE).not.toContain("| Situation | Judgment |");
