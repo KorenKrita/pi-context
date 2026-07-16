@@ -72,10 +72,6 @@ export function validateHandoffStructure(summary: string): HandoffValidationResu
 
 export const BOUNDARY_SELECTION_GUIDANCE = "Choose a target by what it precedes, not by proximity or name. A candidate is correct only when it sits immediately before the material being folded — anchor gravity misleads.";
 
-export function formatFoldCandidatePreview(previewParts: string[]): string {
- return ` Fold candidates (+handoff): ${previewParts.join("; ")}. ${BOUNDARY_SELECTION_GUIDANCE}`;
-}
-
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
   return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
