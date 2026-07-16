@@ -184,6 +184,29 @@ describe("ACM tool execution contracts", () => {
     }
   });
 
+  test("names the concrete handoff defects instead of restating the slot list", async () => {
+    const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
+    const broken = [
+      "Goal: preserve the current task",
+      "State:",
+      "Evidence: test fixture",
+      "Exclusions: none",
+      "Recover: archive-done",
+      "NEXT: continue",
+      "NEXT: continue again",
+    ].join("\n");
+    const result = await executeTravel("call-handoff", { target: "entry-1", summary: broken }, undefined, undefined, ctx);
+    expect(result.details).toMatchObject({ error: "invalid_handoff" });
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("missing: External");
+    expect(text).toContain("empty: State");
+    expect(text).toContain("duplicated: NEXT");
+    expect(text).toContain("write 'none' instead");
+    expect(text).toContain("nothing was mutated");
+    expect(getAppendCalls()).toBe(0);
+    expect(getBranchCalls()).toBe(0);
+  });
+
   test("reports the caller-supplied checkpoint display limit instead of a hard-coded cap", async () => {
     const result = await executeTimeline(
       "call-3",

@@ -86,13 +86,11 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined;
 }
 
+// Live behavior resets the reminder cycle on every context transition — travel,
+// compaction, and manual /tree navigation — so any summary entry on the active
+// branch marks a cycle boundary regardless of which path produced it.
 function isContextCycleBoundary(entry: Record<string, unknown>): boolean {
-  if (entry.type === "compaction") return true;
-  if (entry.type !== "branch_summary") return false;
-  const details = asRecord(entry.details);
-  if (!details) return false;
-  return details.kind === "acm_travel"
-    || (typeof details.originId === "string" && typeof details.targetId === "string");
+  return entry.type === "compaction" || entry.type === "branch_summary";
 }
 
 function getPersistedReminderLevel(entry: Record<string, unknown>): 0 | ContextUsageNudgeLevel {

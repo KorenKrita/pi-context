@@ -170,8 +170,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
       const handoffValidation = validateHandoffStructure(params.summary);
       if (!handoffValidation.ok) {
+        const defects = [
+          handoffValidation.missing.length > 0 ? `missing: ${handoffValidation.missing.join(", ")}` : null,
+          handoffValidation.empty.length > 0 ? `empty: ${handoffValidation.empty.join(", ")} (write 'none' instead)` : null,
+          handoffValidation.duplicate.length > 0 ? `duplicated: ${handoffValidation.duplicate.join(", ")}` : null,
+          handoffValidation.outOfOrder ? "slots out of order" : null,
+        ].filter((part): part is string => part !== null).join("; ");
         return {
-          content: [{ type: "text" as const, text: `Error: handoff must contain each non-empty slot once and in order: ${HANDOFF_SLOT_HINT}. Travel aborted before mutation.` }],
+          content: [{ type: "text" as const, text: `Error: handoff must contain each slot once, in order, each starting its own line: ${HANDOFF_SLOT_HINT}. Problems — ${defects}. Fix the handoff text and reissue acm_travel; nothing was mutated.` }],
           details: { error: "invalid_handoff", validation: handoffValidation },
         };
       }

@@ -331,6 +331,39 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 30 });
   });
 
+  test("a native tree-navigation summary is a cycle boundary on restore", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "abandoned work", timestamp: Date.now() });
+    sessionManager.appendCustomMessageEntry(
+      "acm:context-usage-reminder",
+      "stale 50% reminder from the abandoned branch",
+      false,
+      { kind: "context-usage-reminder", level: 50, usagePercent: 55 },
+    );
+    // Native /tree navigation with summarize: branch summary without ACM details.
+    sessionManager.branchWithSummary(rootId, "Goal: retry from root", { readFiles: [], modifiedFiles: [] });
+    const fixture = createFixture(sessionManager);
+
+    await fixture.emit("session_start", { reason: "reload" });
+    fixture.setUsagePercent(55);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    fixture.setUsagePercent(31);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]?.message.details).toMatchObject({ level: 30 });
+  });
+
   test("persists an established post-transition baseline across reload", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });

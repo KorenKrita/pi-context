@@ -75,6 +75,26 @@ Summary layers are stacking on this spine. Weigh a rebase: one handoff at the ea
 `tree` shows ancestry and branch ownership. Reject targets inside the material being folded or on another front, then return to a narrower view.
 <!-- ACM:CUE_TIMELINE_TREE:END -->
 
+## Manual navigation summary instructions
+
+Injected as the full summarization prompt when the user navigates `/tree` with "Summarize" and provides no custom instructions, so native branch summaries carry the same cold-start shape as travel handoffs. User-supplied instructions always win.
+
+<!-- ACM:TREE_SUMMARY_INSTRUCTIONS:START -->
+Summarize this abandoned conversation branch as a handoff for whoever returns to it later.
+
+Write exactly these seven slots, once each, in this order, each starting its own line, with no other headings:
+
+Goal: what this branch was trying to accomplish.
+State: what was settled here, with the evidence that settled it, and what stayed uncertain, marked as such. Include the exact files, symbols, and values still in play.
+Evidence: pointers a reader can verify directly — file paths, commands, IDs. Write 'none' if empty.
+External: lasting side effects outside the conversation — files changed, commands run, systems touched. Write 'none' if empty.
+Exclusions: directions tried and closed here, so a retry does not repeat them. Write 'none' if empty.
+Recover: the most useful save point or node ID to return to. Write 'none' if empty.
+NEXT: the single most concrete next action if this work resumes.
+
+Preserve exact file paths, function names, error messages, and numbers; they outrank prose. Keep the whole handoff compact.
+<!-- ACM:TREE_SUMMARY_INSTRUCTIONS:END -->
+
 ## Recovery guidance
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->

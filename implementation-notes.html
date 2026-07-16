@@ -228,6 +228,11 @@
         <td>Advance the exact supported Pi host from <code>0.80.6</code> to <code>0.80.7</code> across dev, peer, and host-fixture pins.</td>
         <td>The user's live Pi installation runs <code>0.80.7</code>, so the verified contract must match the actual runtime. The full fixture matrix — <code>ExtensionRunner</code> registration, <code>/context</code> rendering, adapter capability probing, travel/live-sync ordering, and lifecycle isolation — passes unchanged on <code>0.80.7</code>; <code>navigateTree()</code> remains command-context-only and cannot carry an agent-authored handoff, so the Host Bridge <code>branchWithSummary()</code> path and the capability-probed adapter remain the correct seams.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Treat manual <code>/tree</code> navigation as a first-class context transition: reset volatile ACM runtime state on <code>session_tree</code>, shape plain summarize requests through <code>session_before_tree</code> into the seven-slot handoff, and count every active-branch summary or compaction as a reminder-cycle boundary on restore.</td>
+        <td>Manual navigation bypasses <code>acm_travel</code>, so stale refresh targets, live-sync tickets, and reminder baselines could otherwise survive onto the newly selected branch, and native summaries spoke a different vocabulary than travel handoffs. User-authored summarization instructions always win; the extension only replaces the default prompt when the user asked for a plain summary. Restore-boundary detection now matches live behavior, which resets the cycle on travel, compaction, and manual navigation alike.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

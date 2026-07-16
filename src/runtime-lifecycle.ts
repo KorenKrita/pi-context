@@ -11,7 +11,7 @@ import {
   restoreContextUsageNudgeState,
 } from "./context-usage-nudge.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
-import { RECOVERY_GUIDANCE } from "./generated-guidance.js";
+import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { fixOrphanedToolUse } from "./message-sanitizer.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
@@ -136,6 +136,16 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   pi.on("session_compact", (_event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
     runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
+  });
+  // When the user summarizes an abandoned branch during manual /tree navigation
+  // without custom instructions, shape the native summary as a cold-start handoff
+  // so every branch_summary on the tree speaks the same seven-slot vocabulary.
+  pi.on("session_before_tree", (event) => {
+    const preparation = event.preparation;
+    if (!preparation.userWantsSummary) return;
+    if (preparation.customInstructions?.trim()) return;
+    if (preparation.entriesToSummarize.length === 0) return;
+    return { customInstructions: TREE_SUMMARY_INSTRUCTIONS, replaceInstructions: true };
   });
   // Manual /tree navigation bypasses acm_travel: the host already rebuilds live
   // messages itself, so stale refresh targets, sync tickets, and usage baselines

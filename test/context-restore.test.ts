@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerACMExtension, { fixOrphanedToolUse } from "../src/index";
+import { TREE_SUMMARY_INSTRUCTIONS } from "../src/generated-guidance";
 import { getMeaningfulSkipReason } from "../src/lib";
 
 const text = (value: string) => [{ type: "text", text: value }];
@@ -94,6 +95,60 @@ describe("meaningful entry sanitation", () => {
         };
 
         expect(getMeaningfulSkipReason(entry as Parameters<typeof getMeaningfulSkipReason>[0])).toBe("empty_assistant");
+    });
+});
+
+describe("manual tree navigation summaries", () => {
+    const emitBeforeTree = async (preparation: object) => {
+        const handlers = captureHandlers();
+        const handler = handlers.get("session_before_tree")?.[0];
+        expect(handler).toBeDefined();
+        return handler?.({ type: "session_before_tree", preparation }, { sessionManager: {} });
+    };
+
+    it("shapes plain summarize requests as a seven-slot handoff prompt", async () => {
+        const result = await emitBeforeTree({
+            targetId: "node-1",
+            oldLeafId: "node-9",
+            commonAncestorId: "node-0",
+            entriesToSummarize: [{ type: "message" }],
+            userWantsSummary: true,
+        });
+
+        expect(result).toEqual({
+            customInstructions: TREE_SUMMARY_INSTRUCTIONS,
+            replaceInstructions: true,
+        });
+    });
+
+    it("never overrides user-supplied summarization instructions", async () => {
+        const result = await emitBeforeTree({
+            targetId: "node-1",
+            oldLeafId: "node-9",
+            commonAncestorId: "node-0",
+            entriesToSummarize: [{ type: "message" }],
+            userWantsSummary: true,
+            customInstructions: "focus on the database work",
+        });
+
+        expect(result).toBeUndefined();
+    });
+
+    it("stays silent when the user declines a summary or nothing needs one", async () => {
+        expect(await emitBeforeTree({
+            targetId: "node-1",
+            oldLeafId: "node-9",
+            commonAncestorId: "node-0",
+            entriesToSummarize: [{ type: "message" }],
+            userWantsSummary: false,
+        })).toBeUndefined();
+        expect(await emitBeforeTree({
+            targetId: "node-1",
+            oldLeafId: "node-9",
+            commonAncestorId: "node-0",
+            entriesToSummarize: [],
+            userWantsSummary: true,
+        })).toBeUndefined();
     });
 });
 

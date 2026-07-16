@@ -15,6 +15,7 @@ import {
   PROMPT_SNIPPETS,
   RECOVERY_GUIDANCE,
   TOOL_DESCRIPTIONS,
+  TREE_SUMMARY_INSTRUCTIONS,
 } from "../src/generated-guidance.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,9 +34,20 @@ describe("canonical guidance generation", () => {
     expect(PROMPT_SNIPPETS).toEqual(derived.promptSnippets);
     expect(PROMPT_GUIDELINES).toEqual(derived.promptGuidelines);
     expect(GUIDANCE_CUES).toEqual(derived.guidanceCues);
+    expect(TREE_SUMMARY_INSTRUCTIONS).toBe(derived.treeSummaryInstructions);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
     expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
     expect(RECOVERY_GUIDANCE.hostCapability).toContain("supported Pi version");
+  });
+
+  test("keeps manual navigation summaries handoff-shaped and standalone", () => {
+    for (const slot of ["Goal:", "State:", "Evidence:", "External:", "Exclusions:", "Recover:", "NEXT:"]) {
+      expect(TREE_SUMMARY_INSTRUCTIONS).toContain(slot);
+    }
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("abandoned conversation branch");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("Preserve exact file paths");
+    expect(TREE_SUMMARY_INSTRUCTIONS.length).toBeLessThan(1600);
+    expect(TREE_SUMMARY_INSTRUCTIONS).not.toContain("##");
   });
 
   test("keeps doctrine in CORE.md and mechanics in TOOL-CONTRACTS.md", () => {

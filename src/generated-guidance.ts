@@ -33,6 +33,8 @@ export const GUIDANCE_CUES = {
   "timelineTree": "`tree` shows ancestry and branch ownership. Reject targets inside the material being folded or on another front, then return to a narrower view."
 } as const;
 
+export const TREE_SUMMARY_INSTRUCTIONS = "Summarize this abandoned conversation branch as a handoff for whoever returns to it later.\n\nWrite exactly these seven slots, once each, in this order, each starting its own line, with no other headings:\n\nGoal: what this branch was trying to accomplish.\nState: what was settled here, with the evidence that settled it, and what stayed uncertain, marked as such. Include the exact files, symbols, and values still in play.\nEvidence: pointers a reader can verify directly — file paths, commands, IDs. Write 'none' if empty.\nExternal: lasting side effects outside the conversation — files changed, commands run, systems touched. Write 'none' if empty.\nExclusions: directions tried and closed here, so a retry does not repeat them. Write 'none' if empty.\nRecover: the most useful save point or node ID to return to. Write 'none' if empty.\nNEXT: the single most concrete next action if this work resumes.\n\nPreserve exact file paths, function names, error messages, and numbers; they outrank prose. Keep the whole handoff compact.";
+
 export const RECOVERY_GUIDANCE = {
   "nameCollision": "Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target.",
   "hostCapability": "The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported Pi version before retrying.",
