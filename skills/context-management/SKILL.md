@@ -5,7 +5,7 @@ description: "Resolve advanced ACM cases: ambiguous earliest-safe-base selection
 
 # Advanced Context Management
 
-The always-on **CORE owns the normal path**: ordinary checkpointing, clear phase folds, clear burst folds, pressure checks, task-end handling, and an obvious rebase all stay there. This Skill resolves one advanced condition at a time.
+The always-on **CORE owns the normal path**: the working-set invariant, decision smells, recognizable moments, fold and rebase gates, ordinary checkpointing, clear phase folds, clear burst folds, rebase checks under pressure, task-end handling, and an obvious rebase all stay there. This Skill resolves one advanced condition at a time when CORE's gates pass but the decision remains ambiguous or a result reports an exceptional outcome.
 
 Select the reference whose observable condition is active:
 
