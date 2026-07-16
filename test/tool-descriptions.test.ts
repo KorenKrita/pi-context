@@ -13,6 +13,7 @@ describe("ACM tool description contract", () => {
     expect(timelineTool).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(travelTool).toContain("description: TOOL_DESCRIPTIONS.travel");
     expect(generatedGuidance).toContain("Preflight a distinct user goal on the branch that will carry it");
+    expect(generatedGuidance).toContain("before managed work makes rewind expensive");
     expect(generatedGuidance).toContain("Names are unique across the session tree and case-sensitive");
     expect(generatedGuidance).toContain("Omitting target labels the nearest meaningful USER/AI turn");
     expect(generatedGuidance).toContain("without branching or folding the active context");
