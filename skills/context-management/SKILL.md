@@ -1,16 +1,18 @@
 ---
 name: context-management
-description: "Resolve advanced ACM cases: ambiguous earliest-safe-base selection, interleaved fronts, missing anchors, archive round trips, checkpoint-name collisions, and exceptional mutation or context-sync results. Use only when the always-on CORE normal path cannot complete the current decision."
+description: "Resolve ACM technique after the always-on CORE supplies the judgment: serialize a cold-start handoff, select a safe target across interleaved history, isolate a travel mutation, recover one archived detail, or handle exceptional mutation/context-sync evidence. Use only when normal working-set judgment is clear but mechanics are not."
 ---
 
 # Advanced Context Management
 
-The always-on **CORE owns the normal path**: ordinary checkpointing, clear phase folds, clear burst folds, pressure checks, task-end handling, and an obvious rebase all stay there. This Skill resolves one advanced condition at a time.
+The always-on **CORE owns the way** (道): working-set judgment, active uncertainty, boundary closure, recoverability, cold start, summary debt, and anchor gravity. This Skill owns the **technique** (术) needed to carry one already-made judgment through the host contract.
 
-Select the reference whose observable condition is active:
+Select the one reference whose observable condition is active:
 
-- Load [Advanced Target Selection](references/target-selection.md) when the fold boundary or rebase trigger is known but the target remains ambiguous because candidate chronology, front ownership, an older or missing anchor, raw-node fallback, or a checkpoint-name collision must be resolved.
-- Load [Archive Recovery](references/archive-recovery.md) when one exact archived detail must be fetched and ordinary work must resume on the current summary branch.
-- Load [Exceptional Recovery](references/exceptional-recovery.md) when a result reports travel failure, backup rollback failure, indeterminate branch mutation, exhausted context refresh, restored or grown history, or a task-end fold with no meaningful saving.
+- Load [Handoff Wire Format](references/handoff-wire-format.md) when a closed boundary is ready to fold but its authoritative state must be serialized, cold start is uncertain, multiple fronts must survive, or travel rejected the seven-slot shape.
+- Load [Advanced Target Selection](references/target-selection.md) when the boundary is named but the last clean pre-boundary anchor remains ambiguous because of ancestry, interleaved fronts, older or missing labels, raw-node fallback, or checkpoint-name collision.
+- Load [Travel Isolation](references/travel-isolation.md) immediately before a travel call when sibling tool work exists, or after `mixed_tool_batch` reports that isolation was violated.
+- Load [Archive Recovery](references/archive-recovery.md) when one exact archived value, wording, error, or decision must return to the authoritative working set.
+- Load [Exceptional Recovery](references/exceptional-recovery.md) when a result reports mutation failure, backup rollback failure, indeterminate branch state, exhausted context refresh, restored history, or another host outcome that makes the active branch uncertain.
 
-Load one reference at a time. If the observable condition changes, return to this router and replace the active reference instead of accumulating playbooks. Routing is complete when the current condition has one matching reference—or CORE already handles it—and no unrelated reference is loaded.
+Load one reference at a time. When its completion criterion is met, return here and either act from CORE judgment or replace it with the next reference whose condition is now active. Routing is complete when the current mechanic has one authoritative reference and no unrelated playbook remains in the working set.

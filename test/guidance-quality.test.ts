@@ -2,67 +2,83 @@ import { describe, expect, test } from "bun:test";
 import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
+const occurrences = (text: string, phrase: string) => text.toLowerCase().split(phrase.toLowerCase()).length - 1;
 
 describe("ACM guidance quality", () => {
-  test("preserves the base workflow while bounding semantic rebase", () => {
-    for (const baseBehavior of [
-      "Phase, attempt, or batch item starts",
-      "Unbounded burst or risky step is next",
-      "Findings are distilled",
-      "Direction is rejected or superseded",
-      "Final answer is next",
-    ]) {
-      expect(ACM_CORE).toContain(baseBehavior);
+  test("uses leading words as a working-set doctrine instead of a tool choreography", () => {
+    expect(ACM_CORE).toContain("The CORE is the **way** (道)");
+    expect(ACM_CORE).toContain("the **technique** (术)");
+    expect(ACM_CORE).toContain("a compass, not a fixed tool sequence");
+
+    const minimumDensity: Record<string, number> = {
+      "working set": 5,
+      boundary: 10,
+      "active uncertainty": 3,
+      recoverability: 4,
+      handoff: 8,
+      "cold start": 3,
+      "summary debt": 3,
+      "anchor gravity": 1,
+    };
+    for (const [leadingWord, minimum] of Object.entries(minimumDensity)) {
+      expect(occurrences(ACM_CORE, leadingWord), `${leadingWord} density`).toBeGreaterThanOrEqual(minimum);
     }
-    expect(ACM_CORE).toContain("Local fold example");
-    expect(ACM_CORE).toContain("Finished-chain rebase example");
-    expect(ACM_CORE).not.toContain("Failed-direction example");
-    expect(ACM_CORE).toContain("Structural reset passes only when");
-    expect(ACM_CORE).toContain("projected summary depth does not grow");
-    expect(ACM_CORE).toContain("Cold start passes only when");
-    expect(ACM_CORE.length).toBeLessThan(7500);
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
-    expect(ACM_CORE).toContain("Call `acm_travel` alone in its assistant tool batch");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("must run alone in its assistant tool batch");
+
+    expect(ACM_CORE).not.toContain("### Normal state transitions");
+    expect(ACM_CORE).not.toContain("### ACM preflight");
+    expect(ACM_CORE).not.toContain("checkpoint call is the first action");
+    expect(ACM_CORE).not.toContain("Every handoff uses these seven slots");
+    expect(ACM_CORE.length).toBeLessThan(6500);
   });
 
-  test("front-loads a checkable checkpoint preflight", () => {
-    const preflightIndex = ACM_CORE.indexOf("### ACM preflight");
-    const vocabularyIndex = ACM_CORE.indexOf("### Vocabulary");
+  test("preserves cross-scenario invariants without prescribing an exact call order", () => {
+    for (const invariant of [
+      "before the working set expands into a distinct goal",
+      "active uncertainty remains",
+      "when a boundary closes",
+      "A checkpoint alone is not a reason to fold",
+      "the handoff passes cold start",
+      "when summary debt is real",
+      "Summary depth and context pressure are evidence of possible debt, not permission to travel",
+      "A final answer closes user-facing work only when no active uncertainty",
+    ]) {
+      expect(ACM_CORE).toContain(invariant);
+    }
 
-    expect(preflightIndex).toBeGreaterThan(-1);
-    expect(preflightIndex).toBeLessThan(vocabularyIndex);
-    expect(ACM_CORE).toContain("A distinct user goal begins with an **ACM preflight** on the branch that will carry it");
-    expect(ACM_CORE).toContain("First complete any required `New request arrives over finished work` transition");
-    expect(ACM_CORE).toContain("then call `acm_checkpoint` with a semantic `<chain>-start` name before managed work");
-    expect(ACM_CORE).toContain("When no finished-chain transition is required, the checkpoint call is the first action");
-    expect(ACM_CORE).toContain("Managed work includes investigation, planning, delegation, any non-ACM tool call");
-    expect(ACM_CORE).toContain("the checkpoint was created or reused");
-    expect(ACM_CORE).toContain("follow the recovery guidance in its result before proceeding");
-    expect(ACM_CORE).toContain("A text-only direct reply requiring no managed work stays outside");
-    expect(ACM_CORE).toContain("live detail the next action will reason over");
-    expect(ACM_CORE).toContain("Name the boundary before choosing a target");
-    expect(ACM_CORE).toContain("without archived summaries");
-    expect(ACM_CORE).toContain("checkpoint its `-start` boundary before acting");
-    expect(ACM_CORE).toContain("checkpoint before output or side effects arrive");
-    expect(ACM_CORE).not.toContain("| New chain starts |");
-    expect(TOOL_DESCRIPTIONS.checkpoint.startsWith("Preflight a distinct user goal")).toBe(true);
-    expect(TOOL_DESCRIPTIONS.checkpoint.length).toBeLessThan(800);
+    expect(ACM_CORE).toContain("`acm_checkpoint` creates recoverability");
+    expect(ACM_CORE).toContain("`acm_timeline` exposes branch topology");
+    expect(ACM_CORE).toContain("`acm_travel` folds one named boundary");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("Run `acm_travel` alone in its assistant tool batch");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("active uncertainty is preserved");
+    expect(GUIDANCE_CUES.checkpoint).toContain("working set is unchanged");
+    expect(GUIDANCE_CUES.travel).toContain("new working set");
   });
 
-  test("routes one advanced condition at a time and reroutes on state change", async () => {
+  test("progressively discloses technique through one observable condition at a time", async () => {
     const skill = await skillFile("SKILL.md");
-    expect(skill).toContain("CORE owns the normal path");
-    expect(skill).toContain("ordinary checkpointing");
-    expect(skill).toContain("clear phase folds");
-    expect(skill).toContain("clear burst folds");
-    expect(skill).toContain("task-end handling");
+    const handoff = await skillFile("references/handoff-wire-format.md");
+    const isolation = await skillFile("references/travel-isolation.md");
+
+    expect(skill).toContain("CORE owns the way");
+    expect(skill).toContain("This Skill owns the **technique**");
+    expect(skill).toContain("Handoff Wire Format");
+    expect(skill).toContain("Advanced Target Selection");
+    expect(skill).toContain("Travel Isolation");
+    expect(skill).toContain("Archive Recovery");
+    expect(skill).toContain("Exceptional Recovery");
     expect(skill).toContain("Load one reference at a time");
-    expect(skill).toContain("observable condition changes");
-    expect(skill).toContain("replace the active reference");
+    expect(skill).toContain("replace it with the next reference");
+
+    for (const slot of ["Goal", "State", "Evidence", "External", "Exclusions", "Recover", "NEXT"]) {
+      expect(handoff).toContain(`${slot}:`);
+    }
+    expect(handoff).toContain("runtime validates only this observable shape");
+    expect(handoff).toContain("passes cold start only when all seven checks hold");
+    expect(isolation).toContain("only tool call in that assistant message");
+    expect(isolation).toContain("mixed_tool_batch");
   });
 
-  test("keeps target and recovery criteria factual and checkable", async () => {
+  test("keeps target and host recovery mechanics factual and checkable", async () => {
     const target = await skillFile("references/target-selection.md");
     const archive = await skillFile("references/archive-recovery.md");
     const exceptional = await skillFile("references/exceptional-recovery.md");
@@ -73,7 +89,6 @@ describe("ACM guidance quality", () => {
     expect(target).toContain("every surviving item has one authoritative home");
     expect(archive).toContain("Pending is scheduled work, not success");
     expect(archive).toContain("return to the Skill router and replace this reference");
-    expect(archive).not.toContain("structural effect");
     expect(exceptional).toContain("Backup rollback failure");
     expect(exceptional).toContain("branch creation was not applied");
     expect(exceptional).toContain("Indeterminate branch mutation");

@@ -4,10 +4,11 @@
 
 `pi-context` 是由 KorenKrita 维护的第三方 Pi 扩展。它让 agent 能够：
 
-- 在任务、阶段和高风险操作前建立可恢复的语义锚点；
-- 查看当前会话 spine、历史分支、checkpoint 与上下文占用；
-- 把已经完成的过程折叠成可执行 handoff；
-- 在安全时将累计 summary chain **rebase** 到更早的基底，重新获得浅层、低负载的 working set；
+- 在 distinct goal、阶段、风险尝试和 burst 扩张前建立 recoverability；
+- 区分仍需保留原始细节的 **active uncertainty** 与已经关闭的 semantic boundary；
+- 查看当前会话 spine、历史分支、checkpoint、summary debt 与上下文占用；
+- 把已经关闭的过程折叠成可 cold-start 的 executable handoff；
+- 在真实 summary debt 出现且 surviving state 完整时，将累计 handoff layers **rebase** 到最早安全基底；
 - 在 travel 后同步持久会话树、下一轮模型上下文与 live AgentSession。
 
 ## 为什么需要它
@@ -30,18 +31,13 @@ root → summary A → summary B → summary C → current work
 | `acm_timeline` | 查看 active spine、checkpoint catalog、全文搜索、完整树和 summary depth |
 | `acm_travel` | 将一个 boundary 折叠为七槽 handoff，或把累计 summaries rebase 到最早安全基底 |
 
-扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。复杂的 target selection、archive round trip 和异常恢复按需从 advanced Skill 加载，不会把整套 playbook 常驻在上下文里。
+扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。CORE 是“道”：用 working set、active uncertainty、boundary、recoverability、cold start、summary debt 与 anchor gravity 做判断，不规定固定工具轨迹。三个工具及 advanced Skill 是“术”：按需披露七槽 wire format、target selection、isolated travel batch、archive round trip 和异常 host 恢复。项目的 ubiquitous language 见 [`CONTEXT.md`](CONTEXT.md)。
 
 ## Semantic rebase
 
 普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。
 
-agent 会在以下时机主动检查 rebase：
-
-- 下一次 fold 会继续叠加 summary；
-- 一个稳定 chain 或 subchain 已结束；
-- 同一 session 即将开始新目标；
-- context pressure 上升。
+agent 会在新目标、阶段收束、summary layer 增长或 context pressure 上升等时机重新审视 working set，但这些事件不会自动批准 rebase。只有旧 handoff 竞争、重复或失去唯一权威归属，形成真实 **summary debt**，并且一个新的 cold-start handoff 能完整保存全部 active/parked fronts 与 invariants 时，才值得 rebase。
 
 rebase 不等于强制跳到 `root`。agent 会从最早候选开始执行 **cold start** 检查：如果一个全新的 agent 只依赖当前 snapshot 和直接 evidence pointers 就能执行 `NEXT`，该基底才安全。root 是理想候选，不是默认答案。
 
@@ -64,9 +60,9 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 ```
 
 物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：在下一个自然语义边界顺便考虑是否存在安全 travel 时机；
-- **50%**：主动寻找下一个适合 fold 或 rebase travel 的边界；
-- **70%**：当前周期最后一次提醒，强烈建议在最早安全边界评估 travel。
+- **30%**：把 pressure 当作天气报告；继续当前工作，并留意下一个 semantic boundary；
+- **50%**：检查 working set 是否存在已经关闭的 boundary 与真实 summary debt；
+- **70%**：显式盘点 active uncertainty、关闭边界和 cold-start 条件；pressure 本身仍不授权 travel。
 
 提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
 
@@ -104,7 +100,7 @@ pi -e /path/to/pi-context/src/index.ts \
   --skill /path/to/pi-context/skills
 ```
 
-安装后无需手动调用命令。Agent 会根据 CORE 在任务边界主动使用三个 ACM tools；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
+安装后无需手动调用命令。Agent 会依据 working-set doctrine 自主判断何时创建 recoverability、保留 active uncertainty、查看 timeline 或折叠已关闭 boundary；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
 
 ## 可观察性与恢复
 
@@ -146,6 +142,16 @@ bun run test:guidance
 bun run typecheck
 bun run test:host
 ```
+
+非 CI 的开放式行为评测会用多种场景措辞检查 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty 与 summary-debt judgment。它需要已配置的模型 provider，不进入 deterministic gate：
+
+```bash
+bun run eval:acm -- \
+  --candidate local-openai/mimo-v2.5 \
+  --judge local-responses/gpt-5.4-mini
+```
+
+评测场景、阈值与可选参数见 [`eval/README.md`](eval/README.md)。
 
 开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
 

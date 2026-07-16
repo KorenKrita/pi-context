@@ -75,9 +75,9 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. For a local fold, choose a target before the named boundary. For a rebase, evaluate candidate bases from earliest to latest and choose the first whose target retires an active summary without growing projected depth and whose snapshot passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when topology matters." }),
-    summary: Type.String({ minLength: 1, maxLength: 10000, description: `Handoff summary — the working state after travel. It must make the next action executable without rereading the folded trail. A rebase snapshot must pass cold start: a fresh agent can execute NEXT from this handoff and direct evidence pointers without reading archived summaries. Fill every slot, write 'none' rather than dropping one: ${HANDOFF_SLOT_HINT}. Include recovery pointers; pointers over dumps. Max 10000 chars.` }),
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional archive bookmark for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. At task end, use '<task>-done' when the preview shows meaningful structural saving and the path does not already carry a suitable '-done' checkpoint. If the preview shows almost no saving, create a unique '-done' checkpoint and answer directly instead of calling travel merely to set this field. This is a recovery pointer, never the travel target or a substitute for a self-contained handoff." })),
+    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean anchor before the named boundary, not the nearest or most conveniently named anchor. For a rebase, compare candidates from earliest to latest and choose the first that replaces obsolete active handoffs without growing projected summary depth and whose handoff passes cold start. Root is a candidate, not a default. Use acm_timeline checkpoints/search for comparison and tree only when ancestry or front ownership remains ambiguous." }),
+    summary: Type.String({ minLength: 1, maxLength: 10000, description: `Authoritative handoff that becomes the working set after travel. A fresh agent must be able to execute NEXT from this handoff and direct evidence pointers without archived conversation. Fill every slot once and in order; write 'none' rather than omitting a category: ${HANDOFF_SLOT_HINT}. Preserve active and parked fronts, external effects, exclusions, and recovery pointers; pointers over process dumps. Max 10000 chars.` }),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional semantic archive label for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. Use a unique name that makes the omitted boundary discoverable. This label creates recoverability; its spelling does not classify the travel, prove completion, select the target, or replace a cold-start handoff." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -86,8 +86,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     description: TOOL_DESCRIPTIONS.travel,
     promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
     promptGuidelines: [
-      "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
-      "Call acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
+      "Use acm_travel only for a named closed boundary whose omitted raw history is recoverable and whose handoff passes cold start.",
+      "Run acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
     ],
     parameters: schema,
     executionMode: "sequential",
@@ -469,7 +469,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      const nextCue = params.backupCurrentHeadAs?.endsWith("-done") ? GUIDANCE_CUES.travelTask : GUIDANCE_CUES.travelPhase;
+      const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
         && activeSummaryDepthAfter === targetSummaryDepth + 1

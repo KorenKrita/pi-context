@@ -34,15 +34,13 @@ export function deriveGuidance(source) {
       travel: extract("TOOL_TRAVEL"),
     },
     guidanceCues: {
-      checkpointStart: extract("CUE_CHECKPOINT_START"),
-      checkpointDone: extract("CUE_CHECKPOINT_DONE"),
+      checkpoint: extract("CUE_CHECKPOINT"),
       rebaseCheck: extract("CUE_REBASE_CHECK"),
       timelineActive: extract("CUE_TIMELINE_ACTIVE"),
       timelineCheckpoints: extract("CUE_TIMELINE_CHECKPOINTS"),
       timelineSearch: extract("CUE_TIMELINE_SEARCH"),
       timelineTree: extract("CUE_TIMELINE_TREE"),
-      travelPhase: extract("CUE_TRAVEL_PHASE"),
-      travelTask: extract("CUE_TRAVEL_TASK"),
+      travel: extract("CUE_TRAVEL"),
     },
     recoveryGuidance: {
       nameCollision: extract("RECOVERY_NAME_COLLISION"),

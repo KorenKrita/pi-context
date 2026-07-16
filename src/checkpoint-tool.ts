@@ -32,7 +32,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       minLength: 1,
       maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic anchor name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Use '<name>-start' for the beginning of a boundary you may later compress: task chain, phase, burst, or risky attempt. Use '<name>-paused' when work stops with a resumable next action. Use '<name>-done' for a milestone/archive pointer after results are in hand. E.g. parser-fix-start, timeout-investigation-start, migration-paused, root-cause-done. Avoid generic names like start or checkpoint-1. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic recovery label; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the boundary or state a future agent would search for, for example parser-investigation, timeout-attempt-2, migration-paused, or root-cause-verified. Suffixes are naming conventions only; they do not classify checkpoint state. Avoid generic names such as checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
@@ -47,7 +47,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     description: TOOL_DESCRIPTIONS.checkpoint,
     promptSnippet: "Label a recoverable session boundary without changing context",
     promptGuidelines: [
-      "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
+      "Use acm_checkpoint when recoverability should be created before the working set expands, a front is parked, or raw history may later leave context.",
     ],
     parameters: schema,
     renderShell: "self",
@@ -222,7 +222,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined;
       const usageText = usageLike ? formatContextUsage(usageLike, true) : "unknown";
-      const cue = params.name.endsWith("-done") ? GUIDANCE_CUES.checkpointDone : GUIDANCE_CUES.checkpointStart;
+      const cue = GUIDANCE_CUES.checkpoint;
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
         ? `${role}${skippedCount ? `; skipped ${skippedCount} nearer transient/non-meaningful entr${skippedCount === 1 ? "y" : "ies"}` : ""}`

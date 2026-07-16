@@ -106,30 +106,31 @@ describe("canonical guidance generation", () => {
     expect(() => deriveGuidance(misordered)).toThrow("Marker TOOL_TIMELINE: END must appear after START");
   });
 
-  test("keeps normal cues concise and view-specific", () => {
+  test("keeps normal cues concise, state-neutral, and view-specific", () => {
     expect(Object.keys(GUIDANCE_CUES).sort()).toEqual([
-      "checkpointDone",
-      "checkpointStart",
+      "checkpoint",
       "rebaseCheck",
       "timelineActive",
       "timelineCheckpoints",
       "timelineSearch",
       "timelineTree",
-      "travelPhase",
-      "travelTask",
+      "travel",
     ]);
 
     for (const cue of Object.values(GUIDANCE_CUES)) {
-      expect(cue.length).toBeLessThan(300);
-      expect(cue).not.toContain("### Normal state transitions");
+      expect(cue.length).toBeLessThan(350);
+      expect(cue).not.toContain("### Tend the working set");
       expect(cue).not.toContain("Goal: <");
     }
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Active summarized history is present");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("structural reset and cold start");
+    expect(GUIDANCE_CUES.checkpoint).toContain("working set is unchanged");
+    expect(GUIDANCE_CUES.checkpoint).toContain("bookmark, not a closing bracket");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("summary debt");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("not permission to travel");
     expect(GUIDANCE_CUES.timelineActive).toContain("`active`");
     expect(GUIDANCE_CUES.timelineCheckpoints).toContain("`checkpoints`");
     expect(GUIDANCE_CUES.timelineSearch).toContain("`search`");
     expect(GUIDANCE_CUES.timelineTree).toContain("`tree`");
+    expect(GUIDANCE_CUES.travel).toContain("new working set");
   });
 
   test("keeps recovery branches separately selectable", () => {

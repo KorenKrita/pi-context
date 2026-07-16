@@ -112,7 +112,7 @@ travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、
 
 rebase 是 agent 对现有 `acm_travel` 的高阶使用，不是新工具或 runtime mode。目标是把所有 surviving state 合并成一个 authoritative snapshot，并移动到**最早安全基底**。
 
-- 触发 rebase check：summary 已堆叠、稳定 chain/subchain 完成、新目标将开始、context pressure 上升
+- rebase judgment：只有 active handoff layer 已形成真实 summary debt（旧状态竞争、重复或无权威归属）且一个 cold-start handoff 能安全替换时才执行；稳定 chain、新目标和 context pressure 只是复查 working set 的时机
 - 候选从 earliest 到 latest 评估；`root` 是理想候选但不是默认 target
 - cold start 是硬门槛：fresh agent 必须能只凭新 handoff 与 direct evidence pointers 执行 `NEXT`
 - context pressure 不得降低 snapshot 完整性要求
@@ -168,12 +168,13 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 ## Guidance ownership
 
-- `skills/context-management/CORE.md`：normal-path guidance 的 canonical source
-- `skills/context-management/SKILL.md`：advanced-only router
-- `skills/context-management/references/`：target selection、archive recovery、exceptional recovery
+- `CONTEXT.md`：ACM ubiquitous language；只定义 domain terms，不写实现细节
+- `skills/context-management/CORE.md`：working-set doctrine 的 canonical source（道）
+- `skills/context-management/SKILL.md`：advanced technique router（术）
+- `skills/context-management/references/`：handoff wire format、target selection、travel isolation、archive recovery 与 exceptional host recovery
 - `src/generated-guidance.ts`：generated runtime artifact，不应手工漂移
 
-canonical 词汇固定为 working set、boundary、handoff、archive、chain、burst、rebase、cold start、anchor gravity。checkpoint 创建 recoverability；travel 才 fold boundary；rebase 仍复用 travel mutation contract。
+canonical leading words 固定为 working set、active uncertainty、boundary、recoverability、checkpoint、handoff、archive、fold、rebase、cold start、summary debt、anchor gravity、front。checkpoint 只创建 recoverability；timeline 只提供 factual evidence；travel 才改变 working set。工具名、checkpoint suffix、context pressure 与 summary depth 都不是 semantic state classifier。
 
 ## Tool prompt 与 TUI 呈现
 
@@ -210,6 +211,8 @@ bun run verify:acm
 ```
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
+
+开放式 model behavior eval 是非 CI 证据：`bun run eval:acm -- --candidate <model> --judge <model>`。场景族必须至少覆盖 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty 与 summary-debt judgment，并使用多种措辞；judge 只评 semantic invariants，不锁 exact tool order。评测 runner、场景和说明分别位于 `scripts/eval-acm-behavior.mjs`、`eval/acm-behavior-scenarios.mjs` 与 `eval/README.md`。
 
 host fixture 必须覆盖 exact Pi version、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

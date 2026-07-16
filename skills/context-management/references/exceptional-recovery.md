@@ -31,4 +31,4 @@ Increased usage is structural evidence, not proof of failure.
 
 ## No-saving recovery
 
-When a task-end travel preview or result shows no meaningful structural saving, create a unique semantic `<task>-done` checkpoint on the current branch and answer directly. If an attempted no-saving travel already landed, verify the surviving branch, preserve its summary entry as evidence, and use that branch without repeating the same fold.
+When a travel preview or result shows no meaningful working-set improvement, keep the current authoritative branch and create a semantic completion checkpoint only if that recovery pointer is useful. If an attempted no-saving travel already landed, verify the surviving branch, preserve its summary entry as evidence, and use that branch without repeating the same fold.

@@ -70,7 +70,7 @@ export function validateHandoffStructure(summary: string): HandoffValidationResu
  return { ok: false, missing, empty, duplicate, outOfOrder };
 }
 
-export const BOUNDARY_SELECTION_GUIDANCE = "Choose by boundary, not proximity. A candidate is correct only when it sits before the boundary being compressed; use an earliest on-path -start only when it begins the semantic chain being compressed.";
+export const BOUNDARY_SELECTION_GUIDANCE = "Name the boundary before choosing an anchor. A candidate is correct only when it sits immediately before the raw history being folded; chronology, proximity, and label spelling are evidence, not verdicts.";
 
 export function formatFoldCandidatePreview(previewParts: string[]): string {
  return ` Fold candidates (+handoff): ${previewParts.join("; ")}. ${BOUNDARY_SELECTION_GUIDANCE}`;
@@ -78,9 +78,9 @@ export function formatFoldCandidatePreview(previewParts: string[]): string {
 
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
-  return "name the boundary first; no anchor is on this path, so checkpoint now or fold directly to the last clean node ID before the boundary";
+  return "no semantic recovery label is visible on this path. Protect the next distinct or risky expansion with a checkpoint; keep the present raw detail live while active uncertainty remains";
  }
- return `name the boundary first. '${nearestCheckpointName}' is only a candidate target. Choose the target that sits before the boundary: phase start, pre-burst node, attempt start, method anchor, or semantic chain start. Load Advanced Target Selection if the target remains ambiguous`;
+ return `recoverability exists at '${nearestCheckpointName}', but the working set is unchanged. Decide whether its boundary is still open, whether active uncertainty remains, and whether summary debt is real before considering a fold. Load Advanced Target Selection only when a named closed boundary has no obvious pre-boundary anchor`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };

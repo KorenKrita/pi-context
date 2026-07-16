@@ -154,17 +154,17 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Continue the current work normally. At the next natural semantic boundary, consider whether current task requirements permit a safe fold or rebase travel.",
-        "Travel is optional, but keeping the active context small is preferred when it can be done without losing needed working state.",
+        "Context pressure is a weather report, not a travel command. Continue normally and notice the next semantic boundary.",
+        "Protect active uncertainty. Create recoverability before the working set expands; fold only after the boundary closes and a handoff can pass cold start.",
       ]
     : nudge.level === 50
       ? [
-          "Context pressure is becoming material. Based on the current task requirements, actively look for the next safe opportunity for a fold or rebase travel.",
-          "Travel is recommended when a complete handoff can preserve the required working state and make NEXT executable. Do not travel if important context is still needed, but prefer returning to a smaller active context when safely possible.",
+          "Review the working set for closed boundaries and real summary debt: obsolete handoff layers, competing summaries, or fronts without one authoritative home.",
+          "If raw detail still serves active uncertainty, hold it live. Travel only when omitted history is recoverable and one cold-start handoff preserves every surviving front and invariant.",
         ]
       : [
-          "Context pressure is high. At the earliest safe semantic boundary, strongly consider a fold or rebase travel if current task requirements allow a complete and recoverable handoff.",
-          "Keeping the active context small is strongly preferred, but correctness, task continuity, and recoverability take priority. If no safe travel is available, continue normally; native compaction is acceptable for a genuinely long task.",
+          "Context pressure is high. Make the working-set judgment explicit now: what uncertainty is active, which boundaries are closed, and whether summary debt can actually be paid.",
+          "A closed boundary, recoverability, and cold start authorize travel; pressure alone does not. If those gates fail, continue normally and allow native compaction for genuinely long work.",
         ];
 
   return {

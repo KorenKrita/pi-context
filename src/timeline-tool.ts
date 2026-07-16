@@ -211,7 +211,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     description: TOOL_DESCRIPTIONS.timeline,
     promptSnippet: "Inspect session structure, context pressure, and travel candidates",
     promptGuidelines: [
-      "Use acm_timeline to gather structural evidence before choosing a non-obvious travel target; prefer active, checkpoints, or search unless tree topology is required.",
+      "Use acm_timeline when working-set topology, summary debt, recovery pointers, ancestry, or a non-obvious pre-boundary target needs factual evidence.",
     ],
     parameters: schema,
     renderShell: "self",
@@ -464,7 +464,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Segment Size:     ${stepsSinceCheckpoint} steps since last checkpoint '${nearestCheckpoint ?? "None"}'`,
-        `• Travel Cue:       ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
+        `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
       ];
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
