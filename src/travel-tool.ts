@@ -87,7 +87,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     promptSnippet: "Fold a named boundary or rebase summaries into a recoverable handoff",
     promptGuidelines: [
       "Use acm_travel only when the boundary is named, NEXT is executable from the handoff, and omitted raw history remains recoverable through a direct pointer.",
-      "Call acm_travel alone in its assistant tool batch; never combine this context mutation with sibling tool calls.",
+      "Call acm_travel alone in its assistant tool batch; mixed batches are rejected before mutation.",
     ],
     parameters: schema,
     executionMode: "sequential",

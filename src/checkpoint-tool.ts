@@ -47,7 +47,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     description: TOOL_DESCRIPTIONS.checkpoint,
     promptSnippet: "Label a recoverable session boundary without changing context",
     promptGuidelines: [
-      "Use acm_checkpoint to preflight each distinct user goal before managed work and to label later phase, burst, pause, milestone, or completion boundaries.",
+      "Use acm_checkpoint to confirm recoverability before managed work begins and to label later phase, burst, pause, milestone, or completion boundaries.",
     ],
     parameters: schema,
     renderShell: "self",
