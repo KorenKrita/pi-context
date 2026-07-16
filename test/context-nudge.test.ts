@@ -99,6 +99,7 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
     expect(fixture.sentMessages[0]?.message.content).toContain("comfortable cruise range");
     expect(fixture.sentMessages[0]?.message.content).toContain("Nothing is required now");
+    expect(fixture.sentMessages[0]?.message.content).toContain("acm_checkpoint");
 
     fixture.setUsagePercent(35);
     await fixture.emit("context", { messages: [] });
@@ -114,6 +115,7 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[1]?.message.content).toContain("[ACM Context Reminder · 70% tier · Final reminder]");
     expect(fixture.sentMessages[1]?.message.content).toContain("attention is the scarce resource");
     expect(fixture.sentMessages[1]?.message.content).toContain("native compaction");
+    expect(fixture.sentMessages[1]?.message.content).toContain("acm_travel");
     expect(fixture.sentMessages.some(({ message }) => message.details?.level === 50)).toBe(false);
   });
 
@@ -250,6 +252,7 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("Actively look for the next worthwhile fold or rebase");
     expect(fixture.sentMessages[0]?.message.content).toContain("one batched handoff");
+    expect(fixture.sentMessages[0]?.message.content).toContain("acm_timeline");
   });
 
   test("manual tree navigation clears pending reminders and starts a baseline-only cycle", async () => {

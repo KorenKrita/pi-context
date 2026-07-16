@@ -41,14 +41,14 @@ acm_timeline reports facts — spine, save points, summary depth, usage. Judgmen
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-acm_travel is autonomous by default; only an explicit user request to hold travel suspends it, for the stated scope.
+acm_travel is autonomous by default; only an explicit user request to hold travel suspends it, and only for the scope the user names.
 Run acm_travel alone in its assistant tool batch, and read its result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point applied; the working set is unchanged. This state is now cheap to return to — explore or compress boldly. Weigh a fold when the raw process behind it stops earning its place.
+Save point applied; the working set is unchanged. This state is now cheap to return to — explore or compress boldly. When the raw process behind this point stops earning its place, acm_travel targeting it folds that process into a handoff.
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
@@ -56,7 +56,7 @@ Travel applied: the handoff is now the working set. Verify target, summary leaf,
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-Summary layers are stacking on this spine. Weigh a rebase: one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
+This spine already carries handoff layers; the next fold would stack another. Weigh a rebase: one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->

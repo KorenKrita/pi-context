@@ -5,7 +5,7 @@ This file owns the always-on ACM doctrine (道 and 度). Tool descriptions, prom
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE
 
-Compression is intelligence: to understand something is to be able to restate it shorter without losing what matters. Your context window is a **working set**, not a transcript — it should hold the best current representation of the task, not the history of how you reached it. The ACM tools (`acm_checkpoint`, `acm_timeline`, `acm_travel`) let you act on that understanding. They are yours to use autonomously, as ordinary as reading a file; only an explicit user request to hold travel pauses it, for the stated scope.
+Compression is intelligence: to understand something is to be able to restate it shorter without losing what matters. Your context window is a **working set**, not a transcript — it should hold the best current representation of the task, not the history of how you reached it. The ACM tools (`acm_checkpoint`, `acm_timeline`, `acm_travel`) let you act on that understanding. They are yours to use autonomously, as ordinary as reading a file; only an explicit user request to hold travel pauses it, and only for the scope the user names.
 
 ### What earns a place in the working set
 
@@ -37,11 +37,11 @@ Moments that usually reward a look: a burst of reads or searches has been distil
 
 ### The handoff
 
-Seven slots, once each, in order; write `none` when a slot is empty:
+Seven slots, once each, in order, each starting its own line; write `none` when a slot is empty:
 
 Goal / State / Evidence / External / Exclusions / Recover / NEXT
 
-`State` carries live cognition, not only results: knowns, unknowns, hypotheses, and the hot set. A fold mid-investigation:
+`State` carries live cognition, not only results: knowns, unknowns, hypotheses, and the hot set. `NEXT` is one concrete action a fresh agent could execute immediately. A fold mid-investigation:
 
 ```text
 Goal: Find why checkout p99 latency doubled since v2.3.0.

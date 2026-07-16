@@ -40,9 +40,17 @@ describe("ACM guidance quality", () => {
     for (const slot of ["Goal:", "State:", "Evidence:", "External:", "Exclusions:", "Recover:", "NEXT:"]) {
       expect(ACM_CORE).toContain(slot);
     }
+    expect(ACM_CORE).toContain("each starting its own line");
+    expect(ACM_CORE).toContain("one concrete action a fresh agent could execute immediately");
     expect(ACM_CORE).toContain("Two hypotheses");
     expect(ACM_CORE).toContain("Hot:");
     expect(ACM_CORE.split("```text").length - 1).toBe(1);
+  });
+
+  test("each result cue points at the concrete next move", () => {
+    expect(GUIDANCE_CUES.checkpoint).toContain("acm_travel");
+    expect(GUIDANCE_CUES.travel).toContain("execute NEXT");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("the next fold would stack another");
   });
 
   test("never reintroduces mandatory workflow machinery", () => {

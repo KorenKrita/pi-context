@@ -152,16 +152,16 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Working-budget pressure has left the comfortable cruise range. Keep integrating as you work, and note where a distilled burst, closed direction, or finished phase would make a clean fold.",
+        "Working-budget pressure has left the comfortable cruise range. Keep integrating as you work, and note where a distilled burst, closed direction, or finished phase would make a clean fold — an acm_checkpoint at that boundary now makes the later fold cheap.",
         "Nothing is required now: a fold is only as good as its cold-start handoff, and correctness always outranks a smaller number.",
       ]
     : nudge.level === 50
       ? [
-          "Working-budget pressure is material. Actively look for the next worthwhile fold or rebase — distilled findings, rejected directions, stacked summaries — and commit them as one batched handoff rather than paying travel cost per step.",
+          "Working-budget pressure is material. Actively look for the next worthwhile fold or rebase — distilled findings, rejected directions, stacked summaries — and commit them as one batched handoff rather than paying travel cost per step. If the batch is unclear, acm_timeline (view active) shows what the spine still carries.",
           "Carry the hot set and honest uncertainty through the fold; a save point plus pointers keeps everything else recoverable.",
         ]
       : [
-          "Working-budget pressure is high; attention is the scarce resource now. Shape the smallest handoff that passes cold start — knowns, open unknowns, hot set, evidence pointers, external effects, one executable NEXT — and fold or rebase at the next safe moment.",
+          "Working-budget pressure is high; attention is the scarce resource now. Shape the smallest handoff that passes cold start — knowns, open unknowns, hot set, evidence pointers, external effects, one executable NEXT — and acm_travel at the next safe moment.",
           "If no safe fold exists, continue correctly and let native compaction handle a genuinely long run. Never trade cold start for a smaller number.",
         ];
 
