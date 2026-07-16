@@ -1,13 +1,11 @@
 ---
 name: context-management
-description: "Resolve ACM technique after the always-on CORE supplies the judgment: serialize a cold-start handoff, select a safe target across interleaved history, isolate a travel mutation, recover one archived detail, or handle exceptional mutation/context-sync evidence. Use only when normal working-set judgment is clear but mechanics are not."
+description: "Recover advanced ACM mechanics when handoff serialization, target selection, travel isolation, archive lookup, or mutation/context-sync evidence is ambiguous. Use only after normal working-set judgment identifies the mechanic."
 ---
 
 # Advanced Context Management
 
-The always-on **CORE owns the way** (道): working-set judgment, active uncertainty, boundary closure, recoverability, cold start, summary debt, and anchor gravity. This Skill owns the **technique** (术) needed to carry one already-made judgment through the host contract.
-
-Select the one reference whose observable condition is active:
+Route the one active mechanic to its authoritative reference:
 
 - Load [Handoff Wire Format](references/handoff-wire-format.md) when a closed boundary is ready to fold but its authoritative state must be serialized, cold start is uncertain, multiple fronts must survive, or travel rejected the seven-slot shape.
 - Load [Advanced Target Selection](references/target-selection.md) when the boundary is named but the last clean pre-boundary anchor remains ambiguous because of ancestry, interleaved fronts, older or missing labels, raw-node fallback, or checkpoint-name collision.

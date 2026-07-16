@@ -25,7 +25,7 @@ import { buildSessionMessages } from "./host-bridge.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -210,9 +210,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
     promptSnippet: "Inspect session structure, context pressure, and travel candidates",
-    promptGuidelines: [
-      "Use acm_timeline when working-set topology, summary debt, recovery pointers, ancestry, or a non-obvious pre-boundary target needs factual evidence.",
-    ],
+    promptGuidelines: [PROMPT_GUIDELINES.timeline],
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {

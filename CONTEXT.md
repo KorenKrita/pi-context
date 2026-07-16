@@ -12,6 +12,10 @@ _Avoid_: context window, transcript, recent messages
 An unresolved question whose supporting raw detail may still change the next action. Active uncertainty keeps that detail in the working set.
 _Avoid_: open context, unresolved history
 
+**Evidence chain**:
+The measurements, baselines, deltas, and causal links that can still resolve active uncertainty. A failed or rejected attempt can close while its evidence chain remains live.
+_Avoid_: result dump, all collected data
+
 **Boundary**:
 The semantic edge around a goal, phase, attempt, burst, or front. A boundary is open while its raw process still serves active uncertainty and closed when only its outcome must survive.
 _Avoid_: checkpoint, timestamp, nearest anchor
@@ -23,6 +27,10 @@ _Avoid_: backup alone, undoability
 **Checkpoint**:
 A semantic label attached to history to create recoverability without changing the working set.
 _Avoid_: snapshot, branch, fold
+
+**Receipt**:
+The structured outcome attached to one matching tool call. It distinguishes proposed intent from established fact by reporting whether an operation was applied, not applied, or remains indeterminate.
+_Avoid_: assistant claim, tool parameters, planned action
 
 **Handoff**:
 The compact, authoritative working state that survives a fold. It carries the next action and direct evidence pointers rather than replaying the process that produced them.

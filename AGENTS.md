@@ -51,7 +51,7 @@
 | `src/context-usage-nudge.ts` | 30/50/70 档位分类与分级 ACM reminder 文案 |
 | `src/live-agent-session-adapter.ts` | capability-probed live AgentSession association 与 message replacement |
 | `src/lib.ts` / `label-journal.ts` / `entry-resolution.ts` / `message-sanitizer.ts` | 可测试的 domain logic |
-| `src/generated-guidance.ts` | 从 canonical guidance 派生的 runtime strings |
+| `src/generated-guidance.ts` | 从 `CORE.md` 与 `TOOL-CONTRACTS.md` 派生的 runtime strings |
 | `src/prompt-registration.ts` | idempotent ACM CORE prompt segment |
 
 `src/context.ts` 和 `src/utils.ts` 属于 `/context` TUI，不应吸收 ACM tree mutation 或 live synchronization 逻辑。
@@ -169,16 +169,17 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 ## Guidance ownership
 
 - `CONTEXT.md`：ACM ubiquitous language；只定义 domain terms，不写实现细节
-- `skills/context-management/CORE.md`：working-set doctrine 的 canonical source（道）
+- `skills/context-management/CORE.md`：always-on working-set doctrine 的 canonical source（道）
+- `skills/context-management/TOOL-CONTRACTS.md`：tool descriptions、prompt guidelines、result cues 与 recovery text 的 canonical source
 - `skills/context-management/SKILL.md`：advanced technique router（术）
 - `skills/context-management/references/`：handoff wire format、target selection、travel isolation、archive recovery 与 exceptional host recovery
 - `src/generated-guidance.ts`：generated runtime artifact，不应手工漂移
 
-canonical leading words 固定为 working set、active uncertainty、boundary、recoverability、checkpoint、handoff、archive、fold、rebase、cold start、summary debt、anchor gravity、front。checkpoint 只创建 recoverability；timeline 只提供 factual evidence；travel 才改变 working set。工具名、checkpoint suffix、context pressure 与 summary depth 都不是 semantic state classifier。
+canonical leading words 固定为 working set、active uncertainty、boundary、evidence chain、receipt、recoverability、checkpoint、handoff、archive、fold、rebase、cold start、summary debt、anchor gravity、front。receipt 区分 intent 与 matching tool result 所证明的 fact；evidence chain 保留解决 open loop 所需的 measurements、baselines、deltas 与 causal links。checkpoint 只创建 recoverability；timeline 只提供 factual evidence；travel 才可能改变 working set。工具名、checkpoint suffix、context pressure 与 summary depth 都不是 semantic state classifier。
 
 ## Tool prompt 与 TUI 呈现
 
-三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。prompt metadata 只保留每个工具最关键的触发/安全门，不复制完整 CORE。
+三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 generated `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。`TOOL-CONTRACTS.md` 是 descriptions、guidelines、cues 与 recovery text 的唯一真源；prompt metadata 不得在 behavior-owned modules 内复制 CORE。
 
 self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content` 与 `details`，不得改变发送给 LLM 的工具结果或 mutation contract；错误/indeterminate 结果不得套用成功样式。
 所有来自 streaming 参数、host details 或 tool content 的动态文本，在进入自定义 `Text` renderer 前必须经过 `sanitizeTerminalText()`；保留换行和制表符，但不得把 C0/C1 终端控制字符带入 self-shell。

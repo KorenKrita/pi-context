@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
+import { ACM_CORE, GUIDANCE_CUES, PROMPT_GUIDELINES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 const occurrences = (text: string, phrase: string) => text.toLowerCase().split(phrase.toLowerCase()).length - 1;
@@ -7,18 +7,21 @@ const occurrences = (text: string, phrase: string) => text.toLowerCase().split(p
 describe("ACM guidance quality", () => {
   test("uses leading words as a working-set doctrine instead of a tool choreography", () => {
     expect(ACM_CORE).toContain("The CORE is the **way** (道)");
-    expect(ACM_CORE).toContain("the **technique** (术)");
     expect(ACM_CORE).toContain("a compass, not a fixed tool sequence");
+    expect(ACM_CORE).toContain("A **receipt** separates intent from fact");
+    expect(ACM_CORE).toContain("An **evidence chain**");
 
     const minimumDensity: Record<string, number> = {
       "working set": 5,
-      boundary: 10,
+      boundary: 9,
       "active uncertainty": 3,
-      recoverability: 4,
-      handoff: 8,
+      recoverability: 3,
+      handoff: 7,
       "cold start": 3,
       "summary debt": 3,
       "anchor gravity": 1,
+      receipt: 3,
+      "evidence chain": 5,
     };
     for (const [leadingWord, minimum] of Object.entries(minimumDensity)) {
       expect(occurrences(ACM_CORE, leadingWord), `${leadingWord} density`).toBeGreaterThanOrEqual(minimum);
@@ -45,11 +48,12 @@ describe("ACM guidance quality", () => {
       expect(ACM_CORE).toContain(invariant);
     }
 
-    expect(ACM_CORE).toContain("`acm_checkpoint` creates recoverability");
-    expect(ACM_CORE).toContain("`acm_timeline` exposes branch topology");
-    expect(ACM_CORE).toContain("`acm_travel` folds one named boundary");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("Run `acm_travel` alone in its assistant tool batch");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("active uncertainty is preserved");
+    expect(TOOL_DESCRIPTIONS.checkpoint).toContain("Create recoverability");
+    expect(TOOL_DESCRIPTIONS.timeline).toContain("Inspect session topology");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("Apply one recoverable context transition");
+    expect(PROMPT_GUIDELINES.travel).toContain("alone in its assistant tool batch");
+    expect(PROMPT_GUIDELINES.travel).toContain("only a matching applied receipt");
+    expect(TOOL_DESCRIPTIONS.travel).toContain("live evidence chains survive");
     expect(GUIDANCE_CUES.checkpoint).toContain("working set is unchanged");
     expect(GUIDANCE_CUES.travel).toContain("new working set");
   });
@@ -59,8 +63,7 @@ describe("ACM guidance quality", () => {
     const handoff = await skillFile("references/handoff-wire-format.md");
     const isolation = await skillFile("references/travel-isolation.md");
 
-    expect(skill).toContain("CORE owns the way");
-    expect(skill).toContain("This Skill owns the **technique**");
+    expect(skill).toContain("Route the one active mechanic");
     expect(skill).toContain("Handoff Wire Format");
     expect(skill).toContain("Advanced Target Selection");
     expect(skill).toContain("Travel Isolation");
@@ -68,7 +71,6 @@ describe("ACM guidance quality", () => {
     expect(skill).toContain("Exceptional Recovery");
     expect(skill).toContain("Load one reference at a time");
     expect(skill).toContain("replace it with the next reference");
-
     for (const slot of ["Goal", "State", "Evidence", "External", "Exclusions", "Recover", "NEXT"]) {
       expect(handoff).toContain(`${slot}:`);
     }

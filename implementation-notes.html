@@ -228,6 +228,11 @@
         <td>Run the non-CI behavior eval through real candidate tool calls against a mock ACM extension, then judge the resulting assistant-message batches.</td>
         <td>A prose-only simulation produced both false negatives (the model claimed tools were unavailable) and false positives (invented checkpoint/travel success). The mock extension reuses canonical tool descriptions and schemas, safely records actual checkpoint/timeline/travel calls, and makes travel isolation observable without mutating a real session tree.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Split ACM guidance ownership between one always-on doctrine source and one generated tool-contract source.</td>
+        <td><code>CORE.md</code> now owns only working-set judgment. <code>TOOL-CONTRACTS.md</code> owns tool descriptions, prompt guidelines, result cues, and recovery text, while <code>SKILL.md</code> only routes exceptional mechanics. This removes competing control planes and makes each behavior a one-place edit.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

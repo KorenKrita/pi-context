@@ -24,7 +24,7 @@ import {
   getMessageRoleLabel,
   isCheckpointableMessage,
 } from "./entry-resolution.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
@@ -46,9 +46,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
     promptSnippet: "Label a recoverable session boundary without changing context",
-    promptGuidelines: [
-      "Use acm_checkpoint when recoverability should be created before the working set expands, a front is parked, or raw history may later leave context.",
-    ],
+    promptGuidelines: [PROMPT_GUIDELINES.checkpoint],
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
