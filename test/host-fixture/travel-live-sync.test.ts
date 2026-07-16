@@ -136,6 +136,14 @@ describe("travel batch safety", () => {
         error: "mixed_tool_batch",
         toolCallId: TOOL_CALL_ID,
         toolCallCount: 2,
+        receipt: {
+          version: 1,
+          toolCallId: TOOL_CALL_ID,
+          tool: "acm_travel",
+          outcome: "failure",
+          mutationState: "not_applied",
+          workingSetState: "unchanged",
+        },
       });
       expect((result.content[0] as { text: string }).text).toContain("alone in its assistant tool batch");
       expect(sessionManager.getLeafId()).toBe(leafId);
@@ -195,8 +203,17 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       activeSummaryDepthBefore: 0,
       activeSummaryDepthAfter: 1,
       activeSummaryDepthDelta: 1,
+      receipt: {
+        version: 1,
+        toolCallId: TOOL_CALL_ID,
+        tool: "acm_travel",
+        outcome: "success",
+        mutationState: "applied",
+        workingSetState: "replaced",
+      },
     });
     expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
+    expect((result.content.at(-1) as { text: string }).text).toStartWith("ACM_RECEIPT ");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);
@@ -232,6 +249,15 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(contextResult.messages).toEqual(rebuilt);
     const timeline = await timelineTool.execute("timeline", { view: "active" }, undefined, undefined, context);
     expect(timeline.content[0]).toMatchObject({ type: "text" });
+    expect(timeline.details).toMatchObject({
+      receipt: {
+        toolCallId: "timeline",
+        tool: "acm_timeline",
+        outcome: "success",
+        mutationState: "not_applicable",
+        workingSetState: "unchanged",
+      },
+    });
     expect((timeline.content[0] as { text: string }).text).toContain("Live Agent Sync:  applied");
     expect((timeline.content[0] as { text: string }).text).toContain("1 active handoff summary layer(s) on the current spine");
     expect((timeline.content[0] as { text: string }).text).not.toContain("normalized rebase");

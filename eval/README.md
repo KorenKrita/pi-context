@@ -2,7 +2,7 @@
 
 This non-CI eval gives a candidate model real `acm_checkpoint`, `acm_timeline`, and `acm_travel` calls from `eval/mock-acm-extension.ts`, then asks a separate judge model to score the resulting assistant-message batches against paraphrased working-set invariants. The mock tools reuse canonical descriptions and schemas but do not mutate a real session tree. Isolation scenarios use the deterministic read-only `eval_observe_external` probe, so the eval never grants the candidate a general shell.
 
-The eval deliberately avoids one expected tool-call sequence: equivalent responses pass when they preserve recoverability, active uncertainty, cold start, travel isolation, and sound summary-debt judgment.
+The eval deliberately avoids one expected tool-call sequence: equivalent responses pass when they preserve recoverability, active uncertainty and its evidence chain, receipt discipline, cold start, travel isolation, and sound summary-debt judgment.
 
 Run all scenarios:
 

@@ -5,7 +5,8 @@
 `pi-context` 是由 KorenKrita 维护的第三方 Pi 扩展。它让 agent 能够：
 
 - 在 distinct goal、阶段、风险尝试和 burst 扩张前建立 recoverability；
-- 区分仍需保留原始细节的 **active uncertainty** 与已经关闭的 semantic boundary；
+- 区分仍需保留原始细节的 **active uncertainty**，并把仍用于归因的 measurements、baselines 与 deltas 保持为一条 **evidence chain**；
+- 通过 matching **receipt** 区分计划、draft、tool parameters 与真正发生的操作事实；
 - 查看当前会话 spine、历史分支、checkpoint、summary debt 与上下文占用；
 - 把已经关闭的过程折叠成可 cold-start 的 executable handoff；
 - 在真实 summary debt 出现且 surviving state 完整时，将累计 handoff layers **rebase** 到最早安全基底；
@@ -31,7 +32,7 @@ root → summary A → summary B → summary C → current work
 | `acm_timeline` | 查看 active spine、checkpoint catalog、全文搜索、完整树和 summary depth |
 | `acm_travel` | 将一个 boundary 折叠为七槽 handoff，或把累计 summaries rebase 到最早安全基底 |
 
-扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。CORE 是“道”：用 working set、active uncertainty、boundary、recoverability、cold start、summary debt 与 anchor gravity 做判断，不规定固定工具轨迹。三个工具及 advanced Skill 是“术”：按需披露七槽 wire format、target selection、isolated travel batch、archive round trip 和异常 host 恢复。项目的 ubiquitous language 见 [`CONTEXT.md`](CONTEXT.md)。
+扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。CORE 是“道”：用 working set、active uncertainty、evidence chain、receipt、boundary、recoverability、cold start、summary debt 与 anchor gravity 做判断，不规定固定工具轨迹。三个工具及 advanced Skill 是“术”：按需披露七槽 wire format、target selection、isolated travel batch、archive round trip 和异常 host 恢复。项目的 ubiquitous language 见 [`CONTEXT.md`](CONTEXT.md)。
 
 ## Semantic rebase
 
@@ -111,9 +112,10 @@ pi -e /path/to/pi-context/src/index.ts \
 - branch summary leaf；
 - backup checkpoint outcome；
 - message、token、percentage-point 与 summary-depth delta；
-- persistent context rebuild 和 live AgentSession sync 状态。
+- persistent context rebuild 和 live AgentSession sync 状态；
+- 与 tool call ID 对应的 machine-readable `ACM_RECEIPT`：`outcome`、`mutationState`、`workingSetState`。
 
-Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
+Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。每个 ACM tool result 都会在 provider-visible content 与 structured details 中附同一份 receipt。调用参数、draft 和 assistant 自述只代表 intent；只有 matching receipt 能证明 mutation 是 `applied`、`not_applied` 还是 `indeterminate`，避免把未知状态伪装成成功或失败。
 
 ## 安全边界
 

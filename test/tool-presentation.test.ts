@@ -198,7 +198,7 @@ describe("ACM tool rendering", () => {
       renderContext(args),
     );
     const output = render(result);
-    expect(output).toContain("✓ TRAVEL COMPLETE  parser-fix-start → summary-456");
+    expect(output).toContain("✓ TRAVEL APPLIED  parser-fix-start → summary-456");
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
@@ -220,7 +220,56 @@ describe("ACM tool rendering", () => {
       theme,
       renderContext({ target: "root", summary: "" }),
     );
-    expect(render(travelWarning)).toContain("⚠ TRAVEL NEEDS ATTENTION");
+    expect(render(travelWarning)).toContain("✕ TRAVEL NOT APPLIED");
+  });
+
+  test("travel renderer distinguishes applied, not-applied, and indeterminate receipts", () => {
+    const indeterminate = travel.renderResult!(
+      {
+        content: [{ type: "text", text: "Branch mutation cannot be excluded." }],
+        details: {
+          error: "branch_failed",
+          receipt: {
+            version: 1,
+            toolCallId: "travel-unknown",
+            tool: "acm_travel",
+            outcome: "indeterminate",
+            mutationState: "indeterminate",
+            workingSetState: "indeterminate",
+          },
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext({ target: "root", summary: "" }),
+    );
+    expect(render(indeterminate)).toContain("⚠ TRAVEL STATE INDETERMINATE");
+
+    const appliedIncomplete = travel.renderResult!(
+      {
+        content: [{ type: "text", text: "Travel applied, but rebuilt message evidence is unavailable." }],
+        details: {
+          error: "build_messages_failed",
+          target: "root",
+          resultingLeafId: "summary-1",
+          receipt: {
+            version: 1,
+            toolCallId: "travel-applied",
+            tool: "acm_travel",
+            outcome: "indeterminate",
+            mutationState: "applied",
+            workingSetState: "replaced",
+          },
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext({ target: "root", summary: "" }),
+    );
+    const appliedOutput = render(appliedIncomplete);
+    expect(appliedOutput).toContain("⚠ TRAVEL APPLIED · EVIDENCE INCOMPLETE  root → summary-1");
+    expect(appliedOutput).toContain("working set replaced");
+    expect(appliedOutput).not.toContain("TRAVEL NOT APPLIED");
   });
 
   test("neutralizes terminal controls in dynamic call and result text", () => {

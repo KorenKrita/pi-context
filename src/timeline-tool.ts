@@ -26,6 +26,7 @@ import { calculateContextUsagePressure, formatContextUsagePressure } from "./con
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -237,13 +238,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         : new Text("", 0, 0);
       const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
+      const receipt = readAcmReceipt(details);
 
       if (isPartial) {
         component.setText(theme.fg("warning", "◌ Inspecting session evidence…"));
         return component;
       }
 
-      if (typeof details?.error === "string") {
+      if (receipt?.outcome === "failure" || (!receipt && typeof details?.error === "string")) {
         component.setText(
           theme.fg("error", "✕ TIMELINE UNAVAILABLE")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
@@ -299,12 +301,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return component;
     },
     async execute(
-      _id: string,
+      toolCallId: string,
       rawParams: Static<typeof schema>,
       signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
+      const result = (() => {
       const params = { ...rawParams, view: rawParams.view ?? "active", limit: rawParams.limit ?? 50 } as
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
@@ -525,6 +528,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           liveAgentSessionSyncRecovery: liveSyncRecovery,
         },
       };
+      })();
+      return attachAcmReceipt(toolCallId, "acm_timeline", result);
     },
   });
 }

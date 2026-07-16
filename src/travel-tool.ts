@@ -37,6 +37,7 @@ import {
 } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 interface TravelSummaryDetails {
   kind: "acm_travel";
@@ -110,15 +111,23 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : new Text("", 0, 0);
       const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
+      const receipt = readAcmReceipt(details);
 
       if (isPartial) {
         component.setText(theme.fg("warning", "◌ Applying recoverable context transition…"));
         return component;
       }
 
-      if (typeof details?.error === "string") {
+      if (receipt?.mutationState === "indeterminate") {
         component.setText(
-          theme.fg("warning", "⚠ TRAVEL NEEDS ATTENTION")
+          theme.fg("warning", "⚠ TRAVEL STATE INDETERMINATE")
+            + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
+        );
+        return component;
+      }
+      if (receipt?.mutationState === "not_applied" || (!receipt && typeof details?.error === "string")) {
+        component.setText(
+          theme.fg("error", "✕ TRAVEL NOT APPLIED")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
         );
         return component;
@@ -136,18 +145,22 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
       const liveSync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown");
+      const evidenceIncomplete = receipt?.outcome === "indeterminate";
+      const title = evidenceIncomplete
+        ? theme.fg("warning", "⚠ TRAVEL APPLIED · EVIDENCE INCOMPLETE")
+        : theme.fg("success", "✓ TRAVEL APPLIED");
       const lines = [
-        theme.fg("success", "✓ TRAVEL COMPLETE")
-          + theme.fg("accent", `  ${target} → ${leaf}`),
+        title + theme.fg("accent", `  ${target} → ${leaf}`),
         theme.fg("muted",
           `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
             + ` (${formatSignedDelta(tokenDelta)}) · messages ${formatNumericValue(beforeMessages)} → ${formatNumericValue(afterMessages)} (${direction})`,
         ),
         theme.fg("dim",
           `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · backup ${backup} · refresh pending · live sync ${liveSync}`,
+            + ` · backup ${backup} · working set ${receipt?.workingSetState ?? "replaced"} · live sync ${liveSync}`,
         ),
       ];
+      if (evidenceIncomplete && raw) lines.push(theme.fg("warning", `  ${raw.split("\n", 1)[0] ?? raw}`));
       if (expanded && raw) {
         lines.push(theme.fg("dim", "  ─ full result ─"), theme.fg("toolOutput", raw));
       }
@@ -161,6 +174,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
+      const result = (() => {
       const params = rawParams;
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
@@ -477,7 +491,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextRefresh=pending; liveAgentSessionSync=${liveAgentSessionSync.status}.`,
+            `Travel applied. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextRefresh=pending; liveAgentSessionSync=${liveAgentSessionSync.status}.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -530,6 +544,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           fromOffPath: resolved.fromOffPath,
         },
       };
+      })();
+      return attachAcmReceipt(toolCallId, "acm_travel", result);
     },
   });
 }

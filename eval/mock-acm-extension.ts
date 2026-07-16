@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import { TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 import { HANDOFF_SLOT_HINT } from "../src/lib.js";
+import { attachAcmReceipt } from "../src/tool-receipt.js";
 
 export default function registerMockAcmExtension(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -21,11 +22,11 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
         description: "Optional checkpoint name or node ID to label; omit for the nearest meaningful USER/AI turn.",
       })),
     }, { additionalProperties: false }),
-    async execute(_id, params) {
-      return {
+    async execute(toolCallId, params) {
+      return attachAcmReceipt(toolCallId, "acm_checkpoint", {
         content: [{ type: "text" as const, text: `Evaluation checkpoint created: ${params.name}. Recoverability improved; working set unchanged.` }],
         details: { status: "created", name: params.name, target: params.target ?? "nearest meaningful turn" },
-      };
+      });
     },
   });
 
@@ -45,11 +46,11 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
       filter: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
       verbose: Type.Optional(Type.Boolean()),
     }, { additionalProperties: false }),
-    async execute(_id, params) {
-      return {
+    async execute(toolCallId, params) {
+      return attachAcmReceipt(toolCallId, "acm_timeline", {
         content: [{ type: "text" as const, text: `Evaluation timeline evidence available for ${params.view ?? "active"}. Use the scenario facts as authoritative topology evidence.` }],
         details: { view: params.view ?? "active", simulated: true },
-      };
+      });
     },
   });
 
@@ -95,11 +96,11 @@ export default function registerMockAcmExtension(pi: ExtensionAPI): void {
       })),
     }, { additionalProperties: false }),
     executionMode: "sequential",
-    async execute(_id, params) {
-      return {
+    async execute(toolCallId, params) {
+      return attachAcmReceipt(toolCallId, "acm_travel", {
         content: [{ type: "text" as const, text: `Evaluation travel applied to ${params.target}. Handoff accepted; verify external state before NEXT.` }],
         details: { status: "applied", target: params.target, backupCurrentHeadAs: params.backupCurrentHeadAs ?? null },
-      };
+      });
     },
   });
 }

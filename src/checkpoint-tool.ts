@@ -25,6 +25,7 @@ import {
   isCheckpointableMessage,
 } from "./entry-resolution.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { attachAcmReceipt, readAcmReceipt } from "./tool-receipt.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
@@ -69,13 +70,21 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         : new Text("", 0, 0);
       const raw = sanitizeTerminalText(result.content.find((item) => item.type === "text")?.text ?? "");
       const details = result.details as Record<string, unknown> | undefined;
+      const receipt = readAcmReceipt(details);
 
       if (isPartial) {
         component.setText(theme.fg("warning", "◌ Creating checkpoint…"));
         return component;
       }
 
-      if (typeof details?.error === "string") {
+      if (receipt?.outcome === "indeterminate") {
+        component.setText(
+          theme.fg("warning", "⚠ CHECKPOINT STATE INDETERMINATE")
+            + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
+        );
+        return component;
+      }
+      if (receipt?.outcome === "failure" || (!receipt && typeof details?.error === "string")) {
         component.setText(
           theme.fg("error", "✕ CHECKPOINT NOT CREATED")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
@@ -103,12 +112,13 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       return component;
     },
     async execute(
-      _id: string,
+      toolCallId: string,
       rawParams: Static<typeof schema>,
       signal: AbortSignal | undefined,
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
+      const result = (() => {
       const params = rawParams;
       if (isReservedTargetName(params.name)) {
         return {
@@ -208,6 +218,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
             message: append.message,
             resolvedEntryId: entryId,
             hostBridgeMessage: append.message,
+            hostMutationState: append.state,
           },
         };
       }
@@ -256,6 +267,8 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           cue,
         },
       };
+      })();
+      return attachAcmReceipt(toolCallId, "acm_checkpoint", result);
     },
   });
 }

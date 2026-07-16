@@ -44,6 +44,7 @@
 | `src/checkpoint-tool.ts` | checkpoint schema、target resolution、placement evidence |
 | `src/timeline-tool.ts` | strict single-view timeline、tree rendering、HUD 与 diagnostics |
 | `src/travel-tool.ts` | handoff validation、travel evidence、sync scheduling |
+| `src/tool-receipt.ts` | 所有 ACM tool result 的 matching receipt、intent/fact 分类与 renderer-safe parsing |
 | `src/travel-coordinator.ts` | 单次 backup → branch → verify → compensate transaction |
 | `src/host-bridge.ts` | readonly SessionManager 到公开 mutation/build capability 的唯一 guarded seam |
 | `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation、context nudge 与 live sync state |
@@ -73,7 +74,7 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 - alias index 由全部 label journal entries 重放，不依赖 host 的单一 latest label view
 - `target: "root"` 指第一个 top-level entry；多根时提示使用明确 checkpoint 或 node ID
 
-不要用 `pi.setLabel()` 替代 journal mutation；它不提供本项目所需的显式 target + 多 alias replay contract。
+不要用 `pi.setLabel()` 替代 journal mutation；它不提供本项目所需的显式 target + 多 alias replay contract。checkpoint result 必须携带 matching receipt：新 label 是 `mutationState=applied`，幂等复用是 `not_applied`，post-mutation 无法验证时是 `indeterminate`；三种状态都保持 `workingSetState=unchanged`。
 
 ## Timeline contract
 
@@ -90,7 +91,7 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 
 HUD 包含 official/cached usage、active node count、active summary depth、off-path summary count、nearest checkpoint distance、context refresh 与 live AgentSession sync diagnostics。
 
-checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 后的 projected summary depth。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。
+checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 后的 projected summary depth。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。timeline 是 read-only，receipt 固定为 `mutationState=not_applicable`、`workingSetState=unchanged`。
 
 ## Travel transaction
 
@@ -106,7 +107,7 @@ checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 
 
 travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、浏览器、远端服务或其他外部副作用。
 
-结果报告 raw evidence：usage before/estimated after、token delta、percentage-point delta、message counts/direction、summary-depth before/after/delta、summary entry、backup、refresh 与 live sync state。不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict。
+结果报告 raw evidence：usage before/estimated after、token delta、percentage-point delta、message counts/direction、summary-depth before/after/delta、summary entry、backup、refresh 与 live sync state。matching receipt 以同一个 `toolCallId` 关联 call/result，并分别报告 `outcome`、`mutationState` 与 `workingSetState`：travel applied 后即使后续 message evidence 不完整，也不得渲染成未执行；branch 状态无法排除时不得渲染成成功。不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict。
 
 ## Semantic rebase
 
@@ -179,9 +180,9 @@ canonical leading words 固定为 working set、active uncertainty、boundary、
 
 ## Tool prompt 与 TUI 呈现
 
-三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 generated `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。`TOOL-CONTRACTS.md` 是 descriptions、guidelines、cues 与 recovery text 的唯一真源；prompt metadata 不得在 behavior-owned modules 内复制 CORE。
+三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 generated `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`。`TOOL-CONTRACTS.md` 是 descriptions、guidelines、cues 与 recovery text 的唯一真源；prompt metadata 不得在 behavior-owned modules 内复制 CORE。每个 tool result 的 provider-visible `content` 和 structured `details` 都必须附同一份 `ACM_RECEIPT`，公共参数 schema 不增加 required execute flag。
 
-self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content` 与 `details`，不得改变发送给 LLM 的工具结果或 mutation contract；错误/indeterminate 结果不得套用成功样式。
+self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expanded` 视图保留完整 raw tool result。renderer 只读取既有参数、`content`、`details` 与 validated receipt，不得改变发送给 LLM 的 mutation contract；`applied`、`not_applied`、`indeterminate` 必须使用不同 chrome，applied-but-evidence-incomplete 也必须与未执行区分。
 所有来自 streaming 参数、host details 或 tool content 的动态文本，在进入自定义 `Text` renderer 前必须经过 `sanitizeTerminalText()`；保留换行和制表符，但不得把 C0/C1 终端控制字符带入 self-shell。
 
 ## 测试与验证
@@ -213,7 +214,7 @@ bun run verify:acm
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
-开放式 model behavior eval 是非 CI 证据：`bun run eval:acm -- --candidate <model> --judge <model>`。场景族必须至少覆盖 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty 与 summary-debt judgment，并使用多种措辞；judge 只评 semantic invariants，不锁 exact tool order。评测 runner、场景和说明分别位于 `scripts/eval-acm-behavior.mjs`、`eval/acm-behavior-scenarios.mjs` 与 `eval/README.md`。
+开放式 model behavior eval 是非 CI 证据：`bun run eval:acm -- --candidate <model> --judge <model>`。场景族必须至少覆盖 recoverability、no premature travel、cold-start handoff、travel isolation、active uncertainty、receipt discipline 与 summary-debt judgment，并使用多种措辞；judge 只评 semantic invariants，不锁 exact tool order。评测 runner、场景和说明分别位于 `scripts/eval-acm-behavior.mjs`、`eval/acm-behavior-scenarios.mjs` 与 `eval/README.md`。
 
 host fixture 必须覆盖 exact Pi version、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

@@ -4,6 +4,7 @@ import { registerCheckpointTool } from "../src/checkpoint-tool.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerTravelTool } from "../src/travel-tool.js";
+import { ACM_RECEIPT_PREFIX } from "../src/tool-receipt.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -53,17 +54,20 @@ function captureExecute(register: (pi: ExtensionAPI) => void): ExecuteTool {
 function checkpointContext() {
   const entry = userEntry("entry-1");
   const tree: SessionTreeNode[] = [{ entry, children: [] }];
+  const entries: SessionEntry[] = [entry];
   let appendCalls = 0;
   let branchCalls = 0;
   const sessionManager = {
     getTree: () => tree,
-    getEntries: () => [entry],
+    getEntries: () => entries,
     getBranch: () => [entry],
     getLeafId: () => entry.id,
-    getEntry: (id: string) => id === entry.id ? entry : undefined,
-    appendLabelChange: () => {
+    getEntry: (id: string) => entries.find((candidate) => candidate.id === id),
+    appendLabelChange: (targetId: string, label: string | undefined) => {
       appendCalls++;
-      return "label-1";
+      const id = `label-${appendCalls}`;
+      if (label) entries.push(labelEntry(id, targetId, label));
+      return id;
     },
     branchWithSummary: () => {
       branchCalls++;
@@ -157,6 +161,59 @@ const HANDOFF = [
 ].join("\n");
 
 describe("ACM tool execution contracts", () => {
+  test("attaches a matching machine-readable receipt to every ACM tool result", async () => {
+    const checkpointResult = await executeCheckpoint(
+      "receipt-checkpoint",
+      { name: "receipt-boundary" },
+      undefined,
+      undefined,
+      checkpointContext().ctx,
+    );
+    expect(checkpointResult.details?.receipt).toEqual({
+      version: 1,
+      toolCallId: "receipt-checkpoint",
+      tool: "acm_checkpoint",
+      outcome: "success",
+      mutationState: "applied",
+      workingSetState: "unchanged",
+    });
+
+    const timelineResult = await executeTimeline(
+      "receipt-timeline",
+      { view: "active" },
+      undefined,
+      undefined,
+      timelineContext(),
+    );
+    expect(timelineResult.details?.receipt).toMatchObject({
+      toolCallId: "receipt-timeline",
+      tool: "acm_timeline",
+      outcome: "success",
+      mutationState: "not_applicable",
+      workingSetState: "unchanged",
+    });
+
+    const travelResult = await executeTravel(
+      "receipt-travel",
+      { target: "entry-1", summary: HANDOFF, backupCurrentHeadAs: "ROOT" },
+      undefined,
+      undefined,
+      checkpointContext().ctx,
+    );
+    expect(travelResult.details?.receipt).toMatchObject({
+      toolCallId: "receipt-travel",
+      tool: "acm_travel",
+      outcome: "failure",
+      mutationState: "not_applied",
+      workingSetState: "unchanged",
+    });
+
+    for (const result of [checkpointResult, timelineResult, travelResult]) {
+      const receiptText = result.content.at(-1)?.text ?? "";
+      expect(receiptText).toStartWith(ACM_RECEIPT_PREFIX);
+      expect(() => JSON.parse(receiptText.slice(ACM_RECEIPT_PREFIX.length))).not.toThrow();
+    }
+  });
   test("rejects every case variant of the reserved structural root name without mutating labels", async () => {
     for (const name of ["root", "ROOT", "Root", "rOoT"]) {
       const { ctx, getAppendCalls } = checkpointContext();
@@ -222,7 +279,16 @@ describe("ACM tool execution contracts", () => {
       undefined,
       indeterminateTravelContext(),
     );
-    expect(result.details).toMatchObject({ error: "branch_failed", branchState: "indeterminate" });
+    expect(result.details).toMatchObject({
+      error: "branch_failed",
+      branchState: "indeterminate",
+      receipt: {
+        toolCallId: "call-5",
+        outcome: "indeterminate",
+        mutationState: "indeterminate",
+        workingSetState: "indeterminate",
+      },
+    });
     expect(result.content[0]?.text).toContain("Branch mutation cannot be excluded");
     expect(result.content[0]?.text).not.toContain("backup pointer");
   });

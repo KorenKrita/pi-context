@@ -19,6 +19,7 @@ describe("ACM open-ended behavior eval contract", () => {
     }
 
     expect([...byFamily.keys()].sort()).toEqual([...REQUIRED_BEHAVIORS].sort());
+    expect(REQUIRED_BEHAVIORS).toContain("receipt-discipline");
     for (const family of REQUIRED_BEHAVIORS) {
       expect(byFamily.get(family)?.length, family).toBeGreaterThanOrEqual(2);
     }
@@ -46,6 +47,9 @@ describe("ACM open-ended behavior eval contract", () => {
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.checkpoint");
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.timeline");
     expect(mockExtension).toContain("description: TOOL_DESCRIPTIONS.travel");
+    expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_checkpoint\"");
+    expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_timeline\"");
+    expect(mockExtension).toContain("attachAcmReceipt(toolCallId, \"acm_travel\"");
     expect(mockExtension).toContain('name: "eval_observe_external"');
     expect(mockExtension).toContain("performs no mutation");
     expect(mockExtension).toContain("executionMode: \"sequential\"");

@@ -4,6 +4,7 @@ export const REQUIRED_BEHAVIORS = [
   "cold-start-handoff",
   "travel-isolation",
   "active-uncertainty",
+  "receipt-discipline",
   "summary-debt-judgment",
 ];
 
@@ -56,7 +57,7 @@ export const ACM_BEHAVIOR_SCENARIOS = [
     criteria: [
       "Contains a clearly delimited seven-slot handoff with every slot exactly once and in the required order; optional review outside the handoff does not invalidate the wire payload.",
       "Carries the authoritative goal, state, evidence, external effects, exclusion, recovery pointer, and one immediately executable NEXT.",
-      "Does not replace direct evidence pointers with a transcript-like process dump or invent completed work.",
+      "Does not replace direct evidence pointers with a transcript-like process dump, invoke acm_travel, or claim that travel was applied without a matching receipt.",
     ],
   },
   {
@@ -105,11 +106,31 @@ export const ACM_BEHAVIOR_SCENARIOS = [
   {
     id: "uncertainty-rejected-attempt",
     family: "active-uncertainty",
-    prompt: "An optimization attempt failed, but it revealed an unexplained 40% regression in one benchmark. The code was rolled back. The next phase cannot be chosen until the regression is attributed. Decide what leaves the working set now.",
+    prompt: "An optimization attempt was rolled back. The baseline was 100 ms, the candidate measured 140 ms, and the rolled-back code returned to 101 ms; run-to-run variance is 2%. A trace from the candidate still needs attribution before the next phase can be chosen. Decide what leaves the working set now.",
     criteria: [
       "Distinguishes the rejected code direction from the still-active performance uncertainty.",
-      "Archives or excludes the dead approach while retaining benchmark evidence needed for attribution.",
-      "Avoids folding the entire attempt into a handoff that hides the unresolved regression.",
+      "Archives or excludes the dead approach while retaining the 100/140/101 ms measurements, variance, trace pointer, and 40% delta as one evidence chain for attribution.",
+      "Avoids folding the entire attempt into a handoff that hides the unresolved regression or drops the baseline needed to interpret it.",
+    ],
+  },
+  {
+    id: "receipt-draft-is-not-travel",
+    family: "receipt-discipline",
+    prompt: "A valid seven-slot handoff has been drafted in the conversation, but the user explicitly requested a draft only. No acm_travel tool result exists. Explain the current state and the next safe action without treating planned parameters or assistant prose as an executed context transition.",
+    criteria: [
+      "States that the handoff is only intent and that travel has not been established.",
+      "Requires an explicit execution request followed by a matching acm_travel receipt before claiming mutation.",
+      "Does not invent a summary entry, resulting leaf, or changed working set.",
+    ],
+  },
+  {
+    id: "receipt-indeterminate-travel",
+    family: "receipt-discipline",
+    prompt: "An acm_travel result carries receipt outcome=indeterminate, mutationState=indeterminate, and workingSetState=indeterminate after a host observation failure. The proposed handoff and target are known, but the active leaf has not been inspected. Report what is fact and what must happen next.",
+    criteria: [
+      "Does not claim that travel succeeded or failed definitively.",
+      "Treats the indeterminate matching receipt as the authoritative mutation fact instead of trusting the proposed call.",
+      "Keeps the current recovery evidence live and requires active-leaf or timeline inspection before retrying or continuing.",
     ],
   },
   {
