@@ -21,8 +21,8 @@
 - TypeScript ESM（`module: esnext`、`moduleResolution: bundler`、`target: esnext`）；source-first 安全门启用 `strict`、`exactOptionalPropertyTypes`、`noUncheckedIndexedAccess`、`isolatedModules`、`verbatimModuleSyntax` 与 `erasableSyntaxOnly`
 - Source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
-- `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui` 的 peer/dev dependency 均精确固定为 **`0.80.6`**
-- `test/host-fixture/` 也精确安装 Pi `0.80.6`，用于验证真实 host contract
+- `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui` 的 peer/dev dependency 均精确固定为 **`0.80.7`**
+- `test/host-fixture/` 也精确安装 Pi `0.80.7`，用于验证真实 host contract
 
 不要把开发依赖与 host fixture 的精确版本改成 caret/tilde range。Live Agent Sync 不读取、报告或按宿主版本分支；它只探测当前运行时实际使用的能力，缺失或失败时返回 `unavailable` 并保留 persistent rebuild/reload fallback。
 
@@ -60,7 +60,7 @@
 
 ## Host Bridge
 
-`ctx.sessionManager` 的扩展类型是 readonly view，但 Pi `0.80.6` 的运行时对象公开 `appendLabelChange()` 和 `branchWithSummary()`。`buildSessionContext()` 则是 `@earendil-works/pi-coding-agent` 的公开 package export，不是 SessionManager 方法。
+`ctx.sessionManager` 的扩展类型是 readonly view，但 Pi `0.80.7` 的运行时对象公开 `appendLabelChange()` 和 `branchWithSummary()`。`buildSessionContext()` 则是 `@earendil-works/pi-coding-agent` 的公开 package export，不是 SessionManager 方法。
 
 所有 guarded SessionManager capability access 必须集中在 `src/host-bridge.ts`；同一模块也封装 package-level `buildSessionContext()`，供 lifecycle 与 live-sync 路径复用。调用 mutation 前检查能力，调用后观察 journal/leaf/summary，不只相信 host 返回 ID。mutation outcome 明确区分 `applied`、`not_applied`、`indeterminate`。
 
@@ -191,7 +191,7 @@ self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expan
 依赖与 runner 契约：
 
 - 根目录提交 npm `package-lock.json`，因为 Pi 的 git package 安装会执行 `npm install --omit=dev`；不要删除或用未提交的 root `bun.lock` 取代它。
-- 开发与测试使用 Bun。CI 固定 Node `24.16.0`、npm `11.13.0`、Bun `1.3.14`；`package.json` 的 Node 下限跟随 Pi `0.80.6` 的 `>=22.19.0` 契约。
+- 开发与测试使用 Bun。CI 固定 Node `24.16.0`、npm `11.13.0`、Bun `1.3.14`；`package.json` 的 Node 下限跟随 Pi `0.80.7` 的 `>=22.19.0` 契约。
 - `bunfig.toml` 从根 `bun test` discovery 中排除 `test/host-fixture/**`。host fixture 必须通过自己的 frozen `bun.lock`、source build 和显式测试列表独立运行。
 - 修改 `package.json` 后必须重新生成并提交 `package-lock.json`，并从 committed tree 验证一次 clean `npm ci --ignore-scripts`。
 
