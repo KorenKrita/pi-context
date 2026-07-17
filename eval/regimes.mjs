@@ -65,7 +65,10 @@ const rows = turns.map((events, i) => {
   for (const e of events) {
     if (e.type === "message_end" && e.message?.role === "assistant" && e.message?.usage) {
       const v = contextTokens(e.message.usage);
-      if (v != null) ctx = v; // last assistant usage ≈ end-of-turn context size
+      // Max per turn, not last: a mid-turn travel shrinks the context of the
+      // messages after it, so the last reading would hide the pre-travel peak
+      // (and with it, a 30% tier crossing that really fired).
+      if (v != null) ctx = Math.max(ctx ?? 0, v);
     }
     if (e.type === "tool_execution_end" && e.toolName === "acm_travel") {
       if (e.isError === true) travelFail++;
@@ -86,8 +89,11 @@ const travelIdx = rows.findIndex((r) => r.travelOk);
 
 let prevCtx = null;
 for (const r of rows) {
-  r.regime = r.i < crossedIdx ? "A" : travelIdx >= 0 && r.i > travelIdx ? "C" : "B";
-  r.drop = prevCtx != null && r.ctx != null && r.ctx < prevCtx * 0.6 && !r.travelOk;
+  // C is checked first: a travel before the threshold crossing still starts a
+  // post-travel segment (opus folded at 21% with zero nudges — that segment is
+  // the habit-persistence observation, not a pressure regime).
+  r.regime = travelIdx >= 0 && r.i > travelIdx ? "C" : r.i < crossedIdx ? "A" : "B";
+  r.drop = prevCtx != null && r.ctx != null && r.ctx < prevCtx * 0.6 && !r.travelOk && !rows[r.i - 1]?.travelOk;
   if (r.ctx != null) prevCtx = r.ctx;
 }
 
