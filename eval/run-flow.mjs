@@ -48,6 +48,7 @@ const modelSpec = parseModel(option("--model") ?? process.env.ACM_EVAL_MODEL, {
 const thinkingLevel = option("--thinking") ?? process.env.ACM_EVAL_THINKING ?? "off";
 const variant = option("--variant") ?? process.env.ACM_EVAL_VARIANT ?? "HEAD";
 const contextWindow = Number(option("--context-window") ?? 60000);
+const shrink = !flag("--native"); // --native keeps the model's real window; the % nudge then rarely fires
 const judgeModel = parseModel(option("--judge-model"), JUDGE_MODEL);
 const judgeThinking = option("--judge-thinking") ?? "high";
 const doJudge = !flag("--no-judge");
@@ -63,13 +64,13 @@ try {
   gitHead = execSync("git rev-parse --short HEAD", { cwd: join(extensionPath, "..", ".."), encoding: "utf8" }).trim();
 } catch { /* not a git checkout */ }
 
-const agentDir = buildAgentDir({ contextWindow, label: process.env.ACM_AGENT_LABEL });
+const agentDir = buildAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`);
 const workspace = join(runDir, "workspace");
 cpSync(flow.seedDir, workspace, { recursive: true });
 
 console.log(`flow=${flow.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
-console.log(`variant=${variant} gitHead=${gitHead} contextWindow=${contextWindow}`);
+console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWindow : "native"}`);
 console.log(`run dir: ${runDir}`);
 
 const driver = new PiRpcDriver({
@@ -117,6 +118,7 @@ const report = {
   variant,
   gitHead,
   contextWindow,
+  shrink,
   runError,
   turns: turnRecords.map((t) => ({
     phase: t.phase,
