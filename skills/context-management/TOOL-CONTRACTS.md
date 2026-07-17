@@ -42,6 +42,7 @@ acm_timeline reports facts — spine, save points, summary depth, usage. Judgmen
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
 acm_travel is a normal working move — fold finished process into a handoff as readily as you save a checkpoint; only an explicit user request to hold travel suspends it, and only for the scope the user names.
+An acm_travel fold is context hygiene, not the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
 Run acm_travel alone in its assistant tool batch, and read its result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 

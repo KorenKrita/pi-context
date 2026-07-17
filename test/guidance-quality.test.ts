@@ -36,6 +36,7 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("folding is the default, not an optional extra");
     expect(ACM_CORE).toContain("low usage is never by itself a reason to keep raw process live");
     expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
+    expect(ACM_CORE).toContain("a habit set by the rhythm of the work");
   });
 
   test("keeps one cold-start handoff example carrying live cognition", () => {
