@@ -35,15 +35,20 @@ export class PiRpcDriver {
   }
 
   start() {
-    const args = [
-      "--mode", "rpc",
-      "--no-extensions",
-      "--no-skills",
-      "--no-prompt-templates",
-      "--no-themes",
-      "--no-context-files",
-      "--approve"
-    ];
+    // fullEnv mode keeps the user's real extensions/skills/templates/context
+    // files (production fidelity); the default bare mode strips them so the
+    // extension's guidance is measured alone (de-primed by design).
+    const args = ["--mode", "rpc"];
+    if (!this.options.fullEnv) {
+      args.push(
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-themes",
+        "--no-context-files",
+      );
+    }
+    args.push("--approve");
     if (this.options.extensionPath) {
       args.push("-e", this.options.extensionPath);
     }

@@ -15,9 +15,10 @@
 // Writes eval/.runs/<stamp>-flow-<model>/{report.json, transcript.txt, verdict.json}.
 
 import { execSync } from "node:child_process";
-import { cpSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildAgentDir, createRunDir, EXTENSION_PATH } from "./setup.mjs";
+import { buildAgentDir, buildFullEnvAgentDir, createRunDir, EXTENSION_PATH } from "./setup.mjs";
 import { PiRpcDriver } from "./driver.mjs";
 import { extractAssistantTexts, extractToolCalls } from "./scenarios.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
@@ -49,6 +50,7 @@ const thinkingLevel = option("--thinking") ?? process.env.ACM_EVAL_THINKING ?? "
 const variant = option("--variant") ?? process.env.ACM_EVAL_VARIANT ?? "HEAD";
 const contextWindow = Number(option("--context-window") ?? 60000);
 const shrink = !flag("--native"); // --native keeps the model's real window; the % nudge then rarely fires
+const fullEnv = flag("--full-env"); // load the user's real config (minus pi-context) instead of the bare de-primed env
 const judgeModel = parseModel(option("--judge-model"), JUDGE_MODEL);
 const judgeThinking = option("--judge-thinking") ?? "high";
 const doJudge = !flag("--no-judge");
@@ -64,13 +66,18 @@ try {
   gitHead = execSync("git rev-parse --short HEAD", { cwd: join(extensionPath, "..", ".."), encoding: "utf8" }).trim();
 } catch { /* not a git checkout */ }
 
-const agentDir = buildAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL });
+const agentDir = fullEnv
+  ? buildFullEnvAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL })
+  : buildAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`);
-const workspace = join(runDir, "workspace");
+// full-env runs must NOT keep the workspace inside this repo: cwd-ancestry
+// context-file discovery would find the repo's own AGENTS.md (the ACM design
+// doc) and leak it into the tested agent's prompt.
+const workspace = fullEnv ? mkdtempSync(join(tmpdir(), "acm-flow-ws-")) : join(runDir, "workspace");
 cpSync(flow.seedDir, workspace, { recursive: true });
 
 console.log(`flow=${flow.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
-console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWindow : "native"}`);
+console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWindow : "native"}${fullEnv ? " full-env" : ""}`);
 console.log(`run dir: ${runDir}`);
 
 const driver = new PiRpcDriver({
@@ -81,6 +88,7 @@ const driver = new PiRpcDriver({
   provider: modelSpec.provider,
   modelId: modelSpec.modelId,
   thinkingLevel,
+  fullEnv,
   eventLogPath: join(runDir, "events.jsonl"),
 });
 
@@ -119,7 +127,9 @@ const report = {
   gitHead,
   contextWindow,
   shrink,
+  fullEnv,
   runError,
+  workspace, // full-env runs live outside the repo; kept for post-hoc inspection
   turns: turnRecords.map((t) => ({
     phase: t.phase,
     toolCallCount: t.toolCalls.length,
