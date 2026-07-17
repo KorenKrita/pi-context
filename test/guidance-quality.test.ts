@@ -23,6 +23,7 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("Folding mid-investigation is fine");
     expect(ACM_CORE).toContain("Root is a candidate, never a default");
     expect(ACM_CORE).toContain("travel back carrying the extract");
+    expect(ACM_CORE).toContain("as recoverable as a save");
   });
 
   test("frames cadence as a band between sediment and thrash with a cruise preference", () => {
@@ -32,7 +33,8 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).toContain("**Thrash**");
     expect(ACM_CORE).toContain("around a third of the working budget");
     expect(ACM_CORE).toContain("That is a preference, never an override");
-    expect(ACM_CORE).toContain("the weighing, not the fold");
+    expect(ACM_CORE).toContain("folding is the default, not an optional extra");
+    expect(ACM_CORE).toContain("low usage is never by itself a reason to keep raw process live");
     expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
   });
 

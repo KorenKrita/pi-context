@@ -41,7 +41,7 @@ acm_timeline reports facts — spine, save points, summary depth, usage. Judgmen
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-acm_travel is autonomous by default; only an explicit user request to hold travel suspends it, and only for the scope the user names.
+acm_travel is a normal working move — fold finished process into a handoff as readily as you save a checkpoint; only an explicit user request to hold travel suspends it, and only for the scope the user names.
 Run acm_travel alone in its assistant tool batch, and read its result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
@@ -56,11 +56,11 @@ Travel applied: the handoff is now the working set. Verify target, summary leaf,
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another. Weigh a rebase: one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
+This spine already carries handoff layers; the next fold would stack another. Rebase instead: merge surviving state into one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-`active` is the spine the model sees. If sediment is visible — distilled bursts, rejected directions, finished phases — weigh a fold; otherwise continue working.
+`active` is the spine the model sees. If sediment is visible — distilled bursts, rejected directions, finished phases — fold it into a handoff; keep working raw only when you can name why it must stay live.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->

@@ -152,8 +152,8 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Working-budget pressure has left the comfortable cruise range. Keep integrating as you work, and note where a distilled burst, closed direction, or finished phase would make a clean fold — an acm_checkpoint at that boundary now makes the later fold cheap.",
-        "Nothing is required now: a fold is only as good as its cold-start handoff, and correctness always outranks a smaller number.",
+        "Working-budget pressure has left the comfortable cruise range — this is where folding pays off. If a burst has been distilled, a direction closed, or a phase finished, fold that raw process into a cold-start handoff now and carry pointers instead of the trail; if you are mid-step, drop an acm_checkpoint at the boundary so the fold stays cheap.",
+        "A fold is as recoverable as a save, so the bar is a faithful cold-start handoff, not a smaller number. Keep live only what NEXT will reason over.",
       ]
     : nudge.level === 50
       ? [

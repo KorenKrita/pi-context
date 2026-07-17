@@ -98,7 +98,7 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
     expect(fixture.sentMessages[0]?.message.content).toContain("comfortable cruise range");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Nothing is required now");
+    expect(fixture.sentMessages[0]?.message.content).toContain("fold that raw process into a cold-start handoff now");
     expect(fixture.sentMessages[0]?.message.content).toContain("acm_checkpoint");
 
     fixture.setUsagePercent(35);
