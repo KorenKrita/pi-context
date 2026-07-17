@@ -23,6 +23,8 @@ export class AcmSessionRuntime {
   private readonly contextUsageNudges = new WeakMap<object, {
     highestReachedLevel: 0 | ContextUsageNudgeLevel;
     baselinePending?: boolean;
+    /** Landing tier seeded by a successful travel; wins over the first real sample when the baseline is established. */
+    seededBaselineLevel?: 0 | ContextUsageNudgeLevel;
     pending?: PendingContextUsageNudge;
   }>();
 
@@ -73,13 +75,18 @@ export class AcmSessionRuntime {
     const level = classifyContextUsageNudgeLevel(pressure.pressurePercent);
     if (state.baselinePending) {
       if (!establishBaseline) return undefined;
-      state.highestReachedLevel = level;
+      // A travel-seeded landing tier wins over the first real sample: same-turn
+      // regrowth after a shallow fold must not consume tiers the cycle never
+      // reminded about. Unseeded cycles (compaction, manual /tree) keep the
+      // sampled level, preserving their quiet period.
+      state.highestReachedLevel = state.seededBaselineLevel ?? level;
+      delete state.seededBaselineLevel;
       state.baselinePending = false;
       delete state.pending;
       this.contextUsageNudges.set(session, state);
       return {
         kind: "context-usage-baseline",
-        highestReachedLevel: level,
+        highestReachedLevel: state.highestReachedLevel,
         ...pressure,
       };
     }
@@ -108,6 +115,19 @@ export class AcmSessionRuntime {
       highestReachedLevel: 0,
       baselinePending: true,
     });
+  }
+
+  /**
+   * Seed the pending cycle's baseline tier from a successful travel's verified
+   * landing estimate. The first real post-transition usage still establishes
+   * (and persists) the baseline, but the seeded tier — not that sample's tier —
+   * becomes highestReachedLevel, so tiers above the landing point stay armed.
+   */
+  seedContextUsageNudgeBaseline(session: object, landingLevel: 0 | ContextUsageNudgeLevel): void {
+    const state = this.contextUsageNudges.get(session);
+    if (!state?.baselinePending) return;
+    state.seededBaselineLevel = landingLevel;
+    this.contextUsageNudges.set(session, state);
   }
 
   clear(session: object): void {
