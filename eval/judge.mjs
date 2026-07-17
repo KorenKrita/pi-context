@@ -71,7 +71,7 @@ function buildOpportunityKey(opportunities) {
     .join("\n");
 }
 
-function buildJudgePrompt({ opportunities, transcript }) {
+function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc }) {
   return `你是 ACM(Agentic Context Management)行为的资深评审。你要评估一个编码 agent 在一段真实开发会话里,\
 **在完全没有被提示的情况下**,是否恰当地主动管理了自己的上下文(working set)。
 
@@ -98,8 +98,8 @@ ${buildOpportunityKey(opportunities)}
    而不是就近的标签(anchor gravity)。
 5. **ceiling 天花板**:是否出现高级/涌现操作——fork、rehydrate 往返、rebase 到最早安全基底、精确 target 选择,\
    乃至设计者都没预设的巧妙用法。强模型在这里加分,弱模型给 0-1 不扣激活分。
-6. **task_completion 任务完成度**:编码活儿本身做得如何(bug 修没修对、重构行为是否一致、--json 是否正确、测试是否绿)。\
-   用来抓"为折而折拖垮任务"。
+6. **task_completion 任务完成度**:${taskCompletionDesc ?? "任务本身做得如何。"}\
+   用来抓"为折而折拖垮任务"(折叠拖垮或折坏导致任务事实性变差,就是 task 受损)。
 
 ## attribution 标签(每维度选最贴切的一个)
 healthy / never-activated / event-driven-overfold / negation-suppressed-inaction / bad-handoff / \
@@ -171,7 +171,7 @@ export function parseVerdict(text) {
 export async function judgeRun(options) {
   const model = options.model ?? JUDGE_MODEL;
   const transcript = buildTranscript(options.turnRecords);
-  const prompt = buildJudgePrompt({ opportunities: options.opportunities, transcript });
+  const prompt = buildJudgePrompt({ opportunities: options.opportunities, transcript, taskCompletionDesc: options.taskCompletionDesc });
 
   const driver = new PiRpcDriver({
     cwd: options.cwd,

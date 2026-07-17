@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { buildAgentDir, createRunDir, EXTENSION_PATH } from "./setup.mjs";
 import { PiRpcDriver } from "./driver.mjs";
 import { extractAssistantTexts, extractToolCalls } from "./scenarios.mjs";
-import { LONG_FLOW } from "./flow.mjs";
+import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
 
 function option(name, fallback) {
@@ -53,6 +53,10 @@ const judgeThinking = option("--judge-thinking") ?? "high";
 const doJudge = !flag("--no-judge");
 const extensionPath = option("--extension") ?? EXTENSION_PATH;
 const timeoutScale = Number(option("--timeout-scale") ?? 1);
+const flow = getFlow(option("--flow") ?? process.env.ACM_EVAL_FLOW ?? "exprlang-long-flow");
+if (!flow) {
+  throw new Error(`unknown --flow; known flows: ${listFlows().map((f) => f.id).join(", ")}`);
+}
 
 let gitHead = "unknown";
 try {
@@ -62,9 +66,9 @@ try {
 const agentDir = buildAgentDir({ contextWindow, label: process.env.ACM_AGENT_LABEL });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`);
 const workspace = join(runDir, "workspace");
-cpSync(LONG_FLOW.seedDir, workspace, { recursive: true });
+cpSync(flow.seedDir, workspace, { recursive: true });
 
-console.log(`flow=${LONG_FLOW.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
+console.log(`flow=${flow.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
 console.log(`variant=${variant} gitHead=${gitHead} contextWindow=${contextWindow}`);
 console.log(`run dir: ${runDir}`);
 
@@ -85,7 +89,7 @@ const started = Date.now();
 
 driver.start();
 try {
-  for (const turn of LONG_FLOW.turns) {
+  for (const turn of flow.turns) {
     console.log(`\n=== ${turn.phase} ===`);
     const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
     const toolCalls = extractToolCalls(events);
@@ -103,7 +107,7 @@ try {
 }
 
 const report = {
-  flowId: LONG_FLOW.id,
+  flowId: flow.id,
   rubricVersion: RUBRIC_VERSION,
   startedAt: new Date(started).toISOString(),
   finishedAt: new Date().toISOString(),
@@ -138,7 +142,8 @@ if (doJudge) {
   try {
     const result = await judgeRun({
       turnRecords,
-      opportunities: LONG_FLOW.turns.map((t) => ({ phase: t.phase, intent: t.intent })),
+      opportunities: flow.turns.map((t) => ({ phase: t.phase, intent: t.intent })),
+      taskCompletionDesc: flow.taskCompletionDesc,
       judgeAgentDir,
       sessionDir: judgeSessions,
       cwd: judgeWorkspace,
