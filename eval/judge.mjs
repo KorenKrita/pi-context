@@ -71,7 +71,7 @@ function buildOpportunityKey(opportunities) {
     .join("\n");
 }
 
-function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc }) {
+export function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc }) {
   return `你是 ACM(Agentic Context Management)行为的资深评审。你要评估一个编码 agent 在一段真实开发会话里,\
 **在完全没有被提示的情况下**,是否恰当地主动管理了自己的上下文(working set)。
 
