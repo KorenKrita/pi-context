@@ -67,7 +67,7 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 ```
 
 物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：离开舒适巡航区，留意下一个已提炼完、可干净折叠的语义批次——现在在边界打一个 `acm_checkpoint` 会让之后的 fold 更便宜；
+- **30%**：离开舒适巡航区——正是折叠开始见效的地方。若一批过程已提炼完、一个方向已关闭或一个阶段已结束，现在就把那段原始过程 fold 成可通过 cold start 的 handoff，用 pointer 代替流水；若正处在步骤中途，在边界打一个 `acm_checkpoint` 让之后的 fold 更便宜。fold 与 save 一样可恢复，所以门槛是忠实的 cold-start handoff，而不是更小的数字；
 - **50%**：主动寻找下一个值得 fold 或 rebase 的表示增益，按批次提交而不是逐步支付；批次不明确时用 `acm_timeline`（active 视图）查看 spine 上还承载着什么；
 - **70%**：当前周期最后一次提醒，构造能通过 cold start 的最小 handoff，在最近的安全时机 `acm_travel`。
 
