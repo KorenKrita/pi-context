@@ -320,6 +320,10 @@ describe("ACM context usage reminders", () => {
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
     expect(fixture.sentMessages).toHaveLength(1);
 
+    // The travel's landing estimate (~30%) seeds the cycle baseline: the first
+    // real sample (28K) still establishes and persists the baseline, but the
+    // seeded tier — not the sample's tier — becomes highestReachedLevel, so
+    // 31% does not re-remind and the next reminder waits for the 50% tier.
     await fixture.emit("turn_end", {
       message: {
         role: "assistant",
@@ -330,8 +334,68 @@ describe("ACM context usage reminders", () => {
     fixture.setUsagePercent(31);
     await fixture.emit("context", { messages: [] });
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-3", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(1);
+
+    fixture.setUsagePercent(55);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-4", content: [], isError: false });
     expect(fixture.sentMessages).toHaveLength(2);
-    expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 30 });
+    expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 50 });
+  });
+
+  test("a travel-seeded baseline keeps tiers above the landing point armed despite same-turn regrowth", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "work to archive", timestamp: Date.now() });
+    const fixture = createFixture(sessionManager);
+
+    fixture.setUsagePercent(45);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-1", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(1);
+
+    const travelTool = fixture.tools.get("acm_travel");
+    expect(travelTool).toBeDefined();
+    const travelResult = await travelTool.execute(
+      "travel-1",
+      {
+        target: rootId,
+        summary: [
+          "Goal: verify seeded baseline after travel",
+          "State: travel completed",
+          "Evidence: lifecycle test",
+          "External: none",
+          "Exclusions: none",
+          "Recover: root",
+          "NEXT: continue testing context reminders",
+        ].join("\n"),
+      },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(travelResult.details?.error).toBeUndefined();
+
+    // Same-turn regrowth: the first real post-transition sample already sits at
+    // 52%, but the landing estimate (~45%) seeded tier 30 — the baseline must
+    // record 30, not the sampled 50.
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 52_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(fixture.appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: expect.objectContaining({ kind: "context-usage-baseline", highestReachedLevel: 30 }),
+    });
+
+    // The 50% tier was never reminded in this cycle, so crossing it fires.
+    fixture.setUsagePercent(55);
+    await fixture.emit("context", { messages: [] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(2);
+    expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 50 });
   });
 
   test("a native tree-navigation summary is a cycle boundary on restore", async () => {
