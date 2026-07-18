@@ -64,7 +64,10 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).not.toContain("-paused");
     expect(ACM_CORE).not.toContain("`<chain>-start`");
     expect(ACM_CORE).not.toContain("first action");
-    expect(ACM_CORE.length).toBeLessThan(6000);
+    // Budget raised 6000 → 6500 for the Phase-8 evidence-driven additions
+    // (backup-channel disambiguation, fold self-check, two seam cues); every
+    // pre-existing doctrine sentence stays pinned verbatim by the tests above.
+    expect(ACM_CORE.length).toBeLessThan(6500);
   });
 
   test("keeps receipt discipline and external-state honesty", () => {
