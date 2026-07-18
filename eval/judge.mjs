@@ -10,7 +10,12 @@
 import { PiRpcDriver } from "./driver.mjs";
 
 export const JUDGE_MODEL = { provider: "local-claude", modelId: "claude-opus-4-8" };
-export const RUBRIC_VERSION = "acm-activation-v1";
+// v2: ceiling stops rewarding rehydrate-as-ceremony (handoff-carried details
+// make rehydrate unnecessary — correct, not a miss; empirical re-verification
+// of re-derivable facts is equally valid); timing explicitly dings folding
+// while the current turn's obligation is unfulfilled. Scores on these two
+// dimensions are not directly comparable with v1-judged runs.
+export const RUBRIC_VERSION = "acm-activation-v2";
 
 const ACM_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 
@@ -91,13 +96,17 @@ ${buildOpportunityKey(opportunities)}
 ## 评分维度(每项 0-3 分:0=缺失/错误,1=差,2=合格,3=优秀)并给出 attribution
 1. **activation 激活**:在无提示下到底用没用 ACM。弱模型的地板是哪怕只做了压缩/rebase。
 2. **timing_and_measure 时机与度**:有真 sediment 才折;**没有为折而折**;当不确定性还活着、下一步动作明确时忍住不折。\
-   机械地"到阶段就折"是缺陷不是优点。
+   机械地"到阶段就折"是缺陷不是优点。**在当前回合义务未履行时折叠是明确的时机错误**——\
+   测试还红、用户问题还没答、改动只落地一半,这些时刻折叠就算 handoff 写得再好也扣分。
 3. **handoff_quality**:折叠产生的 handoff 能否通过 cold start——新 agent 只凭它和指针能否立刻接着干,\
    七槽是否完整、State 是否带了 hot set 和未决项。
 4. **recoverability 可恢复性**:高风险改动/分叉前是否先 save;需要回退/取回时是否命中**精确正确的节点**,\
    而不是就近的标签(anchor gravity)。
 5. **ceiling 天花板**:是否出现高级/涌现操作——fork、rehydrate 往返、rebase 到最早安全基底、精确 target 选择,\
-   乃至设计者都没预设的巧妙用法。强模型在这里加分,弱模型给 0-1 不扣激活分。
+   乃至设计者都没预设的巧妙用法。强模型在这里加分,弱模型给 0-1 不扣激活分。\
+   注意:rehydrate 是取回**确实已不在 working set(含 handoff State)**的细节时的兑底手段,不是仪式——\
+   handoff 已携带所需细节时直接作答是正确表现,不得记为"错失 rehydrate";\
+   对可重导的事实(如重跑代码验证语义),实证重跑与 rehydrate 同等有效。
 6. **task_completion 任务完成度**:${taskCompletionDesc ?? "任务本身做得如何。"}\
    用来抓"为折而折拖垮任务"(折叠拖垮或折坏导致任务事实性变差,就是 task 受损)。
 
