@@ -93,10 +93,66 @@ pathological cell. fable is a safe second (late but sane). pr12 is too
 variance-heavy to ship as-is. pr14 actively suppresses folding. fableprev
 explains why the redesign was needed.
 
-## Artifacts
+## Replication addendum (2026-07-18): is head's weak-cell data noise?
 
+n=1 per cell is the matrix's soft spot. Before touching guidance text, the two
+weakest head cells — opus (2/3 mid) and terra (2/3 strong) — were replicated
+twice each (same config: full-env, 400K, XL flow, --timeout-scale 2;
+variants `p8head-r2`/`p8head-r3`, gitHead ddee1708 with src/skills identical
+to c0383eec).
+
+### terra-head: stable phenotype (3/3 samples agree)
+
+| sample | fold | nudge order | handoff | overall |
+|---|---|---|---|---|
+| original | P8 + P14 | nudge-adjacent | 3/3 | 2/3 strong |
+| rep2 | P10 (double travel + rebase-to-root) | nudge first | 3/3 | 2/3 strong |
+| rep3 | P8 | nudge first | 3/3 | 2/3 strong |
+
+Every sample: fold at P8–P10, nudge-responsive, handoff 3/3, 2/3 strong.
+terra under head is a **stable pressure-responsive folder**. Consistent
+deductions: sparse activation (one fold then stops), P13 rehydrate and P14
+rebase opportunities missed in all samples.
+
+### opus-head: bimodal (activation is a coin flip)
+
+| sample | fold | overall | recoverability |
+|---|---|---|---|
+| original | P10 (nudge) | 2/3 mid | 1 (file-backup substitution) |
+| rep2 | **zero ACM** | 1/3 strong | 0 (relied on `~/.pi/backups` entirely) |
+| rep3 | P10 (nudge) | 2/3 mid | 1 (no save-before-risk at P3) |
+
+2/3 samples activate; when opus activates the behavior is identical every
+time (P10, nudge-first, rebase-to-root, handoff 3/3). When it doesn't, it
+goes fully cold and substitutes `~/.pi/backups` file backups + todo lists
+for all context management. **All three samples show the file-backup channel
+competing with acm_checkpoint for the save instinct** — the user's AGENTS.md
+backup rule fires in the eval workspace and reads as "recoverability handled".
+
+### What this changes for v4
+
+1. **Backup-channel disambiguation becomes the highest-value text change.**
+   opus's zero-activation mode and its reco=1 share one root cause; one line
+   ("file backups protect the disk, checkpoints protect conversation state")
+   targets both.
+2. **Seam-cue enrichment stays second.** terra's uniform misses (P13
+   rehydrate, P14 rebase) are exactly what "final answer next → rebase check"
+   and "new request over finished work → fold first" cues address.
+3. **Fold-criteria self-check demoted to nice-to-have** — all 5 folding
+   samples scored handoff 3/3; the seven-slot contract transmits fine.
+4. **Sub-threshold persuasion for terra/opus dropped as a goal.** terra's
+   nudge-responsive folding is stable and by design (Phase-7: the claude/terra
+   line runs on the active signal lever). opus's problem is activation rate,
+   not fold timing.
+
+v4 acceptance bar revised: opus zero-ACM rate eliminated across 3 samples,
+terra/opus recoverability ≥ 2, gpt55/sol stay pathology-free.
+
+## Artifacts
 - Runs: `eval/.runs/2026-07-17T1[67]*-flow-{gpt-5.5,gpt-5.6-sol,gpt-5.6-terra,claude-opus-4-8}-p*`
   (r1 timed-out runs superseded by r2: terra-head/fableprev, sol-head/fable, gpt55-fableprev)
+- Replication runs: `eval/.runs/2026-07-18T01-14-23-642Z-flow-{claude-opus-4-8,gpt-5.6-terra}-p315*`
+  (variants p8head-r2/r3)
 - Re-judge tool: `bun eval/rejudge.mjs <runDir>...` (rebuilds judge prompt from
   persisted transcript.txt; used for 3 parse-failed runs)
 - Reproduce: `bun eval/run-flow.mjs --model <spec> --thinking <lvl> --variant p8<col> --full-env --context-window 400000 --flow exprlang-xl-flow --timeout-scale 2`
