@@ -27,7 +27,7 @@ export function formatBoundaryTravelCue(nearestCheckpointName: string | null): s
  if (nearestCheckpointName === null) {
   return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
  }
- return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads. If the target stays ambiguous, load the context-management Skill and then references/target-selection.md`;
+ return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads. If the target stays ambiguous, load the context-management Skill and then references/target-selection.md only when it is present in your available Skills list; otherwise do not search the filesystem for it`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };
