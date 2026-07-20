@@ -423,6 +423,7 @@ export const SCENARIOS = [
           "Keep payments-latency-findings in Recover as the precise archived findings save point; it is recovery evidence, not this fold target.",
           "The handoff NEXT must be one action only: write next-action.md containing `pool max=50`,",
           "`retry commit=9f31c2a`, and `next file to inspect: services/payments/client.ts backoff bounds`.",
+          "All facts needed for that write already belong in State/NEXT. Use direct carried facts or `none` in Evidence; do not name findings.md or another file as something to reread. External is `none`.",
           "Do not inspect that source file yet; this step only writes the carried action note.",
           "After a successful travel, make that write your first useful tool action directly.",
           "Do not reread findings.md, call acm_timeline, or inspect an archive before writing next-action.md.",

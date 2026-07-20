@@ -13,7 +13,7 @@ export const StructuredHandoffSchema = Type.Object({
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and pointers supporting State or enabling optional later retrieval. Write 'none' when empty; this is not a verification checklist.",
+    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT. When State already carries the facts needed next, do not point back to folded material merely to reread it. Write 'none' when empty.",
   }),
   external: Type.String({
     minLength: 1,

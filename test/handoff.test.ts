@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ACM_CONTINUATION_MARKER,
   buildCanonicalHandoff,
+  StructuredHandoffSchema,
   type HandoffInput,
 } from "../src/handoff";
 
@@ -19,6 +20,11 @@ function handoff(overrides: Partial<HandoffInput> = {}): HandoffInput {
 }
 
 describe("canonical handoff", () => {
+  test("keeps Evidence optional and non-blocking for NEXT", () => {
+    expect(StructuredHandoffSchema.properties.evidence.description).toContain("never a verification checklist or a prerequisite to NEXT");
+    expect(StructuredHandoffSchema.properties.evidence.description).toContain("do not point back to folded material merely to reread it");
+  });
+
   test("renders multiline fields without exposing continuation lines as new slots", () => {
     const result = buildCanonicalHandoff(handoff());
 
