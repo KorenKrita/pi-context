@@ -35,6 +35,41 @@ root → summary A → summary B → summary C → current work
 
 扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。复杂的 target selection、archive round trip 和异常恢复按需从 advanced Skill 加载，不会把整套 playbook 常驻在上下文里。
 
+### `acm_travel` v3 structured handoff
+
+`3.0.0` 将 agent-facing travel 参数从自由字符串 `summary` 改为 required structured `handoff`。Runtime 负责验证字段并生成持久化的七槽文本，模型不再手写 header、顺序、冒号或 line-start grammar。
+
+旧调用：
+
+```json
+{
+  "target": "parser-baseline",
+  "summary": "Goal: ...\nState: ...\nEvidence: ...\nExternal: none\nExclusions: none\nRecover: parser-raw\nNEXT: ..."
+}
+```
+
+新调用：
+
+```json
+{
+  "target": "parser-baseline",
+  "handoff": {
+    "goal": "完成 parser migration 并保持现有行为。",
+    "state": "实现已完成，测试通过；仍需更新 README 示例。",
+    "evidence": "bun test；src/parser.ts；test/parser.test.ts",
+    "external": "src/parser.ts 已修改，尚未提交。",
+    "exclusions": "不再尝试 recursive-descent 方案。",
+    "recover": "parser-raw",
+    "next": "更新 README 中的 parser 示例。"
+  },
+  "backupCurrentHeadAs": "parser-raw"
+}
+```
+
+七个字段都必须存在。`goal`、`state`、`next` 必须包含真实内容；其余字段为空时显式写 `none`。字段值可以多行，没有人为 handoff 长度上限。`backupCurrentHeadAs` 成功时，runtime 会把 raw archive alias 确定性地写入持久 handoff 的 `Recover`。
+
+既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
+
 ## Semantic rebase
 
 普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。
@@ -67,9 +102,9 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 ```
 
 物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：离开舒适巡航区——正是折叠开始见效的地方。若一批过程已提炼完、一个方向已关闭或一个阶段已结束，现在就把那段原始过程 fold 成可通过 cold start 的 handoff，用 pointer 代替流水；若正处在步骤中途，在边界打一个 `acm_checkpoint` 让之后的 fold 更便宜。fold 与 save 一样可恢复，所以门槛是忠实的 cold-start handoff，而不是更小的数字；
-- **50%**：主动寻找下一个值得 fold 或 rebase 的表示增益，按批次提交而不是逐步支付；批次不明确时用 `acm_timeline`（active 视图）查看 spine 上还承载着什么；
-- **70%**：当前周期最后一次提醒，构造能通过 cold start 的最小 handoff，在最近的安全时机 `acm_travel`。
+- **30%**：离开舒适巡航区，重新运行 ACM Judgment：是否存在低价值高噪声的 Compression Candidate，未来仍需的信息能否显著更简练地表示；有未来返回价值时 checkpoint 是近似免费的 recovery option，topology evidence 有帮助时查看 timeline；
+- **50%**：显式比较 Candidate、Compressibility、Attention effect、Recovery value 与 Transition effect，再从 continue、checkpoint、timeline、travel、rebase、rehydrate 中选择整体任务净效果最好的 move；
+- **70%**：当前周期最后一次提醒，提高 attention interference 的权重但保持同一判断过程；存在正净收益就行动，当前 raw detail 仍是最佳 working set 时继续正确工作，并允许 native compaction 处理真正的长任务。
 
 提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
 
@@ -84,6 +119,8 @@ pressurePercent = activeTokens / workingBudgetTokens × 100
 Pi 版本保留独有的 `/context` 命令，用于查看当前上下文的分类占用、校准后的 token 估算和 compaction-aware 消息构成。该面板仅在 TUI mode 可用；RPC、JSON 与 print mode 会跳过 terminal UI。它是诊断界面，不会修改会话树。
 
 ## 安装
+
+这个 fork 当前是 **GitHub-only package**，并通过 `package.json` 的 `private` 标记阻止误发布到 npm。未带 scope 的 npm 包名 `pi-context` 属于上游项目；不要用 `npm install pi-context` 安装本 fork。
 
 ### 本地安装
 

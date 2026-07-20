@@ -152,17 +152,17 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
 
   const guidance = nudge.level === 30
     ? [
-        "Working-budget pressure has left the comfortable cruise range — this is where folding pays off. If a burst has been distilled, a direction closed, or a phase finished, fold that raw process into a cold-start handoff now and carry pointers instead of the trail; if you are mid-step, drop an acm_checkpoint at the boundary so the fold stays cheap.",
-        "A fold is as recoverable as a save, so the bar is a faithful cold-start handoff, not a smaller number. Keep live only what NEXT will reason over.",
+        "Working-budget pressure has left the comfortable cruise range. Run ACM Judgment: identify material whose attention value is lower than its noise or competition cost, and ask whether future-needed value can be represented substantially more concisely.",
+        "A useful acm_checkpoint is a near-free recovery option and activation foothold; acm_timeline can add topology evidence. Choose continue, save, orient, or travel only by expected net task effect — pressure alone is not move permission.",
       ]
     : nudge.level === 50
       ? [
-          "Working-budget pressure is material. Actively look for the next worthwhile fold or rebase — distilled findings, rejected directions, stacked summaries — and commit them as one batched handoff rather than paying travel cost per step. If the batch is unclear, acm_timeline (view active) shows what the spine still carries.",
-          "Carry the hot set and honest uncertainty through the fold; a save point plus pointers keeps everything else recoverable.",
+          "Working-budget pressure is material. Explicitly compare Compression Candidate, Compressibility, Attention effect, Recovery value, and Transition effect; use acm_timeline when spine or target evidence would improve that judgment.",
+          "Choose continue, checkpoint, timeline, travel, rebase, or rehydrate according to the best expected task effect. Any handoff must preserve the hot set, honest uncertainty, current obligations, and direct pointers.",
         ]
       : [
-          "Working-budget pressure is high; attention is the scarce resource now. Shape the smallest handoff that passes cold start — knowns, open unknowns, hot set, evidence pointers, external effects, one executable NEXT — and acm_travel at the next safe moment.",
-          "If no safe fold exists, continue correctly and let native compaction handle a genuinely long run. Never trade cold start for a smaller number.",
+          "Working-budget pressure is high; attention is scarce. Run the same ACM Judgment now, giving extra weight to attention interference while preserving task continuity and future-self trust.",
+          "When a move has positive net effect, take it with a faithful handoff; when the current raw detail remains the best working set, continue correctly and let native compaction handle genuinely long work.",
         ];
 
   return {

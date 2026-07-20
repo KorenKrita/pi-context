@@ -172,17 +172,31 @@ function indeterminateTravelContext() {
 const executeCheckpoint = captureExecute(registerCheckpointTool);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
 const executeTravel = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime()));
-const HANDOFF = [
-  "Goal: preserve the current task",
-  "State: ready to fold",
-  "Evidence: test fixture",
-  "External: none",
-  "Exclusions: none",
-  "Recover: archive-done",
-  "NEXT: continue",
-].join("\n");
+const HANDOFF = {
+  goal: "preserve the current task",
+  state: "ready to fold",
+  evidence: "test fixture",
+  external: "none",
+  exclusions: "none",
+  recover: "archive-done",
+  next: "continue",
+};
 
 describe("ACM tool execution contracts", () => {
+  test("rejects malformed top-level travel parameters without throwing or mutating", async () => {
+    for (const params of [
+      { target: 42, handoff: HANDOFF },
+      { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: {} },
+      { target: "entry-1", handoff: HANDOFF, unexpected: true },
+    ]) {
+      const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
+      const result = await executeTravel("invalid-params", params, undefined, undefined, ctx);
+      expect(result.details).toMatchObject({ error: "invalid_params" });
+      expect(getAppendCalls()).toBe(0);
+      expect(getBranchCalls()).toBe(0);
+    }
+  });
+
   test("rejects every case variant of the reserved structural root name without mutating labels", async () => {
     for (const name of ["root", "ROOT", "Root", "rOoT"]) {
       const { ctx, getAppendCalls } = checkpointContext();
@@ -198,7 +212,7 @@ describe("ACM tool execution contracts", () => {
       const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
       const result = await executeTravel(
         "call-2",
-        { target: "entry-1", summary: HANDOFF, backupCurrentHeadAs: name },
+        { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: name },
         undefined,
         undefined,
         ctx,
@@ -212,22 +226,12 @@ describe("ACM tool execution contracts", () => {
 
   test("names the concrete handoff defects instead of restating the slot list", async () => {
     const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
-    const broken = [
-      "Goal: preserve the current task",
-      "State:",
-      "Evidence: test fixture",
-      "Exclusions: none",
-      "Recover: archive-done",
-      "NEXT: continue",
-      "NEXT: continue again",
-    ].join("\n");
-    const result = await executeTravel("call-handoff", { target: "entry-1", summary: broken }, undefined, undefined, ctx);
+    const broken = { ...HANDOFF, state: " ", next: "none" };
+    const result = await executeTravel("call-handoff", { target: "entry-1", handoff: broken }, undefined, undefined, ctx);
     expect(result.details).toMatchObject({ error: "invalid_handoff" });
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain("missing: External");
-    expect(text).toContain("empty: State");
-    expect(text).toContain("duplicated: NEXT");
-    expect(text).toContain("write 'none' instead");
+    expect(text).toContain("state:empty");
+    expect(text).toContain("next:none_not_allowed");
     expect(text).toContain("nothing was mutated");
     expect(getAppendCalls()).toBe(0);
     expect(getBranchCalls()).toBe(0);
@@ -295,7 +299,7 @@ describe("ACM tool execution contracts", () => {
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
     const result = await executeTravel(
       "call-4",
-      { target: "entry-1", summary: HANDOFF, backupCurrentHeadAs: "archive-done" },
+      { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: "archive-done" },
       undefined,
       undefined,
       indeterminateTravelContext(),
@@ -312,7 +316,7 @@ describe("ACM tool execution contracts", () => {
   test("does not invent a backup pointer for indeterminate travel without a backup", async () => {
     const result = await executeTravel(
       "call-5",
-      { target: "entry-1", summary: HANDOFF },
+      { target: "entry-1", handoff: HANDOFF },
       undefined,
       undefined,
       indeterminateTravelContext(),

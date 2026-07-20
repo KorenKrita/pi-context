@@ -74,7 +74,7 @@ function buildCanonicalHandoff(
 
 已确定的 interface invariant 是：agent 不再负责脆弱的七槽 wire grammar，runtime 负责 durable handoff representation。
 
-当前首选实验 variant 把 `acm_travel` 从：
+当前实现 candidate 把 `acm_travel` 从：
 
 ```ts
 summary: string
@@ -102,13 +102,13 @@ handoff: {
 - 不设置人为最大长度；
 - production 晋级后不长期暴露 `summary` 与 `handoff` 两套接口。
 
-需要比较的 interface variants：
+Outcome eval 仍保留以下 fallback/对照：
 
 1. nested structured object；
 2. flat structured fields，作为弱 provider fallback；
 3. conservative tolerant parser，作为 legacy control，不做语义猜测。
 
-晋级条件：首调成功、handoff 信息保留、current obligation、post-travel continuation 与最终任务结果均不劣于 control。Nested object 是当前证据最强的候选，不是未经实验的永久约束。
+Nested object 已通过 deterministic 与 exact-host gate；最终产品晋级仍要求首调成功、handoff 信息保留、current obligation、post-travel continuation 与最终任务结果不劣于 control。Flat fields 仅在弱 provider 实证显示 nested schema 是障碍时启用；conservative parser 只作 legacy control。
 
 ### Durable representation
 
@@ -470,9 +470,9 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 2. **Backup anchor completeness** — 使用共享 analysis 选择 raw bookmark；
 3. **Timeline unknown stays unknown** — 修复 failed rebuild 显示 `~0 msgs`；
 4. **Checkpoint catalog grouping**；
-5. **Handoff interface prototype** — nested / flat / conservative parser 的 interface-only evidence；
+5. **Structured handoff candidate** — nested object + canonical durable text 已实现；flat/parser 作为 outcome fallback/control；
 6. **Context Packet adapters** — session rebuild 与 existing packet normalization，保留 extension composition；
-7. **Authority variants prototype** — 原位 authority epoch 与真实 LLM packet evidence。
+7. **Authority continuation candidate** — versioned marker + 原位 Context Packet projection 已实现，model-outcome evidence pending。
 
 每一项独立测试、独立 commit；不把多项机制合并成一次不可归因的改动。
 

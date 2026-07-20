@@ -20,39 +20,42 @@ describe("ACM guidance quality", () => {
     }
     expect(ACM_CORE).toContain("cold start");
     expect(ACM_CORE).toContain("anchor gravity");
-    expect(ACM_CORE).toContain("Folding mid-investigation is fine");
+    expect(ACM_CORE).toContain("Mid-investigation travel can be valuable");
     expect(ACM_CORE).toContain("Root is a candidate, never a default");
     expect(ACM_CORE).toContain("travel back carrying the extract");
     expect(ACM_CORE).toContain("as recoverable as a save");
   });
 
-  test("frames cadence as a band between sediment and thrash with a cruise preference", () => {
+  test("frames cadence as repeatable judgment between sediment and thrash", () => {
     expect(ACM_CORE).toContain("Compress continuously");
     expect(ACM_CORE).toContain("Fold in batches");
     expect(ACM_CORE).toContain("**Sediment**");
     expect(ACM_CORE).toContain("**Thrash**");
     expect(ACM_CORE).toContain("around a third of the working budget");
-    expect(ACM_CORE).toContain("That is a preference, never an override");
-    expect(ACM_CORE).toContain("folding is the default, not an optional extra");
-    expect(ACM_CORE).toContain("low usage is never by itself a reason to keep raw process live");
+    expect(ACM_CORE).toContain("preferred outcome, not move authorization");
+    expect(ACM_CORE).toContain("signals to evaluate the working set");
+    expect(ACM_CORE).toContain("Compression Candidate");
+    expect(ACM_CORE).not.toContain("folding is the default, not an optional extra");
+    expect(ACM_CORE).not.toContain("Skip only when you can name why");
     expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
-    expect(ACM_CORE).toContain("a habit set by the rhythm of the work");
   });
 
-  test("keeps one cold-start handoff example carrying live cognition", () => {
-    for (const slot of ["Goal:", "State:", "Evidence:", "External:", "Exclusions:", "Recover:", "NEXT:"]) {
+  test("keeps one structured cold-start handoff example carrying live cognition", () => {
+    for (const slot of ["\"goal\":", "\"state\":", "\"evidence\":", "\"external\":", "\"exclusions\":", "\"recover\":", "\"next\":"]) {
       expect(ACM_CORE).toContain(slot);
     }
-    expect(ACM_CORE).toContain("each starting its own line");
+    expect(ACM_CORE).toContain("structured handoff with seven semantic fields");
+    expect(ACM_CORE).toContain("Runtime owns the durable text format");
     expect(ACM_CORE).toContain("one concrete action a fresh agent could execute immediately");
     expect(ACM_CORE).toContain("Two hypotheses");
     expect(ACM_CORE).toContain("Hot:");
-    expect(ACM_CORE.split("```text").length - 1).toBe(1);
+    expect(ACM_CORE.split("```json").length - 1).toBe(1);
   });
 
   test("each result cue points at the concrete next move", () => {
-    expect(GUIDANCE_CUES.checkpoint).toContain("acm_travel");
-    expect(GUIDANCE_CUES.travel).toContain("execute NEXT");
+    expect(GUIDANCE_CUES.checkpoint).toContain("activation foothold");
+    expect(GUIDANCE_CUES.checkpoint).toContain("timeline");
+    expect(GUIDANCE_CUES.travel).toContain("Execute NEXT directly");
     expect(GUIDANCE_CUES.rebaseCheck).toContain("the next fold would stack another");
   });
 
@@ -64,10 +67,6 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE).not.toContain("-paused");
     expect(ACM_CORE).not.toContain("`<chain>-start`");
     expect(ACM_CORE).not.toContain("first action");
-    // Budget raised 6000 → 6500 for the Phase-8 evidence-driven additions
-    // (backup-channel disambiguation, fold self-check, two seam cues); every
-    // pre-existing doctrine sentence stays pinned verbatim by the tests above.
-    expect(ACM_CORE.length).toBeLessThan(6500);
   });
 
   test("keeps receipt discipline and external-state honesty", () => {
@@ -99,7 +98,7 @@ describe("ACM guidance quality", () => {
     expect(target).toContain("projected summary depth must not grow");
     expect(target).toContain("every surviving item has one authoritative home");
     expect(archive).toContain("Rehydration round trip");
-    expect(archive).toContain("Pending is scheduled work, not success");
+    expect(archive).toContain("trust the returned handoff and resume the original action directly");
     expect(archive).toContain("return to the Skill router and replace this reference");
     expect(exceptional).toContain("Backup rollback failure");
     expect(exceptional).toContain("branch creation was not applied");

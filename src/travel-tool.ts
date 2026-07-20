@@ -15,22 +15,20 @@ import {
   findInTree,
   formatContextUsage,
   formatEntryLabels,
-  HANDOFF_SLOT_HINT,
   isReservedTargetName,
   isValidEntryId,
   resolveTargetId,
   sanitizeTerminalText,
-  validateHandoffStructure,
 } from "./lib.js";
+import { buildCanonicalHandoff, HandoffSchema, type HandoffInput } from "./handoff.js";
+import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
-  buildSessionMessages,
   prevalidateBranchWithSummary,
   prevalidateCheckpointLabel,
   type CheckpointLabelConflict,
   type CheckpointLabelPrevalidation,
 } from "./host-bridge.js";
 import {
-  analyzeToolProtocol,
   findContainingAssistantToolBatch,
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
@@ -44,6 +42,7 @@ import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, T
 
 interface TravelSummaryDetails {
   kind: "acm_travel";
+  handoffVersion: 1;
   originId: string;
   originLabel?: string;
   target: string;
@@ -70,7 +69,7 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
     target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest or best-named label. For a rebase, compare candidates from earliest to latest and take the first whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when ancestry matters." }),
-    summary: Type.String({ minLength: 1, maxLength: 10000, description: `The handoff that becomes the working set after travel. Cold start is the bar: a fresh agent must be able to continue from this text and its pointers alone, without rereading the folded trail. Fill every slot once, in order, each starting its own line, 'none' when empty: ${HANDOFF_SLOT_HINT}. State may carry live cognition — knowns, open unknowns, competing hypotheses, and the hot set of exact values the next steps reuse. NEXT is one concrete, immediately executable action. Keep surviving fronts, external effects, exclusions, and recovery pointers; pointers over dumps. Max 10000 chars.` }),
+    handoff: HandoffSchema,
     backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional save point for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. Use a unique semantic name that makes the archive discoverable, e.g. latency-hunt-scan or parser-attempt-2. The name is a recovery cue, never a workflow state, the travel target, or a substitute for a cold-start handoff." })),
   }, { additionalProperties: false });
 
@@ -90,11 +89,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : new Text("", 0, 0);
       const backup = args.backupCurrentHeadAs ? ` · backup ${sanitizeTerminalText(args.backupCurrentHeadAs)}` : "";
       const target = sanitizeTerminalText(args.target ?? "…");
-      const summaryLength = args.summary?.length ?? 0;
+      const handoffLength = args.handoff && typeof args.handoff === "object"
+        ? Object.values(args.handoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
+        : 0;
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
           + theme.fg("accent", `→ ${target}`)
-          + theme.fg("dim", `${backup} · handoff ${summaryLength} chars`),
+          + theme.fg("dim", `${backup} · field content ${handoffLength} chars`),
       );
       return component;
     },
@@ -155,26 +156,54 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
-      const params = rawParams;
+      const rawRecord = typeof rawParams === "object" && rawParams !== null
+        ? rawParams as unknown as Record<string, unknown>
+        : {};
+      const paramDefects: string[] = [];
+      const rawTarget = rawRecord.target;
+      const target = typeof rawTarget === "string" ? rawTarget.trim() : "";
+      if (!target) paramDefects.push("target:invalid_type_or_empty");
+      const rawBackup = rawRecord.backupCurrentHeadAs;
+      const backupCurrentHeadAs = rawBackup === undefined
+        ? undefined
+        : typeof rawBackup === "string" && /^[A-Za-z0-9._-]+$/.test(rawBackup)
+          ? rawBackup
+          : undefined;
+      if (rawBackup !== undefined && backupCurrentHeadAs === undefined) {
+        paramDefects.push("backupCurrentHeadAs:invalid_type_or_format");
+      }
+      for (const name of Object.keys(rawRecord)) {
+        if (name !== "target" && name !== "handoff" && name !== "backupCurrentHeadAs") {
+          paramDefects.push(`unexpected:${name}`);
+        }
+      }
+      if (paramDefects.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: `Error: acm_travel parameters are invalid: ${paramDefects.join(", ")}. Nothing was mutated.` }],
+          details: { error: "invalid_params", defects: paramDefects },
+        };
+      }
+      const params = {
+        target,
+        handoff: rawRecord.handoff as HandoffInput,
+        ...(backupCurrentHeadAs === undefined ? {} : { backupCurrentHeadAs }),
+      };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
           content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
           details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
         };
       }
-      const handoffValidation = validateHandoffStructure(params.summary);
-      if (!handoffValidation.ok) {
-        const defects = [
-          handoffValidation.missing.length > 0 ? `missing: ${handoffValidation.missing.join(", ")}` : null,
-          handoffValidation.empty.length > 0 ? `empty: ${handoffValidation.empty.join(", ")} (write 'none' instead)` : null,
-          handoffValidation.duplicate.length > 0 ? `duplicated: ${handoffValidation.duplicate.join(", ")}` : null,
-          handoffValidation.outOfOrder ? "slots out of order" : null,
-        ].filter((part): part is string => part !== null).join("; ");
+      const handoffResult = buildCanonicalHandoff(params.handoff, {
+        ...(params.backupCurrentHeadAs ? { rawArchiveAlias: params.backupCurrentHeadAs } : {}),
+      });
+      if (!handoffResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: handoff must contain each slot once, in order, each starting its own line: ${HANDOFF_SLOT_HINT}. Problems — ${defects}. Fix the handoff text and reissue acm_travel; nothing was mutated.` }],
-          details: { error: "invalid_handoff", validation: handoffValidation },
+          content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
+          details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
+      const canonicalHandoff = handoffResult.value;
 
       const containingToolCallCount = findContainingAssistantToolBatch(
         ctx.sessionManager.getBranch(),
@@ -239,26 +268,26 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
         : undefined;
       const usageBeforeText = formatContextUsage(usageBefore, true);
-      const currentMessagesResult = buildSessionMessages(sessionManager);
-      if (!currentMessagesResult.ok) {
+      const currentPacketResult = rebuildAcmContextPacket(sessionManager);
+      if (!currentPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentMessagesResult.message}. Travel aborted.` }],
-          details: { error: "build_messages_failed", message: currentMessagesResult.message, target: params.target, targetId },
+          content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentPacketResult.message}. Travel aborted.` }],
+          details: { error: "build_messages_failed", message: currentPacketResult.message, target: params.target, targetId },
         };
       }
-      const currentMessages = currentMessagesResult.value;
-      const targetMessagesResult = buildSessionMessages(sessionManager, targetId);
-      if (!targetMessagesResult.ok) {
+      const currentMessages = currentPacketResult.value.messages;
+      const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
+      if (!targetPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetMessagesResult.message}. Travel aborted.` }],
-          details: { error: "build_messages_failed", message: targetMessagesResult.message, target: params.target, targetId },
+          content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetPacketResult.message}. Travel aborted.` }],
+          details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
         };
       }
       const estimatedUsagePreview = estimateUsageAtTravelTarget(
         usageBefore,
         currentMessages,
-        targetMessagesResult.value,
-        params.summary,
+        targetPacketResult.value.messages,
+        canonicalHandoff.text,
       );
       const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
       const messagesBefore = currentMessages.length;
@@ -284,19 +313,19 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs, headId: originId },
           };
         }
-        const backupMessagesResult = buildSessionMessages(sessionManager, backupCandidate.id);
-        if (!backupMessagesResult.ok) {
+        const backupPacketResult = rebuildAcmContextPacket(sessionManager, backupCandidate.id);
+        if (!backupPacketResult.ok) {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupMessagesResult.message}. Travel aborted.` }],
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupPacketResult.message}. Travel aborted.` }],
             details: {
               error: "backup_context_build_failed",
               name: params.backupCurrentHeadAs,
               candidateId: backupCandidate.id,
-              message: backupMessagesResult.message,
+              message: backupPacketResult.message,
             },
           };
         }
-        const backupProtocol = analyzeToolProtocol(backupMessagesResult.value);
+        const backupProtocol = backupPacketResult.value.protocol;
         if (backupProtocol.status === "invalid") {
           return {
             content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
@@ -368,6 +397,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       const travelDetails: TravelSummaryDetails = {
         kind: "acm_travel",
+        handoffVersion: 1,
         originId,
         ...(originLabel === undefined ? {} : { originLabel }),
         target: params.target,
@@ -377,7 +407,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const mutation = executeTravelMutation({
         sessionManager,
         targetId,
-        summary: params.summary,
+        summary: canonicalHandoff.text,
         details: travelDetails,
         ...(params.backupCurrentHeadAs && backupEntryId && backupPrevalidation
           ? { backup: { targetId: backupEntryId, name: params.backupCurrentHeadAs, prevalidation: backupPrevalidation } }
@@ -466,13 +496,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         resultingLeafId,
       );
       const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
-      const afterMessagesResult = buildSessionMessages(sessionManager);
-      if (!afterMessagesResult.ok) {
+      const afterPacketResult = rebuildAcmContextPacket(sessionManager);
+      if (!afterPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Travel mutation completed, but session-message evidence is unavailable: ${afterMessagesResult.message}. ${RECOVERY_GUIDANCE.refreshPending}${liveAgentSessionSyncRecovery ? ` ${liveAgentSessionSyncRecovery}` : ""}` }],
+          content: [{ type: "text" as const, text: `Travel mutation completed, but session-message evidence is unavailable: ${afterPacketResult.message}. ${RECOVERY_GUIDANCE.refreshPending}${liveAgentSessionSyncRecovery ? ` ${liveAgentSessionSyncRecovery}` : ""}` }],
           details: {
             error: "build_messages_failed",
-            message: afterMessagesResult.message,
+            message: afterPacketResult.message,
             target: params.target,
             targetId,
             originId,
@@ -489,7 +519,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      const afterMessages = afterMessagesResult.value;
+      const afterMessages = afterPacketResult.value.messages;
       const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
       const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
@@ -575,6 +605,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           fromOffPath: resolved.fromOffPath,
+          handoffFormat: "structured-v1",
+          canonicalHandoffLength: canonicalHandoff.text.length,
         },
       };
     },

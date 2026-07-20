@@ -90,6 +90,21 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     expect(tools.get("acm_travel")?.promptGuidelines).toEqual(generated.PROMPT_GUIDELINES.travel.split("\n"));
     expect(tools.get("acm_travel")?.executionMode).toBe("sequential");
     expect(tools.get("acm_travel")?.description).toContain("alone in its assistant tool batch");
+    const travelParameters = tools.get("acm_travel")?.parameters as {
+      required?: string[];
+      properties?: Record<string, { required?: string[] }>;
+    };
+    expect(travelParameters.required).toContain("handoff");
+    expect(travelParameters.properties?.summary).toBeUndefined();
+    expect(travelParameters.properties?.handoff?.required?.sort()).toEqual([
+      "evidence",
+      "exclusions",
+      "external",
+      "goal",
+      "next",
+      "recover",
+      "state",
+    ]);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

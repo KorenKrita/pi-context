@@ -190,13 +190,21 @@ describe("ACM tool rendering", () => {
     const args = {
       target: "parser-fix-start",
       backupCurrentHeadAs: "parser-fix-done",
-      summary: "Goal: x\nState: x\nEvidence: x\nExternal: none\nExclusions: none\nRecover: parser-fix-done\nNEXT: x",
+      handoff: {
+        goal: "x",
+        state: "x",
+        evidence: "x",
+        external: "none",
+        exclusions: "none",
+        recover: "parser-fix-done",
+        next: "x",
+      },
     };
     const call = travel.renderCall!(args, theme, renderContext(args));
     const callOutput = render(call);
     expect(callOutput).toContain("◆ ACM TRAVEL  → parser-fix-start");
     expect(callOutput).toContain("backup parser-fix-done");
-    expect(callOutput).toContain(`handoff ${args.summary.length} chars`);
+    expect(callOutput).toContain(`field content ${Object.values(args.handoff).reduce((sum, value) => sum + value.length, 0)} chars`);
 
     const result = travel.renderResult!(
       {
@@ -241,7 +249,7 @@ describe("ACM tool rendering", () => {
       { content: [{ type: "text", text: "Error: branch prevalidation failed" }], details: { error: "branch_prevalidation_failed" } },
       { expanded: false, isPartial: false },
       theme,
-      renderContext({ target: "root", summary: "" }),
+      renderContext({ target: "root", handoff: {} }),
     );
     expect(render(travelWarning)).toContain("⚠ TRAVEL NEEDS ATTENTION");
   });
@@ -253,7 +261,7 @@ describe("ACM tool rendering", () => {
     const components = [
       checkpoint.renderCall!({ name: payload, target: payload }, theme, renderContext({ name: payload, target: payload })),
       timeline.renderCall!({ view: "search", query: payload }, theme, renderContext({ view: "search", query: payload })),
-      travel.renderCall!({ target: payload, backupCurrentHeadAs: payload, summary: "x" }, theme, renderContext({ target: payload })),
+      travel.renderCall!({ target: payload, backupCurrentHeadAs: payload, handoff: { goal: payload } }, theme, renderContext({ target: payload })),
       checkpoint.renderResult!(
         { content: [{ type: "text", text: payload }], details: { error: "unsafe" } },
         { expanded: false, isPartial: false },

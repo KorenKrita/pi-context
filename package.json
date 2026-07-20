@@ -1,12 +1,15 @@
 {
   "name": "pi-context",
-  "version": "2.1.0",
+  "version": "3.0.0",
+  "private": true,
   "description": "Agentic Context Management for Pi — checkpoint, timeline, and time-travel tools",
   "files": [
     "src",
     "skills",
+    "docs",
     "README.md",
     "AGENTS.md",
+    "CONTEXT.md",
     "implementation-notes.html"
   ],
   "scripts": {

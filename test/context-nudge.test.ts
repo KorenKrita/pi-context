@@ -98,8 +98,10 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
     expect(fixture.sentMessages[0]?.message.content).toContain("comfortable cruise range");
-    expect(fixture.sentMessages[0]?.message.content).toContain("fold that raw process into a cold-start handoff now");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Run ACM Judgment");
     expect(fixture.sentMessages[0]?.message.content).toContain("acm_checkpoint");
+    expect(fixture.sentMessages[0]?.message.content).toContain("acm_timeline");
+    expect(fixture.sentMessages[0]?.message.content).not.toContain("fold that raw process into a cold-start handoff now");
 
     fixture.setUsagePercent(35);
     await fixture.emit("context", { messages: [] });
@@ -113,9 +115,10 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 70 });
     expect(fixture.sentMessages[1]?.message.content).toContain("[ACM Context Reminder · 70% tier · Final reminder]");
-    expect(fixture.sentMessages[1]?.message.content).toContain("attention is the scarce resource");
+    expect(fixture.sentMessages[1]?.message.content).toContain("attention is scarce");
     expect(fixture.sentMessages[1]?.message.content).toContain("native compaction");
-    expect(fixture.sentMessages[1]?.message.content).toContain("acm_travel");
+    expect(fixture.sentMessages[1]?.message.content).toContain("positive net effect");
+    expect(fixture.sentMessages[1]?.message.content).not.toContain("acm_travel at the next safe moment");
     expect(fixture.sentMessages.some(({ message }) => message.details?.level === 50)).toBe(false);
   });
 
@@ -250,8 +253,8 @@ describe("ACM context usage reminders", () => {
       },
       options: { deliverAs: "followUp" },
     });
-    expect(fixture.sentMessages[0]?.message.content).toContain("Actively look for the next worthwhile fold or rebase");
-    expect(fixture.sentMessages[0]?.message.content).toContain("one batched handoff");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Compression Candidate");
+    expect(fixture.sentMessages[0]?.message.content).toContain("best expected task effect");
     expect(fixture.sentMessages[0]?.message.content).toContain("acm_timeline");
   });
 
@@ -299,15 +302,15 @@ describe("ACM context usage reminders", () => {
       "travel-1",
       {
         target: rootId,
-        summary: [
-          "Goal: verify reminder reset after travel",
-          "State: travel completed",
-          "Evidence: lifecycle test",
-          "External: none",
-          "Exclusions: none",
-          "Recover: root",
-          "NEXT: continue testing context reminders",
-        ].join("\n"),
+        handoff: {
+          goal: "verify reminder reset after travel",
+          state: "travel completed",
+          evidence: "lifecycle test",
+          external: "none",
+          exclusions: "none",
+          recover: "root",
+          next: "continue testing context reminders",
+        },
       },
       undefined,
       undefined,
@@ -360,15 +363,15 @@ describe("ACM context usage reminders", () => {
       "travel-1",
       {
         target: rootId,
-        summary: [
-          "Goal: verify seeded baseline after travel",
-          "State: travel completed",
-          "Evidence: lifecycle test",
-          "External: none",
-          "Exclusions: none",
-          "Recover: root",
-          "NEXT: continue testing context reminders",
-        ].join("\n"),
+        handoff: {
+          goal: "verify seeded baseline after travel",
+          state: "travel completed",
+          evidence: "lifecycle test",
+          external: "none",
+          exclusions: "none",
+          recover: "root",
+          next: "continue testing context reminders",
+        },
       },
       undefined,
       undefined,

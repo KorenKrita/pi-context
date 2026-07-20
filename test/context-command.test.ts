@@ -95,15 +95,26 @@ describe("/context accounting", () => {
         { type: "toolCall", id: "call-id-not-counted", name: "read", arguments: { path: "x" } },
       ],
     } as unknown as AgentMessage;
-    const total = estimateTokens(message);
+    const toolResult = {
+      role: "toolResult",
+      toolCallId: "call-id-not-counted",
+      toolName: "read",
+      content: [{ type: "text", text: "result" }],
+      isError: false,
+      timestamp: 2,
+    } as AgentMessage;
+    const assistantTotal = estimateTokens(message);
+    const toolResultTotal = estimateTokens(toolResult);
+    const total = assistantTotal + toolResultTotal;
     const messageWeight = 16;
     const toolWeight = "read".length + JSON.stringify({ path: "x" }).length;
-    const expectedToolCalls = Math.round(total * (toolWeight / (messageWeight + toolWeight)));
+    const expectedAssistantToolCalls = Math.round(assistantTotal * (toolWeight / (messageWeight + toolWeight)));
+    const expectedToolCalls = expectedAssistantToolCalls + toolResultTotal;
 
-    const rendered = await renderContext({ messages: [message], totalActual: total, limit: 100 });
+    const rendered = await renderContext({ messages: [message, toolResult], totalActual: total, limit: 100 });
 
     expect(categoryValue(rendered, "Tool Call")).toBe(expectedToolCalls);
-    expect(categoryValue(rendered, "Messages")).toBe(total - expectedToolCalls);
+    expect(categoryValue(rendered, "Messages")).toBe(assistantTotal - expectedAssistantToolCalls);
   });
 
   test("counts only provider-visible tool schema fields", async () => {

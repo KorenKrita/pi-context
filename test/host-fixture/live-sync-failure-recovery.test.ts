@@ -7,6 +7,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { registerAcmLifecycle } from "./.acm-build/runtime-lifecycle.js";
+import { rebuildAcmContextPacket } from "./.acm-build/context-packet.js";
 import { AcmSessionRuntime } from "./.acm-build/runtime.js";
 import { registerTimelineTool } from "./.acm-build/timeline-tool.js";
 import { registerTravelTool } from "./.acm-build/travel-tool.js";
@@ -17,7 +18,17 @@ import {
   type LiveAgentSessionAdapter,
 } from "./.acm-build/live-agent-session-adapter.js";
 
-const HANDOFF = [
+const HANDOFF = {
+  goal: "verify live synchronization failure recovery",
+  state: "travel completed or failed as asserted",
+  evidence: "capability host fixture",
+  external: "none",
+  exclusions: "no synthetic compaction or tool calls",
+  recover: "failure-recovery-checkpoint",
+  next: "continue from the persistent active branch",
+};
+const HANDOFF_TEXT = [
+  "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->",
   "Goal: verify live synchronization failure recovery",
   "State: travel completed or failed as asserted",
   "Evidence: capability host fixture",
@@ -26,6 +37,10 @@ const HANDOFF = [
   "Recover: failure-recovery-checkpoint",
   "NEXT: continue from the persistent active branch",
 ].join("\n");
+const HANDOFF_TEXT_WITH_BACKUP = HANDOFF_TEXT.replace(
+  "Recover: failure-recovery-checkpoint",
+  "Recover: failure-recovery-checkpoint\n  Raw archive: replacement-failure-done",
+);
 
 function createSession() {
   const sessionManager = SessionManager.inMemory();
@@ -126,7 +141,7 @@ describe("live synchronization failure recovery", () => {
     const runtime = new AcmSessionRuntime(adapter);
     const { context, handlers, timelineTool, travelTool } = registerFixture(sessionManager, runtime);
 
-    const result = await travelTool.execute("unsupported", { target: rootId, summary: HANDOFF }, undefined, undefined, context);
+    const result = await travelTool.execute("unsupported", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
     expect(result.details).toMatchObject({
       contextRefreshState: "pending",
       liveAgentSessionSyncState: "unavailable",
@@ -134,7 +149,9 @@ describe("live synchronization failure recovery", () => {
     });
     expect((result.content[0] as { text: string }).text).toContain("Persistent context rebuild remains active");
 
-    const rebuilt = sessionManager.buildSessionContext().messages as AgentMessage[];
+    const rebuiltResult = rebuildAcmContextPacket(sessionManager);
+    if (!rebuiltResult.ok) throw new Error(rebuiltResult.message);
+    const rebuilt = rebuiltResult.value.messages;
     const contextResult = await emit(handlers, "context", { messages: staleMessages }, context) as { messages?: AgentMessage[] };
     expect(contextResult.messages).toEqual(rebuilt);
     expect(JSON.stringify(rebuilt)).not.toContain("folded payload");
@@ -161,7 +178,7 @@ describe("live synchronization failure recovery", () => {
 
     const result = await travelTool.execute(
       "replacement-failure",
-      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "replacement-failure-done" },
+      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "replacement-failure-done" },
       undefined,
       undefined,
       context,
@@ -178,7 +195,7 @@ describe("live synchronization failure recovery", () => {
     expect(notifications.at(-1)).toContain("Live AgentSession synchronization failed");
     expect(notifications.at(-1)).toContain("Reload the session");
     expect(sessionManager.getLeafId()).toBe(traveledLeaf);
-    expect(sessionManager.getEntry(traveledLeaf!)).toMatchObject({ type: "branch_summary", summary: HANDOFF });
+    expect(sessionManager.getEntry(traveledLeaf!)).toMatchObject({ type: "branch_summary", summary: HANDOFF_TEXT_WITH_BACKUP });
     expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "replacement-failure-done")).toBe(true);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "replacement-failure", toolName: "acm_travel" }, context);
@@ -209,7 +226,7 @@ describe("live synchronization failure recovery", () => {
       const runtime = new AcmSessionRuntime(adapter);
       const { context, handlers, travelTool } = registerFixture(sessionManager, runtime);
 
-      const result = await travelTool.execute(`branch-${mode}`, { target: rootId, summary: HANDOFF }, undefined, undefined, context);
+      const result = await travelTool.execute(`branch-${mode}`, { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
       expect(result.details).toMatchObject({
         branchState: mode,
         liveAgentSessionSyncState: "skipped",

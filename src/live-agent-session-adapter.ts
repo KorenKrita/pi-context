@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
-import { buildSessionMessages, type ReadonlySessionManager } from "./host-bridge.js";
-import { analyzeToolProtocol } from "./tool-protocol.js";
+import { rebuildAcmContextPacket } from "./context-packet.js";
+import type { ReadonlySessionManager } from "./host-bridge.js";
 
 const INSTALLATION_SYMBOL = Symbol.for("pi-context.live-agent-session-adapter.v1");
 
@@ -284,17 +284,17 @@ export function createLiveAgentSessionAdapter(
         return inspected.outcome;
       }
 
-      const messagesResult = buildSessionMessages(inspected.session.sessionManager);
-      if (!messagesResult.ok) {
+      const packetResult = rebuildAcmContextPacket(inspected.session.sessionManager);
+      if (!packetResult.ok) {
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "build_messages_failed",
-          message: messagesResult.message,
+          message: packetResult.message,
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
-      const messages = analyzeToolProtocol(messagesResult.value).messages;
+      const messages = packetResult.value.messages;
       try {
         inspected.session.agent.state.messages = messages;
         if (!retainsMessageSequence(inspected.session.agent.state.messages, messages)) {

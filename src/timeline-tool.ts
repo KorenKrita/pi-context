@@ -21,7 +21,7 @@ import {
   sanitizeTerminalText,
   type LabelMaps,
 } from "./lib.js";
-import { buildSessionMessages } from "./host-bridge.js";
+import { rebuildAcmContextPacket } from "./context-packet.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
@@ -382,7 +382,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         checkpointAliasesOnMatchingEntries = listings.reduce((count, listing) => count + listing.labels.length, 0);
         checkpointAliasNamesShown = displayedListings.length;
         const usage = toUsageLike(ctx.getContextUsage());
-        const currentResult = buildSessionMessages(sessionManager, leafId);
+        const currentResult = rebuildAcmContextPacket(sessionManager, leafId);
         if (!currentResult.ok) {
           return {
             content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
@@ -395,7 +395,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const aliasCountText = filter
           ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
           : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit} entries). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit} entries). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         const rootEntry = tree[0]?.entry;
@@ -403,8 +403,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
         );
         if (rootEntry && rootMatchesFilter) {
-          const rootResult = buildSessionMessages(sessionManager, rootEntry.id);
-          const rootMessages = rootResult.ok ? rootResult.value : [];
+          const rootResult = rebuildAcmContextPacket(sessionManager, rootEntry.id);
+          const rootMessages = rootResult.ok ? rootResult.value.messages : [];
           cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages } : { ok: false });
           rootCandidateDisplayed = true;
           rootCandidateEntryId = rootEntry.id;
@@ -412,7 +412,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
           let estimateText = "message estimate unavailable";
           if (rootResult.ok) {
-            const estimated = estimateUsageAfterMessageChange(usage, currentResult.value, rootMessages);
+            const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
             estimateText = estimated
               ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
               : `~${rootMessages.length} msgs`;
@@ -427,14 +427,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           if (signal?.aborted) break;
           let cachedTarget = cache.get(checkpoint.entryId);
           if (!cachedTarget) {
-            const targetResult = buildSessionMessages(sessionManager, checkpoint.entryId);
+            const targetResult = rebuildAcmContextPacket(sessionManager, checkpoint.entryId);
             cachedTarget = targetResult.ok
-              ? { ok: true, messages: targetResult.value }
+              ? { ok: true, messages: targetResult.value.messages }
               : { ok: false };
             cache.set(checkpoint.entryId, cachedTarget);
           }
           const estimated = cachedTarget.ok
-            ? estimateUsageAfterMessageChange(usage, currentResult.value, cachedTarget.messages)
+            ? estimateUsageAfterMessageChange(usage, currentResult.value.messages, cachedTarget.messages)
             : undefined;
           const estimateText = !cachedTarget.ok
             ? "message estimate unavailable"

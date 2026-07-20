@@ -8,7 +8,7 @@ import {
   estimateTokens,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text, Spacer } from "@earendil-works/pi-tui";
-import { buildSessionMessages } from "./host-bridge.js";
+import { rebuildAcmContextPacket } from "./context-packet.js";
 import { sanitizeTerminalText } from "./lib.js";
 import { formatTokens } from "./utils.js";
 
@@ -178,13 +178,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const contextMessagesResult = buildSessionMessages(ctx.sessionManager);
-      if (!contextMessagesResult.ok) {
-        const message = sanitizeTerminalText(contextMessagesResult.message);
+      const contextPacketResult = rebuildAcmContextPacket(ctx.sessionManager);
+      if (!contextPacketResult.ok) {
+        const message = sanitizeTerminalText(contextPacketResult.message);
         notifyContextWarning(ctx, `Context messages could not be rebuilt: ${message}`);
         return;
       }
-      const contextMessages = contextMessagesResult.value;
+      const contextMessages = contextPacketResult.value.messages;
       const systemPrompt = ctx.getSystemPrompt();
       const activeToolNames = new Set(pi.getActiveTools());
       const activeToolDefs = pi.getAllTools().filter((tool) => activeToolNames.has(tool.name));

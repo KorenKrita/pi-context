@@ -18,6 +18,8 @@ describe("ACM tool description contract", () => {
     expect(checkpointTool).toContain("promptGuidelines: PROMPT_GUIDELINES.checkpoint.split(\"\\n\")");
     expect(timelineTool).toContain("promptGuidelines: PROMPT_GUIDELINES.timeline.split(\"\\n\")");
     expect(travelTool).toContain("promptGuidelines: PROMPT_GUIDELINES.travel.split(\"\\n\")");
+    expect(travelTool).toContain("handoff: HandoffSchema");
+    expect(travelTool).not.toContain("summary: Type.String");
     expect(generatedGuidance).toContain("Save point: attach a semantic label to a session node");
     expect(generatedGuidance).toContain("Omitting `target` labels the nearest meaningful USER/AI turn");
   });
@@ -43,7 +45,7 @@ describe("ACM tool description contract", () => {
 
   test("presents rehydration as a first-class travel direction", () => {
     expect(generatedGuidance).toContain("rehydrate an archived branch");
-    expect(generatedGuidance).toContain("rehydrate the archive if one exact detail is missing");
+    expect(generatedGuidance).toContain("Rehydrate only when one exact missing detail is actually needed");
   });
 
   test("uses the strict single-object timeline contract", () => {

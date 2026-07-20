@@ -8,19 +8,26 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import registerAcmExtension from "./.acm-build/index.js";
+import { rebuildAcmContextPacket } from "./.acm-build/context-packet.js";
 
 const installationSymbol = Symbol.for("pi-context.live-agent-session-adapter.v1");
 const originalGetContextUsage = AgentSession.prototype.getContextUsage;
 
-const handoff = (scope: string) => [
-  `Goal: synchronize ${scope}`,
-  `State: ${scope} travel completed`,
-  "Evidence: capability host isolation fixture",
-  "External: none",
-  "Exclusions: unrelated sessions",
-  `Recover: ${scope}-done`,
-  `NEXT: continue ${scope}`,
-].join("\n");
+const handoff = (scope: string) => ({
+  goal: `synchronize ${scope}`,
+  state: `${scope} travel completed`,
+  evidence: "capability host isolation fixture",
+  external: "none",
+  exclusions: "unrelated sessions",
+  recover: `${scope}-done`,
+  next: `continue ${scope}`,
+});
+
+function acmMessages(sessionManager: SessionManager): AgentMessage[] {
+  const result = rebuildAcmContextPacket(sessionManager);
+  if (!result.ok) throw new Error(result.message);
+  return result.value.messages;
+}
 
 afterEach(() => {
   AgentSession.prototype.getContextUsage = originalGetContextUsage;
@@ -96,14 +103,14 @@ describe("live AgentSession synchronization isolation", () => {
 
     await parentFixture.travelTool.execute(
       "parent-travel",
-      { target: parent.rootId, summary: handoff("parent") },
+      { target: parent.rootId, handoff: handoff("parent") },
       undefined,
       undefined,
       parentFixture.context,
     );
     await subagentFixture.travelTool.execute(
       "subagent-travel",
-      { target: subagent.rootId, summary: handoff("subagent") },
+      { target: subagent.rootId, handoff: handoff("subagent") },
       undefined,
       undefined,
       subagentFixture.context,
@@ -118,7 +125,7 @@ describe("live AgentSession synchronization isolation", () => {
     );
 
     expect(parentSession.agent.state.messages).toBe(parentStale);
-    expect(subagentSession.agent.state.messages).toEqual(subagent.sessionManager.buildSessionContext().messages);
+    expect(subagentSession.agent.state.messages).toEqual(acmMessages(subagent.sessionManager));
     expect(JSON.stringify(subagentSession.agent.state.messages)).not.toContain("parent");
     expect(JSON.stringify(parentSession.agent.state.messages)).not.toContain("subagent");
 
@@ -143,14 +150,14 @@ describe("live AgentSession synchronization isolation", () => {
 
     await firstFixture.travelTool.execute(
       "first-runtime",
-      { target: branch.rootId, summary: handoff("first-runtime") },
+      { target: branch.rootId, handoff: handoff("first-runtime") },
       undefined,
       undefined,
       firstFixture.context,
     );
     await secondFixture.travelTool.execute(
       "second-runtime",
-      { target: branch.rootId, summary: handoff("second-runtime") },
+      { target: branch.rootId, handoff: handoff("second-runtime") },
       undefined,
       undefined,
       secondFixture.context,
@@ -170,7 +177,7 @@ describe("live AgentSession synchronization isolation", () => {
       { toolCallId: "second-runtime", toolName: "acm_travel" },
       secondFixture.context,
     );
-    expect(liveSession.agent.state.messages).toEqual(branch.sessionManager.buildSessionContext().messages);
+    expect(liveSession.agent.state.messages).toEqual(acmMessages(branch.sessionManager));
     expect(JSON.stringify(liveSession.agent.state.messages)).toContain("second-runtime travel completed");
   });
 
@@ -189,7 +196,7 @@ describe("live AgentSession synchronization isolation", () => {
 
     await firstFixture.travelTool.execute(
       "first-only",
-      { target: first.rootId, summary: handoff("first-only") },
+      { target: first.rootId, handoff: handoff("first-only") },
       undefined,
       undefined,
       firstFixture.context,
@@ -201,7 +208,7 @@ describe("live AgentSession synchronization isolation", () => {
       firstFixture.context,
     );
 
-    expect(firstSession.agent.state.messages).toEqual(first.sessionManager.buildSessionContext().messages);
+    expect(firstSession.agent.state.messages).toEqual(acmMessages(first.sessionManager));
     expect(firstSession.agent.state.messages).not.toBe(firstStale);
     expect(secondSession.agent.state.messages).toBe(secondStale);
   });

@@ -49,11 +49,11 @@ Run acm_travel alone in its assistant tool batch, and read its result before bui
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point applied; the working set is unchanged. This state is now cheap to return to — explore or compress boldly. When the raw process behind this point stops earning its place, acm_travel targeting it folds that process into a handoff.
+Save point applied; the working set is unchanged. This state is now cheap to return to and acts as an activation foothold for later orientation. Use timeline when topology evidence would improve the next judgment; choose any later travel target by the material it precedes, not merely by this checkpoint.
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-Travel applied: the handoff is now the working set. Verify target, summary leaf, backup, and sync state from this result, then execute NEXT. Files and external systems kept their state — inspect them directly, and rehydrate the archive if one exact detail is missing.
+Travel applied: this result is the mutation receipt, and the handoff is now the authoritative working set. Execute NEXT directly. Trust the handoff's known state; verify only uncertainty it explicitly carries or facts changed by later independent activity. Rehydrate only when one exact missing detail is actually needed.
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
@@ -61,7 +61,7 @@ This spine already carries handoff layers; the next fold would stack another. Re
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-`active` is the spine the model sees. If sediment is visible — distilled bursts, rejected directions, finished phases — fold it into a handoff; keep working raw only when you can name why it must stay live.
+`active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->

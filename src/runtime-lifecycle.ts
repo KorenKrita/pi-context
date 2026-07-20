@@ -3,7 +3,8 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { appendCheckpointLabel, buildSessionMessages } from "./host-bridge.js";
+import { appendCheckpointLabel } from "./host-bridge.js";
+import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -13,7 +14,6 @@ import {
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
-import { analyzeToolProtocol } from "./tool-protocol.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 
@@ -60,7 +60,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (pressure) runtime.observeContextUsage(sessionManager, pressure);
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
-      const fixed = analyzeToolProtocol(original).messages;
+      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
       return changed ? { messages: fixed as typeof event.messages } : undefined;
     }
@@ -78,22 +78,22 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     };
 
     try {
-      const messagesResult = buildSessionMessages(sessionManager);
-      if (!messagesResult.ok) return reportFailure(messagesResult.message);
-      let messages = messagesResult.value;
+      const packetResult = rebuildAcmContextPacket(sessionManager);
+      if (!packetResult.ok) return reportFailure(packetResult.message);
+      let messages = packetResult.value.messages;
       if (messages.length === 0) {
         const fallbackLeafId = runtime.getRefreshTarget(sessionManager);
         const fallbackResult = fallbackLeafId
-          ? buildSessionMessages(sessionManager, fallbackLeafId)
-          : { ok: true as const, value: [] as AgentMessage[] };
+          ? rebuildAcmContextPacket(sessionManager, fallbackLeafId)
+          : undefined;
+        if (!fallbackResult) return reportFailure("rebuilt messages array is empty");
         if (!fallbackResult.ok) return reportFailure(fallbackResult.message);
-        messages = fallbackResult.value;
+        messages = fallbackResult.value.messages;
       }
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
 
-      const fixed = analyzeToolProtocol(messages).messages;
       contextRefresh.markRebuilt(sessionManager);
-      return { messages: fixed as typeof event.messages };
+      return { messages: messages as typeof event.messages };
     } catch (error) {
       return reportFailure(error instanceof Error ? error.message : String(error));
     }
