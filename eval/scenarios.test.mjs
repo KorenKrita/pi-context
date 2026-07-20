@@ -223,6 +223,27 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
   });
 
+  test("accepts markdown tables that preserve the required continuation facts", () => {
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("write", {
+          path: "next-action.md",
+          content: [
+            "| Item | Value |",
+            "| --- | --- |",
+            "| Pool max | 50 |",
+            "| Retry commit | 9f31c2a |",
+            "Next file to inspect: `services/payments/client.ts` backoff bounds.",
+          ].join("\n"),
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
+  });
+
   test("fails product-isolated runs that have the Skill but do not read both required guidance files", () => {
     const result = scenario.score(continuationContext({
       t3: [call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH })],
