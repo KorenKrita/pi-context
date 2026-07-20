@@ -26,7 +26,7 @@ const CONTINUATION_HANDOFF = {
   external: "none",
   exclusions: "Do not reopen the settled database-index investigation",
   recover: "payments-latency-raw",
-  next: "Write next-action.md with pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
+  next: "Write next-action.md with pool max=50; retry commit=9f31c2a; next file to inspect: services/payments/client.ts backoff bounds.",
 };
 
 function call(name, args = {}, details = {}) {
