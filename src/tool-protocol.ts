@@ -41,12 +41,9 @@ function assistantHasVisibleText(entry: SessionEntry): boolean {
 }
 
 /** Whether the latest user turn still lacks a visible assistant response at this tool batch. */
-export function hasOpenUserTurnAtAssistant(
-  entries: readonly SessionEntry[],
-  assistantEntryIndex: number,
-): boolean {
+export function hasOpenLatestUserTurn(entries: readonly SessionEntry[]): boolean {
   let latestUserIndex = -1;
-  for (let index = assistantEntryIndex - 1; index >= 0; index--) {
+  for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]!;
     if (entry.type === "message" && entry.message.role === "user") {
       latestUserIndex = index;
@@ -54,10 +51,15 @@ export function hasOpenUserTurnAtAssistant(
     }
   }
   if (latestUserIndex < 0) return false;
-  for (let index = latestUserIndex + 1; index <= assistantEntryIndex; index++) {
-    if (assistantHasVisibleText(entries[index]!)) return false;
-  }
-  return true;
+  return !entries.slice(latestUserIndex + 1).some(assistantHasVisibleText);
+}
+
+/** Whether the latest user turn still lacks a visible assistant response at this tool batch. */
+export function hasOpenUserTurnAtAssistant(
+  entries: readonly SessionEntry[],
+  assistantEntryIndex: number,
+): boolean {
+  return hasOpenLatestUserTurn(entries.slice(0, assistantEntryIndex + 1));
 }
 
 function isToolCallBlock(block: unknown): block is ToolCall {

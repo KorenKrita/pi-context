@@ -357,6 +357,76 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(sessionManager.getEntries()).toEqual(entriesBefore);
   });
 
+  test("rejects an invalid target packet before any mutation", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "old request", timestamp: Date.now() });
+    const targetId = sessionManager.appendMessage({
+      ...travelToolCall(),
+      content: [
+        { type: "toolCall", id: "duplicate-target", name: "read", arguments: { path: "a.md" } },
+        { type: "toolCall", id: "duplicate-target", name: "read", arguments: { path: "b.md" } },
+      ],
+    });
+    sessionManager.appendMessage({ role: "user", content: "new continuation", timestamp: Date.now() });
+    const headId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: targetId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "target_protocol_invalid",
+      targetFacts: {
+        protocolStatus: "invalid",
+        protocolDefects: [expect.objectContaining({ kind: "duplicate_tool_call_id", toolCallId: "duplicate-target" })],
+      },
+    });
+    expect(sessionManager.getLeafId()).toBe(headId);
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+  });
+
+  test("allows a repaired target with explicit structural warnings", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "old request", timestamp: Date.now() });
+    const targetId = sessionManager.appendMessage({
+      ...travelToolCall(),
+      content: [{ type: "toolCall", id: "unfinished-target-read", name: "read", arguments: { path: "OLD_TASK.md" } }],
+    });
+    sessionManager.appendMessage({ role: "user", content: "fold the old branch", timestamp: Date.now() });
+    sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: targetId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      targetFacts: {
+        protocolStatus: "repaired",
+        survivingLatestUserTurnOpen: true,
+        targetAssistantHasToolCalls: true,
+      },
+      targetWarnings: [
+        "target_packet_repaired",
+        "target_prefix_open_user_turn",
+        "target_is_assistant_tool_batch",
+      ],
+    });
+    expect((result.content[0] as { text: string }).text).toContain("Target warnings: target_packet_repaired, target_prefix_open_user_turn, target_is_assistant_tool_batch");
+  });
+
   test("rejects a raw backup whose immediate pre-travel packet needs protocol repair", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });

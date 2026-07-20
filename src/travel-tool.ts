@@ -34,6 +34,7 @@ import {
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
+import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import {
   getLiveAgentSyncRecoveryGuidance,
   type AgentSessionSyncOutcome,
@@ -245,7 +246,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (requestedRoot && tree.length > 1) {
         ctx.ui.notify(`Note: 'root' resolved to the first top-level node (${targetId}); this session has ${tree.length} top-level roots.`, "info");
       }
-      if (!findInTree(tree, (node) => node.entry.id === targetId)) {
+      const targetNode = findInTree(tree, (node) => node.entry.id === targetId);
+      if (!targetNode) {
         const hint = " Use acm_timeline to choose the last clean node before the material being folded; raw node IDs are valid targets.";
         return {
           content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
@@ -293,6 +295,32 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
         };
       }
+      const targetBranch = sessionManager.getBranch(targetId);
+      const targetAnalysis = buildTravelTargetFacts({
+        targetId,
+        targetEntry: targetNode.entry,
+        targetBranch,
+        protocol: {
+          ...targetPacketResult.value.protocol,
+          messages: targetPacketResult.value.messages,
+        },
+        fromOffPath: resolved.fromOffPath,
+      });
+      if (targetAnalysis.facts.protocolStatus === "invalid") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: target '${params.target}' has invalid tool-call identity and cannot become a travel base. Choose a different checkpoint/node or repair the persisted session protocol; nothing was mutated.`,
+          }],
+          details: {
+            error: "target_protocol_invalid",
+            target: params.target,
+            targetId,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
+          },
+        };
+      }
       const estimatedUsagePreview = estimateUsageAtTravelTarget(
         usageBefore,
         currentMessages,
@@ -302,7 +330,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
       const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
-      const targetSummaryDepth = countActiveSummaryDepth(sessionManager.getBranch(targetId));
+      const targetSummaryDepth = countActiveSummaryDepth(targetBranch);
 
       let backupEntryId: string | undefined;
       let backupResolvedFromHead: string | undefined;
@@ -498,6 +526,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             liveAgentSessionSyncState: "skipped",
             liveAgentSessionSync,
             recoveryAction,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
           },
         };
       }
@@ -534,6 +564,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
             currentUserTurnOpen,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
           },
         };
       }
@@ -577,6 +609,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
+            targetAnalysis.warnings.length > 0
+              ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
+              : null,
             `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
             currentUserTurnOpen
               ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
@@ -628,6 +663,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           fromOffPath: resolved.fromOffPath,
+          targetFacts: targetAnalysis.facts,
+          targetWarnings: targetAnalysis.warnings,
           handoffFormat: "structured-v1",
           canonicalHandoffLength: canonicalHandoff.text.length,
           handoffNext: canonicalHandoff.fields.next,
