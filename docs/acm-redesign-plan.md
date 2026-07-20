@@ -178,7 +178,7 @@ function normalizeExistingPacket(
 - `buildSessionContext()`；
 - tool call/result protocol 检查与修复 receipt；
 - marked ACM branch summary 的 authority projection；
-- protocol completeness 与 deepest complete prefix；
+- protocol completeness 与 repair evidence；
 - persistent rebuild、live adapter、reload、preview 的一致 packet。
 
 调用者不再分别调用 `buildSessionMessages()` 和 `fixOrphanedToolUse()` 后自行猜测结果。
@@ -203,7 +203,7 @@ type ProtocolInspection =
     };
 ```
 
-Backup anchor、target evidence、persistent rebuild 与 live sync 共享该实现，不再新增第三套 protocol 判断。调用者只通过 `ContextPacket.integrity` 获取 repair 与 deepest-complete evidence。
+Backup anchor、target evidence、persistent rebuild 与 live sync 共享该实现，不再新增第三套 protocol 判断。调用者只通过 `ContextPacket.integrity` 获取 repair 与 protocol-completeness evidence。
 
 ### Authority invariant 与 variants
 
@@ -256,19 +256,21 @@ Native `/tree` summary 没有 marker，继续使用 Pi 的 archival framing。
 
 当前 resolver 跳过 tool results，可能把 backup 放在旧 assistant tool-call turn，恢复时再合成 `[Interrupted by context travel]`。
 
-共享 protocol analysis 提供当前 travel tool-call 之前最深的 protocol-complete prefix；不再单独实现另一套纯函数。
+Backup 先定位紧邻当前 travel tool-call 之前的真实 session leaf，再通过该 leaf 的 compaction-aware projected packet 运行共享 protocol analysis；不再扫描 raw branch 猜测完整性。
 
 调用侧只读取：
 
 ```ts
-inspection.deepestCompleteEntryId
+preTravelLeafId + analysis.repairs
 ```
 
-它选择当前 travel tool-call 之前最深的完整 prefix，可以落在：
+当 immediate pre-travel packet 无 repairs 时，backup 直接落在该 leaf，可以是：
 
 - closed assistant；
 - 完整 tool batch 的最后一个 toolResult；
 - 其他无需 protocol repair 的合法 leaf。
+
+若 immediate packet 需要 repair，travel 在任何 backup/branch mutation 前失败，并返回 repairs；不得静默回退到更早、已经不代表当前 raw continuation 的 anchor。`deepestCompleteEntryId` 只作为诊断 evidence，不作为自动 fallback。
 
 ### Travel target evidence variants
 
@@ -523,7 +525,7 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 - agent 不负责脆弱 wire grammar，runtime 负责 durable handoff；
 - production 主路径不长期保留并行 handoff interfaces；
 - context reconstruction 与 normalization 共享一个 Context Packet implementation，同时保留 existing-packet composition；
-- backup 使用 protocol-complete prefix；
+- backup 使用 immediate pre-travel leaf，且其 projected packet 必须 protocol-complete；
 - authority 只覆盖 handoff 之前的 history，不压过后续用户或 session boundary；
 - Skill availability 在 eval 中硬断言；
 - Skill read rate 只作诊断；
