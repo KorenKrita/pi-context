@@ -166,6 +166,24 @@ export function classifySkillAvailability(input) {
   };
 }
 
+export function finalAssistantOutcome(events) {
+  const message = [...events]
+    .reverse()
+    .find((event) => event?.type === "message_end" && event.message?.role === "assistant")
+    ?.message;
+  return message
+    ? { stopReason: message.stopReason ?? null, errorMessage: message.errorMessage ?? null }
+    : { stopReason: null, errorMessage: null };
+}
+
+export function assertTurnCompleted(events) {
+  const outcome = finalAssistantOutcome(events);
+  if (outcome.stopReason === "error" || outcome.stopReason === "aborted") {
+    throw new Error(`assistant turn failed: ${outcome.errorMessage ?? outcome.stopReason}`);
+  }
+  return outcome;
+}
+
 export class PiRpcDriver {
   /**
    * @param {{
@@ -306,7 +324,9 @@ export class PiRpcDriver {
       throw new Error(`prompt rejected: ${response.error ?? "unknown error"}`);
     }
     await settled;
-    return this.events.slice(startIndex);
+    const turnEvents = this.events.slice(startIndex);
+    assertTurnCompleted(turnEvents);
+    return turnEvents;
   }
 
   async getState() {

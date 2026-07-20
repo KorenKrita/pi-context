@@ -3,6 +3,8 @@ import {
   buildPiRpcArgs,
   classifySkillAvailability,
   CONTEXT_MANAGEMENT_COMMAND,
+  assertTurnCompleted,
+  finalAssistantOutcome,
   PiRpcDriver,
 } from "./driver.mjs";
 
@@ -124,4 +126,22 @@ test("getCommands propagates a rejected RPC response without running a prompt", 
   const driver = new PiRpcDriver(BASE);
   driver.request = async () => ({ success: false, error: "unavailable" });
   await expect(driver.getCommands()).rejects.toThrow("get_commands rejected: unavailable");
+});
+
+describe("assistant turn completion", () => {
+  test("accepts a terminal successful assistant message", () => {
+    const events = [{ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [] } }];
+    expect(finalAssistantOutcome(events)).toEqual({ stopReason: "stop", errorMessage: null });
+    expect(() => assertTurnCompleted(events)).not.toThrow();
+  });
+
+  test("rejects provider-error and aborted terminal assistant messages", () => {
+    for (const stopReason of ["error", "aborted"]) {
+      const events = [{
+        type: "message_end",
+        message: { role: "assistant", stopReason, errorMessage: `terminal ${stopReason}`, content: [] },
+      }];
+      expect(() => assertTurnCompleted(events)).toThrow(`assistant turn failed: terminal ${stopReason}`);
+    }
+  });
 });

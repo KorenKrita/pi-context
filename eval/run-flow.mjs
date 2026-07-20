@@ -27,7 +27,7 @@ import {
   createRunDir,
   EXTENSION_PATH,
 } from "./setup.mjs";
-import { classifySkillAvailability, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
+import { classifySkillAvailability, finalAssistantOutcome, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
 import { extractAssistantTexts, extractToolCalls } from "./scenarios.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
@@ -159,7 +159,8 @@ try {
       const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
       const toolCalls = extractToolCalls(events);
       const assistantText = extractAssistantTexts(events).at(-1) ?? "";
-      turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText });
+      const outcome = finalAssistantOutcome(events);
+      turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText, ...outcome });
       const acm = toolCalls.filter((c) => c.name.startsWith("acm_"));
       console.log(`  tools: ${toolCalls.map((c) => c.name).join(", ") || "(none)"}`);
       if (acm.length) console.log(`  ACM: ${acm.map((c) => `${c.name}${c.isError ? "✗" : ""}`).join(", ")}`);
@@ -208,6 +209,8 @@ const report = {
         args: c.args,
       })),
     assistantPreview: t.assistantText.slice(0, 300),
+    stopReason: t.stopReason,
+    errorMessage: t.errorMessage,
   })),
 };
 
@@ -215,7 +218,7 @@ const report = {
 const transcript = buildTranscript(turnRecords);
 writeFileSync(join(runDir, "transcript.txt"), transcript);
 
-if (!infrastructureInvalid && doJudge) {
+if (!infrastructureInvalid && !runError && doJudge) {
   console.log(`\n=== judging with ${judgeModel.provider}/${judgeModel.modelId} (thinking=${judgeThinking}) ===`);
   const judgeAgentDir = buildAgentDir({ shrink: false, label: process.env.ACM_JUDGE_LABEL ?? "agent-judge" });
   const judgeSessions = join(runDir, "judge-sessions");
@@ -256,6 +259,8 @@ if (!infrastructureInvalid && doJudge) {
 } else {
   report.judge = infrastructureInvalid
     ? { skipped: true, reason: "infrastructure_invalid" }
+    : runError
+      ? { skipped: true, reason: "run_error" }
     : { skipped: true };
 }
 
