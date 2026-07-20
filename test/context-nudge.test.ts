@@ -108,6 +108,7 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain(`REQUIRED NEXT: ${handoff.next}`);
     expect(fixture.sentMessages[0]?.message.content).toContain("Earlier pre-travel requests are historical");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Evidence and Recover are optional receipts");
   });
 
   test("does not steer failed or domain-rejected travel results", async () => {

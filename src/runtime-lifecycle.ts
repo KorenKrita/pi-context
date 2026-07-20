@@ -44,6 +44,7 @@ export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
       "Travel succeeded. This message is not a new objective; it makes the authoritative handoff's current instruction explicit after the transition.",
       `REQUIRED NEXT: ${next}`,
       "Earlier pre-travel requests are historical. Execute REQUIRED NEXT once now; do not reread folded material, recreate an old save point, or replay an earlier task unless REQUIRED NEXT explicitly requires it.",
+      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites; do not open them unless REQUIRED NEXT names them.",
     ].join("\n"),
     display: false,
     details: {

@@ -42,6 +42,7 @@ describe("ACM context packet", () => {
     expect(JSON.stringify(packet.messages[1])).toContain("CURRENT GOAL: current");
     expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("All earlier requests visible above are historical context");
+    expect(JSON.stringify(packet.messages[1])).toContain("Evidence and Recover are optional receipts");
     expect(JSON.stringify(packet.messages[1])).toContain("NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("A later user message");
     expect(packet.messages[2]).toBe(messages[2]);

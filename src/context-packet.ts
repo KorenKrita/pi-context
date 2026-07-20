@@ -71,6 +71,7 @@ function projectContinuation(message: AgentMessage, trusted: Map<string, number>
       ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
       ...(next ? [`REQUIRED NEXT: ${next}`] : []),
       "Act on REQUIRED NEXT now. Do not reread folded material, recreate old save points, or replay an earlier task unless REQUIRED NEXT requires it.",
+      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites: do not open them unless REQUIRED NEXT names them.",
       "A later user message or later authoritative session state may supersede this continuation.",
       "Verify only uncertainty recorded here or facts changed by later independent activity.",
       "",
