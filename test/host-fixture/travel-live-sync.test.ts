@@ -203,7 +203,13 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     );
 
     expect(result.details?.error).toBeUndefined();
-    expect(result.details).toMatchObject({ handoffFormat: "structured-v1", currentUserTurnOpen: true });
+    expect(result.details).toMatchObject({
+      handoffFormat: "structured-v1",
+      handoffNext: HANDOFF.next,
+      currentUserTurnOpen: true,
+    });
+    expect((result.content[0] as { text: string }).text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+    expect((result.content[0] as { text: string }).text).toContain("Current user turn remains open");
     const summaryEntry = sessionManager.getEntry(sessionManager.getLeafId()!);
     expect(summaryEntry?.type).toBe("branch_summary");
     if (summaryEntry?.type !== "branch_summary") throw new Error("travel did not create a branch summary");
@@ -587,6 +593,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       currentUserTurnOpen: false,
     });
     expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
+    expect((result.content[0] as { text: string }).text).not.toContain("Current user turn remains open");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);

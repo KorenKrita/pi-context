@@ -568,6 +568,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
+            `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+            currentUserTurnOpen
+              ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+              : null,
             nextCue,
           ].filter((line): line is string => line !== null).join("\n"),
         }],
@@ -617,6 +621,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           fromOffPath: resolved.fromOffPath,
           handoffFormat: "structured-v1",
           canonicalHandoffLength: canonicalHandoff.text.length,
+          handoffNext: canonicalHandoff.fields.next,
           currentUserTurnOpen,
         },
       };
