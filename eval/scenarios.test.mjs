@@ -3,6 +3,7 @@ import { buildJudgePrompt, buildTranscript, RUBRIC_VERSION } from "./judge.mjs";
 import {
   CONTEXT_MANAGEMENT_SKILL_PATH,
   extractAssistantTranscript,
+  extractTranscriptSegments,
   extractToolCalls,
   pickTravel,
   SCENARIOS,
@@ -95,13 +96,24 @@ describe("ACM eval result scoring", () => {
   });
 
   test("retains every visible assistant segment from a tool-using turn", () => {
-    const transcript = extractAssistantTranscript([
+    const events = [
       { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "answer before travel" }] } },
-      { type: "message_end", message: { role: "assistant", content: [{ type: "toolCall", id: "t", name: "acm_travel" }] } },
+      { type: "tool_execution_start", toolName: "acm_travel", toolCallId: "t", args: { target: "root" } },
+      { type: "tool_execution_end", toolName: "acm_travel", toolCallId: "t", isError: false, result: { content: [] } },
       { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "post-travel continuation" }] } },
-    ]);
+    ];
+    const transcript = extractAssistantTranscript(events);
 
     expect(transcript).toBe("answer before travel\n\npost-travel continuation");
+    const rendered = buildTranscript([{
+      phase: "P1",
+      prompt: "Answer, then travel.",
+      toolCalls: extractToolCalls(events),
+      assistantText: transcript,
+      segments: extractTranscriptSegments(events),
+    }]);
+    expect(rendered.indexOf("answer before travel")).toBeLessThan(rendered.indexOf("acm_travel"));
+    expect(rendered.indexOf("acm_travel")).toBeLessThan(rendered.indexOf("post-travel continuation"));
   });
 
   test("does not credit a transport-successful but domain-rejected travel", () => {

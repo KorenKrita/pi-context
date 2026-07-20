@@ -37,12 +37,19 @@ export const TARGET_SELECTION_REFERENCE_PATH = join(
   "target-selection.md",
 );
 
-export function extractToolCalls(events) {
+export function extractTranscriptSegments(events) {
   /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean, completed: boolean }>} */
   const calls = [];
+  const segments = [];
   const byId = new Map();
   for (const event of events) {
-    if (event.type === "tool_execution_start") {
+    if (event.type === "message_end" && event.message?.role === "assistant") {
+      const text = (event.message.content ?? [])
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      if (text) segments.push({ kind: "assistant_text", text });
+    } else if (event.type === "tool_execution_start") {
       const entry = {
         name: event.toolName,
         args: event.args ?? event.arguments ?? {},
@@ -51,6 +58,7 @@ export function extractToolCalls(events) {
       };
       byId.set(event.toolCallId, entry);
       calls.push(entry);
+      segments.push({ kind: "tool", call: entry });
     } else if (event.type === "tool_execution_end") {
       const entry = byId.get(event.toolCallId) ?? calls.find((c) => c.name === event.toolName);
       if (entry) {
@@ -66,7 +74,13 @@ export function extractToolCalls(events) {
       }
     }
   }
-  return calls;
+  return segments;
+}
+
+export function extractToolCalls(events) {
+  return extractTranscriptSegments(events)
+    .filter((segment) => segment.kind === "tool")
+    .map((segment) => segment.call);
 }
 
 export function extractAssistantTexts(events) {

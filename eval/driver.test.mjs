@@ -144,4 +144,8 @@ describe("assistant turn completion", () => {
       expect(() => assertTurnCompleted(events)).toThrow(`assistant turn failed: terminal ${stopReason}`);
     }
   });
+
+  test("rejects a settled turn with no terminal assistant message", () => {
+    expect(() => assertTurnCompleted([{ type: "agent_settled" }])).toThrow("assistant turn failed: no terminal assistant message");
+  });
 });

@@ -28,7 +28,7 @@ import {
   EXTENSION_PATH,
 } from "./setup.mjs";
 import { classifySkillAvailability, finalAssistantOutcome, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
-import { extractAssistantTranscript, extractToolCalls } from "./scenarios.mjs";
+import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments } from "./scenarios.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
 
@@ -159,8 +159,9 @@ try {
       const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
       const toolCalls = extractToolCalls(events);
       const assistantText = extractAssistantTranscript(events);
+      const segments = extractTranscriptSegments(events);
       const outcome = finalAssistantOutcome(events);
-      turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText, ...outcome });
+      turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText, segments, ...outcome });
       const acm = toolCalls.filter((c) => c.name.startsWith("acm_"));
       console.log(`  tools: ${toolCalls.map((c) => c.name).join(", ") || "(none)"}`);
       if (acm.length) console.log(`  ACM: ${acm.map((c) => `${c.name}${c.isError ? "✗" : ""}`).join(", ")}`);

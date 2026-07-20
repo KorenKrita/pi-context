@@ -178,6 +178,9 @@ export function finalAssistantOutcome(events) {
 
 export function assertTurnCompleted(events) {
   const outcome = finalAssistantOutcome(events);
+  if (outcome.stopReason === null) {
+    throw new Error("assistant turn failed: no terminal assistant message");
+  }
   if (outcome.stopReason === "error" || outcome.stopReason === "aborted") {
     throw new Error(`assistant turn failed: ${outcome.errorMessage ?? outcome.stopReason}`);
   }

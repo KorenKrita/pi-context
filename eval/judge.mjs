@@ -42,36 +42,48 @@ function summarizeArgs(name, args) {
  */
 export function buildTranscript(turnRecords) {
   const out = [];
+  const renderCall = (call) => {
+    const lines = [];
+    const status = call.completed !== true
+      ? "…INCOMPLETE"
+      : call.isError || call.details?.error
+        ? "✗ERROR"
+        : "✓";
+    if (ACM_TOOLS.has(call.name)) {
+      const args = JSON.stringify(call.args ?? {}, null, 2);
+      lines.push(`  ◆ ${call.name} ${status}`);
+      lines.push(`    args: ${args.replace(/\n/g, "\n    ")}`);
+      const result = (call.resultText ?? "").trim();
+      if (result) lines.push(`    result: ${result.replace(/\n/g, "\n    ")}`);
+      if (call.details) lines.push(`    details: ${JSON.stringify(call.details).slice(0, 800)}`);
+    } else {
+      const summary = summarizeArgs(call.name, call.args);
+      lines.push(`  → ${call.name}(${summary}) ${status}`);
+    }
+    return lines;
+  };
   for (const turn of turnRecords) {
     out.push(`\n════════ 阶段 ${turn.phase} ════════`);
     out.push(`【用户】${turn.prompt}`);
-    if (turn.toolCalls.length) {
-      out.push(`【助手动作】`);
-      for (const call of turn.toolCalls) {
-        // A completed RPC can still report a rejected ACM mutation through
-        // details.error. Surface that as failure to the outcome judge too.
-        const status = call.completed !== true
-          ? "…INCOMPLETE"
-          : call.isError || call.details?.error
-            ? "✗ERROR"
-            : "✓";
-        if (ACM_TOOLS.has(call.name)) {
-          const args = JSON.stringify(call.args ?? {}, null, 2);
-          out.push(`  ◆ ${call.name} ${status}`);
-          out.push(`    args: ${args.replace(/\n/g, "\n    ")}`);
-          const result = (call.resultText ?? "").trim();
-          if (result) out.push(`    result: ${result.replace(/\n/g, "\n    ")}`);
-          if (call.details) {
-            out.push(`    details: ${JSON.stringify(call.details).slice(0, 800)}`);
-          }
-        } else {
-          const summary = summarizeArgs(call.name, call.args);
-          out.push(`  → ${call.name}(${summary}) ${status}`);
+    if (Array.isArray(turn.segments)) {
+      let previousKind = null;
+      for (const segment of turn.segments) {
+        if (segment.kind === "assistant_text") {
+          out.push(`【助手回复】${segment.text}`);
+        } else if (segment.kind === "tool") {
+          if (previousKind !== "tool") out.push("【助手动作】");
+          out.push(...renderCall(segment.call));
         }
+        previousKind = segment.kind;
       }
+    } else {
+      if (turn.toolCalls.length) {
+        out.push("【助手动作】");
+        for (const call of turn.toolCalls) out.push(...renderCall(call));
+      }
+      const reply = (turn.assistantText ?? "").trim();
+      if (reply) out.push(`【助手回复】${reply}`);
     }
-    const reply = (turn.assistantText ?? "").trim();
-    if (reply) out.push(`【助手回复】${reply}`);
   }
   return out.join("\n");
 }
