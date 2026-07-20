@@ -108,11 +108,13 @@ export function scoreHandoff(handoff) {
   const invalidAuthoritative = ["goal", "state", "next"].filter((field) =>
     typeof decoded[field] === "string" && decoded[field].trim().toLowerCase() === "none");
   const extra = Object.keys(decoded).filter((field) => !HANDOFF_FIELDS.includes(field));
+  const ok = missing.length === 0 && invalidAuthoritative.length === 0 && extra.length === 0;
   return {
-    ok: missing.length === 0 && invalidAuthoritative.length === 0 && extra.length === 0,
+    ok,
     missing,
     invalidAuthoritative,
     extra,
+    ...(ok ? { fields: decoded } : {}),
     detail: missing.length > 0
       ? `missing: ${missing.join(", ")}`
       : invalidAuthoritative.length > 0
@@ -444,9 +446,9 @@ export const SCENARIOS = [
       const t3 = recordForTurn(ctx, 2);
       const mode = ctx.environmentMode ?? "core-only";
 
-      const t1Read = t1.toolCalls.some((call) => isReadOf(call, "findings.md"));
+      const t1Read = t1.toolCalls.some((call) => successfullyRead(call, "findings.md"));
       const checkpoint = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "payments-latency-findings");
-      const t1ReadIndex = t1.toolCalls.findIndex((call) => isReadOf(call, "findings.md"));
+      const t1ReadIndex = t1.toolCalls.findIndex((call) => successfullyRead(call, "findings.md"));
       const checkpointIndex = t1.toolCalls.indexOf(checkpoint);
       const t1ReadBeforeCheckpoint = t1ReadIndex >= 0 && checkpointIndex > t1ReadIndex;
       const t1Stopped = !t1.toolCalls.some((call) => call.name === "acm_travel" || call.name === "write" || call.name === "edit");
@@ -458,12 +460,14 @@ export const SCENARIOS = [
       const exclusiveTravel = firstTravelSucceeded && firstTravel?.details?.error !== "mixed_tool_batch";
       const targetRoot = firstTravel?.args?.target === "root";
       const backupNamed = firstTravel?.args?.backupCurrentHeadAs === "payments-latency-raw";
-      const handoffCarriesFacts = containsRequiredNextFacts(firstTravel?.args?.handoff?.next);
+      const handoffCarriesFacts = containsRequiredNextFacts(handoff.fields?.next);
 
       const firstTravelIndex = t2.toolCalls.indexOf(firstTravel);
       const postTravelCalls = firstTravelIndex >= 0 ? t2.toolCalls.slice(firstTravelIndex + 1) : [];
       const firstPostTravel = postTravelCalls[0];
-      const directWrite = firstPostTravel?.name === "write" && toolPath(firstPostTravel).endsWith("next-action.md");
+      const directWrite = toolSucceeded(firstPostTravel)
+        && firstPostTravel?.name === "write"
+        && toolPath(firstPostTravel).endsWith("next-action.md");
       const writeCarriesFacts = directWrite && containsRequiredFacts(firstPostTravel?.args?.content);
       const requiredWriteIndex = postTravelCalls.findIndex((call) => call.name === "write" && toolPath(call).endsWith("next-action.md"));
       const beforeRequiredWrite = requiredWriteIndex < 0 ? postTravelCalls : postTravelCalls.slice(0, requiredWriteIndex);

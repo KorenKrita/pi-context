@@ -229,6 +229,53 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     expect(result.checks.find((check) => check.name === "T2 first travel attempt succeeded")?.pass).toBe(false);
   });
 
+  test("accepts the strict JSON-encoded handoff fallback through the full scenario", () => {
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", {
+          target: "root",
+          handoff: JSON.stringify(CONTINUATION_HANDOFF),
+          backupCurrentHeadAs: "payments-latency-raw",
+        }),
+        call("write", {
+          path: "next-action.md",
+          content: "pool max=50; retry commit=9f31c2a; next file: services/payments/client.ts backoff bounds.",
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 structured handoff")?.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 handoff NEXT carries exact continuation")?.pass).toBe(true);
+  });
+
+  test("requires completed successful findings reads and REQUIRED NEXT writes", () => {
+    for (const badRead of [
+      { ...call("read", { path: "findings.md" }), completed: false },
+      { ...call("read", { path: "findings.md" }), isError: true },
+    ]) {
+      const result = scenario.score(continuationContext({
+        t1: [badRead, call("acm_checkpoint", { name: "payments-latency-findings" })],
+      }));
+      expect(result.pass).toBe(false);
+      expect(result.checks.find((check) => check.name === "T1 read findings")?.pass).toBe(false);
+    }
+
+    for (const badWrite of [
+      { ...call("write", { path: "next-action.md", content: "pool max=50; retry commit=9f31c2a; services/payments/client.ts" }), completed: false },
+      { ...call("write", { path: "next-action.md", content: "pool max=50; retry commit=9f31c2a; services/payments/client.ts" }), isError: true },
+    ]) {
+      const result = scenario.score(continuationContext({
+        t2: [
+          call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+          badWrite,
+        ],
+      }));
+      expect(result.pass).toBe(false);
+      expect(result.checks.find((check) => check.name === "T2 direct first continuation write")?.pass).toBe(false);
+    }
+  });
+
   test("fails a post-travel reread or wrong first continuation action", () => {
     const result = scenario.score(continuationContext({
       t2: [
