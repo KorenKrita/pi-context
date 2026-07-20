@@ -57,8 +57,12 @@ Travel applied: this result is the mutation receipt, and the handoff is now the 
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another. Rebase instead: merge surviving state into one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default. If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, load the `context-management` Skill and then `references/target-selection.md` only when that Skill is present in your available Skills list; otherwise do not search the filesystem for it.
+This spine already carries handoff layers; the next fold would stack another. Rebase instead: merge surviving state into one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
 <!-- ACM:CUE_REBASE_CHECK:END -->
+
+<!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->
+If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, load the `context-management` Skill and then `references/target-selection.md`.
+<!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
 `active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.

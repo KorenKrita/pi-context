@@ -86,8 +86,8 @@ describe("ACM guidance quality", () => {
     expect(skill).toContain("Load one reference at a time");
     expect(skill).toContain("observable condition changes");
     expect(skill).toContain("replace the active reference");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("`context-management` Skill");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("`references/target-selection.md`");
+    expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`context-management` Skill");
+    expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`references/target-selection.md`");
     expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`context-management` Skill");
     expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`references/exceptional-recovery.md`");
   });

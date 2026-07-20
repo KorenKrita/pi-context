@@ -50,6 +50,20 @@ function captureExecute(register: (pi: ExtensionAPI) => void): ExecuteTool {
   return execute;
 }
 
+function captureTimelineWithCommands(commandNames: string[]): ExecuteTool {
+  let execute: ExecuteTool | undefined;
+  registerTimelineTool({
+    registerTool(tool: { execute?: ExecuteTool }) {
+      execute = tool.execute;
+    },
+    getCommands() {
+      return commandNames.map((name) => ({ name })) as never;
+    },
+  } as unknown as ExtensionAPI, new AcmSessionRuntime());
+  if (!execute) throw new Error("timeline execute handler was not registered");
+  return execute;
+}
+
 function checkpointContext() {
   const entry = userEntry("entry-1");
   const tree: SessionTreeNode[] = [{ entry, children: [] }];
@@ -403,6 +417,18 @@ describe("ACM tool execution contracts", () => {
     const searchText = search.content[0]?.text ?? "";
     expect(searchText.length).toBeLessThanOrEqual(search.details?.resultCharacterBudget as number);
     expect(searchText).toContain(`truncated ${query.length} chars`);
+  });
+
+  test("emits the advanced target pointer only when the Skill is actually available", async () => {
+    const withoutSkill = captureTimelineWithCommands([]);
+    const withSkill = captureTimelineWithCommands(["skill:context-management"]);
+
+    const absent = await withoutSkill("timeline-no-skill", { view: "active" }, undefined, undefined, timelineContext());
+    const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
+
+    expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
+    expect(available.content[0]?.text).toContain("`context-management` Skill");
+    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

@@ -253,6 +253,14 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
   return count;
 }
 
+function hasContextManagementSkill(pi: ExtensionAPI): boolean {
+  try {
+    return pi.getCommands().some((command) => command.name === "skill:context-management");
+  } catch {
+    return false;
+  }
+}
+
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
@@ -401,6 +409,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
       const resultCharacterBudget = timelineResultCharacterBudget(ctx);
+      const advancedTargetPointer = hasContextManagementSkill(pi)
+        ? GUIDANCE_CUES.advancedTargetPointer
+        : undefined;
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -569,7 +580,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
-        `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null)}`,
+        `• ACM Judgment:     ${activeSummaryDepth > 0
+          ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
+          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,
       ];
       if (resultBudgetApplied) {
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);

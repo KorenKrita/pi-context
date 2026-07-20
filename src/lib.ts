@@ -23,11 +23,11 @@ const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
 export const BOUNDARY_SELECTION_GUIDANCE = "Choose a target by what it precedes, not by proximity or name. A candidate is correct only when it sits immediately before the material being folded — anchor gravity misleads.";
 
-export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
+export function formatBoundaryTravelCue(nearestCheckpointName: string | null, advancedPointer?: string): string {
  if (nearestCheckpointName === null) {
   return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
  }
- return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads. If the target stays ambiguous, load the context-management Skill and then references/target-selection.md only when it is present in your available Skills list; otherwise do not search the filesystem for it`;
+ return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads.${advancedPointer ? ` ${advancedPointer}` : ""}`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };
