@@ -199,6 +199,8 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     const advancedPrompt = scenario.turns[2]?.prompt ?? "";
 
     expect(advancedPrompt).toContain("context-management advanced Skill");
+    expect(advancedPrompt).toContain("absence from that list is conclusive");
+    expect(advancedPrompt).toContain("do not read Skill documentation");
     expect(advancedPrompt).not.toContain("SKILL.md");
     expect(advancedPrompt).not.toContain("references/target-selection.md");
     expect(advancedPrompt).not.toContain("/Users/");
