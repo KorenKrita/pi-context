@@ -203,8 +203,7 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
-    maximum: 50,
-    description: "Maximum recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Range 1..50; default 50.",
+    description: "Maximum recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Default 50.",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -215,8 +214,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     ], { description: "Timeline view mode. Default: active." })),
     limit: limitSchema,
     verbose: Type.Optional(Type.Boolean({ description: "Show all active-path messages, including internal tool traffic and system/custom metadata. (active view only)" })),
-    filter: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively. (checkpoints view only)" })),
-    query: Type.Optional(Type.String({ minLength: 1, maxLength: 500, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
+    filter: Type.Optional(Type.String({ minLength: 1, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively. (checkpoints view only)" })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
