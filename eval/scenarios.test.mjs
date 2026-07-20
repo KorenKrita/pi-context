@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildJudgePrompt, buildTranscript, RUBRIC_VERSION } from "./judge.mjs";
 import {
   CONTEXT_MANAGEMENT_SKILL_PATH,
+  extractAssistantTranscript,
   extractToolCalls,
   pickTravel,
   SCENARIOS,
@@ -91,6 +92,16 @@ describe("ACM eval result scoring", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.completed).toBe(false);
     expect(toolSucceeded(calls[0])).toBe(false);
+  });
+
+  test("retains every visible assistant segment from a tool-using turn", () => {
+    const transcript = extractAssistantTranscript([
+      { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "answer before travel" }] } },
+      { type: "message_end", message: { role: "assistant", content: [{ type: "toolCall", id: "t", name: "acm_travel" }] } },
+      { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "post-travel continuation" }] } },
+    ]);
+
+    expect(transcript).toBe("answer before travel\n\npost-travel continuation");
   });
 
   test("does not credit a transport-successful but domain-rejected travel", () => {

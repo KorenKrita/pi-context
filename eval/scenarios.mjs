@@ -79,6 +79,10 @@ export function extractAssistantTexts(events) {
     .filter(Boolean);
 }
 
+export function extractAssistantTranscript(events) {
+  return extractAssistantTexts(events).join("\n\n");
+}
+
 function check(name, pass, detail) {
   return { name, pass: Boolean(pass), detail };
 }
