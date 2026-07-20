@@ -46,7 +46,7 @@ function continuationContext({ environmentMode = "product-isolated", t1, t2, t3 
     {
       events: [],
       toolCalls: t2 ?? [
-        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
         call("write", {
           path: "next-action.md",
           content: "pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
@@ -178,8 +178,8 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
   test("fails when the first travel attempt is rejected even if a later attempt succeeds", () => {
     const result = scenario.score(continuationContext({
       t2: [
-        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }, { error: "invalid_handoff" }),
-        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }, { error: "invalid_handoff" }),
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
         call("write", {
           path: "next-action.md",
           content: "pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
@@ -194,7 +194,7 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
   test("fails a post-travel reread or wrong first continuation action", () => {
     const result = scenario.score(continuationContext({
       t2: [
-        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
         call("read", { path: "findings.md" }),
         call("write", {
           path: "next-action.md",
@@ -211,7 +211,7 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
   test("accepts markdown formatting that preserves the required continuation facts", () => {
     const result = scenario.score(continuationContext({
       t2: [
-        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
         call("write", {
           path: "next-action.md",
           content: "**pool max**: 50; **retry commit**: `9f31c2a`; inspect `services/payments/client.ts` backoff bounds.",

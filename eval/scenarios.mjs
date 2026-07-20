@@ -392,8 +392,9 @@ export const SCENARIOS = [
       {
         prompt: [
           "The investigation trail is now ready to fold.",
-          "Your first acm_travel attempt must target payments-latency-findings, use a seven-field structured handoff,",
+          "Your first acm_travel attempt must target root — the last clean point before this investigation — and use a seven-field structured handoff,",
           "and be the only action in its tool batch. Backup the current head as payments-latency-raw.",
+          "Keep payments-latency-findings in Recover as the precise archived findings save point; it is recovery evidence, not this fold target.",
           "The handoff NEXT must preserve this exact continuation: write next-action.md with `pool max=50`,",
           "`retry commit=9f31c2a`, and `inspect services/payments/client.ts backoff bounds`.",
           "After a successful travel, make that write your first useful tool action directly.",
@@ -429,6 +430,7 @@ export const SCENARIOS = [
       const firstTravelSucceeded = toolSucceeded(firstTravel);
       const handoff = scoreHandoff(firstTravel?.args?.handoff);
       const exclusiveTravel = firstTravelSucceeded && firstTravel?.details?.error !== "mixed_tool_batch";
+      const targetRoot = firstTravel?.args?.target === "root";
       const backupNamed = firstTravel?.args?.backupCurrentHeadAs === "payments-latency-raw";
       const handoffCarriesFacts = containsRequiredNextFacts(firstTravel?.args?.handoff?.next);
 
@@ -459,6 +461,7 @@ export const SCENARIOS = [
           !firstTravel ? "missing" : firstTravel.details?.error ?? (firstTravel.isError ? "error" : "ok")),
         check("T2 structured handoff", handoff.ok, handoff.detail),
         check("T2 travel batch exclusive", exclusiveTravel, exclusiveTravel ? "not mixed" : "mixed or failed"),
+        check("T2 chose the pre-investigation root boundary", targetRoot, `target=${firstTravel?.args?.target ?? "none"}`),
         check("T2 backup alias", backupNamed, `backup=${firstTravel?.args?.backupCurrentHeadAs ?? "none"}`),
         check("T2 handoff NEXT carries exact continuation", handoffCarriesFacts, handoffCarriesFacts ? "facts preserved" : "NEXT missed a required exact fact"),
         check("T2 direct first continuation write", directWrite, directWrite ? "next-action.md first" : "first post-travel action was not write next-action.md"),
