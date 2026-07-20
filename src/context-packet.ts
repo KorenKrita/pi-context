@@ -23,6 +23,18 @@ function continuationKey(summary: string, fromId: string, timestamp: number): st
   return JSON.stringify([summary, fromId, timestamp]);
 }
 
+function canonicalField(handoff: string, label: string, nextLabel?: string): string | null {
+  const prefix = label === "Goal" ? `${label}: ` : `\n${label}: `;
+  const start = handoff.indexOf(prefix);
+  if (start < 0) return null;
+  const valueStart = start + prefix.length;
+  const end = nextLabel === undefined
+    ? handoff.length
+    : handoff.indexOf(`\n${nextLabel}: `, valueStart);
+  const raw = handoff.slice(valueStart, end < 0 ? handoff.length : end);
+  return raw.replace(/\n  /g, "\n").trim() || null;
+}
+
 function trustedContinuationCounts(entries: readonly SessionEntry[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const entry of entries) {
@@ -45,15 +57,21 @@ function projectContinuation(message: AgentMessage, trusted: Map<string, number>
   if (remaining === 1) trusted.delete(key);
   else trusted.set(key, remaining - 1);
   const handoff = message.summary.slice(ACM_CONTINUATION_MARKER.length).replace(/^\n/, "");
+  const goal = canonicalField(handoff, "Goal", "State");
+  const next = canonicalField(handoff, "NEXT");
   return {
     role: "custom",
     customType: "acm:continuation",
     content: [
-      "[ACM CONTINUATION — AUTHORITATIVE WORKING STATE]",
+      "[ACM CURRENT CONTINUATION — HIGHEST-PRIORITY SESSION STATE]",
       "",
-      "This is your current memory after deliberate travel. Trust it exactly, including stated uncertainty.",
+      "Travel completed. This message is the active continuation of the user's work at this point in the session.",
+      "All earlier requests visible above are historical context. Do not execute or repeat them unless REQUIRED NEXT explicitly says to.",
       "Where older surviving history conflicts with this handoff, the handoff supersedes that history.",
-      "Continue directly with NEXT unless a later user message or later authoritative session state changes the objective.",
+      ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
+      ...(next ? [`REQUIRED NEXT: ${next}`] : []),
+      "Act on REQUIRED NEXT now. Do not reread folded material, recreate old save points, or replay an earlier task unless REQUIRED NEXT requires it.",
+      "A later user message or later authoritative session state may supersede this continuation.",
       "Verify only uncertainty recorded here or facts changed by later independent activity.",
       "",
       handoff,

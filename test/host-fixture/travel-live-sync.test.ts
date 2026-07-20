@@ -606,7 +606,9 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       customType: "acm:continuation",
       display: false,
     }));
-    expect(JSON.stringify(rebuilt)).toContain("AUTHORITATIVE WORKING STATE");
+    expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(JSON.stringify(rebuilt)).toContain("All earlier requests visible above are historical context");
+    expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
     expect(JSON.stringify(rebuilt)).not.toContain("summary of a branch that this conversation came back from");
     expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");
     expect(hasToolCall(rebuilt, TOOL_CALL_ID)).toBe(false);
