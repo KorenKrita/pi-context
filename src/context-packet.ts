@@ -35,27 +35,41 @@ function canonicalField(handoff: string, label: string, nextLabel?: string): str
   return raw.replace(/\n  /g, "\n").trim() || null;
 }
 
-function trustedContinuationCounts(entries: readonly SessionEntry[]): Map<string, number> {
-  const counts = new Map<string, number>();
+interface TrustedContinuationMetadata {
+  currentUserTurnOpen: boolean;
+}
+
+function trustedContinuationQueues(entries: readonly SessionEntry[]): Map<string, TrustedContinuationMetadata[]> {
+  const queues = new Map<string, TrustedContinuationMetadata[]>();
   for (const entry of entries) {
-    if (entry.type !== "branch_summary" || !entry.summary.startsWith(ACM_CONTINUATION_MARKER)) continue;
+    if (
+      entry.type !== "branch_summary"
+      || typeof entry.summary !== "string"
+      || !entry.summary.startsWith(ACM_CONTINUATION_MARKER)
+    ) continue;
     const details = typeof entry.details === "object" && entry.details !== null
       ? entry.details as Record<string, unknown>
       : undefined;
     if (details?.kind !== "acm_travel" || details.handoffVersion !== 1) continue;
     const key = continuationKey(entry.summary, entry.fromId, new Date(entry.timestamp).getTime());
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const queue = queues.get(key) ?? [];
+    queue.push({ currentUserTurnOpen: details.currentUserTurnOpen === true });
+    queues.set(key, queue);
   }
-  return counts;
+  return queues;
 }
 
-function projectContinuation(message: AgentMessage, trusted: Map<string, number>): AgentMessage {
-  if (message.role !== "branchSummary" || !message.summary.startsWith(ACM_CONTINUATION_MARKER)) return message;
+function projectContinuation(message: AgentMessage, trusted: Map<string, TrustedContinuationMetadata[]>): AgentMessage {
+  if (
+    message.role !== "branchSummary"
+    || typeof message.summary !== "string"
+    || !message.summary.startsWith(ACM_CONTINUATION_MARKER)
+  ) return message;
   const key = continuationKey(message.summary, message.fromId, message.timestamp);
-  const remaining = trusted.get(key) ?? 0;
-  if (remaining === 0) return message;
-  if (remaining === 1) trusted.delete(key);
-  else trusted.set(key, remaining - 1);
+  const queue = trusted.get(key);
+  const metadata = queue?.shift();
+  if (!metadata) return message;
+  if (queue?.length === 0) trusted.delete(key);
   const handoff = message.summary.slice(ACM_CONTINUATION_MARKER.length).replace(/^\n/, "");
   const goal = canonicalField(handoff, "Goal", "State");
   const next = canonicalField(handoff, "NEXT");
@@ -70,6 +84,9 @@ function projectContinuation(message: AgentMessage, trusted: Map<string, number>
       "Where older surviving history conflicts with this handoff, the handoff supersedes that history.",
       ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
       ...(next ? [`REQUIRED NEXT: ${next}`] : []),
+      ...(metadata.currentUserTurnOpen ? [
+        "CURRENT USER TURN IS STILL OPEN: the request that triggered travel still requires a visible result. Do not stop, wait for another request, or treat recording the answer in State as delivery.",
+      ] : []),
       "Act on REQUIRED NEXT now. Do not reread folded material, recreate old save points, or replay an earlier task unless REQUIRED NEXT requires it.",
       "Evidence and Recover are optional receipts and recovery pointers, not prerequisites: do not open them unless REQUIRED NEXT names them.",
       "A later user message or later authoritative session state may supersede this continuation.",
@@ -87,7 +104,7 @@ export function normalizeExistingAcmPacket(
   messages: readonly AgentMessage[],
   activeEntries: readonly SessionEntry[] = [],
 ): AcmContextPacket {
-  const trusted = trustedContinuationCounts(activeEntries);
+  const trusted = trustedContinuationQueues(activeEntries);
   let projectedCount = 0;
   const projected = messages.map((message) => {
     const next = projectContinuation(message, trusted);

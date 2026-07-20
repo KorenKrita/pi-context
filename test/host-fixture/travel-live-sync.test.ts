@@ -203,11 +203,16 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     );
 
     expect(result.details?.error).toBeUndefined();
-    expect(result.details).toMatchObject({ handoffFormat: "structured-v1" });
-    expect(sessionManager.getEntry(sessionManager.getLeafId()!)).toMatchObject({
-      type: "branch_summary",
+    expect(result.details).toMatchObject({ handoffFormat: "structured-v1", currentUserTurnOpen: true });
+    const summaryEntry = sessionManager.getEntry(sessionManager.getLeafId()!);
+    expect(summaryEntry?.type).toBe("branch_summary");
+    if (summaryEntry?.type !== "branch_summary") throw new Error("travel did not create a branch summary");
+    expect(summaryEntry.summary).toContain("Goal: exercise live travel synchronization");
+    expect(sessionManager.buildSessionContext().messages).toContainEqual(expect.objectContaining({
+      role: "branchSummary",
       summary: expect.stringContaining("Goal: exercise live travel synchronization"),
-    });
+    }));
+    expect(JSON.stringify(acmMessages(sessionManager))).toContain("CURRENT USER TURN IS STILL OPEN");
   });
 
   test("persists multiline structured handoff fields as canonical text", async () => {
@@ -579,6 +584,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       activeSummaryDepthBefore: 0,
       activeSummaryDepthAfter: 1,
       activeSummaryDepthDelta: 1,
+      currentUserTurnOpen: false,
     });
     expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
@@ -609,6 +615,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
     expect(JSON.stringify(rebuilt)).toContain("All earlier requests visible above are historical context");
     expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
+    expect(JSON.stringify(rebuilt)).not.toContain("CURRENT USER TURN IS STILL OPEN");
     expect(JSON.stringify(rebuilt)).not.toContain("summary of a branch that this conversation came back from");
     expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");
     expect(hasToolCall(rebuilt, TOOL_CALL_ID)).toBe(false);

@@ -101,6 +101,7 @@ describe("ACM context usage reminders", () => {
       details: {
         handoffFormat: "structured-v1",
         resultingLeafId: "summary-1",
+        currentUserTurnOpen: true,
       },
     });
 
@@ -114,6 +115,7 @@ describe("ACM context usage reminders", () => {
           toolCallId: "travel-success",
           resultingLeafId: "summary-1",
           next: handoff.next,
+          currentUserTurnOpen: true,
         },
       },
       options: { deliverAs: "steer" },
@@ -121,6 +123,7 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[0]?.message.content).toContain(`REQUIRED NEXT: ${handoff.next}`);
     expect(fixture.sentMessages[0]?.message.content).toContain("Earlier pre-travel requests are historical");
     expect(fixture.sentMessages[0]?.message.content).toContain("Evidence and Recover are optional receipts");
+    expect(fixture.sentMessages[0]?.message.content).toContain("CURRENT USER TURN IS STILL OPEN");
   });
 
   test("does not steer failed or domain-rejected travel results", async () => {

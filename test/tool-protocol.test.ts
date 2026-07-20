@@ -1,8 +1,45 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { analyzeToolProtocol } from "../src/tool-protocol";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { analyzeToolProtocol, hasOpenUserTurnAtAssistant } from "../src/tool-protocol";
 
 describe("LLM tool protocol analysis", () => {
+  test("detects a structurally open user turn at the travel tool batch", () => {
+    const user = {
+      type: "message",
+      id: "user-1",
+      parentId: null,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      message: { role: "user", content: "give me the official retry answer", timestamp: 1 },
+    } as SessionEntry;
+    const toolOnly = {
+      type: "message",
+      id: "assistant-tool",
+      parentId: user.id,
+      timestamp: "2026-01-01T00:00:01.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "travel-1", name: "acm_travel", arguments: {} }],
+        stopReason: "toolUse",
+        timestamp: 2,
+      },
+    } as SessionEntry;
+    const answered = {
+      ...toolOnly,
+      id: "assistant-answered",
+      message: {
+        ...toolOnly.message,
+        content: [
+          { type: "text", text: "The official answer is five retries." },
+          { type: "toolCall", id: "travel-2", name: "acm_travel", arguments: {} },
+        ],
+      },
+    } as SessionEntry;
+
+    expect(hasOpenUserTurnAtAssistant([user, toolOnly], 1)).toBe(true);
+    expect(hasOpenUserTurnAtAssistant([user, answered], 1)).toBe(false);
+  });
+
   test("reports synthesized results while repairing an interrupted tool call", () => {
     const messages = [{
       role: "assistant" as const,

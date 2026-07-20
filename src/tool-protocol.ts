@@ -26,6 +26,40 @@ export interface ContainingAssistantToolBatch {
   toolCallCount: number;
 }
 
+function assistantHasVisibleText(entry: SessionEntry): boolean {
+  if (entry.type !== "message" || entry.message.role !== "assistant") return false;
+  const content: unknown = entry.message.content;
+  if (typeof content === "string") return content.trim().length > 0;
+  return Array.isArray(content) && content.some((block) =>
+    typeof block === "object"
+    && block !== null
+    && "type" in block
+    && block.type === "text"
+    && "text" in block
+    && typeof block.text === "string"
+    && block.text.trim().length > 0);
+}
+
+/** Whether the latest user turn still lacks a visible assistant response at this tool batch. */
+export function hasOpenUserTurnAtAssistant(
+  entries: readonly SessionEntry[],
+  assistantEntryIndex: number,
+): boolean {
+  let latestUserIndex = -1;
+  for (let index = assistantEntryIndex - 1; index >= 0; index--) {
+    const entry = entries[index]!;
+    if (entry.type === "message" && entry.message.role === "user") {
+      latestUserIndex = index;
+      break;
+    }
+  }
+  if (latestUserIndex < 0) return false;
+  for (let index = latestUserIndex + 1; index <= assistantEntryIndex; index++) {
+    if (assistantHasVisibleText(entries[index]!)) return false;
+  }
+  return true;
+}
+
 function isToolCallBlock(block: unknown): block is ToolCall {
   return (
     typeof block === "object"

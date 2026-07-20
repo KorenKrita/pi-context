@@ -30,6 +30,7 @@ import {
 } from "./host-bridge.js";
 import {
   findContainingAssistantToolBatch,
+  hasOpenUserTurnAtAssistant,
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
@@ -43,6 +44,7 @@ import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, T
 interface TravelSummaryDetails {
   kind: "acm_travel";
   handoffVersion: 1;
+  currentUserTurnOpen: boolean;
   originId: string;
   originLabel?: string;
   target: string;
@@ -207,10 +209,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
       const canonicalHandoff = handoffResult.value;
 
-      const containingToolCallCount = findContainingAssistantToolBatch(
-        ctx.sessionManager.getBranch(),
+      const preTravelBranch = ctx.sessionManager.getBranch();
+      const containingBatch = findContainingAssistantToolBatch(
+        preTravelBranch,
         toolCallId,
-      )?.toolCallCount ?? null;
+      );
+      const containingToolCallCount = containingBatch?.toolCallCount ?? null;
+      const currentUserTurnOpen = containingBatch
+        ? hasOpenUserTurnAtAssistant(preTravelBranch, containingBatch.entryIndex)
+        : false;
       if (containingToolCallCount !== null && containingToolCallCount > 1) {
         return {
           content: [{ type: "text" as const, text: `Error: acm_travel must run alone in its assistant tool batch; found ${containingToolCallCount} tool calls in the containing assistant message. Travel aborted before mutation. Reissue acm_travel in a new assistant message without sibling tools.` }],
@@ -306,7 +313,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             details: { error: "aborted", target: params.target, targetId },
           };
         }
-        const containingBatch = findContainingAssistantToolBatch(branch, toolCallId);
         const backupCandidateIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
         const backupCandidate = backupCandidateIndex >= 0 ? branch[backupCandidateIndex] : undefined;
         if (!backupCandidate) {
@@ -400,6 +406,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const travelDetails: TravelSummaryDetails = {
         kind: "acm_travel",
         handoffVersion: 1,
+        currentUserTurnOpen,
         originId,
         ...(originLabel === undefined ? {} : { originLabel }),
         target: params.target,
@@ -517,6 +524,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             liveAgentSessionSyncState: liveAgentSessionSync.status,
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
+            currentUserTurnOpen,
           },
         };
       }
@@ -609,6 +617,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           fromOffPath: resolved.fromOffPath,
           handoffFormat: "structured-v1",
           canonicalHandoffLength: canonicalHandoff.text.length,
+          currentUserTurnOpen,
         },
       };
     },

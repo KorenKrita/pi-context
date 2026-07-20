@@ -27,7 +27,7 @@ describe("ACM context packet", () => {
       timestamp: new Date(2).toISOString(),
       fromId: "old-leaf",
       summary,
-      details: { kind: "acm_travel", handoffVersion: 1 },
+      details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: true },
     }] as SessionEntry[];
 
     const packet = normalizeExistingAcmPacket(messages, activeEntries);
@@ -43,6 +43,7 @@ describe("ACM context packet", () => {
     expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("All earlier requests visible above are historical context");
     expect(JSON.stringify(packet.messages[1])).toContain("Evidence and Recover are optional receipts");
+    expect(JSON.stringify(packet.messages[1])).toContain("CURRENT USER TURN IS STILL OPEN");
     expect(JSON.stringify(packet.messages[1])).toContain("NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("A later user message");
     expect(packet.messages[2]).toBe(messages[2]);

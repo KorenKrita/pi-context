@@ -37,12 +37,16 @@ export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
   const handoff = buildCanonicalHandoff(event.input.handoff as HandoffWireInput);
   if (!handoff.ok) return null;
   const next = handoff.value.fields.next;
+  const currentUserTurnOpen = details.currentUserTurnOpen === true;
   return {
     customType: "acm:post-travel-continuation",
     content: [
       "[ACM POST-TRAVEL CONTINUATION]",
       "Travel succeeded. This message is not a new objective; it makes the authoritative handoff's current instruction explicit after the transition.",
       `REQUIRED NEXT: ${next}`,
+      ...(currentUserTurnOpen ? [
+        "CURRENT USER TURN IS STILL OPEN: deliver the result requested by the user who triggered travel. Ignore any NEXT that merely waits for another request; recording an answer in State is not user-visible delivery.",
+      ] : []),
       "Earlier pre-travel requests are historical. Execute REQUIRED NEXT once now; do not reread folded material, recreate an old save point, or replay an earlier task unless REQUIRED NEXT explicitly requires it.",
       "Evidence and Recover are optional receipts and recovery pointers, not prerequisites; do not open them unless REQUIRED NEXT names them.",
     ].join("\n"),
@@ -53,6 +57,7 @@ export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
       toolCallId: event.toolCallId,
       resultingLeafId: details.resultingLeafId,
       next,
+      currentUserTurnOpen,
     },
   };
 }
