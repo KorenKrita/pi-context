@@ -20,7 +20,7 @@ import {
   resolveTargetId,
   sanitizeTerminalText,
 } from "./lib.js";
-import { buildCanonicalHandoff, HandoffSchema, type HandoffInput } from "./handoff.js";
+import { buildCanonicalHandoff, HandoffSchema, type HandoffWireInput } from "./handoff.js";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
   prevalidateBranchWithSummary,
@@ -89,9 +89,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : new Text("", 0, 0);
       const backup = args.backupCurrentHeadAs ? ` · backup ${sanitizeTerminalText(args.backupCurrentHeadAs)}` : "";
       const target = sanitizeTerminalText(args.target ?? "…");
-      const handoffLength = args.handoff && typeof args.handoff === "object"
-        ? Object.values(args.handoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
-        : 0;
+      const handoffLength = typeof args.handoff === "string"
+        ? args.handoff.length
+        : args.handoff && typeof args.handoff === "object"
+          ? Object.values(args.handoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
+          : 0;
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
           + theme.fg("accent", `→ ${target}`)
@@ -185,7 +187,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
       const params = {
         target,
-        handoff: rawRecord.handoff as HandoffInput,
+        handoff: rawRecord.handoff as HandoffWireInput,
         ...(backupCurrentHeadAs === undefined ? {} : { backupCurrentHeadAs }),
       };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {

@@ -187,6 +187,29 @@ describe("travel batch safety", () => {
 });
 
 describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
+  test("accepts a JSON-encoded structured handoff from providers that serialize nested arguments", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "provider serialized the handoff", timestamp: Date.now() });
+    sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, handoff: JSON.stringify(HANDOFF) },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({ handoffFormat: "structured-v1" });
+    expect(sessionManager.getEntry(sessionManager.getLeafId()!)).toMatchObject({
+      type: "branch_summary",
+      summary: expect.stringContaining("Goal: exercise live travel synchronization"),
+    });
+  });
+
   test("persists multiline structured handoff fields as canonical text", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });

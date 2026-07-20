@@ -108,7 +108,7 @@ Outcome eval 仍保留以下 fallback/对照：
 2. flat structured fields，作为弱 provider fallback；
 3. conservative tolerant parser，作为 legacy control，不做语义猜测。
 
-Nested object 已通过 deterministic 与 exact-host gate；最终产品晋级仍要求首调成功、handoff 信息保留、current obligation、post-travel continuation 与最终任务结果不劣于 control。Flat fields 仅在弱 provider 实证显示 nested schema 是障碍时启用；conservative parser 只作 legacy control。
+Nested object 已通过 deterministic 与 exact-host gate。真实弱模型 run 进一步观察到 provider 把完整 nested object 编码成 JSON string；runtime 因而接受“同一七字段对象的精确 JSON 编码”作为机械兼容 fallback，不恢复自由文本 DSL，也不猜测语义。最终产品晋级仍要求首调成功、handoff 信息保留、current obligation、post-travel continuation 与最终任务结果不劣于 control。Flat fields 仅在精确 JSON fallback 仍不足时启用；conservative free-form parser 只作 legacy control。
 
 ### Durable representation
 

@@ -100,7 +100,7 @@ checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 
 
 `acm_travel` 的顺序：
 
-1. 解析 target，验证 structured handoff 的 `goal/state/evidence/external/exclusions/recover/next`，并生成唯一 canonical durable text；rebase snapshot 还必须满足 cold start
+1. 解析 target，验证 structured handoff 的 `goal/state/evidence/external/exclusions/recover/next`，并生成唯一 canonical durable text；nested object 是首选 wire shape，provider 将该对象整体 JSON 序列化时允许精确 JSON fallback，但不接受自由文本 summary；rebase snapshot 还必须满足 cold start
 2. prevalidate branch 与可选 backup alias
 3. coordinator 追加 backup label，并持有 operation-scoped rollback token
 4. 调用 `branchWithSummary(..., true)`

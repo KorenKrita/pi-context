@@ -92,11 +92,14 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     expect(tools.get("acm_travel")?.description).toContain("alone in its assistant tool batch");
     const travelParameters = tools.get("acm_travel")?.parameters as {
       required?: string[];
-      properties?: Record<string, { required?: string[] }>;
+      properties?: Record<string, { anyOf?: Array<{ type?: string; required?: string[] }> }>;
     };
     expect(travelParameters.required).toContain("handoff");
     expect(travelParameters.properties?.summary).toBeUndefined();
-    expect(travelParameters.properties?.handoff?.required?.sort()).toEqual([
+    const handoffVariants = travelParameters.properties?.handoff?.anyOf ?? [];
+    const structuredHandoff = handoffVariants.find((variant) => variant.type === "object");
+    const serializedHandoff = handoffVariants.find((variant) => variant.type === "string");
+    expect(structuredHandoff?.required?.sort()).toEqual([
       "evidence",
       "exclusions",
       "external",
@@ -105,6 +108,7 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
       "recover",
       "state",
     ]);
+    expect(serializedHandoff).toBeDefined();
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

@@ -2,7 +2,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 
 export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->";
 
-export const HandoffSchema = Type.Object({
+export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
     description: "The authoritative current objective, including any user-visible result still owed. Knowing a result is not the same as delivering it.",
@@ -33,11 +33,23 @@ export const HandoffSchema = Type.Object({
   }),
 }, { additionalProperties: false });
 
-export type HandoffInput = Static<typeof HandoffSchema>;
+export const HandoffSchema = Type.Union([
+  StructuredHandoffSchema,
+  Type.String({
+    minLength: 1,
+    description: "Compatibility fallback for providers that serialize a nested tool argument: an exact JSON encoding of the same seven-field handoff object. This is not free-form summary text.",
+  }),
+], {
+  description: "Prefer the structured seven-field object. A JSON-encoded copy of that exact object is accepted only as a provider compatibility fallback.",
+});
+
+export type HandoffInput = Static<typeof StructuredHandoffSchema>;
+export type HandoffWireInput = Static<typeof HandoffSchema>;
 export type HandoffField = keyof HandoffInput;
 
 export type HandoffDefect =
   | { field: HandoffField; reason: "empty" | "none_not_allowed" | "invalid_type" }
+  | { field: "handoff"; reason: "invalid_json" }
   | { field: "handoff"; reason: "unexpected_field"; name: string }
   | { field: "rawArchiveAlias"; reason: "invalid_archive_alias" };
 
@@ -72,12 +84,20 @@ function renderField(label: string, value: string): string {
 }
 
 export function buildCanonicalHandoff(
-  input: HandoffInput,
+  input: HandoffWireInput,
   facts: { rawArchiveAlias?: string } = {},
 ): HandoffBuildResult {
   const defects: HandoffDefect[] = [];
-  const inputRecord = typeof input === "object" && input !== null
-    ? input as unknown as Record<string, unknown>
+  let decodedInput: unknown = input;
+  if (typeof input === "string") {
+    try {
+      decodedInput = JSON.parse(input);
+    } catch {
+      return { ok: false, defects: [{ field: "handoff", reason: "invalid_json" }] };
+    }
+  }
+  const inputRecord = typeof decodedInput === "object" && decodedInput !== null && !Array.isArray(decodedInput)
+    ? decodedInput as Record<string, unknown>
     : {};
   const normalizedFields: Partial<Record<HandoffField, string>> = {};
   for (const { field } of FIELD_ORDER) {

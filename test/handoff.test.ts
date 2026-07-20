@@ -135,4 +135,21 @@ describe("canonical handoff", () => {
       defects: [{ field: "rawArchiveAlias", reason: "invalid_archive_alias" }],
     });
   });
+
+  test("accepts an exact JSON-encoded structured handoff as a provider fallback", () => {
+    const structured = handoff();
+
+    const result = buildCanonicalHandoff(JSON.stringify(structured));
+
+    expect(result).toEqual(buildCanonicalHandoff(structured));
+  });
+
+  test("rejects a compatibility string that is not valid JSON", () => {
+    const result = buildCanonicalHandoff("Goal: free-form text is not the wire contract");
+
+    expect(result).toEqual({
+      ok: false,
+      defects: [{ field: "handoff", reason: "invalid_json" }],
+    });
+  });
 });

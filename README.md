@@ -68,6 +68,8 @@ root → summary A → summary B → summary C → current work
 
 七个字段都必须存在。`goal`、`state`、`next` 必须包含真实内容；其余字段为空时显式写 `none`。字段值可以多行，没有人为 handoff 长度上限。`backupCurrentHeadAs` 成功时，runtime 会把 raw archive alias 确定性地写入持久 handoff 的 `Recover`。
 
+首选 wire shape 始终是上面的 nested object。少数 provider 会把 nested tool argument 整体序列化成 JSON string；runtime 也接受**同一个七字段对象的精确 JSON 编码**作为兼容 fallback，再走完全相同的字段验证与 canonicalization。普通自由文本、旧七行 DSL 或任意 `summary` 字符串仍不是有效 handoff。
+
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
 ## Semantic rebase
