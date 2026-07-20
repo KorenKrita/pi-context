@@ -48,6 +48,7 @@
 | `src/travel-tool.ts` | handoff validation、travel evidence、sync scheduling |
 | `src/handoff.ts` | structured handoff schema、validation、runtime facts composition 与 canonical durable text |
 | `src/context-packet.ts` | LLM-bound packet reconstruction、tool protocol normalization 与 provenance-bound ACM continuation authority projection |
+| `src/travel-target-facts.ts` | mutation 前的 target protocol/topology facts 与 warning classification；只把 invalid identity 作为固定 hard floor |
 | `src/travel-coordinator.ts` | 单次 backup → branch → verify → compensate transaction |
 | `src/host-bridge.ts` | readonly SessionManager 到公开 mutation/build capability 的唯一 guarded seam |
 | `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation、context nudge 与 live sync state |
@@ -100,7 +101,7 @@ checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 
 
 `acm_travel` 的顺序：
 
-1. 解析 target，验证 structured handoff 的 `goal/state/evidence/external/exclusions/recover/next`，并生成唯一 canonical durable text；nested object 是首选 wire shape，provider 将该对象整体 JSON 序列化时允许精确 JSON fallback，但不接受自由文本 summary；rebase snapshot 还必须满足 cold start
+1. 解析 target，验证 structured handoff 的 `goal/state/evidence/external/exclusions/recover/next`，并生成唯一 canonical durable text；nested object 是首选 wire shape，provider 将该对象整体 JSON 序列化时允许精确 JSON fallback，但不接受自由文本 summary；同时构造独立 target facts（protocol status/repairs/defects、surviving open user、assistant tool batch、branch summary、off-path）；`invalid` target packet 在 mutation 前硬拒绝，其他 hazards 只作为结构 warning，rebase snapshot 仍由 agent 做 cold start
 2. prevalidate branch 与可选 backup alias
 3. coordinator 追加 backup label，并持有 operation-scoped rollback token
 4. 调用 `branchWithSummary(..., true)`
@@ -230,7 +231,7 @@ bun run verify:acm
 
 行为 eval 与 deterministic gate 分离：
 
-- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `core-only`、`product-isolated`、`full-env` 三种显式环境；
+- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`full-env` 四种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；
 - 每个 run 在首个模型 prompt 前通过 `get_commands` 验证 `skill:context-management` availability 与 current-checkout realpath provenance，失败标记 `infrastructure_invalid` 且不归因模型；
 - report 必须记录 model、thinking level、environment、product commit、experimental variable 与 Skill provenance；
 - 每个 flow turn 必须按 raw event 顺序交错保留 visible assistant segments 与 tools；terminal assistant `stopReason` 为 `error`/`aborted` 或不存在时标记 `run_error` 并跳过 outcome judge，不能把 provider transport failure 当 completed task，也不能把 travel 错排到先前已交付答案之前；

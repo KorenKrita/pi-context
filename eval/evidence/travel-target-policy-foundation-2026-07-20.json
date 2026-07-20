@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T20:55:00Z",
+  "productCommit": "46cb3ad57696cf2478caea8553aee8ac4336c182",
+  "question": "Which travel-target hazards are mechanically settled, and which should remain warnings until controlled causal evidence exists?",
+  "implementedFacts": [
+    "target entry type, role, stop reason, assistant tool/text shape",
+    "surviving latest user turn open/closed",
+    "target packet complete/repaired/invalid status with repairs and defects",
+    "branch-summary and off-path topology"
+  ],
+  "stagedPolicy": {
+    "target_packet_invalid": "reject_before_any_mutation",
+    "target_packet_repaired": "apply_with_structured_warning",
+    "target_prefix_open_user_turn": "apply_with_structured_warning",
+    "target_is_assistant_tool_batch": "apply_with_structured_warning",
+    "target_is_branch_summary": "apply_with_structured_warning",
+    "target_from_off_path": "apply_with_structured_warning",
+    "automaticRetarget": false
+  },
+  "rationale": [
+    "Invalid tool-call identity has no valid normalized provider packet and is a mechanical integrity failure.",
+    "Repaired packets are heterogeneous: synthesized missing results are high-risk, while reorder/orphan/duplicate cleanup can be transport noise.",
+    "Dangling and old-summary prefixes are confirmed structural hazards, but existing evidence does not establish that blanket rejection improves net task outcome.",
+    "Warning-only for non-invalid hazards preserves the current public travel reachability and avoids reintroducing a high first-call rejection rate.",
+    "The runtime reports every fact and warning without silently choosing another target, leaving later escalation attributable and reversible."
+  ],
+  "verification": {
+    "unit": "travel-target-facts matrix separates repaired/open/tool-batch/summary/off-path dimensions",
+    "exactHostInvalid": "invalid duplicate tool-call target returns target_protocol_invalid with unchanged leaf and entries",
+    "exactHostRepaired": "repaired unfinished tool target applies with explicit target_packet_repaired, target_prefix_open_user_turn, and target_is_assistant_tool_batch warnings"
+  },
+  "promotionRule": "Escalate a non-invalid warning to rejection only after a controlled policy comparison shows lower stale-task/continuation harm without unacceptable valid-travel loss. Prefer repair-subtype-specific policy over blanket repaired rejection if reorder/orphan cleanup proves harmless."
+}

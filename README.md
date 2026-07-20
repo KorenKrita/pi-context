@@ -166,6 +166,7 @@ pi -e /path/to/pi-context/src/index.ts \
 - backup checkpoint outcome；
 - message、token、percentage-point 与 summary-depth delta；
 - persistent context rebuild 和 live AgentSession sync 状态。
+- travel target 的 protocol status/repairs/defects、surviving open-user、assistant tool-batch、old-summary 与 off-path warnings；无效 tool-call identity 的 target 会在任何 mutation 前被拒绝，其余 warning 不冒充语义 verdict。
 
 Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
 
@@ -197,7 +198,7 @@ bun run typecheck
 bun run test:host
 ```
 
-真实模型行为评估与 CI 分离。短 runner 支持 `core-only`、`product-isolated`、`full-env`，并在首个 prompt 前验证当前 checkout 的 Skill provenance：
+真实模型行为评估与 CI 分离。Runner 支持 `raw-control`、`core-only`、`product-isolated`、`full-env`；除 raw-control 外，相关模式在首个 prompt 前验证当前 checkout 的 Skill provenance：
 
 ```bash
 bun eval/run.mjs \
@@ -205,6 +206,13 @@ bun eval/run.mjs \
   --id structured-handoff-continuation-and-skill \
   --model local-responses/gpt-5.6-sol \
   --thinking high
+
+bun eval/run-flow.mjs \
+  --environment-mode raw-control \
+  --flow cadence-research-flow \
+  --model local-responses/gpt-5.6-sol \
+  --thinking high \
+  --context-window 40000
 
 bun eval/run.mjs \
   --env product-isolated \

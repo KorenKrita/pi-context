@@ -114,7 +114,16 @@
       "2026-07-20T18-59-57-072Z-eval-deepseek-v4-flash-p71298"
     ],
     "failureShape": "Travel and handoff succeeded, but the model performed filesystem inspection and reread folded findings before executing the required write.",
-    "interpretation": "Exact NEXT receipts and open-turn authority materially improved the weak-model floor but did not make first-action adherence deterministic. A stricter one-shot action guard would be a separate public behavior choice rather than an evidence-only tweak."
+    "interpretation": "This earlier 2/3 result motivated exact receipt/evidence/open-turn hardening and a one-shot guard prototype. It is retained as history rather than the current rollout rate."
+  },
+  "contemporaryWeakReplication": {
+    "productCommit": "46cb3ad57696cf2478caea8553aee8ac4336c182",
+    "model": "local-openai/deepseek-v4-flash",
+    "environmentMode": "core-only",
+    "runs": 8,
+    "passed": 8,
+    "firstActionMismatches": 0,
+    "interpretation": "The earlier 2/3 mismatch did not reproduce after the complete receipt/evidence/open-turn/target changes. A paired throwaway guard prototype showed no current benefit; see one-shot-next-guard-prototype-2026-07-20.json."
   },
   "diagnosticHistory": [
     {
