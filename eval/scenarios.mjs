@@ -13,7 +13,7 @@
 
 /** @typedef {{
  *   events: object[],
- *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean }>,
+ *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>,
  *   assistantTexts: string[],
  * }} ScenarioContext */
 
@@ -22,7 +22,7 @@
  *   checks: Array<{ name: string, pass: boolean, detail: string }>,
  * }} ScoreResult */
 
-const HANDOFF_SLOTS = ["Goal", "State", "Evidence", "External", "Exclusions", "Recover", "NEXT"];
+const HANDOFF_FIELDS = ["goal", "state", "evidence", "external", "exclusions", "recover", "next"];
 
 export function extractToolCalls(events) {
   /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean }>} */
@@ -68,29 +68,41 @@ function check(name, pass, detail) {
   return { name, pass: Boolean(pass), detail };
 }
 
-function scoreHandoff(summary) {
-  if (typeof summary !== "string" || summary.trim().length === 0) {
-    return { ok: false, missing: [...HANDOFF_SLOTS], detail: "empty summary" };
+/**
+ * A tool event can transport a domain failure in result.details without being
+ * marked as an RPC-level error. Treat both channels as the observable success
+ * contract, so a rejected travel is never credited as a completed fold.
+ */
+export function toolSucceeded(call) {
+  return Boolean(call) && call.isError !== true && !call.details?.error;
+}
+
+export function scoreHandoff(handoff) {
+  if (!handoff || typeof handoff !== "object" || Array.isArray(handoff)) {
+    return { ok: false, missing: [...HANDOFF_FIELDS], detail: "missing structured handoff" };
   }
-  const lines = summary.split(/\r?\n/);
-  const found = [];
-  for (const slot of HANDOFF_SLOTS) {
-    const line = lines.find((l) => l.startsWith(`${slot}:`));
-    if (!line) continue;
-    const value = line.slice(slot.length + 1).trim();
-    if (value.length > 0) found.push(slot);
-  }
-  const missing = HANDOFF_SLOTS.filter((s) => !found.includes(s));
+  const missing = HANDOFF_FIELDS.filter((field) => typeof handoff[field] !== "string" || handoff[field].trim().length === 0);
+  const invalidAuthoritative = ["goal", "state", "next"].filter((field) =>
+    typeof handoff[field] === "string" && handoff[field].trim().toLowerCase() === "none");
+  const extra = Object.keys(handoff).filter((field) => !HANDOFF_FIELDS.includes(field));
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && invalidAuthoritative.length === 0 && extra.length === 0,
     missing,
-    detail: missing.length === 0 ? "all seven slots present and non-empty" : `missing: ${missing.join(", ")}`,
+    invalidAuthoritative,
+    extra,
+    detail: missing.length > 0
+      ? `missing: ${missing.join(", ")}`
+      : invalidAuthoritative.length > 0
+        ? `none not allowed: ${invalidAuthoritative.join(", ")}`
+        : extra.length > 0
+          ? `unexpected fields: ${extra.join(", ")}`
+          : "all seven structured fields present",
   };
 }
 
-function pickTravel(toolCalls) {
+export function pickTravel(toolCalls) {
   const travels = toolCalls.filter((c) => c.name === "acm_travel");
-  return [...travels].reverse().find((c) => !c.isError && !c.details?.error) ?? travels.at(-1);
+  return [...travels].reverse().find(toolSucceeded) ?? travels.at(-1);
 }
 
 /** @type {Scenario[]} */
@@ -105,10 +117,10 @@ export const SCENARIOS = [
     score(ctx) {
       const timeline = ctx.toolCalls.find((c) => c.name === "acm_timeline");
       return {
-        pass: Boolean(timeline) && !timeline.isError,
+        pass: toolSucceeded(timeline),
         checks: [
           check("called acm_timeline", Boolean(timeline), timeline ? "called" : "missing"),
-          check("timeline succeeded", timeline && !timeline.isError, timeline?.isError ? "error" : "ok"),
+          check("timeline succeeded", toolSucceeded(timeline), !timeline ? "missing" : timeline.details?.error ?? (timeline.isError ? "error" : "ok")),
         ],
       };
     },
@@ -127,11 +139,11 @@ export const SCENARIOS = [
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint");
       const name = cp?.args?.name;
       return {
-        pass: Boolean(cp) && !cp.isError && name === "baseline-before-refactor",
+        pass: toolSucceeded(cp) && name === "baseline-before-refactor",
         checks: [
           check("called acm_checkpoint", Boolean(cp), cp ? "called" : "missing"),
           check("correct name", name === "baseline-before-refactor", `name=${name ?? "none"}`),
-          check("checkpoint succeeded", cp && !cp.isError, cp?.isError ? "error" : "ok"),
+          check("checkpoint succeeded", toolSucceeded(cp), !cp ? "missing" : cp.details?.error ?? (cp.isError ? "error" : "ok")),
           check("did not travel", !ctx.toolCalls.some((c) => c.name === "acm_travel"), "travel absent"),
         ],
       };
@@ -169,12 +181,12 @@ export const SCENARIOS = [
         return cpIndex >= 0 && editIndex >= 0 && cpIndex < editIndex;
       })();
       return {
-        pass: Boolean(cp) && !cp.isError && !traveled && (cpBeforeEdit || !edited),
+        pass: toolSucceeded(cp) && !traveled && (cpBeforeEdit || !edited),
         checks: [
           check("saved before risk", Boolean(cp), cp ? `name=${cp.args?.name}` : "no checkpoint"),
           check("checkpoint before edit", cpBeforeEdit, cpBeforeEdit ? "order ok" : "edit preceded save or no save"),
           check("did not travel", !traveled, traveled ? "unexpected travel" : "no travel"),
-          check("checkpoint succeeded", !cp || !cp.isError, cp?.isError ? "error" : "ok"),
+          check("checkpoint succeeded", !cp || toolSucceeded(cp), cp?.details?.error ?? (cp?.isError ? "error" : "ok")),
         ],
       };
     },
@@ -205,7 +217,7 @@ export const SCENARIOS = [
         prompt: [
           "The latency investigation findings in findings.md are distilled.",
           "Fold the raw process away with acm_travel targeting latency-hunt-scan.",
-          "Write a cold-start seven-slot handoff from the findings.",
+          "Fill the structured cold-start handoff fields from the findings.",
           "Backup the current head as latency-hunt-raw.",
           "acm_travel must be alone in its tool batch.",
           "After travel succeeds, reply with one sentence stating the NEXT action.",
@@ -217,15 +229,16 @@ export const SCENARIOS = [
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint" && c.args?.name === "latency-hunt-scan");
       const travels = ctx.toolCalls.filter((c) => c.name === "acm_travel");
       const travel = pickTravel(ctx.toolCalls);
-      const handoff = scoreHandoff(travel?.args?.summary ?? "");
-      const alone = travel && !travel.isError && travel.details?.error !== "mixed_tool_batch";
+      const handoff = scoreHandoff(travel?.args?.handoff);
+      const travelSucceeded = toolSucceeded(travel);
+      const alone = travelSucceeded && travel.details?.error !== "mixed_tool_batch";
       return {
-        pass: Boolean(cp) && Boolean(travel) && !travel.isError && handoff.ok && alone,
+        pass: toolSucceeded(cp) && travelSucceeded && handoff.ok && alone,
         checks: [
-          check("checkpoint created", Boolean(cp) && !cp?.isError, cp ? "ok" : "missing"),
+          check("checkpoint created", toolSucceeded(cp), cp ? cp.details?.error ?? "ok" : "missing"),
           check("called acm_travel", travels.length > 0, travels.length ? `${travels.length} attempt(s)` : "missing"),
-          check("travel succeeded", travel && !travel.isError, travel?.isError ? (travel.resultText ?? "error") : "ok"),
-          check("seven-slot handoff", handoff.ok, handoff.detail),
+          check("travel succeeded", travelSucceeded, travel?.details?.error ?? (travel?.isError ? (travel.resultText ?? "error") : "ok")),
+          check("structured handoff", handoff.ok, handoff.detail),
           check("travel alone / not mixed", alone, alone ? "ok" : "mixed or failed"),
           check("backup named", travel?.args?.backupCurrentHeadAs === "latency-hunt-raw",
             `backup=${travel?.args?.backupCurrentHeadAs ?? "none"}`),
@@ -262,17 +275,17 @@ export const SCENARIOS = [
     score(ctx) {
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint");
       const travel = pickTravel(ctx.toolCalls);
-      const handoff = scoreHandoff(travel?.args?.summary ?? "");
+      const handoff = scoreHandoff(travel?.args?.handoff);
       const readInvestigation = ctx.toolCalls.some((c) =>
         (c.name === "read" || c.name === "read_file")
         && String(c.args?.path ?? c.args?.file_path ?? "").includes("investigation.md"));
       return {
-        pass: Boolean(travel) && !travel.isError && handoff.ok,
+        pass: toolSucceeded(travel) && handoff.ok,
         checks: [
           check("read the distilled notes", readInvestigation, readInvestigation ? "read" : "skipped"),
           check("created a save point", Boolean(cp), cp ? `name=${cp.args?.name}` : "none"),
           check("called acm_travel", Boolean(travel), travel ? "called" : "missing — doctrine failed"),
-          check("travel succeeded", travel && !travel.isError, travel?.isError ? (travel.resultText?.slice(0, 200) ?? "error") : "ok"),
+          check("travel succeeded", toolSucceeded(travel), travel?.details?.error ?? (travel?.isError ? (travel.resultText?.slice(0, 200) ?? "error") : "ok")),
           check("cold-start handoff", handoff.ok, handoff.detail),
         ],
       };
