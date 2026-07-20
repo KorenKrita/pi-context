@@ -136,9 +136,14 @@ function textForTurn(ctx, index) {
 
 function containsRequiredFacts(value) {
   const text = String(value ?? "");
-  return text.includes("pool max=50")
-    && text.includes("9f31c2a")
-    && text.includes("services/payments/client.ts");
+  const normalized = text
+    .replace(/[`*_#'"=:()-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return normalized.includes("pool max 50")
+    && normalized.includes("retry commit 9f31c2a")
+    && normalized.includes("services/payments/client.ts");
 }
 
 function containsRequiredNextFacts(value) {
