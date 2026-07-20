@@ -281,3 +281,44 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     expect(leaked.checks.find((check) => check.name === "T3 kept core-only isolation")?.pass).toBe(false);
   });
 });
+
+describe("advanced pointer routing scenario", () => {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === "advanced-pointer-routing");
+  if (!scenario) throw new Error("advanced pointer routing scenario missing");
+
+  const context = (environmentMode, extraCalls = []) => ({
+    events: [],
+    environmentMode,
+    toolCalls: [
+      call("acm_checkpoint", { name: "pointer-routing-base" }),
+      call("acm_timeline", { view: "active" }),
+      ...extraCalls,
+    ],
+    assistantTexts: ["Hold travel until the missing branch ownership and anchor facts are known before deciding."],
+  });
+
+  test("does not name or leak the advanced Skill in the user prompt", () => {
+    const prompt = scenario.turns[0]?.prompt ?? "";
+    expect(prompt).toContain("condition-specific advanced guidance");
+    expect(prompt).not.toContain("context-management");
+    expect(prompt).not.toContain("SKILL.md");
+    expect(prompt).not.toContain("target-selection.md");
+  });
+
+  test("product mode follows the runtime pointer through router and reference", () => {
+    const result = scenario.score(context("product-isolated", [
+      call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH }),
+      call("read", { path: TARGET_SELECTION_REFERENCE_PATH }),
+    ]));
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "followed exact advanced pointer")?.pass).toBe(true);
+  });
+
+  test("core-only mode stays isolated, while a missing product reference fails", () => {
+    expect(scenario.score(context("core-only")).pass).toBe(true);
+    const missingReference = scenario.score(context("product-isolated", [
+      call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH }),
+    ]));
+    expect(missingReference.pass).toBe(false);
+  });
+});

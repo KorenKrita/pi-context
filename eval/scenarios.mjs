@@ -478,6 +478,45 @@ export const SCENARIOS = [
       return { pass: checks.every((item) => item.pass), checks };
     },
   },
+  {
+    id: "advanced-pointer-routing",
+    family: "handoff-and-skill",
+    description: "Timeline names the exact advanced resource for an ambiguous target; product mode should follow it without the user naming the Skill.",
+    turns: [{
+      prompt: [
+        "Create one ACM save point named pointer-routing-base.",
+        "Then call acm_timeline with view active before answering.",
+        "A future fold target is ambiguous because interleaved fronts and a possibly missing older anchor make the nearest save point unreliable.",
+        "Do not travel. If the timeline result names condition-specific advanced guidance that is offered in this session, load that guidance before stating what facts decide the target.",
+        "If the named resource is not offered, do not search the filesystem for it; keep the conservative no-travel position and state the missing facts.",
+      ].join(" "),
+      timeoutMs: 300000,
+    }],
+    score(ctx) {
+      const checkpoint = ctx.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "pointer-routing-base");
+      const timeline = ctx.toolCalls.find((call) => call.name === "acm_timeline" && (call.args?.view ?? "active") === "active");
+      const checkpointIndex = ctx.toolCalls.indexOf(checkpoint);
+      const timelineIndex = ctx.toolCalls.indexOf(timeline);
+      const timelineAfterCheckpoint = checkpointIndex >= 0 && timelineIndex > checkpointIndex;
+      const routerRead = ctx.toolCalls.some((call) => isReadOf(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = ctx.toolCalls.some((call) => isReadOf(call, TARGET_SELECTION_REFERENCE_PATH));
+      const traveled = ctx.toolCalls.some((call) => call.name === "acm_travel");
+      const skillMode = ctx.environmentMode !== "core-only";
+      const routing = skillMode ? routerRead && targetReferenceRead : !routerRead && !targetReferenceRead;
+      const conservativeAnswer = /missing|unknown|uncertain|need|before deciding|hold|defer|no.travel/i.test(ctx.assistantTexts.join("\n"));
+      const checks = [
+        check("checkpoint created", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing"),
+        check("timeline followed checkpoint", toolSucceeded(timeline) && timelineAfterCheckpoint,
+          timelineAfterCheckpoint ? "active timeline after save point" : "timeline missing or ran before checkpoint"),
+        check("did not travel under ambiguity", !traveled, traveled ? "unexpected travel" : "held travel"),
+        check(skillMode ? "followed exact advanced pointer" : "kept unavailable Skill isolated", routing,
+          `router=${routerRead} target-reference=${targetReferenceRead}`),
+        check("reported decision-changing missing facts", conservativeAnswer,
+          conservativeAnswer ? "missing facts named" : "no conservative target rationale"),
+      ];
+      return { pass: checks.every((item) => item.pass), checks };
+    },
+  },
 ];
 
 export function listScenarios({ family } = {}) {
