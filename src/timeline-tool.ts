@@ -29,7 +29,8 @@ import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, T
 
 interface CheckpointListing {
   entryId: string;
-  label: string;
+  labels: string[];
+  matchedLabels: string[];
   onActivePath: boolean;
   isHead: boolean;
   pathOrder: number;
@@ -81,24 +82,37 @@ function collectListings(
   for (const [entryId, labels] of labelMaps.entryToLabels) {
     const entry = entriesById.get(entryId);
     if (!entry) continue;
-    for (const label of labels) {
-      if (filter && !label.toLowerCase().includes(filter) && !entryId.toLowerCase().includes(filter)) continue;
-      listings.push({
-        entryId,
-        label,
-        onActivePath: activeIds.has(entryId),
-        isHead: entryId === leafId,
-        pathOrder: pathOrder.get(entryId) ?? Number.MAX_SAFE_INTEGER,
-        timestamp: entry.timestamp,
-      });
-    }
+    const entryIdMatches = filter.length > 0 && entryId.toLowerCase().includes(filter);
+    const matchedLabels = filter
+      ? entryIdMatches
+        ? labels
+        : labels.filter((label) => label.toLowerCase().includes(filter))
+      : labels;
+    if (filter && matchedLabels.length === 0) continue;
+    listings.push({
+      entryId,
+      labels,
+      matchedLabels,
+      onActivePath: activeIds.has(entryId),
+      isHead: entryId === leafId,
+      pathOrder: pathOrder.get(entryId) ?? Number.MAX_SAFE_INTEGER,
+      timestamp: entry.timestamp,
+    });
   }
   return listings.sort((left, right) => {
     if (left.onActivePath !== right.onActivePath) return left.onActivePath ? -1 : 1;
     if (left.onActivePath && left.pathOrder !== right.pathOrder) return left.pathOrder - right.pathOrder;
     const timestampOrder = left.timestamp.localeCompare(right.timestamp);
-    return timestampOrder || left.entryId.localeCompare(right.entryId) || left.label.localeCompare(right.label);
+    return timestampOrder || left.entryId.localeCompare(right.entryId);
   });
+}
+
+function formatCheckpointLabels(listing: CheckpointListing): string {
+  const preferred = listing.matchedLabels.at(-1) ?? listing.labels.at(-1) ?? "checkpoint";
+  const remaining = Math.max(0, listing.labels.length - 1);
+  return remaining === 0
+    ? preferred
+    : `${preferred} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
 }
 
 function literalPattern(query: string): RegExp {
@@ -190,7 +204,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
     maximum: 50,
-    description: "Maximum recent visible entries (active), sorted aliases (checkpoints), matches (search), or traversal depth per root (tree). Range 1..50; default 50.",
+    description: "Maximum recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Range 1..50; default 50.",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -259,10 +273,24 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         : "unknown";
       let evidence: string;
       if (view === "checkpoints") {
-        const shown = typeof details?.checkpointsDisplayedAliases === "number" ? details.checkpointsDisplayedAliases : 0;
-        const total = typeof details?.checkpointsMatchingAliases === "number" ? details.checkpointsMatchingAliases : 0;
+        const hasEntryCounts = typeof details?.checkpointsDisplayedEntries === "number"
+          && typeof details?.checkpointsMatchingEntries === "number";
+        const shownAliases = typeof details?.checkpointsDisplayedAliases === "number" ? details.checkpointsDisplayedAliases : 0;
+        const totalAliases = typeof details?.checkpointsMatchingAliases === "number" ? details.checkpointsMatchingAliases : 0;
         const root = typeof details?.rootCandidateEntryId === "string" ? ` · root ${sanitizeTerminalText(details.rootCandidateEntryId)}` : "";
-        evidence = `${shown}/${total} aliases shown${root}`;
+        if (hasEntryCounts) {
+          const shownEntries = details.checkpointsDisplayedEntries as number;
+          const totalEntries = details.checkpointsMatchingEntries as number;
+          const namedAliases = typeof details?.checkpointAliasNamesShown === "number"
+            ? details.checkpointAliasNamesShown
+            : shownEntries;
+          const aliasesOnEntries = typeof details?.checkpointAliasesOnMatchingEntries === "number"
+            ? details.checkpointAliasesOnMatchingEntries
+            : totalAliases;
+          evidence = `${shownEntries}/${totalEntries} entries · ${namedAliases}/${aliasesOnEntries} alias names shown${root}`;
+        } else {
+          evidence = `${shownAliases}/${totalAliases} aliases shown${root}`;
+        }
       } else if (view === "search") {
         const matches = typeof details?.searchDisplayedMatches === "number" ? details.searchDisplayedMatches : 0;
         evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
@@ -333,6 +361,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let activeOmittedEntries = 0;
       let checkpointsMatchingAliases = 0;
       let checkpointsDisplayedAliases = 0;
+      let checkpointsMatchingEntries = 0;
+      let checkpointsDisplayedEntries = 0;
+      let checkpointAliasesOnMatchingEntries = 0;
+      let checkpointAliasNamesShown = 0;
       let rootCandidateDisplayed = false;
       let rootCandidateEntryId: string | null = null;
       let rootProjectedSummaryDepth: number | null = null;
@@ -342,17 +374,28 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
         const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder);
-        checkpointsMatchingAliases = listings.length;
-        checkpointsDisplayedAliases = Math.min(listings.length, params.limit);
+        const displayedListings = listings.slice(0, params.limit);
+        checkpointsMatchingEntries = listings.length;
+        checkpointsDisplayedEntries = displayedListings.length;
+        checkpointsMatchingAliases = listings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
+        checkpointsDisplayedAliases = displayedListings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
+        checkpointAliasesOnMatchingEntries = listings.reduce((count, listing) => count + listing.labels.length, 0);
+        checkpointAliasNamesShown = displayedListings.length;
         const usage = toUsageLike(ctx.getContextUsage());
         const currentResult = buildSessionMessages(sessionManager, leafId);
         if (!currentResult.ok) {
           return {
-            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
+            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
-        lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit}). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+        const matchingEntryLabel = listings.length === 1 ? "entry" : "entries";
+        const displayedEntryLabel = displayedListings.length === 1 ? "entry" : "entries";
+        const matchingAliasLabel = checkpointsMatchingAliases === 1 ? "alias" : "aliases";
+        const aliasCountText = filter
+          ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
+          : `${checkpointAliasesOnMatchingEntries} aliases`;
+        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit} entries). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         const rootEntry = tree[0]?.entry;
@@ -380,7 +423,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             : "";
           lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; summary depth ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
         }
-        for (const checkpoint of listings.slice(0, params.limit)) {
+        for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
           let cachedTarget = cache.get(checkpoint.entryId);
           if (!cachedTarget) {
@@ -403,7 +446,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
-          lines.push(`  ${checkpoint.label} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          lines.push(`  ${formatCheckpointLabels(checkpoint)} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
         if (listings.length > params.limit) lines.push(`  ... +${listings.length - params.limit} more — use a narrower filter`);
       } else if (params.view === "search") {
@@ -518,6 +561,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           activeOmittedEntries: params.view === "active" ? activeOmittedEntries : null,
           checkpointsMatchingAliases: params.view === "checkpoints" ? checkpointsMatchingAliases : null,
           checkpointsDisplayedAliases: params.view === "checkpoints" ? checkpointsDisplayedAliases : null,
+          checkpointsMatchingEntries: params.view === "checkpoints" ? checkpointsMatchingEntries : null,
+          checkpointsDisplayedEntries: params.view === "checkpoints" ? checkpointsDisplayedEntries : null,
+          checkpointAliasesOnMatchingEntries: params.view === "checkpoints" ? checkpointAliasesOnMatchingEntries : null,
+          checkpointAliasNamesShown: params.view === "checkpoints" ? checkpointAliasNamesShown : null,
           rootCandidateDisplayed: params.view === "checkpoints" ? rootCandidateDisplayed : false,
           rootCandidateEntryId: params.view === "checkpoints" ? rootCandidateEntryId : null,
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,

@@ -233,7 +233,7 @@ describe("ACM tool execution contracts", () => {
     expect(getBranchCalls()).toBe(0);
   });
 
-  test("reports the caller-supplied checkpoint display limit instead of a hard-coded cap", async () => {
+  test("groups aliases by checkpoint entry before applying the caller-supplied limit", async () => {
     const result = await executeTimeline(
       "call-3",
       { view: "checkpoints", limit: 2 },
@@ -241,9 +241,40 @@ describe("ACM tool execution contracts", () => {
       undefined,
       timelineContext(),
     );
-    expect(result.details).toMatchObject({ view: "checkpoints", limit: 2, checkpointsDisplayedAliases: 2 });
-    expect(result.content[0]?.text).toContain("; cap 2)");
-    expect(result.content[0]?.text).not.toContain("; cap 50)");
+    expect(result.details).toMatchObject({
+      view: "checkpoints",
+      limit: 2,
+      checkpointsMatchingEntries: 1,
+      checkpointsDisplayedEntries: 1,
+      checkpointsMatchingAliases: 4,
+      checkpointsDisplayedAliases: 4,
+      checkpointAliasesOnMatchingEntries: 4,
+      checkpointAliasNamesShown: 1,
+    });
+    expect(result.content[0]?.text).toContain("1 matching entry / 4 aliases, 1 entry displayed; cap 2 entries");
+    expect(result.content[0]?.text).toContain("delta (+3 other aliases) → entry-1");
+    expect(result.content[0]?.text).not.toContain("alpha, beta, gamma, delta");
+  });
+
+  test("keeps filter-matching alias counts distinct from all aliases on the entry", async () => {
+    const result = await executeTimeline(
+      "call-filtered-checkpoints",
+      { view: "checkpoints", limit: 2, filter: "alpha" },
+      undefined,
+      undefined,
+      timelineContext(),
+    );
+
+    expect(result.details).toMatchObject({
+      checkpointsMatchingEntries: 1,
+      checkpointsDisplayedEntries: 1,
+      checkpointsMatchingAliases: 1,
+      checkpointsDisplayedAliases: 1,
+      checkpointAliasesOnMatchingEntries: 4,
+      checkpointAliasNamesShown: 1,
+    });
+    expect(result.content[0]?.text).toContain("1 matching entry / 1 matched alias / 4 total aliases");
+    expect(result.content[0]?.text).toContain("alpha (+3 other aliases) → entry-1");
   });
 
   test("keeps a failed checkpoint message estimate unknown instead of reporting zero", async () => {

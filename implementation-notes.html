@@ -258,6 +258,11 @@
         <td>Preserve unknown checkpoint-candidate message estimates as unknown instead of representing failed context reconstruction as an empty message array.</td>
         <td>The checkpoints view now caches a typed build outcome per entry. Successful empty packets remain distinguishable from build failures; aliases reuse one outcome, and usage estimates are produced only from observed messages.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Keep checkpoint creation free of quotas while grouping the checkpoint catalog by target entry rather than consuming the view limit per alias.</td>
+        <td>Each displayed entry names one relevant or latest alias and reports the remaining alias count; filter and search still index every alias. Details preserve legacy matching-alias counts, add entry and total-alias evidence, and render historical alias-only results without invented zero entry counts.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>

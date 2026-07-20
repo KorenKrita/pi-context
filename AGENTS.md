@@ -88,7 +88,7 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 
 省略 `view` 等价于 `active`。旧参数 `list_checkpoints`、`full_tree`、`search` 以及竞争 boolean 组合不得重新引入。
 
-默认 active 视图只展示 LLM 实际看到的 spine；off-path summary/compaction 以分支脚注呈现，不能伪装成线性历史。checkpoint view 按 alias 逐项列出，search 在整棵树上做大小写不敏感匹配。
+默认 active 视图只展示 LLM 实际看到的 spine；off-path summary/compaction 以分支脚注呈现，不能伪装成线性历史。checkpoint view 按 target entry 聚合 aliases，`limit` 约束 entry 数量；每个 entry 只命名一个相关 alias 并报告其余 alias 数，filter/search 仍索引全部 aliases。search 在整棵树上做大小写不敏感匹配。
 
 HUD 包含 official/cached usage、active node count、active summary depth、off-path summary count、nearest checkpoint distance、context refresh 与 live AgentSession sync diagnostics。
 

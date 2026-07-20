@@ -163,6 +163,29 @@ describe("ACM tool rendering", () => {
     expect(render(expanded)).toContain("match five");
   });
 
+  test("timeline renders legacy checkpoint details without inventing zero entry counts", () => {
+    const args = { view: "checkpoints", limit: 5 };
+    const result = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]\n---------------------------------------------------\nlegacy checkpoint" }],
+        details: {
+          view: "checkpoints",
+          checkpointsDisplayedAliases: 2,
+          checkpointsMatchingAliases: 4,
+          activeSummaryDepth: 0,
+          liveAgentSessionSyncState: "skipped",
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+
+    const output = render(result);
+    expect(output).toContain("2/4 aliases shown · summary depth 0");
+    expect(output).not.toContain("0/0 entries");
+  });
+
   test("travel renders the target, archive pointer, and structural deltas", () => {
     const args = {
       target: "parser-fix-start",
