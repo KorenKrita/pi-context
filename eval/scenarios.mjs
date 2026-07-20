@@ -18,7 +18,7 @@ export { CONTEXT_MANAGEMENT_SKILL_PATH };
 
 /** @typedef {{
  *   events: object[],
- *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>,
+ *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any, completed?: boolean }>,
  *   assistantTexts: string[],
  *   turnRecords?: Array<{ events: object[], toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>, assistantTexts: string[] }>,
  *   environmentMode?: "core-only" | "product-isolated" | "full-env",
@@ -38,7 +38,7 @@ export const TARGET_SELECTION_REFERENCE_PATH = join(
 );
 
 export function extractToolCalls(events) {
-  /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean }>} */
+  /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean, completed: boolean }>} */
   const calls = [];
   const byId = new Map();
   for (const event of events) {
@@ -47,12 +47,14 @@ export function extractToolCalls(events) {
         name: event.toolName,
         args: event.args ?? event.arguments ?? {},
         toolCallId: event.toolCallId,
+        completed: false,
       };
       byId.set(event.toolCallId, entry);
       calls.push(entry);
     } else if (event.type === "tool_execution_end") {
       const entry = byId.get(event.toolCallId) ?? calls.find((c) => c.name === event.toolName);
       if (entry) {
+        entry.completed = true;
         entry.isError = event.isError === true;
         const text = Array.isArray(event.result?.content)
           ? event.result.content.filter((p) => p.type === "text").map((p) => p.text).join("\n")
@@ -87,17 +89,25 @@ function check(name, pass, detail) {
  * contract, so a rejected travel is never credited as a completed fold.
  */
 export function toolSucceeded(call) {
-  return Boolean(call) && call.isError !== true && !call.details?.error;
+  return Boolean(call) && call.completed === true && call.isError !== true && !call.details?.error;
 }
 
 export function scoreHandoff(handoff) {
-  if (!handoff || typeof handoff !== "object" || Array.isArray(handoff)) {
+  let decoded = handoff;
+  if (typeof handoff === "string") {
+    try {
+      decoded = JSON.parse(handoff);
+    } catch {
+      return { ok: false, missing: [...HANDOFF_FIELDS], detail: "invalid JSON-encoded structured handoff" };
+    }
+  }
+  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) {
     return { ok: false, missing: [...HANDOFF_FIELDS], detail: "missing structured handoff" };
   }
-  const missing = HANDOFF_FIELDS.filter((field) => typeof handoff[field] !== "string" || handoff[field].trim().length === 0);
+  const missing = HANDOFF_FIELDS.filter((field) => typeof decoded[field] !== "string" || decoded[field].trim().length === 0);
   const invalidAuthoritative = ["goal", "state", "next"].filter((field) =>
-    typeof handoff[field] === "string" && handoff[field].trim().toLowerCase() === "none");
-  const extra = Object.keys(handoff).filter((field) => !HANDOFF_FIELDS.includes(field));
+    typeof decoded[field] === "string" && decoded[field].trim().toLowerCase() === "none");
+  const extra = Object.keys(decoded).filter((field) => !HANDOFF_FIELDS.includes(field));
   return {
     ok: missing.length === 0 && invalidAuthoritative.length === 0 && extra.length === 0,
     missing,
@@ -124,6 +134,20 @@ function toolPath(call) {
 
 function isReadOf(call, pathFragment) {
   return (call?.name === "read" || call?.name === "read_file") && toolPath(call).includes(pathFragment);
+}
+
+function successfullyRead(call, pathFragment) {
+  return toolSucceeded(call) && isReadOf(call, pathFragment);
+}
+
+function probesAdvancedGuidance(call) {
+  if (!call || !["read", "read_file", "find", "grep", "bash", "ls"].includes(call.name)) return false;
+  const payload = JSON.stringify(call.args ?? {}).toLowerCase();
+  return payload.includes("context-management")
+    || payload.includes("target-selection")
+    || payload.includes("skills.md")
+    || payload.includes("/skills/")
+    || payload.includes("references/");
 }
 
 function recordForTurn(ctx, index) {
@@ -440,17 +464,18 @@ export const SCENARIOS = [
       const firstPostTravel = postTravelCalls[0];
       const directWrite = firstPostTravel?.name === "write" && toolPath(firstPostTravel).endsWith("next-action.md");
       const writeCarriesFacts = directWrite && containsRequiredFacts(firstPostTravel?.args?.content);
-      const rereadAfterTravel = postTravelCalls.some((call) =>
-        isReadOf(call, "findings.md")
-        || call.name === "acm_timeline"
-        || /archive|payments-latency-raw|\.jsonl|session/i.test(toolPath(call)));
+      const requiredWriteIndex = postTravelCalls.findIndex((call) => call.name === "write" && toolPath(call).endsWith("next-action.md"));
+      const beforeRequiredWrite = requiredWriteIndex < 0 ? postTravelCalls : postTravelCalls.slice(0, requiredWriteIndex);
+      const inspectedBeforeNext = beforeRequiredWrite.some((call) =>
+        ["read", "read_file", "find", "grep", "bash", "acm_timeline"].includes(call.name));
 
       const t3Travel = t3.toolCalls.some((call) => call.name === "acm_travel");
-      const routerRead = t3.toolCalls.some((call) => isReadOf(call, CONTEXT_MANAGEMENT_SKILL_PATH));
-      const targetReferenceRead = t3.toolCalls.some((call) => isReadOf(call, TARGET_SELECTION_REFERENCE_PATH));
+      const routerRead = t3.toolCalls.some((call) => successfullyRead(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = t3.toolCalls.some((call) => successfullyRead(call, TARGET_SELECTION_REFERENCE_PATH));
+      const advancedProbe = t3.toolCalls.some(probesAdvancedGuidance);
       const conservativeAnswer = /need|missing|uncertain|insufficient|hold|defer|not travel|no.travel|before deciding/i.test(textForTurn(ctx, 2));
       const skillMode = mode !== "core-only";
-      const advancedGuidance = skillMode ? routerRead && targetReferenceRead : !routerRead && !targetReferenceRead;
+      const advancedGuidance = skillMode ? routerRead && targetReferenceRead : !advancedProbe;
       const t3Conservative = !t3Travel && conservativeAnswer;
 
       const checks = [
@@ -467,12 +492,12 @@ export const SCENARIOS = [
         check("T2 handoff NEXT carries exact continuation", handoffCarriesFacts, handoffCarriesFacts ? "facts preserved" : "NEXT missed a required exact fact"),
         check("T2 direct first continuation write", directWrite, directWrite ? "next-action.md first" : "first post-travel action was not write next-action.md"),
         check("T2 write carries handoff facts", writeCarriesFacts, writeCarriesFacts ? "facts written" : "next-action.md missed a required exact fact"),
-        check("T2 did not reread archive material", !rereadAfterTravel, rereadAfterTravel ? "reread findings, timeline, or archive after travel" : "direct continuation"),
+        check("T2 did not inspect before REQUIRED NEXT", !inspectedBeforeNext, inspectedBeforeNext ? "inspection occurred before the required write" : "direct continuation"),
         check("T3 no travel under ambiguity", !t3Travel, t3Travel ? "unexpected travel" : "held travel"),
         check(skillMode ? "T3 read product advanced guidance" : "T3 kept core-only isolation", advancedGuidance,
           skillMode
             ? `router=${routerRead} target-reference=${targetReferenceRead}`
-            : `router=${routerRead} target-reference=${targetReferenceRead}`),
+            : `advanced-probe=${advancedProbe}`),
         check("T3 conservative target decision", t3Conservative, t3Conservative ? "held travel pending facts" : "missing conservative no-travel explanation"),
       ];
       return { pass: checks.every((item) => item.pass), checks };
@@ -498,11 +523,12 @@ export const SCENARIOS = [
       const checkpointIndex = ctx.toolCalls.indexOf(checkpoint);
       const timelineIndex = ctx.toolCalls.indexOf(timeline);
       const timelineAfterCheckpoint = checkpointIndex >= 0 && timelineIndex > checkpointIndex;
-      const routerRead = ctx.toolCalls.some((call) => isReadOf(call, CONTEXT_MANAGEMENT_SKILL_PATH));
-      const targetReferenceRead = ctx.toolCalls.some((call) => isReadOf(call, TARGET_SELECTION_REFERENCE_PATH));
+      const routerRead = ctx.toolCalls.some((call) => successfullyRead(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = ctx.toolCalls.some((call) => successfullyRead(call, TARGET_SELECTION_REFERENCE_PATH));
+      const advancedProbe = ctx.toolCalls.some(probesAdvancedGuidance);
       const traveled = ctx.toolCalls.some((call) => call.name === "acm_travel");
       const skillMode = ctx.environmentMode !== "core-only";
-      const routing = skillMode ? routerRead && targetReferenceRead : !routerRead && !targetReferenceRead;
+      const routing = skillMode ? routerRead && targetReferenceRead : !advancedProbe;
       const conservativeAnswer = /missing|unknown|uncertain|need|before deciding|hold|defer|no.travel/i.test(ctx.assistantTexts.join("\n"));
       const checks = [
         check("checkpoint created", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing"),
@@ -510,7 +536,7 @@ export const SCENARIOS = [
           timelineAfterCheckpoint ? "active timeline after save point" : "timeline missing or ran before checkpoint"),
         check("did not travel under ambiguity", !traveled, traveled ? "unexpected travel" : "held travel"),
         check(skillMode ? "followed exact advanced pointer" : "kept unavailable Skill isolated", routing,
-          `router=${routerRead} target-reference=${targetReferenceRead}`),
+          skillMode ? `router=${routerRead} target-reference=${targetReferenceRead}` : `advanced-probe=${advancedProbe}`),
         check("reported decision-changing missing facts", conservativeAnswer,
           conservativeAnswer ? "missing facts named" : "no conservative target rationale"),
       ];

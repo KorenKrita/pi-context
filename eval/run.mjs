@@ -226,6 +226,7 @@ for (const scenario of scenarios) {
         toolCalls: toolCalls.map((c) => ({
           name: c.name,
           args: c.args,
+          completed: c.completed ?? false,
           isError: c.isError ?? false,
           resultPreview: (c.resultText ?? "").slice(0, 240),
         })),

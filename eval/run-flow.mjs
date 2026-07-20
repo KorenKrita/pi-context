@@ -200,7 +200,13 @@ const report = {
     toolCallCount: t.toolCalls.length,
     acmCalls: t.toolCalls
       .filter((c) => c.name.startsWith("acm_"))
-      .map((c) => ({ name: c.name, isError: c.isError ?? false, args: c.args })),
+      .map((c) => ({
+        name: c.name,
+        completed: c.completed ?? false,
+        isError: c.isError ?? false,
+        domainError: c.details?.error ?? null,
+        args: c.args,
+      })),
     assistantPreview: t.assistantText.slice(0, 300),
   })),
 };

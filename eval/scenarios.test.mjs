@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildJudgePrompt, buildTranscript, RUBRIC_VERSION } from "./judge.mjs";
 import {
   CONTEXT_MANAGEMENT_SKILL_PATH,
+  extractToolCalls,
   pickTravel,
   SCENARIOS,
   scoreHandoff,
@@ -30,7 +31,7 @@ const CONTINUATION_HANDOFF = {
 };
 
 function call(name, args = {}, details = {}) {
-  return { name, args, isError: false, details };
+  return { name, args, completed: true, isError: false, details };
 }
 
 function continuationContext({ environmentMode = "product-isolated", t1, t2, t3 } = {}) {
@@ -74,9 +75,22 @@ function continuationContext({ environmentMode = "product-isolated", t1, t2, t3 
 
 describe("ACM eval result scoring", () => {
   test("requires both transport success and an empty domain-error field", () => {
-    expect(toolSucceeded({ name: "acm_travel", isError: false, details: {} })).toBe(true);
-    expect(toolSucceeded({ name: "acm_travel", isError: true, details: {} })).toBe(false);
-    expect(toolSucceeded({ name: "acm_travel", isError: false, details: { error: "mixed_tool_batch" } })).toBe(false);
+    expect(toolSucceeded({ name: "acm_travel", completed: true, isError: false, details: {} })).toBe(true);
+    expect(toolSucceeded({ name: "acm_travel", completed: false, isError: false, details: {} })).toBe(false);
+    expect(toolSucceeded({ name: "acm_travel", completed: true, isError: true, details: {} })).toBe(false);
+    expect(toolSucceeded({ name: "acm_travel", completed: true, isError: false, details: { error: "mixed_tool_batch" } })).toBe(false);
+  });
+
+  test("does not credit a tool start until its matching completion is observed", () => {
+    const calls = extractToolCalls([{
+      type: "tool_execution_start",
+      toolName: "read",
+      toolCallId: "read-1",
+      args: { path: "file.md" },
+    }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.completed).toBe(false);
+    expect(toolSucceeded(calls[0])).toBe(false);
   });
 
   test("does not credit a transport-successful but domain-rejected travel", () => {
@@ -87,10 +101,11 @@ describe("ACM eval result scoring", () => {
       events: [],
       assistantTexts: [],
       toolCalls: [
-        { name: "acm_checkpoint", args: { name: "latency-hunt-scan" }, isError: false, details: {} },
+        { name: "acm_checkpoint", args: { name: "latency-hunt-scan" }, completed: true, isError: false, details: {} },
         {
           name: "acm_travel",
           args: { handoff: VALID_HANDOFF, backupCurrentHeadAs: "latency-hunt-raw" },
+          completed: true,
           isError: false,
           details: { error: "mixed_tool_batch" },
         },
@@ -102,10 +117,11 @@ describe("ACM eval result scoring", () => {
   });
 
   test("selects a completed travel rather than a later domain-rejected attempt", () => {
-    const applied = { name: "acm_travel", args: { handoff: VALID_HANDOFF }, isError: false, details: {} };
+    const applied = { name: "acm_travel", args: { handoff: VALID_HANDOFF }, completed: true, isError: false, details: {} };
     const rejected = {
       name: "acm_travel",
       args: { handoff: VALID_HANDOFF },
+      completed: true,
       isError: false,
       details: { error: "invalid_handoff" },
     };
@@ -115,6 +131,8 @@ describe("ACM eval result scoring", () => {
 
   test("requires the exact structured-handoff field set", () => {
     expect(scoreHandoff(VALID_HANDOFF)).toMatchObject({ ok: true, extra: [] });
+    expect(scoreHandoff(JSON.stringify(VALID_HANDOFF))).toMatchObject({ ok: true, extra: [] });
+    expect(scoreHandoff("not json")).toMatchObject({ ok: false, detail: "invalid JSON-encoded structured handoff" });
     expect(scoreHandoff({ ...VALID_HANDOFF, summary: "legacy duplicate" })).toEqual({
       ok: false,
       missing: [],
@@ -146,12 +164,30 @@ describe("ACM eval result scoring", () => {
       toolCalls: [{
         name: "acm_travel",
         args: { handoff: VALID_HANDOFF },
+        completed: true,
         isError: false,
         details: { error: "invalid_handoff" },
       }],
     }]);
 
     expect(transcript).toContain("acm_travel ✗ERROR");
+  });
+
+  test("renders a tool start without completion as incomplete evidence", () => {
+    const transcript = buildTranscript([{
+      phase: "P1",
+      prompt: "Inspect guidance.",
+      assistantText: "",
+      toolCalls: [{
+        name: "read",
+        args: { path: CONTEXT_MANAGEMENT_SKILL_PATH },
+        completed: false,
+        isError: false,
+      }],
+    }]);
+
+    expect(transcript).toContain("read(");
+    expect(transcript).toContain("…INCOMPLETE");
   });
 });
 
@@ -205,7 +241,7 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
 
     expect(result.pass).toBe(false);
     expect(result.checks.find((check) => check.name === "T2 direct first continuation write")?.pass).toBe(false);
-    expect(result.checks.find((check) => check.name === "T2 did not reread archive material")?.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 did not inspect before REQUIRED NEXT")?.pass).toBe(false);
   });
 
   test("accepts markdown formatting that preserves the required continuation facts", () => {
@@ -320,5 +356,19 @@ describe("advanced pointer routing scenario", () => {
       call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH }),
     ]));
     expect(missingReference.pass).toBe(false);
+  });
+
+  test("failed reads and filesystem probing do not count as successful routing", () => {
+    const failedReads = scenario.score(context("product-isolated", [
+      { ...call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH }), isError: true },
+      { ...call("read", { path: TARGET_SELECTION_REFERENCE_PATH }), isError: true },
+    ]));
+    expect(failedReads.pass).toBe(false);
+
+    const probedCore = scenario.score(context("core-only", [
+      call("bash", { command: "find /tmp -name target-selection.md" }),
+    ]));
+    expect(probedCore.pass).toBe(false);
+    expect(probedCore.checks.find((check) => check.name === "kept unavailable Skill isolated")?.pass).toBe(false);
   });
 });

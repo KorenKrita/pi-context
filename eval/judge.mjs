@@ -50,7 +50,11 @@ export function buildTranscript(turnRecords) {
       for (const call of turn.toolCalls) {
         // A completed RPC can still report a rejected ACM mutation through
         // details.error. Surface that as failure to the outcome judge too.
-        const status = call.isError || call.details?.error ? "✗ERROR" : "✓";
+        const status = call.completed !== true
+          ? "…INCOMPLETE"
+          : call.isError || call.details?.error
+            ? "✗ERROR"
+            : "✓";
         if (ACM_TOOLS.has(call.name)) {
           const args = JSON.stringify(call.args ?? {}, null, 2);
           out.push(`  ◆ ${call.name} ${status}`);
