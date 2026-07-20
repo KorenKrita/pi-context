@@ -159,6 +159,15 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
   const scenario = SCENARIOS.find((candidate) => candidate.id === "structured-handoff-continuation-and-skill");
   if (!scenario) throw new Error("structured handoff continuation scenario missing");
 
+  test("does not leak the checkout Skill path into the model prompt", () => {
+    const advancedPrompt = scenario.turns[2]?.prompt ?? "";
+
+    expect(advancedPrompt).toContain("context-management advanced Skill");
+    expect(advancedPrompt).not.toContain("SKILL.md");
+    expect(advancedPrompt).not.toContain("references/target-selection.md");
+    expect(advancedPrompt).not.toContain("/Users/");
+  });
+
   test("requires first-pass travel, direct fact-carrying continuation, and product Skill reads", () => {
     const result = scenario.score(continuationContext());
     expect(result.pass).toBe(true);
