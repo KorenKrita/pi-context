@@ -177,11 +177,12 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 ## Guidance ownership
 
-- `skills/context-management/CORE.md`：道与度（judgment doctrine）的 canonical source，只含 `ACM:CORE` 标记段
+- `docs/acm-judgment-contract.md`：ACM 判断语义与度的 canonical source
+- `skills/context-management/CORE.md`：Judgment Contract 面向模型的 always-on projection，只含 `ACM:CORE` 标记段；修改必须可追溯到 contract
 - `skills/context-management/TOOL-CONTRACTS.md`：术（tool mechanics text）的 canonical source——tool descriptions、prompt snippets、prompt guidelines、result cues、manual navigation summary instructions、recovery 文案
 - `skills/context-management/SKILL.md`：advanced-only router
 - `skills/context-management/references/`：target selection、archive recovery、exceptional recovery
-- `src/generated-guidance.ts`：由 `bun run generate:guidance` 从上述两个 canonical 文件生成的 runtime artifact，不应手工漂移
+- `src/generated-guidance.ts`：由 `bun run generate:guidance` 从 CORE projection 与 TOOL-CONTRACTS 生成的 runtime artifact，不应手工漂移
 
 canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、anchor gravity、receipt。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 

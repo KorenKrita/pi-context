@@ -1,6 +1,6 @@
 # ACM Tool Contracts
 
-This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `CORE.md` owns judgment about the working set and cadence (道 and 度). Generated TypeScript must be refreshed with `bun run generate:guidance`.
+This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `docs/acm-judgment-contract.md` owns judgment semantics, projected to models through `CORE.md`. Generated TypeScript must be refreshed with `bun run generate:guidance`.
 
 ## Tool descriptions
 

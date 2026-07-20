@@ -2,7 +2,7 @@
 
 ## 状态
 
-待用户确认的草案。本契约是 ACM 判断语义的 canonical source，定义稳定的判断过程，不规定场景到工具的固定流程，也不包含实现细节。
+已由用户确认的 v0 判断契约。本契约是 ACM 判断语义的 canonical source，定义稳定的判断过程；具体 interface、runtime representation 与 eval 方案仍由证据选择。
 
 `skills/context-management/CORE.md` 应从本契约派生面向模型的 compact projection；`TOOL-CONTRACTS.md` 只拥有参数、mechanics、result cue 与调用时 guidance。
 

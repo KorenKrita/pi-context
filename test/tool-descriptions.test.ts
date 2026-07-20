@@ -63,7 +63,8 @@ describe("ACM tool description contract", () => {
   test("keeps repository guidance aligned with modular runtime ownership", () => {
     expect(agents).toContain("`acm_timeline` 使用 strict `view` discriminator");
     expect(agents).toContain("不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict");
-    expect(agents).toContain("`skills/context-management/CORE.md`：道与度（judgment doctrine）的 canonical source");
+    expect(agents).toContain("`docs/acm-judgment-contract.md`：ACM 判断语义与度的 canonical source");
+    expect(agents).toContain("`skills/context-management/CORE.md`：Judgment Contract 面向模型的 always-on projection");
     expect(agents).toContain("`skills/context-management/TOOL-CONTRACTS.md`：术（tool mechanics text）的 canonical source");
   });
 });

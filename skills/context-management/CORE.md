@@ -1,6 +1,6 @@
 # ACM Canonical Guidance — CORE
 
-This file owns the always-on ACM doctrine (道 and 度). Tool descriptions, prompt metadata, result cues, and recovery text live in `TOOL-CONTRACTS.md` (术). Generated TypeScript must be refreshed with `bun run generate:guidance`.
+This file is the always-on model-facing projection of `docs/acm-judgment-contract.md`. Tool descriptions, prompt metadata, result cues, and recovery text live in `TOOL-CONTRACTS.md` (术). Changes to judgment semantics originate in the contract; generated TypeScript must be refreshed with `bun run generate:guidance`.
 
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE
