@@ -103,6 +103,40 @@ function timelineContext() {
   };
 }
 
+function largeTimelineContext(count = 250) {
+  const messages: SessionEntry[] = [];
+  const labels: SessionEntry[] = [];
+  for (let index = 0; index < count; index++) {
+    const entry = userEntry(`entry-${index}`, index === 0 ? null : `entry-${index - 1}`);
+    messages.push(entry);
+    labels.push(labelEntry(`label-${index}`, entry.id, `checkpoint-${index}`));
+  }
+  let treeNode: SessionTreeNode | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    treeNode = { entry: messages[index]!, children: treeNode ? [treeNode] : [] };
+  }
+  let branchReads = 0;
+  const sessionManager = {
+    getTree: () => treeNode ? [treeNode] : [],
+    getEntries: () => [...messages, ...labels],
+    getBranch: (fromId?: string) => {
+      branchReads++;
+      if (!fromId) return messages;
+      const index = messages.findIndex((entry) => entry.id === fromId);
+      return index < 0 ? [] : messages.slice(0, index + 1);
+    },
+    getLeafId: () => messages.at(-1)?.id ?? null,
+  };
+  return {
+    context: {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 100_000, percent: 10 }),
+      ui: { notify() {} },
+    },
+    getBranchReads: () => branchReads,
+  };
+}
+
 function timelineCandidateBuildFailureContext() {
   const root = userEntry("root");
   const brokenSummary = {
@@ -255,7 +289,7 @@ describe("ACM tool execution contracts", () => {
       checkpointAliasesOnMatchingEntries: 4,
       checkpointAliasNamesShown: 1,
     });
-    expect(result.content[0]?.text).toContain("1 matching entry / 4 aliases, 1 entry displayed; cap 2 entries");
+    expect(result.content[0]?.text).toContain("1 matching entry / 4 aliases, 1 entry displayed; requested 2, effective 2");
     expect(result.content[0]?.text).toContain("delta (+3 other aliases) → entry-1");
     expect(result.content[0]?.text).not.toContain("alpha, beta, gamma, delta");
   });
@@ -294,6 +328,31 @@ describe("ACM tool execution contracts", () => {
     expect(text).toContain("broken-candidate → broken-summary");
     expect(text).toContain("message estimate unavailable");
     expect(text).not.toContain("broken-candidate → broken-summary (off-path) ~0 msgs");
+  });
+
+  test("bounds checkpoint rebuild work for an extreme requested limit", async () => {
+    const fixture = largeTimelineContext();
+
+    const result = await executeTimeline(
+      "large-checkpoint-view",
+      { view: "checkpoints", limit: 1_000_000_000 },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+
+    expect(result.details).toMatchObject({
+      view: "checkpoints",
+      limit: 1_000_000_000,
+      effectiveLimit: 100,
+      resultEntryBudget: 100,
+      resultBudgetApplied: true,
+      checkpointsMatchingEntries: 250,
+      checkpointsDisplayedEntries: 100,
+    });
+    expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
+    expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
+    expect(result.content[0]?.text).toContain("+150 more");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

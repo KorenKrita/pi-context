@@ -188,6 +188,21 @@ function toUsageLike(usage: ReturnType<ExtensionContext["getContextUsage"]>) {
     : undefined;
 }
 
+const TIMELINE_WORKING_CONTEXT_CAP = 400_000;
+const TIMELINE_TOKENS_PER_RESULT_ENTRY = 1_000;
+const TIMELINE_MIN_RESULT_ENTRY_BUDGET = 50;
+
+function timelineResultEntryBudget(ctx: ExtensionContext): number {
+  const contextWindow = ctx.getContextUsage()?.contextWindow;
+  if (typeof contextWindow !== "number" || !Number.isFinite(contextWindow) || contextWindow <= 0) {
+    return 100;
+  }
+  return Math.max(
+    TIMELINE_MIN_RESULT_ENTRY_BUDGET,
+    Math.floor(Math.min(contextWindow, TIMELINE_WORKING_CONTEXT_CAP) / TIMELINE_TOKENS_PER_RESULT_ENTRY),
+  );
+}
+
 function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], activeIds: Set<string>): number {
   const branchIds = new Set(branch.map((entry) => entry.id));
   let count = 0;
@@ -203,7 +218,7 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
-    description: "Maximum recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Default 50.",
+    description: "Requested recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Default 50. Runtime applies and reports a context-derived per-call work/result budget instead of rejecting large requests.",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -343,6 +358,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           details: { error: "missing_query" },
         };
       }
+      const requestedLimit = params.limit;
+      const resultEntryBudget = timelineResultEntryBudget(ctx);
+      const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
+      const resultBudgetApplied = requestedLimit > effectiveLimit;
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -373,7 +392,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
         const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder);
-        const displayedListings = listings.slice(0, params.limit);
+        const displayedListings = listings.slice(0, effectiveLimit);
         checkpointsMatchingEntries = listings.length;
         checkpointsDisplayedEntries = displayedListings.length;
         checkpointsMatchingAliases = listings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
@@ -394,7 +413,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const aliasCountText = filter
           ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
           : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit} entries). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         const rootEntry = tree[0]?.entry;
@@ -447,9 +466,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           }
           lines.push(`  ${formatCheckpointLabels(checkpoint)} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
-        if (listings.length > params.limit) lines.push(`  ... +${listings.length - params.limit} more — use a narrower filter`);
+        if (listings.length > effectiveLimit) lines.push(`  ... +${listings.length - effectiveLimit} more — use a narrower filter or query`);
       } else if (params.view === "search") {
-        const search = searchTree(tree, labelMaps, params.query, params.limit, signal);
+        const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal);
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
         lines.push(
@@ -461,7 +480,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {
-        const rendered = renderTree(tree, labelMaps, leafId, activeIds, params.limit, signal);
+        const rendered = renderTree(tree, labelMaps, leafId, activeIds, effectiveLimit, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
         if (treeTruncated) lines.unshift("⚠ tree truncated by depth/line limit — use view checkpoints or view search to see hidden nodes");
@@ -469,10 +488,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const verbose = params.verbose ?? false;
         const visible = branch.filter((entry) => visibleOnActivePath(entry, labelMaps, leafId, verbose));
         activeVisibleEntries = visible.length;
-        activeDisplayedEntries = Math.min(visible.length, params.limit);
-        activeOmittedEntries = Math.max(0, visible.length - params.limit);
+        activeDisplayedEntries = Math.min(visible.length, effectiveLimit);
+        activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
-        for (const entry of visible.slice(-params.limit)) {
+        for (const entry of visible.slice(-effectiveLimit)) {
           const labels = formatEntryLabels(labelMaps, entry.id);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
@@ -512,6 +531,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ?? "None"}'`,
         `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
       ];
+      if (resultBudgetApplied) {
+        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
+      }
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
         const exhausted = attempts >= ContextRefreshRegistry.MAX_ATTEMPTS && !refreshPending;
@@ -552,7 +574,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           activeSummaryDepth,
           offPathSummaries: countOffPathSummaries(branch, tree, activeIds),
           view: params.view,
-          limit: params.limit,
+          limit: requestedLimit,
+          effectiveLimit,
+          resultEntryBudget,
+          resultBudgetApplied,
           verbose: params.view === "active" ? params.verbose ?? false : false,
           treeTruncated,
           activeVisibleEntries: params.view === "active" ? activeVisibleEntries : null,
