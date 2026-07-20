@@ -145,9 +145,227 @@ describe("travel batch safety", () => {
       },
     );
   }
+
+  test("counts malformed sibling tool-call blocks when rejecting a mixed batch", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    const base = travelToolCall();
+    const travelCall = base.content[0];
+    if (!travelCall) throw new Error("travel tool call fixture is empty");
+    const assistantId = sessionManager.appendMessage({
+      ...base,
+      content: [
+        travelCall,
+        { type: "toolCall", id: "malformed-sibling", name: "", arguments: {} },
+      ],
+    });
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "mixed_tool_batch",
+      toolCallCount: 2,
+    });
+    expect(sessionManager.getLeafId()).toBe(assistantId);
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+  });
 });
 
 describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
+  test("rejects a raw backup whose immediate pre-travel packet needs protocol repair", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-read", name: "read", arguments: { path: "src/parser.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "unsafe-raw" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "backup_protocol_incomplete",
+      repairs: [expect.objectContaining({
+        kind: "synthesized_missing_result",
+        toolCallId: "unfinished-read",
+      })],
+    });
+    expect(sessionManager.getLeafId()).toBe(travelCallId);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "unsafe-raw")).toBe(false);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+  });
+
+  test("rejects a raw backup with duplicate tool-call ids", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "inspect two files", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "duplicate-read", name: "read", arguments: { path: "a.ts" } },
+        { type: "toolCall", id: "duplicate-read", name: "read", arguments: { path: "b.ts" } },
+      ],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "duplicate-read",
+      toolName: "read",
+      content: [{ type: "text", text: "ambiguous result" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "invalid-raw" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "backup_protocol_invalid",
+      defects: [expect.objectContaining({
+        kind: "duplicate_tool_call_id",
+        toolCallId: "duplicate-read",
+      })],
+    });
+    expect(sessionManager.getLeafId()).toBe(travelCallId);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "invalid-raw")).toBe(false);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+  });
+
+  test("places the raw backup on the immediate completed tool result", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "read-before-travel", name: "read", arguments: { path: "src/parser.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const toolResultId = sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "read-before-travel",
+      toolName: "read",
+      content: [{ type: "text", text: "parser source" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "raw-after-read" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      backupEntryId: toolResultId,
+      backupOutcome: "created",
+    });
+    expect(sessionManager.getEntries()).toContainEqual(expect.objectContaining({
+      type: "label",
+      targetId: toolResultId,
+      label: "raw-after-read",
+    }));
+  });
+
+  test("preserves a model-change leaf as the raw backup anchor", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "switch model then travel", timestamp: Date.now() });
+    const modelChangeId = sessionManager.appendModelChange("test-provider", "test-model-2");
+    sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "raw-after-model-change" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      backupEntryId: modelChangeId,
+      backupOutcome: "created",
+    });
+    expect(sessionManager.getEntries()).toContainEqual(expect.objectContaining({
+      type: "label",
+      targetId: modelChangeId,
+      label: "raw-after-model-change",
+    }));
+  });
+
+  test("uses the compaction-projected packet instead of historical protocol defects", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "old task", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "historical-orphan",
+      toolName: "read",
+      content: [{ type: "text", text: "orphaned historical output" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const keptUserId = sessionManager.appendMessage({ role: "user", content: "authoritative current task", timestamp: Date.now() });
+    const compactionId = sessionManager.appendCompaction(
+      "Current task is authoritative; historical orphan is excluded.",
+      keptUserId,
+      10_000,
+    );
+    sessionManager.appendMessage(travelToolCall());
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, summary: HANDOFF, backupCurrentHeadAs: "raw-after-compaction" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      backupEntryId: compactionId,
+      backupOutcome: "created",
+    });
+  });
+
   test("applies only after the matching tool_execution_end and preserves tree recovery", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "old branch root", timestamp: Date.now() });

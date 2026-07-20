@@ -29,7 +29,10 @@ import {
   type CheckpointLabelConflict,
   type CheckpointLabelPrevalidation,
 } from "./host-bridge.js";
-import { findLastMeaningfulEntry } from "./entry-resolution.js";
+import {
+  analyzeToolProtocol,
+  findContainingAssistantToolBatch,
+} from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
 import {
@@ -53,16 +56,6 @@ function formatBackupText(name: string | undefined, entryId: string | undefined,
   return resolvedFromHead
     ? `${name}@${entryId} (resolved from HEAD ${resolvedFromHead})`
     : `${name}@${entryId}`;
-}
-
-function countContainingToolBatch(branch: SessionEntry[], toolCallId: string): number | null {
-  for (let index = branch.length - 1; index >= 0; index--) {
-    const entry = branch[index];
-    if (entry?.type !== "message" || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) continue;
-    const toolCalls = entry.message.content.filter((part) => part.type === "toolCall");
-    if (toolCalls.some((part) => part.id === toolCallId)) return toolCalls.length;
-  }
-  return null;
 }
 
 function formatNumericValue(value: number | null, fractionDigits = 0): string {
@@ -183,7 +176,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      const containingToolCallCount = countContainingToolBatch(ctx.sessionManager.getBranch(), toolCallId);
+      const containingToolCallCount = findContainingAssistantToolBatch(
+        ctx.sessionManager.getBranch(),
+        toolCallId,
+      )?.toolCallCount ?? null;
       if (containingToolCallCount !== null && containingToolCallCount > 1) {
         return {
           content: [{ type: "text" as const, text: `Error: acm_travel must run alone in its assistant tool batch; found ${containingToolCallCount} tool calls in the containing assistant message. Travel aborted before mutation. Reissue acm_travel in a new assistant message without sibling tools.` }],
@@ -273,23 +269,60 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
       if (params.backupCurrentHeadAs) {
-        const headResolve = findLastMeaningfulEntry(branch, signal);
-        if (headResolve.aborted) {
+        if (signal?.aborted) {
           return {
             content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
             details: { error: "aborted", target: params.target, targetId },
           };
         }
-        backupEntryId = headResolve.entryId ?? undefined;
-        if (!backupEntryId) {
+        const containingBatch = findContainingAssistantToolBatch(branch, toolCallId);
+        const backupCandidateIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
+        const backupCandidate = backupCandidateIndex >= 0 ? branch[backupCandidateIndex] : undefined;
+        if (!backupCandidate) {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no meaningful USER/AI message found near HEAD. Travel aborted.` }],
-            details: { error: "no_meaningful_backup_target", name: params.backupCurrentHeadAs, headId: originId },
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no protocol-complete session prefix exists before this travel call. Travel aborted.` }],
+            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs, headId: originId },
           };
         }
+        const backupMessagesResult = buildSessionMessages(sessionManager, backupCandidate.id);
+        if (!backupMessagesResult.ok) {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupMessagesResult.message}. Travel aborted.` }],
+            details: {
+              error: "backup_context_build_failed",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              message: backupMessagesResult.message,
+            },
+          };
+        }
+        const backupProtocol = analyzeToolProtocol(backupMessagesResult.value);
+        if (backupProtocol.status === "invalid") {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
+            details: {
+              error: "backup_protocol_invalid",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              defects: backupProtocol.defects,
+            },
+          };
+        }
+        if (backupProtocol.status === "repaired") {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' would require tool-protocol repair at ${backupCandidate.id}. Finish or explicitly recover the interrupted tool batch before traveling.` }],
+            details: {
+              error: "backup_protocol_incomplete",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              repairs: backupProtocol.repairs,
+            },
+          };
+        }
+        backupEntryId = backupCandidate.id;
         if (backupEntryId !== originId) {
           backupResolvedFromHead = originId;
-          ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on ${backupEntryId} (${headResolve.role ?? "message"}) instead of HEAD ${originId} (tool/internal traffic).`, "info");
+          ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
         }
       }
 
