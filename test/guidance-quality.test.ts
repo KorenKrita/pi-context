@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ACM_CORE, GUIDANCE_CUES, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
+import { ACM_CORE, GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
@@ -86,6 +86,10 @@ describe("ACM guidance quality", () => {
     expect(skill).toContain("Load one reference at a time");
     expect(skill).toContain("observable condition changes");
     expect(skill).toContain("replace the active reference");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("`context-management` Skill");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("`references/target-selection.md`");
+    expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`context-management` Skill");
+    expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`references/exceptional-recovery.md`");
   });
 
   test("keeps target and recovery criteria factual and checkable", async () => {
