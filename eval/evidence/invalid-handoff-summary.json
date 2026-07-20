@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "source": "local ignored eval/.runs snapshot; no transcripts or prompts retained",
+  "runsWithTravel": 75,
+  "travelAttempts": 211,
+  "runsWithInvalidHandoff": 16,
+  "invalidHandoffAttempts": 18,
+  "runsWithLaterSuccessfulTravel": 15,
+  "defectCounts": {
+    "duplicate:State": 4,
+    "empty:Evidence": 7,
+    "empty:Exclusions": 1,
+    "empty:External": 1,
+    "empty:Recover": 1,
+    "empty:State": 4,
+    "missing:Evidence": 4,
+    "missing:Exclusions": 4,
+    "missing:External": 3,
+    "missing:Goal": 4,
+    "missing:NEXT": 1,
+    "missing:Recover": 1,
+    "missing:State": 4
+  },
+  "runs": [
+    {
+      "run": "eval/.runs/2026-07-16T12-47-48-320Z-eval-mimo-v2.5/directed-travel-handoff",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Goal",
+            "State"
+          ],
+          "empty": [],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-16T12-49-40-221Z-eval-mimo-v2.5/spontaneous-fold-after-distill",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "External"
+          ],
+          "empty": [
+            "State",
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-16T12-51-35-745Z-eval-mimo-v2.5/directed-travel-handoff",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-16T12-51-35-745Z-eval-mimo-v2.5/spontaneous-fold-after-distill",
+      "travelAttempts": 3,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T01-28-20-858Z-flow-mimo-v2.5",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Evidence",
+            "External",
+            "Exclusions",
+            "Recover"
+          ],
+          "empty": [
+            "State"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T04-24-37-216Z-flow-kimi-k2.7-code-highspeed",
+      "travelAttempts": 3,
+      "invalidAttempts": 3,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": false,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Goal",
+            "State",
+            "External"
+          ],
+          "empty": [
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        },
+        {
+          "ok": false,
+          "missing": [
+            "Goal",
+            "State"
+          ],
+          "empty": [
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        },
+        {
+          "ok": false,
+          "missing": [
+            "Goal",
+            "State"
+          ],
+          "empty": [],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T04-24-37-216Z-flow-kimi-k3",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Evidence",
+            "Exclusions"
+          ],
+          "empty": [],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T06-43-53-648Z-flow-mimo-v2.5-p63200",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [
+            "State"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T06-43-53-649Z-flow-mimo-v2.5-p63221",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Exclusions"
+          ],
+          "empty": [
+            "Evidence"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T08-07-02-439Z-flow-gpt-5.6-sol-p64093",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [],
+          "duplicate": [
+            "State"
+          ],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T12-28-27-587Z-flow-mimo-v2.5-pro-p62449",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Evidence",
+            "Exclusions",
+            "NEXT"
+          ],
+          "empty": [],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T14-28-39-259Z-flow-kimi-k2.7-code-highspeed-p20021",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [
+            "Evidence"
+          ],
+          "empty": [],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T14-28-39-259Z-flow-kimi-k2.7-code-highspeed-p20032",
+      "travelAttempts": 2,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [
+            "State",
+            "Evidence",
+            "External",
+            "Exclusions",
+            "Recover"
+          ],
+          "duplicate": [],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T16-06-01-707Z-flow-gpt-5.6-sol-p67375",
+      "travelAttempts": 39,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [],
+          "duplicate": [
+            "State"
+          ],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-17T16-32-36-445Z-flow-gpt-5.6-sol-p85573",
+      "travelAttempts": 6,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [],
+          "duplicate": [
+            "State"
+          ],
+          "outOfOrder": false
+        }
+      ]
+    },
+    {
+      "run": "eval/.runs/2026-07-18T02-17-18-422Z-flow-gpt-5.6-luna-p65847",
+      "travelAttempts": 5,
+      "invalidAttempts": 1,
+      "firstTravelInvalid": true,
+      "laterSuccessfulTravel": true,
+      "validations": [
+        {
+          "ok": false,
+          "missing": [],
+          "empty": [],
+          "duplicate": [
+            "State"
+          ],
+          "outOfOrder": false
+        }
+      ]
+    }
+  ],
+  "capturedAt": "2026-07-20",
+  "scopeNote": "Historical local snapshot spanning multiple guidance/runtime variants; suitable for failure-shape evidence, not a current-v4.1 production rate."
+}

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-20",
+  "environment": "existing eval/.harness/agent-fullenv-cw400000 + -e src/index.ts",
+  "command": "get_commands",
+  "skillCommandCount": 52,
+  "contextManagementPresent": false,
+  "contextManagementMatches": []
+}
