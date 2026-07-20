@@ -348,11 +348,11 @@ describe("ACM tool execution contracts", () => {
       resultEntryBudget: 100,
       resultBudgetApplied: true,
       checkpointsMatchingEntries: 250,
-      checkpointsDisplayedEntries: 100,
+      checkpointsDisplayedEntries: 99,
     });
     expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
     expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
-    expect(result.content[0]?.text).toContain("+150 more");
+    expect(result.content[0]?.text).toContain("+151 more");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

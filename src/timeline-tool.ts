@@ -392,7 +392,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
         const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder);
-        const displayedListings = listings.slice(0, effectiveLimit);
+        const rootEntry = tree[0]?.entry;
+        const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
+          !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
+        );
+        const checkpointListingLimit = Math.max(0, effectiveLimit - (rootMatchesFilter ? 1 : 0));
+        const displayedListings = listings.slice(0, checkpointListingLimit);
         checkpointsMatchingEntries = listings.length;
         checkpointsDisplayedEntries = displayedListings.length;
         checkpointsMatchingAliases = listings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
@@ -416,10 +421,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
-        const rootEntry = tree[0]?.entry;
-        const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
-          !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
-        );
         if (rootEntry && rootMatchesFilter) {
           const rootResult = rebuildAcmContextPacket(sessionManager, rootEntry.id);
           const rootMessages = rootResult.ok ? rootResult.value.messages : [];
@@ -466,7 +467,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           }
           lines.push(`  ${formatCheckpointLabels(checkpoint)} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
-        if (listings.length > effectiveLimit) lines.push(`  ... +${listings.length - effectiveLimit} more — use a narrower filter or query`);
+        if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
         const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal);
         searchDisplayedMatches = search.matches.length;
