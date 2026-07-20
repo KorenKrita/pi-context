@@ -5,6 +5,7 @@
 //   bun eval/run-flow.mjs [--model provider/id] [--thinking level] [--variant label]
 //                         [--context-window N] [--judge-model provider/id]
 //                         [--judge-thinking level] [--no-judge] [--extension path]
+//                         [--skill path] [--environment-mode core-only|product-isolated|full-env]
 //
 // Two comparison axes both come from this one command:
 //   • same models × different code/prompt versions — hold --model, change what
@@ -15,11 +16,18 @@
 // Writes eval/.runs/<stamp>-flow-<model>/{report.json, transcript.txt, verdict.json}.
 
 import { execSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildAgentDir, buildFullEnvAgentDir, createRunDir, EXTENSION_PATH } from "./setup.mjs";
-import { PiRpcDriver } from "./driver.mjs";
+import {
+  buildAgentDir,
+  buildFullEnvAgentDir,
+  CONTEXT_EXTENSION_PATH,
+  CONTEXT_MANAGEMENT_SKILL_PATH,
+  createRunDir,
+  EXTENSION_PATH,
+} from "./setup.mjs";
+import { classifySkillAvailability, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
 import { extractAssistantTexts, extractToolCalls } from "./scenarios.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
@@ -50,11 +58,30 @@ const thinkingLevel = option("--thinking") ?? process.env.ACM_EVAL_THINKING ?? "
 const variant = option("--variant") ?? process.env.ACM_EVAL_VARIANT ?? "HEAD";
 const contextWindow = Number(option("--context-window") ?? 60000);
 const shrink = !flag("--native"); // --native keeps the model's real window; the % nudge then rarely fires
-const fullEnv = flag("--full-env"); // load the user's real config (minus pi-context) instead of the bare de-primed env
+const requestedEnvironmentMode = option("--environment-mode");
+const fullEnvAlias = flag("--full-env");
+if (requestedEnvironmentMode && fullEnvAlias && requestedEnvironmentMode !== "full-env") {
+  throw new Error("--full-env conflicts with --environment-mode other than full-env");
+}
+const environmentMode = normalizeEnvironmentMode({
+  environmentMode: requestedEnvironmentMode ?? (fullEnvAlias ? "full-env" : undefined),
+});
 const judgeModel = parseModel(option("--judge-model"), JUDGE_MODEL);
 const judgeThinking = option("--judge-thinking") ?? "high";
 const doJudge = !flag("--no-judge");
 const extensionPath = option("--extension") ?? EXTENSION_PATH;
+const skillPath = option("--skill") ?? CONTEXT_MANAGEMENT_SKILL_PATH;
+const extensionPaths = environmentMode === "core-only"
+  ? [extensionPath]
+  : [extensionPath, CONTEXT_EXTENSION_PATH];
+const skillPaths = environmentMode === "core-only" ? [] : [skillPath];
+const expectedSkillPath = (() => {
+  try {
+    return realpathSync(skillPath);
+  } catch {
+    return null;
+  }
+})();
 const timeoutScale = Number(option("--timeout-scale") ?? 1);
 const flow = getFlow(option("--flow") ?? process.env.ACM_EVAL_FLOW ?? "exprlang-long-flow");
 if (!flow) {
@@ -66,6 +93,7 @@ try {
   gitHead = execSync("git rev-parse --short HEAD", { cwd: join(extensionPath, "..", ".."), encoding: "utf8" }).trim();
 } catch { /* not a git checkout */ }
 
+const fullEnv = environmentMode === "full-env";
 const agentDir = fullEnv
   ? buildFullEnvAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL })
   : buildAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL });
@@ -77,36 +105,65 @@ const workspace = fullEnv ? mkdtempSync(join(tmpdir(), "acm-flow-ws-")) : join(r
 cpSync(flow.seedDir, workspace, { recursive: true });
 
 console.log(`flow=${flow.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
-console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWindow : "native"}${fullEnv ? " full-env" : ""}`);
+console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWindow : "native"} environment=${environmentMode}`);
 console.log(`run dir: ${runDir}`);
 
 const driver = new PiRpcDriver({
   cwd: workspace,
   agentDir,
   sessionDir: join(runDir, "sessions"),
-  extensionPath,
+  extensionPaths,
+  skillPaths,
+  environmentMode,
   provider: modelSpec.provider,
   modelId: modelSpec.modelId,
   thinkingLevel,
-  fullEnv,
   eventLogPath: join(runDir, "events.jsonl"),
 });
 
 const turnRecords = [];
 let runError = null;
+let commands = null;
+let skillAvailability = null;
+let infrastructureInvalid = null;
 const started = Date.now();
 
 driver.start();
 try {
-  for (const turn of flow.turns) {
-    console.log(`\n=== ${turn.phase} ===`);
-    const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
-    const toolCalls = extractToolCalls(events);
-    const assistantText = extractAssistantTexts(events).at(-1) ?? "";
-    turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText });
-    const acm = toolCalls.filter((c) => c.name.startsWith("acm_"));
-    console.log(`  tools: ${toolCalls.map((c) => c.name).join(", ") || "(none)"}`);
-    if (acm.length) console.log(`  ACM: ${acm.map((c) => `${c.name}${c.isError ? "✗" : ""}`).join(", ")}`);
+  try {
+    commands = await driver.getCommands();
+    skillAvailability = classifySkillAvailability({
+      environmentMode,
+      expectedSkillPath,
+      commands,
+      realpath: realpathSync,
+    });
+  } catch (error) {
+    skillAvailability = classifySkillAvailability({
+      environmentMode,
+      expectedSkillPath,
+      rpcError: error instanceof Error ? error.message : String(error),
+      realpath: realpathSync,
+    });
+  }
+  if (!skillAvailability.valid) {
+    infrastructureInvalid = {
+      status: skillAvailability.status,
+      reason: skillAvailability.reason ?? skillAvailability.status,
+    };
+    console.log(`\n=== infrastructure invalid: ${infrastructureInvalid.status} ===`);
+    console.log(`  ${infrastructureInvalid.reason}`);
+  } else {
+    for (const turn of flow.turns) {
+      console.log(`\n=== ${turn.phase} ===`);
+      const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
+      const toolCalls = extractToolCalls(events);
+      const assistantText = extractAssistantTexts(events).at(-1) ?? "";
+      turnRecords.push({ phase: turn.phase, prompt: turn.prompt, toolCalls, assistantText });
+      const acm = toolCalls.filter((c) => c.name.startsWith("acm_"));
+      console.log(`  tools: ${toolCalls.map((c) => c.name).join(", ") || "(none)"}`);
+      if (acm.length) console.log(`  ACM: ${acm.map((c) => `${c.name}${c.isError ? "✗" : ""}`).join(", ")}`);
+    }
   }
 } catch (error) {
   runError = error instanceof Error ? error.message : String(error);
@@ -116,6 +173,7 @@ try {
 }
 
 const report = {
+  status: infrastructureInvalid ? "infrastructure_invalid" : runError ? "run_error" : "completed",
   flowId: flow.id,
   rubricVersion: RUBRIC_VERSION,
   startedAt: new Date(started).toISOString(),
@@ -128,6 +186,13 @@ const report = {
   contextWindow,
   shrink,
   fullEnv,
+  environmentMode,
+  extensionPaths,
+  skillPaths,
+  expectedSkillPath,
+  commands,
+  skillAvailability,
+  infrastructureInvalid,
   runError,
   workspace, // full-env runs live outside the repo; kept for post-hoc inspection
   turns: turnRecords.map((t) => ({
@@ -144,7 +209,7 @@ const report = {
 const transcript = buildTranscript(turnRecords);
 writeFileSync(join(runDir, "transcript.txt"), transcript);
 
-if (doJudge) {
+if (!infrastructureInvalid && doJudge) {
   console.log(`\n=== judging with ${judgeModel.provider}/${judgeModel.modelId} (thinking=${judgeThinking}) ===`);
   const judgeAgentDir = buildAgentDir({ shrink: false, label: process.env.ACM_JUDGE_LABEL ?? "agent-judge" });
   const judgeSessions = join(runDir, "judge-sessions");
@@ -183,10 +248,12 @@ if (doJudge) {
     console.log(`  judge error: ${report.judge.error}`);
   }
 } else {
-  report.judge = { skipped: true };
+  report.judge = infrastructureInvalid
+    ? { skipped: true, reason: "infrastructure_invalid" }
+    : { skipped: true };
 }
 
 writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
 console.log(`\nreport: ${join(runDir, "report.json")}`);
 console.log(`transcript: ${join(runDir, "transcript.txt")}`);
-process.exit(runError ? 1 : 0);
+process.exit(runError || infrastructureInvalid ? 1 : 0);
