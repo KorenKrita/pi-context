@@ -353,7 +353,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           };
         }
         lines.push(`Checkpoints (${listings.length} matching aliases, ${checkpointsDisplayedAliases} displayed${filter ? ` for '${params.filter}'` : ""}; cap ${params.limit}). Current: ${currentResult.value.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
-        const cache = new Map<string, AgentMessage[]>();
+        const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         const rootEntry = tree[0]?.entry;
         const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
@@ -362,7 +362,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         if (rootEntry && rootMatchesFilter) {
           const rootResult = buildSessionMessages(sessionManager, rootEntry.id);
           const rootMessages = rootResult.ok ? rootResult.value : [];
-          cache.set(rootEntry.id, rootMessages);
+          cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages } : { ok: false });
           rootCandidateDisplayed = true;
           rootCandidateEntryId = rootEntry.id;
           rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
@@ -382,16 +382,22 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         for (const checkpoint of listings.slice(0, params.limit)) {
           if (signal?.aborted) break;
-          let targetMessages = cache.get(checkpoint.entryId);
-          if (!targetMessages) {
+          let cachedTarget = cache.get(checkpoint.entryId);
+          if (!cachedTarget) {
             const targetResult = buildSessionMessages(sessionManager, checkpoint.entryId);
-            targetMessages = targetResult.ok ? targetResult.value : [];
-            cache.set(checkpoint.entryId, targetMessages);
+            cachedTarget = targetResult.ok
+              ? { ok: true, messages: targetResult.value }
+              : { ok: false };
+            cache.set(checkpoint.entryId, cachedTarget);
           }
-          const estimated = estimateUsageAfterMessageChange(usage, currentResult.value, targetMessages);
-          const estimateText = estimated
-            ? `~${targetMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
-            : `~${targetMessages.length} msgs`;
+          const estimated = cachedTarget.ok
+            ? estimateUsageAfterMessageChange(usage, currentResult.value, cachedTarget.messages)
+            : undefined;
+          const estimateText = !cachedTarget.ok
+            ? "message estimate unavailable"
+            : estimated
+              ? `~${cachedTarget.messages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
+              : `~${cachedTarget.messages.length} msgs`;
           let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
           if (projectedSummaryDepth === undefined) {
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));

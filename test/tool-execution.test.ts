@@ -103,6 +103,32 @@ function timelineContext() {
   };
 }
 
+function timelineCandidateBuildFailureContext() {
+  const root = userEntry("root");
+  const brokenSummary = {
+    type: "branch_summary",
+    id: "broken-summary",
+    parentId: root.id,
+    timestamp: "2026-01-01T00:00:01.000Z",
+    fromId: "old-leaf",
+    get summary() {
+      throw new Error("candidate summary is unreadable");
+    },
+  } as unknown as SessionEntry;
+  const entries = [root, brokenSummary, labelEntry("label-broken", brokenSummary.id, "broken-candidate")];
+  const sessionManager = {
+    getTree: () => [{ entry: root, children: [{ entry: brokenSummary, children: [] }] }],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => fromId === brokenSummary.id ? [root, brokenSummary] : [root],
+    getLeafId: () => root.id,
+  };
+  return {
+    sessionManager,
+    getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+    ui: { notify() {} },
+  };
+}
+
 function indeterminateTravelContext() {
   const root = userEntry("entry-1");
   const head = userEntry("entry-2", root.id);
@@ -218,6 +244,21 @@ describe("ACM tool execution contracts", () => {
     expect(result.details).toMatchObject({ view: "checkpoints", limit: 2, checkpointsDisplayedAliases: 2 });
     expect(result.content[0]?.text).toContain("; cap 2)");
     expect(result.content[0]?.text).not.toContain("; cap 50)");
+  });
+
+  test("keeps a failed checkpoint message estimate unknown instead of reporting zero", async () => {
+    const result = await executeTimeline(
+      "call-checkpoint-build-failure",
+      { view: "checkpoints", limit: 10 },
+      undefined,
+      undefined,
+      timelineCandidateBuildFailureContext(),
+    );
+
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("broken-candidate → broken-summary");
+    expect(text).toContain("message estimate unavailable");
+    expect(text).not.toContain("broken-candidate → broken-summary (off-path) ~0 msgs");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

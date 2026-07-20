@@ -253,6 +253,11 @@
         <td>Separate raw travel backup anchoring from ordinary semantic checkpoint selection and require the immediate pre-travel leaf's projected packet to be protocol-complete.</td>
         <td>The previous meaningful USER/AI resolver skipped completed tool results and could label the preceding assistant tool-call turn. Backup resolution now evaluates the compaction-aware packet at the immediate pre-travel leaf, preserving tool results, model/thinking changes, and other session state; any required repair or invalid/duplicate tool-call identity aborts travel instead of silently falling back to stale history. Ordinary checkpoint semantics remain unchanged.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Preserve unknown checkpoint-candidate message estimates as unknown instead of representing failed context reconstruction as an empty message array.</td>
+        <td>The checkpoints view now caches a typed build outcome per entry. Successful empty packets remain distinguishable from build failures; aliases reuse one outcome, and usage estimates are produced only from observed messages.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Open decisions</h2>
