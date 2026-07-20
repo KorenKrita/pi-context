@@ -141,7 +141,7 @@ function containsRequiredFacts(value) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  return normalized.includes("pool max 50")
+  return /\bpool max(?: [a-z]+){0,3} 50\b/.test(normalized)
     && normalized.includes("retry commit 9f31c2a")
     && normalized.includes("services/payments/client.ts");
 }

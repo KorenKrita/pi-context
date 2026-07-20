@@ -244,6 +244,21 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
   });
 
+  test("accepts a clarified pool-max label without losing the numeric fact", () => {
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", { target: "root", handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("write", {
+          path: "next-action.md",
+          content: "Pool max connections: 50. Retry commit: 9f31c2a. Next file: services/payments/client.ts backoff bounds.",
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
+  });
+
   test("fails product-isolated runs that have the Skill but do not read both required guidance files", () => {
     const result = scenario.score(continuationContext({
       t3: [call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH })],
