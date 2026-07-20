@@ -9,6 +9,7 @@
 // eval/.runs/<stamp>-eval/report.json and prints a compact summary.
 
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -86,6 +87,10 @@ const expectedSkillPath = (() => {
     return null;
   }
 })();
+let gitHead = "unknown";
+try {
+  gitHead = execSync("git rev-parse HEAD", { cwd: join(extensionPath, "..", ".."), encoding: "utf8" }).trim();
+} catch { /* not a git checkout */ }
 
 const scenarios = listScenarios({ family }).filter((s) => !onlyId || s.id === onlyId);
 if (scenarios.length === 0) {
@@ -104,6 +109,7 @@ const report = {
   thinkingLevel,
   contextWindow,
   environmentMode,
+  gitHead,
   extensionPaths,
   skillPaths,
   expectedSkillPath,
@@ -113,6 +119,7 @@ const report = {
 
 console.log(`model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
 console.log(`environment=${environmentMode}`);
+console.log(`gitHead=${gitHead}`);
 console.log(`run dir: ${runDir}`);
 console.log(`scenarios: ${scenarios.map((s) => s.id).join(", ")}`);
 
