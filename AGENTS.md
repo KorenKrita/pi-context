@@ -106,7 +106,7 @@ checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 
 4. 调用 `branchWithSummary(..., true)`
 5. 验证真实 leaf、entry type、parent 与 summary
 6. 明确未应用时补偿 backup；已应用或无法排除 mutation 时保留恢复证据
-7. 只在 branch 明确成功时 schedule persistent context refresh 与 live AgentSession sync
+7. 只在 branch 明确成功时 schedule persistent context refresh 与 live AgentSession sync；matching `tool_result` 另发送一条 hidden `steer`，只重申 handoff 的 `next` 并把 pre-travel request 标为历史，失败或 indeterminate result 不发送
 
 travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、浏览器、远端服务或其他外部副作用。
 

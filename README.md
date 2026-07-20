@@ -72,6 +72,8 @@ root → summary A → summary B → summary C → current work
 
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
+Travel 明确成功后，runtime 会在持久/实时 Context Packet 中把该 handoff 投影为当前权威状态，并通过一条隐藏的 post-travel `steer` 再明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。失败或 indeterminate travel 不会发送该 steer，之后的新用户消息仍正常覆盖较早 handoff。
+
 ## Semantic rebase
 
 普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。

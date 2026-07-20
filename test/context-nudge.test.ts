@@ -68,6 +68,83 @@ function createFixture(sessionManager: object = {}) {
 }
 
 describe("ACM context usage reminders", () => {
+  test("steers a successful travel directly into the handoff NEXT", async () => {
+    const fixture = createFixture();
+    const handoff = {
+      goal: "continue the latency investigation",
+      state: "pool max=50 and retry commit=9f31c2a are hot",
+      evidence: "findings.md",
+      external: "none",
+      exclusions: "database indexes are healthy",
+      recover: "payments-latency-raw",
+      next: "write next-action.md from the carried hot facts",
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "travel-success",
+      input: { target: "payments-latency-findings", handoff },
+      content: [],
+      isError: false,
+      details: {
+        handoffFormat: "structured-v1",
+        resultingLeafId: "summary-1",
+      },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]).toMatchObject({
+      message: {
+        customType: "acm:post-travel-continuation",
+        display: false,
+        details: {
+          kind: "post-travel-continuation",
+          toolCallId: "travel-success",
+          resultingLeafId: "summary-1",
+          next: handoff.next,
+        },
+      },
+      options: { deliverAs: "steer" },
+    });
+    expect(fixture.sentMessages[0]?.message.content).toContain(`REQUIRED NEXT: ${handoff.next}`);
+    expect(fixture.sentMessages[0]?.message.content).toContain("Earlier pre-travel requests are historical");
+  });
+
+  test("does not steer failed or domain-rejected travel results", async () => {
+    const fixture = createFixture();
+    const input = {
+      target: "root",
+      handoff: {
+        goal: "continue",
+        state: "known",
+        evidence: "none",
+        external: "none",
+        exclusions: "none",
+        recover: "none",
+        next: "act",
+      },
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "transport-error",
+      input,
+      content: [],
+      isError: true,
+      details: {},
+    });
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "domain-error",
+      input,
+      content: [],
+      isError: false,
+      details: { error: "mixed_tool_batch" },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(0);
+  });
+
   test("caps only windows above the 400K boundary", () => {
     expect(calculateContextUsagePressure(120_000, 400_000)).toMatchObject({
       workingBudgetTokens: 400_000,

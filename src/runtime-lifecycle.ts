@@ -5,6 +5,7 @@ import type {
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
+import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -16,6 +17,44 @@ import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidan
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
+
+interface TravelToolResultLike {
+  toolName: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+  isError: boolean;
+  details?: unknown;
+}
+
+export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
+  if (event.toolName !== "acm_travel" || event.isError) return null;
+  const details = typeof event.details === "object" && event.details !== null
+    ? event.details as Record<string, unknown>
+    : undefined;
+  if (details?.error !== undefined || details?.handoffFormat !== "structured-v1" || typeof details.resultingLeafId !== "string") {
+    return null;
+  }
+  const handoff = buildCanonicalHandoff(event.input.handoff as HandoffWireInput);
+  if (!handoff.ok) return null;
+  const next = handoff.value.fields.next;
+  return {
+    customType: "acm:post-travel-continuation",
+    content: [
+      "[ACM POST-TRAVEL CONTINUATION]",
+      "Travel succeeded. This message is not a new objective; it makes the authoritative handoff's current instruction explicit after the transition.",
+      `REQUIRED NEXT: ${next}`,
+      "Earlier pre-travel requests are historical. Execute REQUIRED NEXT once now; do not reread folded material, recreate an old save point, or replay an earlier task unless REQUIRED NEXT explicitly requires it.",
+    ].join("\n"),
+    display: false,
+    details: {
+      kind: "post-travel-continuation",
+      version: 1,
+      toolCallId: event.toolCallId,
+      resultingLeafId: details.resultingLeafId,
+      next,
+    },
+  };
+}
 
 /**
  * The summarizer model cannot see session node IDs, so the abandoned branch tip
@@ -39,7 +78,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
   });
 
-  pi.on("tool_result", (_event, ctx: ExtensionContext) => {
+  pi.on("tool_result", (event, ctx: ExtensionContext) => {
+    const continuation = buildPostTravelContinuationSteer(event);
+    if (continuation) pi.sendMessage(continuation, { deliverAs: "steer" });
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
     if (!nudge) return;
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
