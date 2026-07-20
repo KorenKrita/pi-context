@@ -137,6 +137,27 @@ function largeTimelineContext(count = 250) {
   };
 }
 
+function longAliasTimelineContext() {
+  const root = userEntry("entry-long-alias");
+  const longAlias = `long-${"x".repeat(100_000)}`;
+  const aliases = Array.from({ length: 100 }, (_, index) => labelEntry(`short-label-${index}`, root.id, `short-${index}`));
+  const entries = [root, ...aliases, labelEntry("long-label", root.id, longAlias)];
+  return {
+    context: {
+      sessionManager: {
+        getTree: () => [{ entry: root, children: [] }],
+        getEntries: () => entries,
+        getBranch: () => [root],
+        getLeafId: () => root.id,
+      },
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 100_000, percent: 10 }),
+      ui: { notify() {} },
+    },
+    longAlias,
+    rootId: root.id,
+  };
+}
+
 function timelineCandidateBuildFailureContext() {
   const root = userEntry("root");
   const brokenSummary = {
@@ -290,7 +311,7 @@ describe("ACM tool execution contracts", () => {
       checkpointAliasNamesShown: 1,
     });
     expect(result.content[0]?.text).toContain("1 matching entry / 4 aliases, 1 entry displayed; requested 2, effective 2");
-    expect(result.content[0]?.text).toContain("delta (+3 other aliases) → entry-1");
+    expect(result.content[0]?.text).toContain("entry-1 (checkpoint: delta (+3 other aliases); on-path");
     expect(result.content[0]?.text).not.toContain("alpha, beta, gamma, delta");
   });
 
@@ -312,7 +333,7 @@ describe("ACM tool execution contracts", () => {
       checkpointAliasNamesShown: 1,
     });
     expect(result.content[0]?.text).toContain("1 matching entry / 1 matched alias / 4 total aliases");
-    expect(result.content[0]?.text).toContain("alpha (+3 other aliases) → entry-1");
+    expect(result.content[0]?.text).toContain("entry-1 (checkpoint: alpha (+3 other aliases); on-path");
   });
 
   test("keeps a failed checkpoint message estimate unknown instead of reporting zero", async () => {
@@ -325,7 +346,7 @@ describe("ACM tool execution contracts", () => {
     );
 
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain("broken-candidate → broken-summary");
+    expect(text).toContain("broken-summary (checkpoint: broken-candidate; off-path");
     expect(text).toContain("message estimate unavailable");
     expect(text).not.toContain("broken-candidate → broken-summary (off-path) ~0 msgs");
   });
@@ -353,6 +374,35 @@ describe("ACM tool execution contracts", () => {
     expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
     expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
     expect(result.content[0]?.text).toContain("+151 more");
+  });
+
+  test("bounds timeline output for a huge alias set and huge search query", async () => {
+    const fixture = longAliasTimelineContext();
+
+    const active = await executeTimeline(
+      "long-alias-active",
+      { view: "active", limit: 1_000_000_000 },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    const activeText = active.content[0]?.text ?? "";
+    expect(activeText.length).toBeLessThanOrEqual(active.details?.resultCharacterBudget as number);
+    expect(activeText).toContain(fixture.rootId);
+    expect(activeText).toContain(`truncated ${fixture.longAlias.length} chars`);
+    expect(activeText).toContain("(+100 other aliases)");
+
+    const query = "q".repeat(100_000);
+    const search = await executeTimeline(
+      "long-query-search",
+      { view: "search", query, limit: 1_000_000_000 },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    const searchText = search.content[0]?.text ?? "";
+    expect(searchText.length).toBeLessThanOrEqual(search.details?.resultCharacterBudget as number);
+    expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

@@ -14,7 +14,6 @@ import {
   extractTextFromContent,
   formatBoundaryTravelCue,
   formatContextUsage,
-  formatEntryLabels,
   getEntryLabels,
   projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
@@ -40,6 +39,22 @@ interface CheckpointListing {
 interface SearchMatch {
   entry: SessionEntry;
   labels: string[];
+}
+
+const TIMELINE_DYNAMIC_VALUE_CHARS = 240;
+
+function boundedTimelineValue(value: string, maxChars = TIMELINE_DYNAMIC_VALUE_CHARS): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}… [truncated ${value.length} chars]`;
+}
+
+function formatTimelineAliases(labels: readonly string[]): string {
+  const preferred = labels.at(-1);
+  if (!preferred) return "";
+  const remaining = labels.length - 1;
+  return remaining > 0
+    ? `${boundedTimelineValue(preferred)} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
+    : boundedTimelineValue(preferred);
 }
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -111,12 +126,8 @@ function formatCheckpointLabels(listing: CheckpointListing): string {
   const preferred = listing.matchedLabels.at(-1) ?? listing.labels.at(-1) ?? "checkpoint";
   const remaining = Math.max(0, listing.labels.length - 1);
   return remaining === 0
-    ? preferred
-    : `${preferred} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
-}
-
-function literalPattern(query: string): RegExp {
-  return new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    ? boundedTimelineValue(preferred)
+    : `${boundedTimelineValue(preferred)} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
 }
 
 function searchTree(
@@ -126,7 +137,7 @@ function searchTree(
   limit: number,
   signal?: AbortSignal,
 ): { matches: SearchMatch[]; truncated: boolean } {
-  const pattern = literalPattern(query);
+  const normalizedQuery = query.toLowerCase();
   const stack = [...tree].reverse();
   const matches: SearchMatch[] = [];
   let truncated = false;
@@ -137,7 +148,9 @@ function searchTree(
     }
     const node = stack.pop()!;
     const labels = getEntryLabels(labelMaps, node.entry.id);
-    const matched = pattern.test(node.entry.id) || labels.some((label) => pattern.test(label)) || pattern.test(entryText(node.entry, true));
+    const matched = node.entry.id.toLowerCase().includes(normalizedQuery)
+      || labels.some((label) => label.toLowerCase().includes(normalizedQuery))
+      || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
     if (matched) {
       if (matches.length < limit) matches.push({ entry: node.entry, labels });
       else truncated = true;
@@ -163,7 +176,7 @@ function renderTree(
       return;
     }
     const role = displayRole(node.entry);
-    const labels = formatEntryLabels(labelMaps, node.entry.id);
+    const labels = formatTimelineAliases(getEntryLabels(labelMaps, node.entry.id));
     const tags = [
       node.entry.id === leafId ? "HEAD" : null,
       activeIds.has(node.entry.id) ? "active" : "off-path",
@@ -201,6 +214,31 @@ function timelineResultEntryBudget(ctx: ExtensionContext): number {
     TIMELINE_MIN_RESULT_ENTRY_BUDGET,
     Math.floor(Math.min(contextWindow, TIMELINE_WORKING_CONTEXT_CAP) / TIMELINE_TOKENS_PER_RESULT_ENTRY),
   );
+}
+
+function timelineResultCharacterBudget(ctx: ExtensionContext): number {
+  const usage = ctx.getContextUsage();
+  const contextWindow = typeof usage?.contextWindow === "number" && Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
+    ? usage.contextWindow
+    : 100_000;
+  const workingWindow = Math.min(contextWindow, TIMELINE_WORKING_CONTEXT_CAP);
+  const usedTokens = typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) && usage.tokens > 0
+    ? Math.min(usage.tokens, workingWindow)
+    : 0;
+  const remainingTokens = Math.max(0, workingWindow - usedTokens);
+  const budgetTokens = Math.max(2_000, Math.floor(Math.min(workingWindow * 0.1, remainingTokens * 0.25)));
+  return budgetTokens * 4;
+}
+
+function fitTimelineOutputToBudget(
+  text: string,
+  budget: number,
+  leafId: string | null,
+): { text: string; truncated: boolean } {
+  if (text.length <= budget) return { text, truncated: false };
+  const footer = `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId ?? "none"}. Use a narrower filter/query or a smaller view.]`;
+  const prefixLength = Math.max(0, budget - footer.length);
+  return { text: `${text.slice(0, prefixLength)}${footer}`, truncated: true };
 }
 
 function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], activeIds: Set<string>): number {
@@ -362,6 +400,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const resultEntryBudget = timelineResultEntryBudget(ctx);
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
+      const resultCharacterBudget = timelineResultCharacterBudget(ctx);
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -418,7 +457,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const aliasCountText = filter
           ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
           : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${params.filter}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${boundedTimelineValue(params.filter ?? "")}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
@@ -465,7 +504,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
-          lines.push(`  ${formatCheckpointLabels(checkpoint)} → ${checkpoint.entryId} (${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabels(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -473,11 +512,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
         lines.push(
-          `Search '${params.query}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
-          lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${match.labels.join(", ")})` : ""} [${displayRole(match.entry)}] ${body}`);
+          lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${formatTimelineAliases(match.labels)})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {
@@ -493,7 +532,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatEntryLabels(labelMaps, entry.id);
+          const labels = formatTimelineAliases(getEntryLabels(labelMaps, entry.id));
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const body = entryText(entry, verbose).replace(/\s+/g, " ").slice(0, 100);
@@ -529,8 +568,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
-        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ?? "None"}'`,
-        `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint)}`,
+        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
+        `• ACM Judgment:     ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null)}`,
       ];
       if (resultBudgetApplied) {
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
@@ -563,8 +602,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             : GUIDANCE_CUES.timelineTree;
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
+      const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
+      const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId);
       return {
-        content: [{ type: "text" as const, text: `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}` }],
+        content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
           contextUsage: officialUsageRaw ? { percent: officialUsageRaw.percent, tokens: officialUsageRaw.tokens, contextWindow: officialUsageRaw.contextWindow } : null,
           contextPressure: officialPressure ?? null,
@@ -579,6 +620,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           effectiveLimit,
           resultEntryBudget,
           resultBudgetApplied,
+          resultCharacterBudget,
+          resultCharacters: fittedOutput.text.length,
+          outputTruncatedByCharacterBudget: fittedOutput.truncated,
           verbose: params.view === "active" ? params.verbose ?? false : false,
           treeTruncated,
           activeVisibleEntries: params.view === "active" ? activeVisibleEntries : null,
