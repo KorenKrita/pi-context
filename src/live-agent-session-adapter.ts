@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { buildSessionMessages, type ReadonlySessionManager } from "./host-bridge.js";
-import { fixOrphanedToolUse } from "./message-sanitizer.js";
+import { analyzeToolProtocol } from "./tool-protocol.js";
 
 const INSTALLATION_SYMBOL = Symbol.for("pi-context.live-agent-session-adapter.v1");
 
@@ -294,7 +294,7 @@ export function createLiveAgentSessionAdapter(
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
-      const messages = fixOrphanedToolUse(messagesResult.value);
+      const messages = analyzeToolProtocol(messagesResult.value).messages;
       try {
         inspected.session.agent.state.messages = messages;
         if (!retainsMessageSequence(inspected.session.agent.state.messages, messages)) {

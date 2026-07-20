@@ -13,7 +13,7 @@ import {
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
-import { fixOrphanedToolUse } from "./message-sanitizer.js";
+import { analyzeToolProtocol } from "./tool-protocol.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 
@@ -60,7 +60,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (pressure) runtime.observeContextUsage(sessionManager, pressure);
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
-      const fixed = fixOrphanedToolUse(original);
+      const fixed = analyzeToolProtocol(original).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
       return changed ? { messages: fixed as typeof event.messages } : undefined;
     }
@@ -91,7 +91,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
 
-      const fixed = fixOrphanedToolUse(messages);
+      const fixed = analyzeToolProtocol(messages).messages;
       contextRefresh.markRebuilt(sessionManager);
       return { messages: fixed as typeof event.messages };
     } catch (error) {
