@@ -25,6 +25,7 @@ import {
   isCheckpointableMessage,
 } from "./entry-resolution.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
@@ -184,7 +185,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           return {
             content: [{
               type: "text" as const,
-              text: `Checkpoint '${params.name}' already belongs to ${conflict.entryId} (${conflict.onActivePath ? "on-path" : "off-path"}). ${RECOVERY_GUIDANCE.nameCollision}`,
+              text: `Checkpoint '${params.name}' already belongs to ${conflict.entryId} (${conflict.onActivePath ? "on-path" : "off-path"}). ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}`,
             }],
             details: {
               error: "duplicate_name",

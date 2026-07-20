@@ -50,6 +50,7 @@ export function deriveGuidance(coreSource, contractsSource) {
       travel: extract("CUE_TRAVEL"),
       rebaseCheck: extract("CUE_REBASE_CHECK"),
       advancedTargetPointer: extract("CUE_ADVANCED_TARGET_POINTER"),
+      advancedExceptionalPointer: extract("CUE_ADVANCED_EXCEPTIONAL_POINTER"),
       timelineActive: extract("CUE_TIMELINE_ACTIVE"),
       timelineCheckpoints: extract("CUE_TIMELINE_CHECKPOINTS"),
       timelineSearch: extract("CUE_TIMELINE_SEARCH"),

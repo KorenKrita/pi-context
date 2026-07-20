@@ -64,6 +64,10 @@ This spine already carries handoff layers; the next fold would stack another. Re
 If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, load the `context-management` Skill and then `references/target-selection.md`.
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
 
+<!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:START -->
+Load the `context-management` Skill and then `references/exceptional-recovery.md` before deciding whether or how to retry.
+<!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:END -->
+
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
 `active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
@@ -103,7 +107,7 @@ Preserve exact file paths, function names, error messages, and numbers; they out
 ## Recovery guidance
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->
-Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target. If the collision obscures branch ownership, load the `context-management` Skill and then `references/target-selection.md` only when offered in your available Skills list; otherwise do not search for it.
+Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target.
 <!-- ACM:RECOVERY_NAME_COLLISION:END -->
 
 <!-- ACM:RECOVERY_HOST_CAPABILITY:START -->
@@ -111,7 +115,7 @@ The supported Host Bridge capability is unavailable or malformed. Stop mutation 
 <!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
-The backup label remains in the tree. Record its label and entry ID as a recovery pointer before any retry, then load the `context-management` Skill and `references/exceptional-recovery.md` for the retry decision only when offered in your available Skills list; otherwise do not search for it.
+The backup label remains in the tree. Record its label and entry ID as a recovery pointer before any retry.
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:END -->
 
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:START -->
@@ -119,7 +123,7 @@ Branch creation failed before mutation; the new backup label was rolled back. Co
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:START -->
-Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer, inspect the active leaf, then load the `context-management` Skill and `references/exceptional-recovery.md` before retrying only when offered in your available Skills list; otherwise do not search for it.
+Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer and inspect the active leaf before retrying.
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
 
 <!-- ACM:RECOVERY_REFRESH_PENDING:START -->
@@ -131,5 +135,5 @@ Off-path travel restored raw history. Take the exact detail this rehydration cam
 <!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
 
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->
-Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and load the `context-management` Skill with `references/exceptional-recovery.md` only when offered in your available Skills list; otherwise do not search for it. Resume only after the selected branch is authoritative.
+Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and resume only after the selected branch is authoritative.
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:END -->

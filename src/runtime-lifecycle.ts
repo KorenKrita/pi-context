@@ -13,10 +13,11 @@ import {
   restoreContextUsageNudgeState,
 } from "./context-usage-nudge.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
-import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 interface TravelToolResultLike {
   toolName: string;
@@ -131,7 +132,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       ctx.ui.notify(
         willRetry
           ? `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Will retry on the next LLM turn.`
-          : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${RECOVERY_GUIDANCE.refreshExhausted}`,
+          : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`,
         "warning",
       );
       return { messages: event.messages };

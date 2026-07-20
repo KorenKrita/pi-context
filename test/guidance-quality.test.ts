@@ -88,8 +88,9 @@ describe("ACM guidance quality", () => {
     expect(skill).toContain("replace the active reference");
     expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`context-management` Skill");
     expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`references/target-selection.md`");
-    expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`context-management` Skill");
-    expect(RECOVERY_GUIDANCE.rollbackFailed).toContain("`references/exceptional-recovery.md`");
+    expect(RECOVERY_GUIDANCE.rollbackFailed).not.toContain("context-management");
+    expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`context-management` Skill");
+    expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`references/exceptional-recovery.md`");
   });
 
   test("keeps target and recovery criteria factual and checkable", async () => {

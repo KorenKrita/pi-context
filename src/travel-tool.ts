@@ -40,6 +40,7 @@ import {
 } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 interface TravelSummaryDetails {
   kind: "acm_travel";
@@ -384,7 +385,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
+              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}` }],
               details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
             };
           }
@@ -429,12 +430,20 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
           recoveryAction = mutation.remainingBackupLabelState === "present"
-            ? (mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped)
+            ? withAvailableAdvancedGuidance(
+              pi,
+              mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped,
+              GUIDANCE_CUES.advancedExceptionalPointer,
+            )
             : mutation.remainingBackupLabelState === "unknown"
               ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
               : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
         } else if (mutation.branchState === "indeterminate") {
-          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
+          recoveryAction = withAvailableAdvancedGuidance(
+            pi,
+            "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.",
+            GUIDANCE_CUES.advancedExceptionalPointer,
+          );
         } else {
           recoveryAction = mutation.backupRolledBack
             ? RECOVERY_GUIDANCE.branchRolledBack

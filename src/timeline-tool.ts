@@ -25,6 +25,7 @@ import { calculateContextUsagePressure, formatContextUsagePressure } from "./con
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { hasContextManagementSkill, withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -251,14 +252,6 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
     stack.push(...node.children);
   }
   return count;
-}
-
-function hasContextManagementSkill(pi: ExtensionAPI): boolean {
-  try {
-    return pi.getCommands().some((command) => command.name === "skill:context-management");
-  } catch {
-    return false;
-  }
 }
 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
@@ -590,7 +583,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
         const exhausted = attempts >= ContextRefreshRegistry.MAX_ATTEMPTS && !refreshPending;
-        hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${exhausted ? ` ${RECOVERY_GUIDANCE.refreshExhausted}` : ""}`);
+        const refreshGuidance = exhausted
+          ? withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)
+          : "";
+        hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       } else if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
         hudParts.push(`• Context Sync:     persistent rebuild active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}${attempt > 0 ? ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})` : ""}`);

@@ -147,6 +147,7 @@ describe("canonical guidance generation", () => {
 
   test("keeps result cues concise and view-specific", () => {
     expect(Object.keys(GUIDANCE_CUES).sort()).toEqual([
+      "advancedExceptionalPointer",
       "advancedTargetPointer",
       "checkpoint",
       "rebaseCheck",
