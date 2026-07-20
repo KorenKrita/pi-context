@@ -71,10 +71,12 @@ const judgeThinking = option("--judge-thinking") ?? "high";
 const doJudge = !flag("--no-judge");
 const extensionPath = option("--extension") ?? EXTENSION_PATH;
 const skillPath = option("--skill") ?? CONTEXT_MANAGEMENT_SKILL_PATH;
-const extensionPaths = environmentMode === "core-only"
-  ? [extensionPath]
-  : [extensionPath, CONTEXT_EXTENSION_PATH];
-const skillPaths = environmentMode === "core-only" ? [] : [skillPath];
+const extensionPaths = environmentMode === "raw-control"
+  ? []
+  : environmentMode === "core-only"
+    ? [extensionPath]
+    : [extensionPath, CONTEXT_EXTENSION_PATH];
+const skillPaths = environmentMode === "core-only" || environmentMode === "raw-control" ? [] : [skillPath];
 const expectedSkillPath = (() => {
   try {
     return realpathSync(skillPath);

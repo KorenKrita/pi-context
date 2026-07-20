@@ -8,7 +8,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
-export const ENVIRONMENT_MODES = Object.freeze(["core-only", "product-isolated", "full-env"]);
+export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "full-env"]);
 export const CONTEXT_MANAGEMENT_COMMAND = "skill:context-management";
 
 /** Resolve compatibility aliases and reject an unknown resource policy. */
@@ -95,7 +95,7 @@ export function classifySkillAvailability(input) {
     .filter((command) => command && typeof command === "object" && command.name === CONTEXT_MANAGEMENT_COMMAND)
     .map(commandProvenance);
 
-  if (environmentMode === "core-only") {
+  if (environmentMode === "core-only" || environmentMode === "raw-control") {
     return matches.length === 0
       ? { valid: true, status: "absent_as_expected", matches }
       : {
@@ -197,7 +197,7 @@ export class PiRpcDriver {
    *   extensionPaths?: string[],
    *   skillPath?: string,
    *   skillPaths?: string[],
-   *   environmentMode?: "core-only" | "product-isolated" | "full-env",
+   *   environmentMode?: "raw-control" | "core-only" | "product-isolated" | "full-env",
    *   fullEnv?: boolean,
    *   provider: string,
    *   modelId: string,

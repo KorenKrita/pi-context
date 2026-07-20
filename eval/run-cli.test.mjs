@@ -21,6 +21,13 @@ describe("short scenario runner environment CLI", () => {
     expect(result.output).not.toContain("unknown environment mode");
   });
 
+  test("accepts the raw-control environment", () => {
+    const result = invoke("--env", "raw-control");
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("No scenarios matched.");
+    expect(result.output).not.toContain("unknown environment mode");
+  });
+
   test("keeps --full-env as the full-env compatibility alias", () => {
     const result = invoke("--full-env");
     expect(result.exitCode).toBe(1);
