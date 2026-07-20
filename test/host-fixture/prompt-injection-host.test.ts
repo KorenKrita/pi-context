@@ -113,3 +113,89 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("post-travel NEXT steer never queues behind a pending user message", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "pi-context-steer-host-"));
+  try {
+    const loaded = await discoverAndLoadExtensions(
+      ["./.acm-build/index.js"],
+      import.meta.dir,
+      join(tempDir, "empty-agent-dir"),
+    );
+    expect(loaded.errors).toEqual([]);
+
+    const sessionManager = SessionManager.inMemory(join(tempDir, "session.jsonl"));
+    const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+    const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
+    const sent: Array<{ message: unknown; options: unknown }> = [];
+    let pending = true;
+    let signal: AbortSignal | undefined;
+    runner.bindCore({
+      sendMessage: async (message, options) => { sent.push({ message, options }); },
+      sendUserMessage: async () => {},
+      appendEntry: () => {},
+      setSessionName: () => {},
+      getSessionName: () => undefined,
+      setLabel: () => {},
+      getActiveTools: () => [],
+      getAllTools: () => [],
+      setActiveTools: () => {},
+      refreshTools: () => {},
+      getCommands: () => [],
+      setModel: async () => {},
+      getThinkingLevel: () => "off",
+      setThinkingLevel: () => {},
+    }, {
+      getModel: () => undefined,
+      isIdle: () => false,
+      isProjectTrusted: () => true,
+      getSignal: () => signal,
+      abort: () => {},
+      hasPendingMessages: () => pending,
+      shutdown: () => {},
+      getContextUsage: () => ({ tokens: 25, contextWindow: 100, percent: 25 }),
+      compact: () => {},
+      getSystemPrompt: () => "base prompt",
+      getSystemPromptOptions: () => ({ cwd: tempDir }),
+    });
+    const event = {
+      type: "tool_result" as const,
+      toolName: "acm_travel",
+      toolCallId: "travel-1",
+      input: {
+        target: "root",
+        handoff: {
+          goal: "continue",
+          state: "known",
+          evidence: "none",
+          external: "none",
+          exclusions: "none",
+          recover: "none",
+          next: "write the old next action",
+        },
+      },
+      content: [],
+      isError: false,
+      details: { handoffFormat: "structured-v1", resultingLeafId: "summary-1" },
+    };
+
+    await runner.emitToolResult(event);
+    expect(sent).toEqual([]);
+
+    pending = false;
+    await runner.emitToolResult({ ...event, toolCallId: "travel-2" });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      message: { customType: "acm:post-travel-continuation" },
+      options: { deliverAs: "steer" },
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    signal = controller.signal;
+    await runner.emitToolResult({ ...event, toolCallId: "travel-3" });
+    expect(sent).toHaveLength(1);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

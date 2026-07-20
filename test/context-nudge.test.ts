@@ -11,6 +11,8 @@ function createFixture(sessionManager: object = {}) {
   const sentMessages: Array<{ message: any; options: any }> = [];
   const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let contextUsage = { tokens: 1_000, contextWindow: 100_000, percent: 1 };
+  let pendingMessages = false;
+  let signal: AbortSignal | undefined;
 
   const pi = {
     on(event: string, handler: Handler) {
@@ -37,6 +39,10 @@ function createFixture(sessionManager: object = {}) {
   const context = {
     sessionManager,
     getContextUsage: () => ({ ...contextUsage }),
+    hasPendingMessages: () => pendingMessages,
+    get signal() {
+      return signal;
+    },
     ui: { notify() {} },
   } as unknown as ExtensionContext;
 
@@ -54,6 +60,12 @@ function createFixture(sessionManager: object = {}) {
     sentMessages,
     appendedEntries,
     tools,
+    setPendingMessages(value: boolean) {
+      pendingMessages = value;
+    },
+    setSignal(value: AbortSignal | undefined) {
+      signal = value;
+    },
     setUsagePercent(value: number) {
       contextUsage = {
         ...contextUsage,
@@ -143,6 +155,39 @@ describe("ACM context usage reminders", () => {
       details: { error: "mixed_tool_batch" },
     });
 
+    expect(fixture.sentMessages).toHaveLength(0);
+  });
+
+  test("does not append an old NEXT behind a pending user message or aborted run", async () => {
+    const fixture = createFixture();
+    const event = {
+      toolName: "acm_travel",
+      input: {
+        target: "root",
+        handoff: {
+          goal: "continue",
+          state: "known",
+          evidence: "none",
+          external: "none",
+          exclusions: "none",
+          recover: "none",
+          next: "write the old next action",
+        },
+      },
+      content: [],
+      isError: false,
+      details: { handoffFormat: "structured-v1", resultingLeafId: "summary-1" },
+    };
+
+    fixture.setPendingMessages(true);
+    await fixture.emit("tool_result", { ...event, toolCallId: "pending-user" });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setPendingMessages(false);
+    const controller = new AbortController();
+    controller.abort();
+    fixture.setSignal(controller.signal);
+    await fixture.emit("tool_result", { ...event, toolCallId: "aborted" });
     expect(fixture.sentMessages).toHaveLength(0);
   });
 

@@ -57,6 +57,17 @@ export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
   };
 }
 
+function mayQueuePostTravelContinuation(ctx: ExtensionContext): boolean {
+  if (ctx.signal?.aborted) return false;
+  try {
+    return typeof ctx.hasPendingMessages !== "function" || !ctx.hasPendingMessages();
+  } catch {
+    // If queue ordering cannot be observed, preserve the later-user-wins
+    // invariant by relying on the in-place Context Packet continuation only.
+    return false;
+  }
+}
+
 /**
  * The summarizer model cannot see session node IDs, so the abandoned branch tip
  * is handed to it as a concrete fact: a Recover pointer that acm_travel can
@@ -81,7 +92,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
     const continuation = buildPostTravelContinuationSteer(event);
-    if (continuation) pi.sendMessage(continuation, { deliverAs: "steer" });
+    if (continuation && mayQueuePostTravelContinuation(ctx)) {
+      pi.sendMessage(continuation, { deliverAs: "steer" });
+    }
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
     if (!nudge) return;
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
