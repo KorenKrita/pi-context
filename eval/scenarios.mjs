@@ -1,6 +1,11 @@
 // Live ACM behavior scenarios. Each scenario drives a real Pi RPC session
 // against the local extension and scores observable tool calls + handoff shape.
 
+import { join } from "node:path";
+import { CONTEXT_MANAGEMENT_SKILL_PATH } from "./setup.mjs";
+
+export { CONTEXT_MANAGEMENT_SKILL_PATH };
+
 /** @typedef {{
  *   id: string,
  *   family: string,
@@ -15,6 +20,8 @@
  *   events: object[],
  *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>,
  *   assistantTexts: string[],
+ *   turnRecords?: Array<{ events: object[], toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>, assistantTexts: string[] }>,
+ *   environmentMode?: "core-only" | "product-isolated" | "full-env",
  * }} ScenarioContext */
 
 /** @typedef {{
@@ -23,6 +30,12 @@
  * }} ScoreResult */
 
 const HANDOFF_FIELDS = ["goal", "state", "evidence", "external", "exclusions", "recover", "next"];
+export const TARGET_SELECTION_REFERENCE_PATH = join(
+  CONTEXT_MANAGEMENT_SKILL_PATH,
+  "..",
+  "references",
+  "target-selection.md",
+);
 
 export function extractToolCalls(events) {
   /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean }>} */
@@ -103,6 +116,33 @@ export function scoreHandoff(handoff) {
 export function pickTravel(toolCalls) {
   const travels = toolCalls.filter((c) => c.name === "acm_travel");
   return [...travels].reverse().find(toolSucceeded) ?? travels.at(-1);
+}
+
+function toolPath(call) {
+  return String(call?.args?.path ?? call?.args?.file_path ?? call?.args?.file ?? "");
+}
+
+function isReadOf(call, pathFragment) {
+  return (call?.name === "read" || call?.name === "read_file") && toolPath(call).includes(pathFragment);
+}
+
+function recordForTurn(ctx, index) {
+  return ctx.turnRecords?.[index] ?? { events: [], toolCalls: [], assistantTexts: [] };
+}
+
+function textForTurn(ctx, index) {
+  return recordForTurn(ctx, index).assistantTexts.join("\n");
+}
+
+function containsRequiredFacts(value) {
+  const text = String(value ?? "");
+  return text.includes("pool max=50")
+    && text.includes("9f31c2a")
+    && text.includes("services/payments/client.ts");
+}
+
+function containsRequiredNextFacts(value) {
+  return String(value ?? "").includes("next-action.md") && containsRequiredFacts(value);
 }
 
 /** @type {Scenario[]} */
@@ -319,6 +359,113 @@ export const SCENARIOS = [
           check("continued the investigation", continued, continued ? "continued" : "stalled"),
         ],
       };
+    },
+  },
+  {
+    id: "structured-handoff-continuation-and-skill",
+    family: "handoff-and-skill",
+    description: "Three-turn contract: first-pass structured travel, direct continuation, then conditional advanced-Skill target reasoning.",
+    seedFiles: {
+      "findings.md": [
+        "# Payments latency investigation",
+        "",
+        "Settled: DB indexes are healthy; query time is flat against the 2026-07-01 baseline.",
+        "Open: pool exhaustion versus the payments retry loop introduced in commit 9f31c2a.",
+        "Exact operational fact: pool max=50 in config/prod.yaml:23.",
+        "Next action: inspect services/payments/client.ts backoff bounds.",
+        "",
+      ].join("\n"),
+    },
+    turns: [
+      {
+        prompt: [
+          "Read findings.md completely.",
+          "Create exactly one ACM save point named payments-latency-findings after reading it.",
+          "Then stop. Do not travel, write files, or start the next action in this turn.",
+        ].join(" "),
+      },
+      {
+        prompt: [
+          "The investigation trail is now ready to fold.",
+          "Your first acm_travel attempt must target payments-latency-findings, use a seven-field structured handoff,",
+          "and be the only action in its tool batch. Backup the current head as payments-latency-raw.",
+          "The handoff NEXT must preserve this exact continuation: write next-action.md with `pool max=50`,",
+          "`retry commit=9f31c2a`, and `inspect services/payments/client.ts backoff bounds`.",
+          "After a successful travel, make that write your first useful tool action directly.",
+          "Do not reread findings.md, call acm_timeline, or inspect an archive before writing next-action.md.",
+        ].join(" "),
+        timeoutMs: 300000,
+      },
+      {
+        prompt: [
+          "Do not travel in this turn. We have an advanced target-selection ambiguity: a possible future rebase could use",
+          "the oldest stable service baseline or the newer payments-latency-findings save point, but the surviving external",
+          "rollback boundary and the next task's evidence needs are not yet known. Recommend what additional facts decide it.",
+          `If the context-management advanced Skill is available, read ${CONTEXT_MANAGEMENT_SKILL_PATH} and then ${TARGET_SELECTION_REFERENCE_PATH} before answering.`,
+          "If that Skill is not offered in this session, do not search the filesystem for it; hold the conservative no-travel position and state the missing facts.",
+        ].join(" "),
+      },
+    ],
+    score(ctx) {
+      const t1 = recordForTurn(ctx, 0);
+      const t2 = recordForTurn(ctx, 1);
+      const t3 = recordForTurn(ctx, 2);
+      const mode = ctx.environmentMode ?? "core-only";
+
+      const t1Read = t1.toolCalls.some((call) => isReadOf(call, "findings.md"));
+      const checkpoint = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "payments-latency-findings");
+      const t1ReadIndex = t1.toolCalls.findIndex((call) => isReadOf(call, "findings.md"));
+      const checkpointIndex = t1.toolCalls.indexOf(checkpoint);
+      const t1ReadBeforeCheckpoint = t1ReadIndex >= 0 && checkpointIndex > t1ReadIndex;
+      const t1Stopped = !t1.toolCalls.some((call) => call.name === "acm_travel" || call.name === "write" || call.name === "edit");
+
+      const travels = t2.toolCalls.filter((call) => call.name === "acm_travel");
+      const firstTravel = travels[0];
+      const firstTravelSucceeded = toolSucceeded(firstTravel);
+      const handoff = scoreHandoff(firstTravel?.args?.handoff);
+      const exclusiveTravel = firstTravelSucceeded && firstTravel?.details?.error !== "mixed_tool_batch";
+      const backupNamed = firstTravel?.args?.backupCurrentHeadAs === "payments-latency-raw";
+      const handoffCarriesFacts = containsRequiredNextFacts(firstTravel?.args?.handoff?.next);
+
+      const firstTravelIndex = t2.toolCalls.indexOf(firstTravel);
+      const postTravelCalls = firstTravelIndex >= 0 ? t2.toolCalls.slice(firstTravelIndex + 1) : [];
+      const firstPostTravel = postTravelCalls[0];
+      const directWrite = firstPostTravel?.name === "write" && toolPath(firstPostTravel).endsWith("next-action.md");
+      const writeCarriesFacts = directWrite && containsRequiredFacts(firstPostTravel?.args?.content);
+      const rereadAfterTravel = postTravelCalls.some((call) =>
+        isReadOf(call, "findings.md")
+        || call.name === "acm_timeline"
+        || /archive|payments-latency-raw|\.jsonl|session/i.test(toolPath(call)));
+
+      const t3Travel = t3.toolCalls.some((call) => call.name === "acm_travel");
+      const routerRead = t3.toolCalls.some((call) => isReadOf(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = t3.toolCalls.some((call) => isReadOf(call, TARGET_SELECTION_REFERENCE_PATH));
+      const conservativeAnswer = /need|missing|uncertain|insufficient|hold|defer|not travel|no.travel|before deciding/i.test(textForTurn(ctx, 2));
+      const skillMode = mode !== "core-only";
+      const advancedGuidance = skillMode ? routerRead && targetReferenceRead : !routerRead && !targetReferenceRead;
+      const t3Conservative = !t3Travel && conservativeAnswer;
+
+      const checks = [
+        check("T1 read findings", t1Read, t1Read ? "read" : "findings.md was not read"),
+        check("T1 checkpoint created", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing payments-latency-findings"),
+        check("T1 read before checkpoint", t1ReadBeforeCheckpoint, t1ReadBeforeCheckpoint ? "order ok" : "checkpoint preceded findings read"),
+        check("T1 stopped before travel", t1Stopped, t1Stopped ? "no travel or write" : "continued past the requested stop"),
+        check("T2 first travel attempt succeeded", firstTravelSucceeded, firstTravel?.details?.error ?? (firstTravel?.isError ? "error" : "missing")),
+        check("T2 structured handoff", handoff.ok, handoff.detail),
+        check("T2 travel batch exclusive", exclusiveTravel, exclusiveTravel ? "not mixed" : "mixed or failed"),
+        check("T2 backup alias", backupNamed, `backup=${firstTravel?.args?.backupCurrentHeadAs ?? "none"}`),
+        check("T2 handoff NEXT carries exact continuation", handoffCarriesFacts, handoffCarriesFacts ? "facts preserved" : "NEXT missed a required exact fact"),
+        check("T2 direct first continuation write", directWrite, directWrite ? "next-action.md first" : "first post-travel action was not write next-action.md"),
+        check("T2 write carries handoff facts", writeCarriesFacts, writeCarriesFacts ? "facts written" : "next-action.md missed a required exact fact"),
+        check("T2 did not reread archive material", !rereadAfterTravel, rereadAfterTravel ? "reread findings, timeline, or archive after travel" : "direct continuation"),
+        check("T3 no travel under ambiguity", !t3Travel, t3Travel ? "unexpected travel" : "held travel"),
+        check(skillMode ? "T3 read product advanced guidance" : "T3 kept core-only isolation", advancedGuidance,
+          skillMode
+            ? `router=${routerRead} target-reference=${targetReferenceRead}`
+            : `router=${routerRead} target-reference=${targetReferenceRead}`),
+        check("T3 conservative target decision", t3Conservative, t3Conservative ? "held travel pending facts" : "missing conservative no-travel explanation"),
+      ];
+      return { pass: checks.every((item) => item.pass), checks };
     },
   },
 ];

@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { buildJudgePrompt, buildTranscript, RUBRIC_VERSION } from "./judge.mjs";
-import { pickTravel, SCENARIOS, scoreHandoff, toolSucceeded } from "./scenarios.mjs";
+import {
+  CONTEXT_MANAGEMENT_SKILL_PATH,
+  pickTravel,
+  SCENARIOS,
+  scoreHandoff,
+  TARGET_SELECTION_REFERENCE_PATH,
+  toolSucceeded,
+} from "./scenarios.mjs";
 
 const VALID_HANDOFF = {
   goal: "Finish the parser migration",
@@ -11,6 +18,59 @@ const VALID_HANDOFF = {
   recover: "parser-before-migration",
   next: "Update the README example",
 };
+
+const CONTINUATION_HANDOFF = {
+  goal: "Continue the payments latency investigation",
+  state: "Database indexes are healthy and pool max=50 remains the live operational limit",
+  evidence: "findings.md; config/prod.yaml:23; retry commit 9f31c2a",
+  external: "none",
+  exclusions: "Do not reopen the settled database-index investigation",
+  recover: "payments-latency-raw",
+  next: "Write next-action.md with pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
+};
+
+function call(name, args = {}, details = {}) {
+  return { name, args, isError: false, details };
+}
+
+function continuationContext({ environmentMode = "product-isolated", t1, t2, t3 } = {}) {
+  const turns = [
+    {
+      events: [],
+      toolCalls: t1 ?? [
+        call("read", { path: "findings.md" }),
+        call("acm_checkpoint", { name: "payments-latency-findings" }),
+      ],
+      assistantTexts: ["I read the findings and stopped at the requested save point."],
+    },
+    {
+      events: [],
+      toolCalls: t2 ?? [
+        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("write", {
+          path: "next-action.md",
+          content: "pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
+        }),
+      ],
+      assistantTexts: ["The handoff is complete and the next action was written."],
+    },
+    {
+      events: [],
+      toolCalls: t3 ?? (environmentMode === "core-only" ? [] : [
+        call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH }),
+        call("read", { path: TARGET_SELECTION_REFERENCE_PATH }),
+      ]),
+      assistantTexts: ["I need the surviving rollback boundary and next-task evidence before deciding; hold no travel."],
+    },
+  ];
+  return {
+    events: [],
+    toolCalls: turns.flatMap((turn) => turn.toolCalls),
+    assistantTexts: turns.flatMap((turn) => turn.assistantTexts),
+    turnRecords: turns,
+    environmentMode,
+  };
+}
 
 describe("ACM eval result scoring", () => {
   test("requires both transport success and an empty domain-error field", () => {
@@ -92,5 +152,72 @@ describe("ACM eval result scoring", () => {
     }]);
 
     expect(transcript).toContain("acm_travel ✗ERROR");
+  });
+});
+
+describe("structured handoff continuation and advanced Skill scenario", () => {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === "structured-handoff-continuation-and-skill");
+  if (!scenario) throw new Error("structured handoff continuation scenario missing");
+
+  test("requires first-pass travel, direct fact-carrying continuation, and product Skill reads", () => {
+    const result = scenario.score(continuationContext());
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 first travel attempt succeeded")?.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T3 read product advanced guidance")?.pass).toBe(true);
+  });
+
+  test("fails when the first travel attempt is rejected even if a later attempt succeeds", () => {
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }, { error: "invalid_handoff" }),
+        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("write", {
+          path: "next-action.md",
+          content: "pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 first travel attempt succeeded")?.pass).toBe(false);
+  });
+
+  test("fails a post-travel reread or wrong first continuation action", () => {
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", { handoff: CONTINUATION_HANDOFF, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("read", { path: "findings.md" }),
+        call("write", {
+          path: "next-action.md",
+          content: "pool max=50; retry commit=9f31c2a; inspect services/payments/client.ts backoff bounds.",
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 direct first continuation write")?.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 did not reread archive material")?.pass).toBe(false);
+  });
+
+  test("fails product-isolated runs that have the Skill but do not read both required guidance files", () => {
+    const result = scenario.score(continuationContext({
+      t3: [call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH })],
+    }));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T3 read product advanced guidance")?.pass).toBe(false);
+  });
+
+  test("core-only remains isolated and is rewarded for a conservative no-travel answer", () => {
+    const baseline = scenario.score(continuationContext({ environmentMode: "core-only" }));
+    expect(baseline.pass).toBe(true);
+    expect(baseline.checks.find((check) => check.name === "T3 kept core-only isolation")?.pass).toBe(true);
+
+    const leaked = scenario.score(continuationContext({
+      environmentMode: "core-only",
+      t3: [call("read", { path: CONTEXT_MANAGEMENT_SKILL_PATH })],
+    }));
+    expect(leaked.pass).toBe(false);
+    expect(leaked.checks.find((check) => check.name === "T3 kept core-only isolation")?.pass).toBe(false);
   });
 });
