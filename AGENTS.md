@@ -94,7 +94,7 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 
 HUD 包含 official/cached usage、active node count、active summary depth、off-path summary count、nearest checkpoint distance、context refresh 与 live AgentSession sync diagnostics。
 
-checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 后的 projected summary depth。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。
+checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 后的 projected summary depth。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。Schema 不拒绝大的 caller limit，但每次调用使用 context-window-derived entry + character budgets 约束 rebuild/output work，动态 alias/query 在呈现层截断且 node ID 放在前面，details 返回 requested/effective limit、entry/character budget 与 truncation evidence；需要更多结果时用 filter/query 缩小，而不是一次展开整棵大 session。
 
 ## Travel transaction
 
@@ -106,7 +106,9 @@ checkpoint view 额外显示 `root` structural candidate 和每个候选 travel 
 4. 调用 `branchWithSummary(..., true)`
 5. 验证真实 leaf、entry type、parent 与 summary
 6. 明确未应用时补偿 backup；已应用或无法排除 mutation 时保留恢复证据
-7. 只在 branch 明确成功时 schedule persistent context refresh 与 live AgentSession sync；matching `tool_result` 另发送一条 hidden `steer`，只重申 handoff 的 `next` 并把 pre-travel request 标为历史，失败或 indeterminate result 不发送
+7. 只在 branch 明确成功时 schedule persistent context refresh 与 live AgentSession sync；matching `tool_result` 在没有 pending later message 且 run 未 abort 时另发送一条 hidden `steer`，只重申 handoff 的 `next` 并把 pre-travel request 标为历史；有 pending/abort 时跳过 transient steer，依赖原位 Context Packet，让后来用户消息保持最高时序；失败或 indeterminate result 不发送
+
+Travel tool batch 之前若 latest user turn 尚无 visible assistant response，runtime 记录 `currentUserTurnOpen: true` 作为结构事实并持久化到 summary details。Context Packet、success receipt 与可发送的 NEXT steer 必须明确：该 user turn 仍欠 visible delivery，State 不是交付，等待下一请求的 NEXT 不足以完成本轮。Runtime 不推断答案内容；已有 visible response 时该 flag 为 false。
 
 travel 只改变 Pi session tree 和模型 context，不回滚文件、进程、浏览器、远端服务或其他外部副作用。
 
@@ -186,6 +188,8 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 - `skills/context-management/references/`：target selection、archive recovery、exceptional recovery
 - `src/generated-guidance.ts`：由 `bun run generate:guidance` 从 CORE projection 与 TOOL-CONTRACTS 生成的 runtime artifact，不应手工漂移
 
+Exact advanced pointers 必须经过 Pi `getCommands()` availability selector：只有当前 session 实际提供 `skill:context-management` 时，timeline/rebase、name collision、rollback/indeterminate/refresh-exhausted 等 observable condition 才追加对应 reference pointer；不可用时只返回 base recovery facts，不向模型暴露不存在的 Skill/path 并要求它自行搜索。
+
 canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、anchor gravity、receipt。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 
 ## Tool prompt 与 TUI 呈现
@@ -223,6 +227,15 @@ bun run verify:acm
 ```
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
+
+行为 eval 与 deterministic gate 分离：
+
+- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `core-only`、`product-isolated`、`full-env` 三种显式环境；
+- 每个 run 在首个模型 prompt 前通过 `get_commands` 验证 `skill:context-management` availability 与 current-checkout realpath provenance，失败标记 `infrastructure_invalid` 且不归因模型；
+- report 必须记录 model、thinking level、environment、product commit、experimental variable 与 Skill provenance；
+- 每个 flow turn 必须按 raw event 顺序交错保留 visible assistant segments 与 tools；terminal assistant `stopReason` 为 `error`/`aborted` 或不存在时标记 `run_error` 并跳过 outcome judge，不能把 provider transport failure 当 completed task，也不能把 travel 错排到先前已交付答案之前；
+- outcome 优先于调用率：首调、first useful action、reread/stale replay、任务连续性与结果先裁决，Skill read/token/summary depth 只作 diagnostics；
+- 随机模型运行不进入每次 CI；晋级用的 controlled evidence 以 compact artifact 存入 `eval/evidence/`，并注明样本与外推边界。
 
 host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、in-flight tool pair、provider context、native compaction accounting、failure fallback、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

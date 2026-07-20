@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T18:18:30Z",
+  "productCommit": "a170e89464f0cb92965b5d0e1740d87ee3816467",
+  "scenario": "structured-handoff-continuation-and-skill",
+  "thinkingLevel": "high",
+  "purpose": [
+    "Verify first-attempt structured handoff acceptance across a strong and a weaker local model.",
+    "Verify that the first useful post-travel action executes NEXT without rereading folded material or replaying the pre-travel request.",
+    "Separate advanced Skill availability from model invocation, and verify the router plus target-selection reference are read only in product-isolated mode."
+  ],
+  "matrixResult": {
+    "passed": 4,
+    "total": 4,
+    "scope": "One controlled smoke run per model and environment cell; this is mechanism evidence, not a statistical production-rate claim."
+  },
+  "scorerContract": {
+    "toolSuccessRequiresMatchingCompletion": true,
+    "firstTravelAttemptMustSucceed": true,
+    "firstUsefulPostTravelActionMustBeRequiredNext": true,
+    "inspectionBeforeRequiredNextIsFailure": true,
+    "factPreservationIsSemanticAcrossPlainTextAndMarkdown": true
+  },
+  "runs": [
+    {
+      "runId": "2026-07-20T18-15-56-330Z-eval-gpt-5.6-sol-p32840",
+      "model": "local-responses/gpt-5.6-sol",
+      "environmentMode": "core-only",
+      "durationMs": 42853,
+      "pass": true,
+      "skillAvailability": "absent_as_expected",
+      "toolSequence": ["read", "acm_checkpoint", "acm_travel", "write"],
+      "observations": {
+        "firstTravelAttemptSucceeded": true,
+        "structuredHandoffExactSevenFields": true,
+        "travelTarget": "root",
+        "directNextAction": true,
+        "inspectionBeforeRequiredNext": false,
+        "advancedSkillRead": false,
+        "conservativeNoTravelUnderAmbiguity": true
+      }
+    },
+    {
+      "runId": "2026-07-20T18-17-12-929Z-eval-gpt-5.6-sol-p33561",
+      "model": "local-responses/gpt-5.6-sol",
+      "environmentMode": "product-isolated",
+      "durationMs": 46090,
+      "pass": true,
+      "skillAvailability": "available_from_expected_checkout",
+      "skillPath": "skills/context-management/SKILL.md",
+      "toolSequence": ["read", "acm_checkpoint", "acm_travel", "write", "read", "read"],
+      "observations": {
+        "firstTravelAttemptSucceeded": true,
+        "structuredHandoffExactSevenFields": true,
+        "travelTarget": "root",
+        "directNextAction": true,
+        "inspectionBeforeRequiredNext": false,
+        "advancedSkillRead": true,
+        "targetSelectionReferenceRead": true,
+        "conservativeNoTravelUnderAmbiguity": true
+      }
+    },
+    {
+      "runId": "2026-07-20T18-12-45-323Z-eval-deepseek-v4-flash-p31059",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "core-only",
+      "durationMs": 30575,
+      "pass": true,
+      "skillAvailability": "absent_as_expected",
+      "toolSequence": ["read", "acm_checkpoint", "acm_travel", "write"],
+      "observations": {
+        "firstTravelAttemptSucceeded": true,
+        "structuredHandoffExactSevenFields": true,
+        "travelTarget": "root",
+        "directNextAction": true,
+        "inspectionBeforeRequiredNext": false,
+        "advancedSkillRead": false,
+        "conservativeNoTravelUnderAmbiguity": true
+      }
+    },
+    {
+      "runId": "2026-07-20T18-13-56-301Z-eval-deepseek-v4-flash-p31771",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "product-isolated",
+      "durationMs": 82722,
+      "pass": true,
+      "skillAvailability": "available_from_expected_checkout",
+      "skillPath": "skills/context-management/SKILL.md",
+      "toolSequence": ["read", "acm_checkpoint", "acm_travel", "write", "read", "read", "bash", "bash", "read", "read", "acm_timeline", "acm_timeline"],
+      "observations": {
+        "firstTravelAttemptSucceeded": true,
+        "structuredHandoffExactSevenFields": true,
+        "travelTarget": "root",
+        "directNextAction": true,
+        "inspectionBeforeRequiredNext": false,
+        "advancedSkillRead": true,
+        "targetSelectionReferenceRead": true,
+        "conservativeNoTravelUnderAmbiguity": true
+      }
+    }
+  ],
+  "weakModelReplication": {
+    "productCommit": "7882e7c35b04d3765dc54e4cdf5f8bf3e21a73c1",
+    "model": "local-openai/deepseek-v4-flash",
+    "environmentMode": "core-only",
+    "runs": 3,
+    "passed": 2,
+    "failed": 1,
+    "passRunIds": [
+      "2026-07-20T18-58-10-477Z-eval-deepseek-v4-flash-p70158",
+      "2026-07-20T18-58-57-904Z-eval-deepseek-v4-flash-p70679"
+    ],
+    "failedRunIds": [
+      "2026-07-20T18-59-57-072Z-eval-deepseek-v4-flash-p71298"
+    ],
+    "failureShape": "Travel and handoff succeeded, but the model performed filesystem inspection and reread folded findings before executing the required write.",
+    "interpretation": "Exact NEXT receipts and open-turn authority materially improved the weak-model floor but did not make first-action adherence deterministic. A stricter one-shot action guard would be a separate public behavior choice rather than an evidence-only tweak."
+  },
+  "diagnosticHistory": [
+    {
+      "productCommit": "c92f95dc876aac2935ad639cbc8fed9485f8f761",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "core-only",
+      "observation": "The provider serialized the nested handoff object as a JSON string on the first attempt; after retry, the model reread folded findings and replayed the earlier checkpoint task. This drove the exact JSON compatibility fallback, stronger in-place continuation authority, and the post-travel NEXT steer."
+    },
+    {
+      "productCommit": "131548a2580361f9bc6ed54a97ea60ec759aba65",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "product-isolated",
+      "observation": "One run ended its travel turn with provider transport failures ('Request timed out' and 'Stream ended without finish_reason') before any acm_travel call. It was treated as provider/infrastructure noise and repeated; the repeat passed."
+    }
+  ]
+}

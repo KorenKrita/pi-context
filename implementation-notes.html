@@ -266,7 +266,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Replace the agent-authored free-form handoff string with a required structured handoff object and let runtime own the canonical durable text.</td>
-        <td>Historical evidence showed first-travel failures from header, ordering, duplicate-slot, and multiline grammar rather than missing cognition. The seven semantic fields remain explicit; goal/state/next reject empty or none values, supporting fields require explicit none, multiline content is preserved, verified raw archive aliases are composed deterministically, and the legacy summary interface is not exposed in parallel.</td>
+        <td>Historical evidence showed first-travel failures from header, ordering, duplicate-slot, and multiline grammar rather than missing cognition. The seven semantic fields remain explicit; goal/state/next reject empty or none values, supporting fields require explicit none, multiline content is preserved, verified raw archive aliases are composed deterministically, and the legacy summary interface is not exposed in parallel. A weaker provider was observed serializing the whole nested object as a JSON string, so runtime accepts the exact JSON encoding of the same seven-field object as a mechanical fallback without accepting free-form summary text.</td>
       </tr>
       <tr>
         <td>user-decided</td>
@@ -281,7 +281,47 @@
       <tr>
         <td>agent-resolved</td>
         <td>Persist a versioned ACM continuation marker with the canonical handoff and project marked branch summaries in place as authoritative hidden custom messages on every LLM-bound context path.</td>
-        <td>Pi's default branch-summary conversion frames summaries as archival history, while the travel tool result disappears after live rebuild. Context Packet now owns session rebuild and existing-packet normalization, applies protocol repair, and replaces only summaries whose marker, source, timestamp, and persisted <code>{ kind: "acm_travel", handoffVersion: 1 }</code> provenance all match an active session entry. Later user, native summary, compaction, and manual-tree messages remain later in the packet and can supersede prior authority; marker-like text from foreign summaries and legacy summaries remains opaque and archival.</td>
+        <td>Pi's default branch-summary conversion frames summaries as archival history, while the travel tool result disappears after live rebuild. Context Packet now owns session rebuild and existing-packet normalization, applies protocol repair, and replaces only summaries whose marker, source, timestamp, and persisted <code>{ kind: "acm_travel", handoffVersion: 1 }</code> provenance all match an active session entry. A successful matching tool result sends one hidden steer only when no later message is pending and the run is not aborted; otherwise the in-place packet alone preserves later-user ordering. The steer restates <code>NEXT</code>, marks prior requests as historical, and keeps Evidence/Recover pointers non-blocking; failed or indeterminate travel sends none.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Remove arbitrary schema ceilings from checkpoint names/targets, timeline queries/result limits, and travel references while retaining real format and minimum constraints.</td>
+        <td>The user explicitly rejected fixed upper bounds as semantic product requirements. TypeBox no longer rejects inputs at 64/256/500 characters or timeline limits above 50; semantic alias patterns, non-empty values, strict object shapes, and the default timeline limit of 50 remain. Large timeline requests are not executed without bound: context-derived entry and character budgets limit rebuild/output work, dynamic aliases/queries use bounded presentation with full node IDs first, and details report requested/effective limits plus entry/character truncation evidence. This is operational protection rather than a hidden semantic quota.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Separate eval environments into core-only, product-isolated, and full-env, and hard-gate advanced Skill provenance before any model prompt.</td>
+        <td>Every run calls <code>get_commands</code> first. Core-only requires zero <code>skill:context-management</code> commands; product/full require exactly one whose realpath is the current checkout. Invalid infrastructure is recorded and neither the flow nor judge runs. Reports persist model, effort, environment, product commit, paths, command provenance, and Skill availability.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Use outcome-first behavioral evidence rather than activation counts, and calibrate the short mechanism scorer to semantic fact preservation.</td>
+        <td><code>acm-outcome-v3</code> treats unfulfilled work at travel time as neutral until continuation outcome is observed; domain errors, failed reads, and tool starts without matching completion are not successes. The controlled handoff matrix requires first-attempt success, exact seven-field semantics, a clean target, direct first useful action, no inspection before REQUIRED NEXT, and preserved facts across ordinary prose/Markdown formatting.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Make advanced routing pointers exact and conditional instead of relying on internal reference titles.</td>
+        <td>A shared selector checks Pi's public <code>getCommands()</code> and only emits an exact <code>context-management</code> pointer when that Skill is actually available; core-only receives only base recovery actions. Timeline/rebase, name collision, rollback failure/skipped, indeterminate mutation and refresh exhaustion all reuse it. A corrected 2-model × 2-environment matrix requires completed successful reads: both product cells read router plus reference, both core-only cells made no advanced-guidance probe, and none traveled under unresolved ambiguity.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Validate the structured handoff and continuation mechanics with strong/weak local models before claiming the redesign candidate.</td>
+        <td>At commit <code>a170e894</code>, <code>gpt-5.6-sol/high</code> and <code>deepseek-v4-flash/high</code> each passed core-only and product-isolated cells under the corrected completed-call scorer. A later three-run weak-model replication after exact-NEXT/open-turn receipt hardening passed 2/3: every travel and handoff succeeded, but one run still inspected the workspace and reread folded findings before the required write. Evidence is stored under <code>eval/evidence/</code>; provider failures are repeated rather than attributed to product behavior, and a stricter one-shot action guard remains an explicit behavior decision rather than being hidden in the scorer.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Persist the structurally observable fact that the user turn triggering travel is still open, without pretending runtime understands the answer semantics.</td>
+        <td>When the travel tool batch follows the latest user message and no visible assistant response has occurred, runtime records <code>currentUserTurnOpen</code> in verified summary details. Context Packet, the tool receipt, and the queue-safe steer then state that a visible result is still owed, <code>State</code> is not delivery, and a NEXT that merely waits for another request is insufficient. A visible assistant response before travel suppresses the flag.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Keep production-like flow fossils separate from controlled matrices and judge activation by task outcome.</td>
+        <td>Cadence research runs showed all three important shapes: native-window task success with zero ACM; a shrunk-window activation that built a rich handoff but lost the current answer and degraded task outcome; and a complete later 40K run that visibly delivered the answer first, then rebased to root with a named raw backup, reduced context from 59.7% to 37.6% and messages from 16 to 1, completed the final synthesis, and received ordered-transcript outcome-v3 overall 3/3 and task completion 3/3. A prior 40K run whose P6 provider stream failed is explicitly discarded from full-flow scoring. Because context regime and product commit both changed, the artifact is diagnostic progression, not a causal A/B.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Treat provider terminal integrity and raw event order as load-bearing outcome evidence.</td>
+        <td>Long-flow turns now fail when the terminal assistant message is missing, <code>error</code>, or <code>aborted</code>; such runs are marked <code>run_error</code> and skip the outcome judge. Judge transcripts are built from ordered assistant-text and tool segments, preserving whether an answer occurred before or after travel instead of grouping every tool ahead of every reply.</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
@@ -292,9 +332,10 @@
   </table>
   <h2>Open decisions</h2>
   <ul>
-    <li><strong>open:</strong> Validate the model-outcome effect of in-place continuation authority and decide whether dangling-user, complete-tool-batch, or old-summary targets need stronger repair/warning/reject policy.</li>
-    <li><strong>open:</strong> Make advanced guidance discoverable without requiring runtime to infer semantic complexity or reintroducing mandatory preflight.</li>
-    <li><strong>open:</strong> Replace activation-oriented evaluation with task-, continuity-, attention-, and transition-harm evidence, including cases whose original real-world task is not exactly reproducible.</li>
+    <li><strong>open:</strong> Decide whether dangling-user, incomplete-tool-batch, and old-summary targets should be rejected, warned, repaired to an earlier complete boundary, or exposed as an explicit clean-base choice. Controlled clean-boundary continuation now passes; unsafe-target policy remains a public behavior decision.</li>
+    <li><strong>open:</strong> Decide whether a weak-model-only one-shot continuation guard may block the first post-travel tool call when an unambiguous handoff <code>NEXT</code> names a different tool/target. Advisory authority now improves but does not make first-action adherence deterministic (2/3 weak replication); enforcement would trade autonomy for a stronger floor.</li>
+    <li><strong>open:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability and exact-pointer delivery are now mechanically proven.</li>
+    <li><strong>open:</strong> Add raw-control/product paired tasks and production-fossil capture for attention benefit and final task outcome; the short runner now covers transition harm and continuation but not long-horizon causal lift.</li>
     <li><strong>open:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>
   </ul>
   <p>If Pi later exposes an official tool-context interface that atomically navigates the session tree and synchronizes live agent messages, replace and remove the capability-probed AgentSession adapter rather than maintaining both paths.</p>

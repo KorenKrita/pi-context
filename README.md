@@ -72,7 +72,9 @@ root → summary A → summary B → summary C → current work
 
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
-Travel 明确成功后，runtime 会在持久/实时 Context Packet 中把该 handoff 投影为当前权威状态，并通过一条隐藏的 post-travel `steer` 再明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。失败或 indeterminate travel 不会发送该 steer，之后的新用户消息仍正常覆盖较早 handoff。
+Travel 明确成功后，runtime 会在持久/实时 Context Packet 中把该 handoff 投影为当前权威状态；当队列里没有后来用户消息且 run 未 abort 时，再通过一条隐藏的 post-travel `steer` 明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。有 pending later message 时跳过 transient steer，依赖原位 Context Packet，因此用户的新目标不会被旧 `NEXT` 排到后面覆盖。失败或 indeterminate travel 同样不发送该 steer。
+
+如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority、tool receipt 与 steer 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
 
 ## Semantic rebase
 
@@ -194,6 +196,24 @@ bun run test:guidance
 bun run typecheck
 bun run test:host
 ```
+
+真实模型行为评估与 CI 分离。短 runner 支持 `core-only`、`product-isolated`、`full-env`，并在首个 prompt 前验证当前 checkout 的 Skill provenance：
+
+```bash
+bun eval/run.mjs \
+  --env product-isolated \
+  --id structured-handoff-continuation-and-skill \
+  --model local-responses/gpt-5.6-sol \
+  --thinking high
+
+bun eval/run.mjs \
+  --env product-isolated \
+  --id advanced-pointer-routing \
+  --model local-openai/deepseek-v4-flash \
+  --thinking high
+```
+
+Controlled strong/weak matrices and their scope limits are recorded in [`eval/evidence/`](eval/evidence/)；这些是独立 outcome evidence，不会被塞进每次 deterministic CI。
 
 开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
 

@@ -134,7 +134,7 @@ NEXT: ...
 
 ### 不承担
 
-Handoff module 不总结、不改写、不推断缺失语义，不把未提供字段自动写成 `none`，也不修正当前用户义务。
+Handoff module 不总结、不改写、不推断缺失语义，不把未提供字段自动写成 `none`，也不猜测当前用户义务的内容。Travel runtime 只补充一个可观察结构事实：若 containing tool batch 前 latest user turn 尚无 visible assistant response，则持久记录 `currentUserTurnOpen`，让 receipt/continuation 明确 State 不是 delivery；已有 visible response 时不设置。
 
 ## Module 2 — Context Packet
 
@@ -366,6 +366,10 @@ Eval 显式加载当前 checkout：
 
 Availability 不满足时 run 标记 `infrastructure_invalid`，不归因模型。
 
+Provider terminal integrity 同样是 infrastructure gate：每个 turn 的最后 assistant `stopReason` 为 `error`/`aborted`（或没有 terminal assistant message）时整次 flow 标记 `run_error`、跳过 outcome judge；transcript 必须按 raw event 顺序交错保留 visible assistant segments 与 tool start/end，不能把所有工具统一排到回答前面而误判 current obligation。
+
+**实施状态（2026-07-20）**：三模式、显式 Skill 注入、`get_commands` realpath provenance gate 与 invalid-run short circuit 已落地。Controlled matrix 中两个 product-isolated cell 均发现当前 checkout 的唯一 Skill，两个 core-only cell 均为 0。
+
 ### Invocation plane
 
 按最小强度逐级验证：
@@ -396,6 +400,8 @@ Runtime 不识别：
 - checkpoint 是否有未来价值。
 
 Cue 使用条件式语言：报告事实，并在该事实仍妨碍判断时提供 exact reference pointer，不直接决定 move。
+
+**实施状态（2026-07-20）**：统一 availability selector 通过 Pi `getCommands()` 证明 Skill available 后才附加 exact pointer；timeline/rebase、name collision、rollback failure/skipped、indeterminate mutation 与 refresh exhaustion 都复用该 selector，core-only 只收到不含 Skill 名称的基础恢复动作。`advanced-pointer-routing` analogue 在 `gpt-5.6-sol/high` 与 `deepseek-v4-flash/high` 的 product-isolated cell 均完成 router → target-selection reference，两类 core-only cell 均保持隔离；详见 `eval/evidence/advanced-pointer-routing-matrix-2026-07-20.json`。
 
 ## Eval redesign
 
@@ -472,33 +478,33 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 4. **Checkpoint catalog grouping**；
 5. **Structured handoff candidate** — nested object + canonical durable text 已实现；flat/parser 作为 outcome fallback/control；
 6. **Context Packet adapters** — session rebuild 与 existing packet normalization，保留 extension composition；
-7. **Authority continuation candidate** — versioned marker + 原位 Context Packet projection 已实现，model-outcome evidence pending。
+7. **Authority continuation candidate** — versioned marker + provenance-bound 原位 Context Packet projection + queue-safe matching success NEXT steer 已实现；有 pending later message/abort 时跳过 steer。Controlled strong/weak matrix 在 clean boundary 上 4/4 首项 useful action 直接执行 NEXT，且 REQUIRED NEXT 之前没有额外 inspection。
 
 每一项独立测试、独立 commit；不把多项机制合并成一次不可归因的改动。
 
 ### Phase 2 — Product availability and outcome evaluation
 
-1. Advanced Skill normal-success / exceptional ownership 与 Trusted Handoff 对齐；
-2. 三环境模式与 Skill availability gate；
-3. transition record；
+1. Advanced Skill normal-success / exceptional ownership 与 Trusted Handoff 对齐（已完成 deterministic ownership pass）；
+2. 三环境模式与 Skill availability gate（已完成）；
+3. transition record（短机制 runner 已完成；long-flow/production fossil 继续扩展）；
 4. raw-control / product-isolated paired tasks；
-5. outcome-first judge；
+5. outcome-first judge（已升级为不可与旧分数直比的 `acm-outcome-v3`）；
 6. production fossil schema。
 
 ### Phase 3 — Production transition mechanics
 
-1. 选择并接入胜出的 handoff interface；
-2. 选择并接入胜出的 authority representation；
+1. 选择并接入胜出的 handoff interface（nested object + exact JSON-encoded object fallback 已接入；自由文本不恢复）；
+2. 选择并接入胜出的 authority representation（provenance-bound in-place continuation + one-shot NEXT steer 已接入，production rate 继续观察）；
 3. 依据 target policy analogue 决定 repair/warning/reject；
 4. 只有 clean-base 有真实 agent-facing consumer 时，贯穿完整 transaction interface 实施；
 5. 关闭旧 shallow seams：`buildSessionMessages()`、`fixOrphanedToolUse()` 的公开调用与旧测试迁移到 Context Packet interface。
 
 ### Phase 4 — Guidance and disclosure
 
-1. sharpened description + exact pointers；
-2. conditional structural pointer A/B；
-3. Judgment Kernel projection；
-4. nudge A/B；
+1. sharpened description + exact pointers（已接入并通过 controlled routing matrix）；
+2. conditional structural pointer A/B（最低强度 exact pointer 已通过 analogue，production spontaneous rate 继续观察）；
+3. Judgment Kernel projection（已接入）；
+4. nudge A/B（judgment-only 版本已接入；长期 task-effect 继续观察）；
 5. leading-word A/B。
 
 ## Verification
@@ -543,10 +549,9 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 
 ## 仍由实验决定的技术选择
 
-- nested object、flat fields 或 conservative parser 的晋级结果；
-- authority marker only、原位 packet projection 或 durable custom cue 的行为效果；
 - protocol repair、warning、reject 的 target policy；
 - dangling user、complete tool-batch、old summary 是否进一步升级为 hard gate；
 - clean-base 的 agent-facing 名称与默认暴露方式；
+- controlled matrices 之外的 spontaneous Skill invocation 与 post-travel continuation 生产率；
 - exact pointer 是否已足够，是否需要 dynamic bridge 或 conditional compact content；
 - compression-first leading word 是否保留、替换或与 time-machine framing组合。
