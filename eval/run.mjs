@@ -8,9 +8,8 @@
 // Reads ~/.pi/agent models via the harness agent dir. Writes a JSON report under
 // eval/.runs/<stamp>-eval/report.json and prints a compact summary.
 
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildAgentDir,
@@ -21,6 +20,7 @@ import {
   EXTENSION_PATH,
 } from "./setup.mjs";
 import { classifySkillAvailability, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
+import { createScenarioWorkspace } from "./scenario-workspace.mjs";
 import {
   extractAssistantTexts,
   extractToolCalls,
@@ -128,12 +128,11 @@ console.log(`scenarios: ${scenarios.map((s) => s.id).join(", ")}`);
 for (const scenario of scenarios) {
   const scenarioDir = join(runDir, scenario.id);
   mkdirSync(join(scenarioDir, "sessions"), { recursive: true });
-  // Full environment discovery can find the repository's AGENTS.md through a
-  // workspace under this checkout, so keep that workspace in /tmp.
-  const workspace = fullEnv
-    ? mkdtempSync(join(tmpdir(), `acm-scenario-${scenario.id}-`))
-    : join(scenarioDir, "workspace");
-  mkdirSync(workspace, { recursive: true });
+  // Keep every model-visible workspace out of eval/.runs. Otherwise an agent
+  // can traverse into persisted events/session artifacts from a prior turn and
+  // invalidate the environment isolation. The directory is retained for
+  // post-run evidence, rather than automatically cleaned up.
+  const workspace = createScenarioWorkspace({ scenarioId: scenario.id, environmentMode });
   for (const [rel, contents] of Object.entries(scenario.seedFiles ?? {})) {
     const path = join(workspace, rel);
     mkdirSync(join(path, ".."), { recursive: true });
