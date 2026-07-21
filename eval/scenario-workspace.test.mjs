@@ -31,7 +31,7 @@ describe("scenario evaluation workspace", () => {
 
       expect(existsSync(workspace)).toBe(true);
       expect(pathIsInside(runDir, workspace)).toBe(false);
-      expect(workspace.startsWith(`${tmpdir()}/`)).toBe(true);
+      expect(pathIsInside(tmpdir(), workspace)).toBe(true);
     }
   });
 
@@ -48,7 +48,7 @@ describe("scenario evaluation workspace", () => {
 
       expect(existsSync(workspace)).toBe(true);
       expect(pathIsInside(runDir, workspace)).toBe(false);
-      expect(workspace.startsWith(`${tmpdir()}/`)).toBe(true);
+      expect(pathIsInside(tmpdir(), workspace)).toBe(true);
     }
   });
 });
