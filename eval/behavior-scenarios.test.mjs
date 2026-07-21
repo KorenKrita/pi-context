@@ -30,6 +30,24 @@ const HANDOFF = {
   next: "Create onboarding-outline.md with First day, Access setup, and First support task.",
 };
 
+const RECOVERY_ROUTE_CHECK = "handoff Recover identifies a verified recovery route";
+
+function writeOutline(root) {
+  writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
+}
+
+function writeCompletedResearchBrief(root) {
+  writeFileSync(join(root, "research-brief.md"), [
+    "# Research brief",
+    "## Market signals",
+    "Predictable launch windows matter.",
+    "## Interview conclusions",
+    "Access comes before the first support task.",
+    "## Operating constraints",
+    "Access settles within one business day.",
+  ].join("\n"));
+}
+
 function scenario(id) {
   const found = SCENARIOS.find((candidate) => candidate.id === id);
   if (!found) throw new Error(`missing behavior scenario ${id}`);
@@ -50,7 +68,7 @@ describe("unprompted pivot behavior scenario", () => {
     expect(prompt).not.toMatch(/\b(?:rebase|rehydrate|fold)\b/);
   });
 
-  test("passes only when the real new-front file follows checkpoint, transition, and direct continuation", async () => {
+  test("passes only when the real new-front file follows a verified recovery route, transition, and direct continuation", async () => {
     const root = workspace();
     writeFileSync(join(root, "onboarding-outline.md"), [
       "# First day",
@@ -72,7 +90,7 @@ describe("unprompted pivot behavior scenario", () => {
     expect(result.checks.find((item) => item.name === "onboarding outline exists with required content")?.pass).toBe(true);
   });
 
-  test("accepts the travel transaction backup as the pivot save point", async () => {
+  test("accepts the travel transaction backup when primary Recover names that backup", async () => {
     const root = workspace();
     writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
     const calls = [
@@ -83,10 +101,10 @@ describe("unprompted pivot behavior scenario", () => {
     const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
 
     expect(result.pass).toBe(true);
-    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(true);
   });
 
-  test("rejects a pivot that has neither a standalone checkpoint nor a travel backup", async () => {
+  test("rejects a pivot that has neither a matching checkpoint nor a matching travel backup", async () => {
     const root = workspace();
     writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
     const calls = [
@@ -97,7 +115,7 @@ describe("unprompted pivot behavior scenario", () => {
     const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
 
     expect(result.pass).toBe(false);
-    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
   });
 
   test("attributes a missing outline to the actual stale-replay travel", async () => {
@@ -116,7 +134,7 @@ describe("unprompted pivot behavior scenario", () => {
     const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
 
     expect(result.pass).toBe(false);
-    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
     expect(result.checks.find((item) => item.name === "successful transition before the new-front write")?.pass).toBe(false);
     expect(result.checks.find((item) => item.name === "structured handoff")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "handoff NEXT names the new front")?.pass).toBe(false);
@@ -172,6 +190,214 @@ describe("unprompted pivot behavior scenario", () => {
     expect(result.pass).toBe(false);
     expect(result.checks.find((item) => item.name === "first post-transition tool action writes the new front")?.pass).toBe(false);
     expect(result.checks.find((item) => item.name === "did not reread finished research before the new-front action")?.pass).toBe(false);
+  });
+
+  test("accepts a matching checkpoint named as the primary Recover reference", async () => {
+    const root = workspace();
+    writeOutline(root);
+    const calls = [
+      call("acm_checkpoint", { name: "research-brief-accepted" }),
+      call("acm_travel", {
+        target: "research-brief-accepted",
+        handoff: { ...HANDOFF, recover: "checkpoint 'research-brief-accepted' preserves the accepted research state." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(true);
+  });
+
+  test("accepts a complete durable research brief named at the start of Recover", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("write", { path: "research-brief.md", content: "complete brief" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md on disk is the durable accepted research artifact." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(true);
+  });
+
+  test("accepts a complete durable research brief written through a successful shell redirect", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("bash", { command: "cat draft-research-brief.md > research-brief.md" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md durable artifact for the accepted research front." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(true);
+  });
+
+  test("rejects an unrelated checkpoint even when its presence previously looked like a save point", async () => {
+    const root = workspace();
+    writeOutline(root);
+    const calls = [
+      call("acm_checkpoint", { name: "unrelated-release-review" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-pivot checkpoint is the recovery route." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects a nonexistent Recover alias instead of crediting a different successful travel backup", async () => {
+    const root = workspace();
+    writeOutline(root);
+    const calls = [
+      call("acm_travel", {
+        target: "root",
+        backupCurrentHeadAs: "research-raw-archive",
+        handoff: { ...HANDOFF, recover: "missing-research-archive" },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("does not let Evidence or External substitute for a Recover route", async () => {
+    const root = workspace();
+    writeOutline(root);
+    const calls = [
+      call("acm_travel", {
+        target: "root",
+        handoff: {
+          ...HANDOFF,
+          evidence: "research-brief.md is a complete durable artifact",
+          external: "research-brief.md remains on disk",
+          recover: "none",
+        },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects a vague prior-conversation pointer despite a complete brief on disk", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("write", { path: "research-brief.md", content: "complete brief" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "Prior conversation node contains the full raw research process." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects source-only and glob Recover references even when the brief is complete", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("write", { path: "research-brief.md", content: "complete brief" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research/*.md source files remain available." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects a durable brief write that occurs only after travel", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md is the durable artifact." },
+      }),
+      call("write", { path: "research-brief.md", content: "too late" }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects an absent research brief despite a pre-travel write call", async () => {
+    const root = workspace();
+    writeOutline(root);
+    const calls = [
+      call("write", { path: "research-brief.md", content: "brief was claimed" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md on disk is the durable artifact." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects an incomplete research brief despite a pre-travel write call", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeFileSync(join(root, "research-brief.md"), "## Market signals\nOnly one section is present.\n");
+    const calls = [
+      call("write", { path: "research-brief.md", content: "incomplete brief" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md on disk is the durable artifact." },
+      }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
   });
 });
 
