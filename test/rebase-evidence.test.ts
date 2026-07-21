@@ -76,6 +76,7 @@ function captureTimelineTool() {
       getAttemptCount: () => 0,
       hasRebuilt: () => false,
     },
+    getContextDeliveryPhase: () => "active",
     getLiveAgentSyncStatus: () => ({ status: "idle" }),
   };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);

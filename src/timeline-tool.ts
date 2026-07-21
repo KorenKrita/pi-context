@@ -357,13 +357,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         evidence = `${nodes} active nodes · ${shown}/${visible} visible entries shown`;
       }
 
-      const sync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string"
-        ? details.liveAgentSessionSyncState
-        : "unknown");
+      const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string"
+        ? details.contextDeliveryPhase
+        : "active");
       const lines = [
         theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${displayView.toUpperCase()}`),
         theme.fg("muted", `  ${evidence} · summary depth ${depth}`),
-        theme.fg("dim", `  context ${usage} · live sync ${sync}`),
+        theme.fg("dim", `  context ${usage} · delivery ${delivery}`),
       ];
 
       if (expanded && raw) {
@@ -562,6 +562,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
       const refreshFailure = runtime.contextRefresh.getFailure(sessionManager);
       const refreshPending = runtime.contextRefresh.isPending(sessionManager);
+      const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
       const hudParts = [
         "[Context Dashboard]",
         `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official hard window)`,
@@ -587,19 +588,23 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       } else if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-        hudParts.push(`• Context Sync:     persistent rebuild active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}${attempt > 0 ? ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})` : ""}`);
+        const pendingPhase = deliveryPhase === "pending_run_settle"
+          ? "same-run messages preserved; waiting for agent_settled"
+          : deliveryPhase === "next_context_rebuild"
+            ? "agent settled; rebuild starts on the next context event"
+            : `persistent rebuild active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
+        hudParts.push(`• Context Delivery: ${pendingPhase}${attempt > 0 ? ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})` : ""}`);
+      } else {
+        hudParts.push(`• Context Delivery: ${deliveryPhase === "active" ? "active persisted context" : deliveryPhase}`);
       }
       const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
-      let liveSyncDetail = "";
-      if (liveSync.status === "applied") {
-        liveSyncDetail = ` — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`;
-      } else if (liveSync.status === "pending" && liveSync.preferredLeafId) {
-        liveSyncDetail = ` — awaiting tool completion for ${liveSync.preferredLeafId}`;
-      } else if ("message" in liveSync) {
-        liveSyncDetail = ` — ${liveSync.message}`;
-      }
       const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
-      hudParts.push(`• Live Agent Sync:  ${liveSync.status}${liveSyncDetail}${liveSyncRecovery ? ` ${liveSyncRecovery}` : ""}`);
+      if (liveSync.status === "applied") {
+        hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
+      } else if (liveSyncRecovery) {
+        const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
+        hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
+      }
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive
         : params.view === "checkpoints"
@@ -649,9 +654,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           outputLines: lines.length,
           contextRefreshPending: refreshPending,
           contextRefreshFailure: refreshFailure ?? null,
-          liveAgentSessionSyncState: liveSync.status,
-          liveAgentSessionSync: liveSync,
-          liveAgentSessionSyncRecovery: liveSyncRecovery,
+          contextDeliveryPhase: deliveryPhase,
+          nativeContextReplacement: liveSync,
+          nativeContextReplacementRecovery: liveSyncRecovery,
         },
       };
     },

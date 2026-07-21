@@ -185,7 +185,9 @@ function retainsMessageSequence(actual: AgentMessage[], expected: AgentMessage[]
 
 /**
  * Installs the narrow capability-probed adapter. Tree mutations remain owned by Host Bridge;
- * this adapter only replaces the matching live AgentSession message array after tool completion.
+ * this adapter only replaces the matching live AgentSession message array after its caller has
+ * chosen the correct lifecycle boundary. A caller that must follow the latest active leaf leaves
+ * preferredLeafId unset.
  */
 export function createLiveAgentSessionAdapter(
   options: LiveAgentSessionAdapterOptions = {},
@@ -267,7 +269,6 @@ export function createLiveAgentSessionAdapter(
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
-
       const session = state.sessions.get(sessionManager)?.deref();
       if (!session) {
         const outcome: AgentSessionSyncOutcome = {

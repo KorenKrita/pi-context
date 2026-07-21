@@ -138,7 +138,7 @@ describe("ACM tool rendering", () => {
       searchTruncated: true,
       activeSummaryDepth: 1,
       contextUsage: { tokens: 120000, contextWindow: 400000, percent: 30 },
-      liveAgentSessionSyncState: "applied",
+      contextDeliveryPhase: "active",
     };
     const collapsed = timeline.renderResult!(
       { content: [{ type: "text", text: raw }], details },
@@ -173,7 +173,7 @@ describe("ACM tool rendering", () => {
           checkpointsDisplayedAliases: 2,
           checkpointsMatchingAliases: 4,
           activeSummaryDepth: 0,
-          liveAgentSessionSyncState: "skipped",
+          contextDeliveryPhase: "active",
         },
       },
       { expanded: false, isPartial: false },
@@ -221,7 +221,7 @@ describe("ACM tool rendering", () => {
           activeSummaryDepthBefore: 2,
           activeSummaryDepthAfter: 1,
           backupCurrentHeadAs: "parser-fix-done",
-          liveAgentSessionSyncState: "pending",
+          contextDeliveryPhase: "pending_run_settle",
         },
       },
       { expanded: false, isPartial: false },
@@ -233,7 +233,7 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
-    expect(output).toContain("live sync pending");
+    expect(output).toContain("delivery pending_run_settle · persisted refresh pending");
   });
 
   test("renderers surface actionable error states instead of success chrome", () => {
@@ -297,7 +297,7 @@ describe("ACM tool rendering", () => {
             checkpointsDisplayedAliases: 1,
             checkpointsMatchingAliases: 1,
             rootCandidateEntryId: payload,
-            liveAgentSessionSyncState: payload,
+            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },
@@ -312,7 +312,7 @@ describe("ACM tool rendering", () => {
             resultingLeafId: payload,
             structuralMessageDirection: payload,
             backupCurrentHeadAs: payload,
-            liveAgentSessionSyncState: payload,
+            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },

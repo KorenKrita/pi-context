@@ -196,40 +196,43 @@ Travel 在 mutation 前生成独立 target facts：target entry/role/stop reason
 - `eval/evidence/travel-target-policy-foundation-2026-07-20.json`
 - `eval/evidence/cadence-raw-control-pair-2026-07-20.json`
 
-## FM-06 — Archival branch-summary framing lacks explicit continuation authority
+## FM-06 — Same-run live replacement destabilizes continuation authority
 
-**状态**: Confirmed host framing; mechanically mitigated; controlled strong/weak continuation matrix passed; production rate unknown
+**状态**: Archival host framing confirmed; matching-`tool_execution_end` direct replacement rejected by controlled A/B; `agent_settled` boundary adopted; production rate continues to require observation
 
 **现象**:
-Pi 的真实 post-travel packet 采用 archival summary framing，并且 transient travel result 不属于 rebuilt branch。该 framing 是否直接造成模型继续或重放旧请求，是待隔离的行为假设。
+Pi 的真实 post-travel packet 采用 archival summary framing，并且 transient travel result 不属于 rebuilt branch。更关键的是，若 matching `tool_execution_end` 立刻将 native AgentSession 换成 traveled branch 的 rebuilt packet，模型会在尚未完成本 run 的 tool/result 连续性时看到一次看似外部注入的 authority transition；强模型可将其误判为不可信，弱模型也可能丢失刚发生的行动线索。
 
 **底层机制**:
-Pi 把 `branchSummary` 转成 user message，并加固定 archival prefix：`The following is a summary of a branch that this conversation came back from:`。Travel result cue 不属于 rebuilt active branch；live replacement 后不能作为后续持久 continuation authority。
+Pi 把 `branchSummary` 转成 user message，并加固定 archival prefix：`The following is a summary of a branch that this conversation came back from:`。Travel result cue 不属于 rebuilt active branch。若在 matching `tool_execution_end` 直接 replacement，rebuilt packet 虽然能提供 durable authority，却会切断 originating assistant run 及其 automatic retry/tool loop 的 live tool chronology；单独改写 continuation wording 未能消除此时序问题。
 
 **可观察信号**:
 
 - post-travel context 包含一个或多个 archival-prefix user messages；
 - target 是旧 `branch_summary`，形成 summary competition；
 - tool result 中要求执行 NEXT，但下一轮 LLM-bound messages 不包含该 receipt；
-- sync 状态为 applied，行为仍回到旧任务。
+- matching `tool_execution_end` 后 native messages 已被替换，而当前 run 仍继续工具调用、自动重试或决定下一动作；
+- sync 状态为 applied，行为仍回到旧任务、拒绝 handoff 或重复 inspection。
 
 **可控 analogue**:
 
-- archival summary only 与 authoritative continuation message A/B；
+- 同一 commit 的 matching-`tool_execution_end` direct replacement 与 `agent_settled` replacement A/B；
+- wording-only continuation treatment 与不改 wording 的 timing treatment；
 - closed target、old-summary target、clean-base target 对照；
 - 比较 first useful action、stale-task replay、resume latency。
 
 **正确性质**:
-用户已确认的目标性质是：post-travel context 让未来自己把 handoff 作为权威信息并直接继续。当前 marker + in-place projection 满足 deterministic packet contract；controlled matrix 已验证两类模型在 clean boundary 上首项 useful action 直接执行 NEXT。早期弱模型三次重复为 2/3，促成 exact receipt/evidence/open-turn 改进；同一当前 commit 的后续 8-run baseline 已达到 8/8、零 first-action mismatch。Throwaway guard arm 为 7/8、零实际 block，未展示增益，因此不进入 production。
+用户已确认的目标性质是：post-travel context 让未来自己把 handoff 作为权威信息并直接继续，同时不得以实现机制破坏正在进行的工具连续性。Current marker + in-place projection 满足 deterministic packet contract；当 run settled 后，latest verified active leaf 才成为 native live-state replacement 的来源。Controlled A/B 中 Opus 从 0/3 到 3/3、Kimi 从 0/2 到 2/2；Sol 没有有效回归，DeepSeek 仅部分改善。单独调整 continuation wording 的 throwaway prototype 没有展示可归因收益，因此不进入 production。
 
 **当前解决方式**:
-Runtime 在 canonical handoff 中写入 versioned marker，并在 persisted summary details 中记录 `kind: acm_travel` 与 `handoffVersion`。所有 LLM-bound rebuild/normalization 路径只有在 marker、summary source、timestamp 与 persisted ACM travel provenance 同时匹配时，才在 actual message 位置把该 `branchSummary` 投影为 hidden `acm:continuation` custom message；matching success `tool_result` 仅在没有 pending later message 且 run 未 abort 时发送一次 hidden NEXT steer，明确 earlier requests 已历史化、Evidence/Recover pointers 非执行前置。后续 user/native-summary/compaction message 保持原顺序并可 supersede 较早 authority。Legacy、native 与 foreign marker-like summaries 继续使用 Pi archival framing。
+Runtime 在 canonical handoff 中写入 versioned marker，并在 persisted summary details 中记录 `kind: acm_travel` 与 `handoffVersion`。所有 LLM-bound rebuild/normalization 路径只有在 marker、summary source、timestamp 与 persisted ACM travel provenance 同时匹配时，才在 actual message 位置把该 `branchSummary` 投影为 hidden `acm:continuation` custom message；matching success `tool_result` 仅在没有 pending later message 且 run 未 abort 时发送一次 hidden NEXT steer，明确 earlier requests 已历史化、Evidence/Recover pointers 非执行前置。Live adapter 为同一 SessionManager 记录 ticket，但 matching `tool_execution_end` 只确认 pair：originating run 与 automatic retry 保持既有 native messages。只有 `agent_settled` 才从最新 verified active leaf rebuild 并替换 native AgentSession；`agent_end` error/aborted 不得提前 release。adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 继续作为 verification/fallback。后续 user/native-summary/compaction message 保持原顺序并可 supersede 较早 authority。Legacy、native 与 foreign marker-like summaries 继续使用 Pi archival framing。
 
 **证据**:
 
 - `node_modules/@earendil-works/pi-agent-core/dist/harness/messages.js:7-11,78-83`
-- `src/live-agent-session-adapter.ts:287-309`
-- `test/host-fixture/travel-live-sync.test.ts:216-222`
+- `src/live-agent-session-adapter.ts`
+- `src/runtime-lifecycle.ts`
+- `test/host-fixture/`
 - `eval/evidence/structured-handoff-continuation-matrix-2026-07-20.json`
 - `eval/evidence/one-shot-next-guard-prototype-2026-07-20.json`
 

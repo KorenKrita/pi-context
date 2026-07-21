@@ -10,7 +10,7 @@ Before leaving, record the current action and complete this round trip:
 2. Travel to the archive pointer with a temporary handoff whose sole `NEXT` is the exact lookup and whose `Recover` names `<front>-resume`.
 3. Keep the archive branch bounded to that lookup. Extract the required detail and its direct evidence pointer.
 4. Make the return travel to `<front>-resume` the next tool call. Its handoff carries the extract, evidence, and original action.
-5. Read the return result as the mutation receipt. When it reports applied, trust the returned handoff and resume the original action directly. Route `not_applied`, `indeterminate`, or terminal refresh/live-sync failure through Exceptional Recovery.
+5. Read the return result as the mutation receipt. When it reports applied, trust the returned handoff and resume the original action directly; do not wait for later persistent refresh or settled-boundary live sync. Route `not_applied`, `indeterminate`, or terminal refresh/settled-sync failure through Exceptional Recovery.
 
 If either travel changes the observable condition to a failure or indeterminate mutation, return to the Skill router and replace this reference with Exceptional Recovery. Branch identity comes from the result and timeline, never from intent.
 

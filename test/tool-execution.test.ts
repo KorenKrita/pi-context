@@ -507,6 +507,7 @@ describe("ACM tool execution contracts", () => {
       error: "branch_failed",
       backupRollbackSkipped: true,
       remainingBackupLabelState: "unknown",
+      contextDeliveryPhase: "active",
     });
     expect(result.content[0]?.text).toContain("may remain");
     expect(result.content[0]?.text).not.toContain("remains because branch mutation");
@@ -520,7 +521,11 @@ describe("ACM tool execution contracts", () => {
       undefined,
       indeterminateTravelContext(),
     );
-    expect(result.details).toMatchObject({ error: "branch_failed", branchState: "indeterminate" });
+    expect(result.details).toMatchObject({
+      error: "branch_failed",
+      branchState: "indeterminate",
+      contextDeliveryPhase: "active",
+    });
     expect(result.content[0]?.text).toContain("Branch mutation cannot be excluded");
     expect(result.content[0]?.text).not.toContain("backup pointer");
   });

@@ -343,6 +343,11 @@
         <td>Keep the 3.0 fork GitHub-only and mark the unscoped package private.</td>
         <td>The unscoped npm name <code>pi-context</code> is owned by the upstream project, so publishing this fork under that identity would create provenance and upgrade ambiguity. Git and local Pi installation remain supported; any future registry publication requires a user-chosen scoped or renamed package identity.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Supersede matching <code>tool_execution_end</code> live message replacement with a per-<code>SessionManager</code> <code>agent_settled</code> boundary.</td>
+        <td>This supersedes the earlier direct-replacement timing decision while preserving its historical record. A successful travel still schedules persistent rebuild and a capability-probed live-adapter ticket, but the originating assistant run and its automatic retry/tool loop retain native messages until <code>agent_settled</code>. Only then may the adapter rebuild from the latest verified active leaf and replace native <code>AgentSession</code> messages; <code>agent_end</code>, especially an error/aborted terminal, is not a release signal. Persistent Context Packet rebuild remains the verification and fallback path, and unavailable/failed adapter application never rolls back verified travel. Controlled A/B evidence moved Opus from 0/3 to 3/3 and Kimi from 0/2 to 2/2; Sol had no valid regression and DeepSeek improved only partially. A wording-only continuation prototype showed no attributable gain, so it is not adopted.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

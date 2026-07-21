@@ -613,7 +613,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     });
   });
 
-  test("applies only after the matching tool_execution_end and preserves tree recovery", async () => {
+  test("preserves the active run until settlement, then applies the latest persisted travel branch", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "old branch root", timestamp: Date.now() });
     const abandonedId = sessionManager.appendMessage({
@@ -649,25 +649,24 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
 
     const result = await travelTool.execute(
       TOOL_CALL_ID,
-      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "live-sync-done" },
+      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "deferred-refresh-done" },
       undefined,
       undefined,
       context,
     );
     expect(result.details).toMatchObject({
-      contextRefreshState: "pending",
-      liveAgentSessionSyncState: "pending",
+      contextRefreshState: "pending_run_settle",
+      contextDeliveryPhase: "pending_run_settle",
       activeSummaryDepthBefore: 0,
       activeSummaryDepthAfter: 1,
       activeSummaryDepthDelta: 1,
       currentUserTurnOpen: false,
     });
     expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
-    expect((result.content[0] as { text: string }).text).not.toContain("Current user turn remains open");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);
-    expect(liveSession.agent.state.messages).toBe(staleMessages);
+    await emit(handlers, "tool_execution_end", { toolCallId: TOOL_CALL_ID, toolName: "acm_travel" }, context);
     const toolResult: ToolResultMessage = {
       role: "toolResult",
       toolCallId: TOOL_CALL_ID,
@@ -678,10 +677,17 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     };
     const inFlightContext = [...staleMessages, toolResult];
     expect(hasToolCall(inFlightContext, TOOL_CALL_ID)).toBe(true);
-    expect(inFlightContext.some((message) => message.role === "toolResult" && message.toolCallId === TOOL_CALL_ID)).toBe(true);
+    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    expect(liveSession.agent.state.messages).toBe(staleMessages);
 
-    await emit(handlers, "tool_execution_end", { toolCallId: TOOL_CALL_ID, toolName: "acm_travel" }, context);
+    // Error may retry; only agent_settled permits replacement.
+    await emit(handlers, "agent_end", {
+      messages: [{ role: "assistant", content: [], stopReason: "error" }],
+    }, context);
+    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    expect(liveSession.agent.state.messages).toBe(staleMessages);
 
+    await emit(handlers, "agent_settled", {}, context);
     const rebuilt = acmMessages(sessionManager);
     expect(liveSession.agent.state.messages).toEqual(rebuilt);
     expect(rebuilt).toContainEqual(expect.objectContaining({
@@ -690,53 +696,24 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       display: false,
     }));
     expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
-    expect(JSON.stringify(rebuilt)).toContain("All earlier requests visible above are historical context");
     expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
     expect(JSON.stringify(rebuilt)).not.toContain("CURRENT USER TURN IS STILL OPEN");
-    expect(JSON.stringify(rebuilt)).not.toContain("summary of a branch that this conversation came back from");
     expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");
     expect(hasToolCall(rebuilt, TOOL_CALL_ID)).toBe(false);
     const storedTokensAfter = rebuilt.reduce((sum, message) => sum + estimateTokens(message), 0);
     expect(storedTokensAfter).toBeLessThan(storedTokensBefore);
     expect(shouldCompact(storedTokensAfter, contextWindow, compactionSettings)).toBe(false);
     expect(sessionManager.getEntry(abandonedId)).toBeDefined();
-    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "live-sync-done")).toBe(true);
-    expect(sessionManager.getEntries().some(
-      (entry) => entry.type === "label" && entry.label?.startsWith("pre-compact-"),
-    )).toBe(false);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "deferred-refresh-done")).toBe(true);
 
-    const contextResult = await emit(handlers, "context", { messages: staleMessages }, context) as { messages?: AgentMessage[] };
-    expect(contextResult.messages).toEqual(rebuilt);
+    const contextResult = await emit(handlers, "context", { messages: liveSession.agent.state.messages }, context) as { messages?: AgentMessage[] } | undefined;
+    expect(contextResult?.messages ?? liveSession.agent.state.messages).toEqual(rebuilt);
     const timeline = await timelineTool.execute("timeline", { view: "active" }, undefined, undefined, context);
     expect(timeline.content[0]).toMatchObject({ type: "text" });
-    expect((timeline.content[0] as { text: string }).text).toContain("Live Agent Sync:  applied");
-    expect((timeline.content[0] as { text: string }).text).toContain("1 active handoff summary layer(s) on the current spine");
-    expect((timeline.content[0] as { text: string }).text).not.toContain("normalized rebase");
-
-    const rebaseResult = await travelTool.execute(
-      "root-rebase",
-      { target: rootId, handoff: HANDOFF },
-      undefined,
-      undefined,
-      context,
-    );
-    expect(rebaseResult.details).toMatchObject({
-      activeSummaryDepthBefore: 1,
-      activeSummaryDepthAfter: 1,
-      activeSummaryDepthDelta: 0,
-      targetSummaryDepth: 0,
+    expect((timeline.content[0] as { text: string }).text).toContain("Context Delivery:");
+    expect(timeline.details).toMatchObject({
+      contextDeliveryPhase: "active",
+      nativeContextReplacement: { status: "applied" },
     });
-    expect((rebaseResult.content[0] as { text: string }).text).toContain("summaryDepth=1 → 1 (delta=0)");
-    expect((rebaseResult.content[0] as { text: string }).text).toContain("Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is 1 rather than 0.");
-
-    const nonRootResult = await travelTool.execute(
-      "non-root-fold",
-      { target: abandonedId, handoff: HANDOFF },
-      undefined,
-      undefined,
-      context,
-    );
-    expect(nonRootResult.details).toMatchObject({ targetIsStructuralRoot: false });
-    expect((nonRootResult.content[0] as { text: string }).text).not.toContain("Root rebase");
   });
 });

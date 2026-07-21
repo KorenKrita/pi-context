@@ -167,3 +167,28 @@ describe("live AgentSession capability adapter", () => {
     expect(second.apply(manager, "second")).toMatchObject({ status: "applied" });
   });
 });
+
+test("settlement rebuilds from the current active leaf after it advances during the deferred run", () => {
+  const sessionManager = SessionManager.inMemory();
+  const initialLeaf = sessionManager.appendMessage({ role: "user", content: "leaf A", timestamp: Date.now() });
+  const agent = { state: { messages: [{ role: "user", content: "stale", timestamp: Date.now() }] as AgentMessage[] } };
+  const HostClass = createHostClass();
+  const session = new (HostClass as any)(sessionManager, agent);
+  const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+  session.getContextUsage();
+
+  // Deferred travel schedules ownership by tool call only. The verified travel
+  // leaf remains a persistent-rebuild fallback, never a native replacement
+  // target: the agent may legitimately advance the active branch before settle.
+  expect(adapter.schedule(sessionManager, "travel")).toMatchObject({ status: "pending" });
+  const currentLeaf = sessionManager.appendMessage({ role: "user", content: "leaf B", timestamp: Date.now() });
+  expect(currentLeaf).not.toBe(initialLeaf);
+
+  expect(adapter.apply(sessionManager, "travel")).toMatchObject({
+    status: "applied",
+    leafId: currentLeaf,
+    messageCount: 2,
+  });
+  expect(agent.state.messages).toEqual(sessionManager.buildSessionContext().messages);
+  expect(JSON.stringify(agent.state.messages)).toContain("leaf B");
+});

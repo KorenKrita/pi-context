@@ -35,10 +35,7 @@ import {
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
 import { buildTravelTargetFacts } from "./travel-target-facts.js";
-import {
-  getLiveAgentSyncRecoveryGuidance,
-  type AgentSessionSyncOutcome,
-} from "./live-agent-session-adapter.js";
+import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
@@ -136,7 +133,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthBefore = typeof details?.activeSummaryDepthBefore === "number" ? details.activeSummaryDepthBefore : null;
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
-      const liveSync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown");
+      const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
       const lines = [
         theme.fg("success", "✓ TRAVEL COMPLETE")
           + theme.fg("accent", `  ${target} → ${leaf}`),
@@ -146,7 +143,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ),
         theme.fg("dim",
           `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · backup ${backup} · refresh pending · live sync ${liveSync}`,
+            + ` · backup ${backup} · delivery ${delivery} · persisted refresh pending`,
         ),
       ];
       if (expanded && raw) {
@@ -499,11 +496,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         const prefix = mutation.error === "backup_label_failed"
           ? `Error: archive bookmark '${params.backupCurrentHeadAs}' could not be set`
           : "Error: branchWithSummary failed";
-        const liveAgentSessionSync: AgentSessionSyncOutcome = {
-          status: "skipped",
-          reason: "branch_not_applied",
-          message: "Live AgentSession synchronization was not scheduled because travel did not definitively succeed",
-        };
         return {
           content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}${refreshNote}` }],
           details: {
@@ -523,8 +515,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             remainingBackupLabelState: mutation.remainingBackupLabelState,
             contextRefreshPending: mutation.refreshRequired,
             contextRefreshState: mutation.refreshRequired ? "pending" : "not_scheduled",
-            liveAgentSessionSyncState: "skipped",
-            liveAgentSessionSync,
+            contextDeliveryPhase: "active",
             recoveryAction,
             targetFacts: targetAnalysis.facts,
             targetWarnings: targetAnalysis.warnings,
@@ -537,8 +528,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const resultingLeafId = mutation.resultingLeafId;
       const activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
       const activeSummaryDepthDelta = activeSummaryDepthAfter - activeSummaryDepthBefore;
-      runtime.scheduleRefresh(sessionManager, summaryEntryId);
-      const liveAgentSessionSync = runtime.scheduleLiveAgentSync(
+      const liveAgentSessionSync = runtime.deferPostTravelRefresh(
         sessionManager,
         toolCallId,
         resultingLeafId,
@@ -560,8 +550,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             activeSummaryDepthAfter,
             activeSummaryDepthDelta,
             contextRefreshPending: true,
-            liveAgentSessionSyncState: liveAgentSessionSync.status,
-            liveAgentSessionSync,
+            contextRefreshState: "pending_run_settle",
+            contextDeliveryPhase: "pending_run_settle",
+            sameRunContext: "preserved",
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
             currentUserTurnOpen,
             targetFacts: targetAnalysis.facts,
@@ -605,7 +596,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextRefresh=pending; liveAgentSessionSync=${liveAgentSessionSync.status}.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -659,9 +650,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           summaryEntryId,
           resultingLeafId,
           contextRefreshPending: true,
-          contextRefreshState: "pending",
-          liveAgentSessionSyncState: liveAgentSessionSync.status,
-          liveAgentSessionSync,
+          contextRefreshState: "pending_run_settle",
+          contextDeliveryPhase: "pending_run_settle",
+          sameRunContext: "preserved",
           fromOffPath: resolved.fromOffPath,
           targetFacts: targetAnalysis.facts,
           targetWarnings: targetAnalysis.warnings,

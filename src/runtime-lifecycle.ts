@@ -89,11 +89,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
-    const outcome = runtime.applyLiveAgentSync(ctx.sessionManager, event.toolCallId);
-    const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
-    if (outcome.status === "failed" && recovery) {
-      ctx.ui.notify(`Live AgentSession synchronization failed: ${outcome.message}. ${recovery}`, "warning");
-    }
+    // Pi emits this before the run is fully settled. Retain the latest ticket
+    // and live message sequence; agent_settled owns the actual replacement.
+    runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
@@ -114,11 +112,29 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
   });
 
+  pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
+    const outcome = runtime.settleDeferredRefresh(ctx.sessionManager);
+    if (!outcome) return;
+    const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
+    if (recovery) {
+      const message = "message" in outcome ? outcome.message : "no adapter diagnostic";
+      ctx.ui.notify(
+        `Native context replacement after settled travel ${outcome.status}: ${message}. ${recovery}`,
+        "warning",
+      );
+    }
+  });
+
   pi.on("context", (event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const pressure = calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
     if (pressure) runtime.observeContextUsage(sessionManager, pressure);
+    // A same-run context event may occur after acm_travel while the model is
+    // deciding its next action. Preserve that run's host message sequence;
+    // agent_settled unlocks the first later context event for the persisted rebuild.
+    if (runtime.shouldKeepCurrentRunContext(sessionManager)) return undefined;
+    runtime.consumeDeferredRefreshForNextContext(sessionManager);
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
       const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
