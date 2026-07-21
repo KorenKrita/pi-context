@@ -98,7 +98,7 @@ function rehydrateHappyContext() {
         target: REHYDRATE_ARCHIVE,
         handoff: handoff({
           recover: REHYDRATE_RETURN,
-          next: "Immediately read archive/provenance.txt and extract the exact forensic correlation nonce in this turn.",
+          next: "Read archive/provenance.txt and extract the exact forensic correlation nonce.",
         }),
       }, { target: REHYDRATE_ARCHIVE, fromOffPath: true }),
       completed("read", { path: "archive/provenance.txt" }),
@@ -110,7 +110,7 @@ function rehydrateHappyContext() {
           state: `Recovered exact forensic correlation nonce ${REHYDRATE_NONCE} from the archived note.`,
           evidence: `archive/provenance.txt supplied ${REHYDRATE_NONCE}.`,
           recover: REHYDRATE_ARCHIVE,
-          next: `Immediately write migration-receipt.md containing exact forensic correlation nonce ${REHYDRATE_NONCE} in this turn.`,
+          next: `Write migration-receipt.md containing exact forensic correlation nonce ${REHYDRATE_NONCE}.`,
         }),
       }, { target: REHYDRATE_RETURN, fromOffPath: true }),
       completed("write", { path: "migration-receipt.md", content: `forensic=${REHYDRATE_NONCE}\n` }),
@@ -133,6 +133,9 @@ describe("topology scenario prompt contracts", () => {
     expect(rehydrate.turns[5]?.prompt).toContain("semantic return role");
     expect(rehydrate.turns[2]?.prompt).toContain("next user instruction");
     expect(rehydrate.turns[4]?.prompt).toContain("same turn");
+    expect(rehydrate.turns[4]?.prompt).toContain("After the read, stop");
+    expect(rehydrate.turns[4]?.prompt).toContain("do not return");
+    expect(rehydrate.turns[4]?.prompt).toContain("do not call acm_travel again");
     expect(rehydrate.turns[5]?.prompt).toContain("same turn");
   });
 
@@ -159,6 +162,28 @@ describe("checkpoint-precise-recovery scoring", () => {
     expect(result.checks.find((item) => item.name === "T3 target is the pre-trace checkpoint")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "T3 handoff leaves NEXT for the next user instruction")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "T4 executes NEXT without archive reread")?.pass).toBe(true);
+  });
+
+  test("accepts matrix-observed equivalent ways to defer NEXT until a future user instruction", () => {
+    const variants = [
+      `Explicitly defer this action until the next user instruction: write recovered-plan.md containing the exact nonce ${PRECISE_NONCE}.`,
+      `Defer until the next user instruction: write recovered-plan.md containing the nonce ${PRECISE_NONCE}.`,
+      `Await the next user instruction — do nothing else first. Only when the user instructs, write recovered-plan.md containing the exact remediation nonce ${PRECISE_NONCE}.`,
+    ];
+
+    for (const next of variants) {
+      const ctx = preciseHappyContext();
+      const travel = ctx.turnRecords[2]?.toolCalls[0];
+      if (!travel) throw new Error("precise travel missing");
+      travel.args.handoff = handoff({
+        recover: PRECISE_ARCHIVE,
+        state: `Raw trace concluded; exact remediation nonce is ${PRECISE_NONCE}.`,
+        next,
+      });
+
+      const result = scenario("checkpoint-precise-recovery").score(ctx);
+      expect(result.pass, next).toBe(true);
+    }
   });
 
   test("fails when the fold turn writes a NEXT reserved for the next user instruction", () => {
@@ -214,6 +239,68 @@ describe("rehydrate-round-trip scoring", () => {
     expect(result.checks.find((item) => item.name === "T6 returns to the saved off-path return point")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "T6 returned handoff carries recovered exact nonce")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "T6 directly writes the returned receipt")?.pass).toBe(true);
+  });
+
+  test("accepts next-explicit-user wording for the deferred return checkpoint", () => {
+    const ctx = rehydrateHappyContext();
+    const fold = ctx.turnRecords[2]?.toolCalls[0];
+    if (!fold) throw new Error("fold travel missing");
+    fold.args.handoff = handoff({
+      recover: REHYDRATE_ARCHIVE,
+      next: `Wait for the next explicit user instruction before creating the return save point ${REHYDRATE_RETURN}.`,
+    });
+
+    const result = scenario("rehydrate-round-trip").score(ctx);
+    expect(result.pass).toBe(true);
+  });
+
+  test("accepts direct imperative archive-read and receipt-write NEXT without temporal adverbs", () => {
+    const result = scenario("rehydrate-round-trip").score(rehydrateHappyContext());
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "T5 archive handoff NEXT is exact source read")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "T6 returned handoff carries recovered exact nonce")?.pass).toBe(true);
+  });
+
+  test("still requires explicit read and write action facts in the handoff NEXT fields", () => {
+    const missingRead = rehydrateHappyContext();
+    const archiveTravel = missingRead.turnRecords[4]?.toolCalls[0];
+    if (!archiveTravel) throw new Error("archive travel missing");
+    archiveTravel.args.handoff = handoff({
+      recover: REHYDRATE_RETURN,
+      next: "The exact forensic correlation nonce remains in archive/provenance.txt.",
+    });
+
+    const missingWrite = rehydrateHappyContext();
+    const returnTravel = missingWrite.turnRecords[5]?.toolCalls[0];
+    if (!returnTravel) throw new Error("return travel missing");
+    returnTravel.args.handoff = handoff({
+      state: `Recovered exact forensic correlation nonce ${REHYDRATE_NONCE} from the archived note.`,
+      recover: REHYDRATE_ARCHIVE,
+      next: `migration-receipt.md must contain exact forensic correlation nonce ${REHYDRATE_NONCE}.`,
+    });
+
+    const readResult = scenario("rehydrate-round-trip").score(missingRead);
+    const writeResult = scenario("rehydrate-round-trip").score(missingWrite);
+    expect(readResult.pass).toBe(false);
+    expect(readResult.checks.find((item) => item.name === "T5 archive handoff NEXT is exact source read")?.pass).toBe(false);
+    expect(writeResult.pass).toBe(false);
+    expect(writeResult.checks.find((item) => item.name === "T6 returned handoff carries recovered exact nonce")?.pass).toBe(false);
+  });
+
+  test("fails when the archive turn returns early after the required direct read", () => {
+    const ctx = rehydrateHappyContext();
+    const t5 = ctx.turnRecords[4];
+    if (!t5) throw new Error("archive turn missing");
+    t5.toolCalls.push(completed("acm_travel", {
+      target: REHYDRATE_RETURN,
+      handoff: handoff({ next: "Return to the folded branch." }),
+    }, { target: REHYDRATE_RETURN, fromOffPath: true }));
+    ctx.toolCalls = ctx.turnRecords.flatMap((turn) => turn.toolCalls);
+
+    const result = scenario("rehydrate-round-trip").score(ctx);
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "no rejected, mixed, or extra travel branch")?.pass).toBe(false);
   });
 
   test("fails when the archive read is deferred beyond the archive travel turn", () => {

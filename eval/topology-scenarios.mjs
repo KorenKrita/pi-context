@@ -71,13 +71,16 @@ function handoffCarriesNonce(handoff, nonce) {
 }
 
 function nextWaitsForNextUserInstruction(next) {
-  return /\b(?:on|after|when\s+following|wait(?:ing)?\s+(?:for|until))\s+(?:the\s+)?next\s+user\s+(?:instruction|request|message|turn)\b/i.test(String(next ?? ""));
+  const text = String(next ?? "");
+  const nextUser = "(?:the\\s+)?next(?:\\s+explicit)?\\s+user\\s+(?:instruction|request|message|turn)";
+  const directTrigger = new RegExp(`\\b(?:on|after|when\\s+following|wait(?:ing)?\\s+(?:for|until)|await(?:ing)?)\\s+${nextUser}\\b`, "i");
+  const deferredUntil = new RegExp(`\\bdefer(?:red|ring)?\\b[\\s\\S]{0,120}\\buntil\\s+${nextUser}\\b`, "i");
+  return directTrigger.test(text) || deferredUntil.test(text);
 }
 
-function nextDirectsCurrentTurn(next) {
+function nextCarriesFileAction(next, action, file) {
   const text = String(next ?? "");
-  return !nextWaitsForNextUserInstruction(text)
-    && /\b(?:immediately|now|this\s+(?:same|current)\s+turn|after\s+(?:the\s+)?travel)\b/i.test(text);
+  return new RegExp(`\\b${action}\\b`, "i").test(text) && text.includes(file);
 }
 
 function firstCallAfter(turn, call) {
@@ -267,7 +270,7 @@ export const TOPOLOGY_SCENARIOS = [
         prompt: [
           "Rehydrate only the archived audit branch needed to recover the exact forensic nonce.",
           "Use the archive recovery pointer created by the earlier fold rather than root, the current return point, or a guessed node ID.",
-          "Use a seven-field handoff whose NEXT is one immediate current-turn action: read archive/provenance.txt. acm_travel must be alone in its tool batch; once it returns, directly read that file in this same turn.",
+          "Use a seven-field handoff whose NEXT is one current-turn action: read archive/provenance.txt. acm_travel must be alone in its tool batch; once it returns, directly read that file in this same turn. After the read, stop; do not return to the folded branch and do not call acm_travel again in this turn.",
         ].join(" "),
         timeoutMs: 300000,
       },
@@ -307,14 +310,12 @@ export const TOPOLOGY_SCENARIOS = [
       const returnsToSavedPoint = returnTravel?.args?.target === REHYDRATE_RETURN
         && returnTravel?.details?.fromOffPath === true;
       const rehydrateNext = rehydrateHandoff.ok
-        && /archive\/provenance\.txt/i.test(rehydrateHandoff.fields?.next ?? "")
-        && nextDirectsCurrentTurn(rehydrateHandoff.fields?.next);
+        && nextCarriesFileAction(rehydrateHandoff.fields?.next, "read", "archive/provenance.txt");
       const archiveRead = firstCallAfter(t5, rehydrate);
       const directArchiveRead = readSucceeded({ toolCalls: [archiveRead] }, "archive/provenance.txt");
       const returnedNonce = handoffCarriesNonce(returnHandoff, REHYDRATE_NONCE)
         && includesExactNonce(returnHandoff.fields?.next, REHYDRATE_NONCE)
-        && /migration-receipt\.md/i.test(returnHandoff.fields?.next ?? "")
-        && nextDirectsCurrentTurn(returnHandoff.fields?.next);
+        && nextCarriesFileAction(returnHandoff.fields?.next, "write", "migration-receipt.md");
       const returnedReceipt = firstCallAfter(t6, returnTravel);
       const directReturnedReceipt = writeSucceeded({ toolCalls: [returnedReceipt] }, "migration-receipt.md")
         && includesExactNonce(returnedReceipt?.args?.content, REHYDRATE_NONCE);
@@ -336,7 +337,7 @@ export const TOPOLOGY_SCENARIOS = [
         check("T5 travels to the off-path archive", rehydratesArchive,
           `target=${rehydrate?.args?.target ?? "missing"}; offPath=${rehydrate?.details?.fromOffPath ?? "missing"}`),
         check("T5 archive travel has complete handoff", rehydrateHandoff.ok, rehydrateHandoff.detail),
-        check("T5 archive handoff NEXT is immediate exact source read", rehydrateNext,
+        check("T5 archive handoff NEXT is exact source read", rehydrateNext,
           rehydrateHandoff.ok ? String(rehydrateHandoff.fields?.next) : rehydrateHandoff.detail),
         check("T5 directly reads the archive after travel", directArchiveRead,
           `first post-travel=${archiveRead?.name ?? "missing"}; path=${pathFor(archiveRead) || "missing"}`),
