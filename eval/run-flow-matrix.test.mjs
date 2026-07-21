@@ -21,6 +21,7 @@ import {
   createLongFlowMatrixManifest,
   finalMatrixStatus,
   hashContentTree,
+  hashExternalCommandResourceTree,
   hashFullEnvLinkedResourceTree,
   normalizeGlobalCommandInventory,
   rehashContentTree,
@@ -212,6 +213,8 @@ describe("real Pi long-flow matrix declaration", () => {
       ]));
       expect(preflight.globalResourceTree.sha256).toHaveLength(64);
       expect(preflight.globalResourceTree.roots.map((root) => root.name)).toEqual([...LINKED_RESOURCE_ROOTS].sort());
+      expect(preflight.externalCommandResourceTree.sha256).toHaveLength(64);
+      expect(preflight.externalCommandResourceTree.roots).toHaveLength(1);
       expect(preflight.piRuntimeTree.sha256).toHaveLength(64);
       const originalHash = preflight.commandInventory.sha256;
       writeFileSync(source, "export default 'v2';\n");
@@ -239,6 +242,59 @@ describe("real Pi long-flow matrix declaration", () => {
       const skillPinned = hashFullEnvLinkedResourceTree(audit);
       writeFixtureFile(join(audit.sourceAgentDir, "skills", "context-management", "scripts", "check.mjs"), "export default 'v2';\n");
       expect(rehashContentTree(skillPinned).sha256).not.toBe(skillPinned.sha256);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  test("external advertised .agents/skills roots cover references and extension package bases", () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-external-resource-tree-"));
+    try {
+      const audit = makeLinkedResourceAudit(output);
+      const externalAgentRoot = join(output, ".agents");
+      const skillDir = join(externalAgentRoot, "skills", "external-skill");
+      const skillPath = join(skillDir, "SKILL.md");
+      const extensionBaseDir = join(output, "external-extension-package");
+      const extensionPath = join(extensionBaseDir, "index.ts");
+      const linkedSkillPath = join(audit.harnessAgentDir, "skills", "linked-skill", "SKILL.md");
+      writeFixtureFile(skillPath, "# External Skill\n");
+      writeFixtureFile(join(skillDir, "references", "live-reference.md"), "reference v1\n");
+      writeFixtureFile(join(skillDir, "scripts", "run.mjs"), "export default 'v1';\n");
+      writeFixtureFile(extensionPath, "export const command = 'v1';\n");
+      writeFixtureFile(join(extensionBaseDir, "lib", "imported.ts"), "export const imported = 'v1';\n");
+      writeFixtureFile(join(audit.sourceAgentDir, "skills", "linked-skill", "SKILL.md"), "# Linked Skill\n");
+      const commands = [{
+        name: "skill:external-skill",
+        source: "skill",
+        sourceInfo: { path: skillPath, baseDir: externalAgentRoot, scope: "user", source: "auto" },
+      }, {
+        // A duplicate command path must not produce an order-dependent root.
+        name: "skill:external-skill-alias",
+        source: "skill",
+        sourceInfo: { path: skillPath, baseDir: externalAgentRoot, scope: "user", source: "auto" },
+      }, {
+        name: "external-extension-command",
+        source: "extension",
+        sourceInfo: { path: extensionPath, baseDir: extensionBaseDir, scope: "user", source: "package" },
+      }, {
+        name: "skill:linked-skill",
+        source: "skill",
+        sourceInfo: { path: linkedSkillPath, baseDir: audit.harnessAgentDir, scope: "user", source: "auto" },
+      }, {
+        name: "skill:temporary-external",
+        source: "skill",
+        sourceInfo: { path: skillPath, baseDir: externalAgentRoot, scope: "temporary", source: "local" },
+      }];
+      const pinned = hashExternalCommandResourceTree(commands, audit);
+      expect(pinned.roots).toHaveLength(2);
+      expect(rehashContentTree(pinned).sha256).toBe(pinned.sha256);
+
+      writeFixtureFile(join(skillDir, "references", "live-reference.md"), "reference v2\n");
+      expect(rehashContentTree(pinned).sha256).not.toBe(pinned.sha256);
+
+      const repinned = hashExternalCommandResourceTree(commands, audit);
+      writeFixtureFile(join(extensionBaseDir, "lib", "imported.ts"), "export const imported = 'v2';\n");
+      expect(rehashContentTree(repinned).sha256).not.toBe(repinned.sha256);
     } finally {
       rmSync(output, { recursive: true, force: true });
     }
