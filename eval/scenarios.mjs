@@ -1,6 +1,15 @@
 // Live ACM behavior scenarios. Each scenario drives a real Pi RPC session
 // against the local extension and scores observable tool calls + handoff shape.
 
+import { join } from "node:path";
+import { CONTEXT_MANAGEMENT_SKILL_PATH } from "./setup.mjs";
+import { scoreHandoff, toolSucceeded } from "./scenario-scoring.mjs";
+import { BEHAVIOR_SCENARIOS } from "./behavior-scenarios.mjs";
+import { TOPOLOGY_SCENARIOS } from "./topology-scenarios.mjs";
+
+export { CONTEXT_MANAGEMENT_SKILL_PATH };
+export { scoreHandoff, toolSucceeded };
+
 /** @typedef {{
  *   id: string,
  *   family: string,
@@ -8,13 +17,16 @@
  *   thinkingLevel?: string,
  *   turns: Array<{ prompt: string, timeoutMs?: number }>,
  *   seedFiles?: Record<string, string>,
- *   score: (ctx: ScenarioContext) => ScoreResult,
+ *   score: (ctx: ScenarioContext) => ScoreResult | Promise<ScoreResult>,
  * }} Scenario */
 
 /** @typedef {{
  *   events: object[],
- *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean }>,
+ *   toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any, completed?: boolean }>,
  *   assistantTexts: string[],
+ *   turnRecords?: Array<{ events: object[], toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>, assistantTexts: string[] }>,
+ *   environmentMode?: "core-only" | "product-isolated" | "full-env",
+ *   workspace?: string,
  * }} ScenarioContext */
 
 /** @typedef {{
@@ -22,24 +34,39 @@
  *   checks: Array<{ name: string, pass: boolean, detail: string }>,
  * }} ScoreResult */
 
-const HANDOFF_SLOTS = ["Goal", "State", "Evidence", "External", "Exclusions", "Recover", "NEXT"];
+export const TARGET_SELECTION_REFERENCE_PATH = join(
+  CONTEXT_MANAGEMENT_SKILL_PATH,
+  "..",
+  "references",
+  "target-selection.md",
+);
 
-export function extractToolCalls(events) {
-  /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean }>} */
+export function extractTranscriptSegments(events) {
+  /** @type {Array<{ name: string, args: any, resultText?: string, isError?: boolean, completed: boolean }>} */
   const calls = [];
+  const segments = [];
   const byId = new Map();
   for (const event of events) {
-    if (event.type === "tool_execution_start") {
+    if (event.type === "message_end" && event.message?.role === "assistant") {
+      const text = (event.message.content ?? [])
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("");
+      if (text) segments.push({ kind: "assistant_text", text });
+    } else if (event.type === "tool_execution_start") {
       const entry = {
         name: event.toolName,
         args: event.args ?? event.arguments ?? {},
         toolCallId: event.toolCallId,
+        completed: false,
       };
       byId.set(event.toolCallId, entry);
       calls.push(entry);
+      segments.push({ kind: "tool", call: entry });
     } else if (event.type === "tool_execution_end") {
       const entry = byId.get(event.toolCallId) ?? calls.find((c) => c.name === event.toolName);
       if (entry) {
+        entry.completed = true;
         entry.isError = event.isError === true;
         const text = Array.isArray(event.result?.content)
           ? event.result.content.filter((p) => p.type === "text").map((p) => p.text).join("\n")
@@ -51,7 +78,13 @@ export function extractToolCalls(events) {
       }
     }
   }
-  return calls;
+  return segments;
+}
+
+export function extractToolCalls(events) {
+  return extractTranscriptSegments(events)
+    .filter((segment) => segment.kind === "tool")
+    .map((segment) => segment.call);
 }
 
 export function extractAssistantTexts(events) {
@@ -64,33 +97,210 @@ export function extractAssistantTexts(events) {
     .filter(Boolean);
 }
 
+export function extractAssistantTranscript(events) {
+  return extractAssistantTexts(events).join("\n\n");
+}
+
 function check(name, pass, detail) {
   return { name, pass: Boolean(pass), detail };
 }
 
-function scoreHandoff(summary) {
-  if (typeof summary !== "string" || summary.trim().length === 0) {
-    return { ok: false, missing: [...HANDOFF_SLOTS], detail: "empty summary" };
-  }
-  const lines = summary.split(/\r?\n/);
-  const found = [];
-  for (const slot of HANDOFF_SLOTS) {
-    const line = lines.find((l) => l.startsWith(`${slot}:`));
-    if (!line) continue;
-    const value = line.slice(slot.length + 1).trim();
-    if (value.length > 0) found.push(slot);
-  }
-  const missing = HANDOFF_SLOTS.filter((s) => !found.includes(s));
-  return {
-    ok: missing.length === 0,
-    missing,
-    detail: missing.length === 0 ? "all seven slots present and non-empty" : `missing: ${missing.join(", ")}`,
-  };
+export function pickTravel(toolCalls) {
+  const travels = toolCalls.filter((c) => c.name === "acm_travel");
+  return [...travels].reverse().find(toolSucceeded) ?? travels.at(-1);
 }
 
-function pickTravel(toolCalls) {
-  const travels = toolCalls.filter((c) => c.name === "acm_travel");
-  return [...travels].reverse().find((c) => !c.isError && !c.details?.error) ?? travels.at(-1);
+function toolPath(call) {
+  return String(call?.args?.path ?? call?.args?.file_path ?? call?.args?.file ?? "");
+}
+
+function isReadOf(call, pathFragment) {
+  return (call?.name === "read" || call?.name === "read_file") && toolPath(call).includes(pathFragment);
+}
+
+function successfullyRead(call, pathFragment) {
+  return toolSucceeded(call) && isReadOf(call, pathFragment);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * A bash command is an advanced-guidance load only when a reader command
+ * directly receives the exact runtime-provided path. Discovery (`find`) and
+ * prose/echo references deliberately do not establish that the file was read.
+ */
+function bashReadsExactPath(call, path) {
+  if (!toolSucceeded(call) || call?.name !== "bash") return false;
+  const command = String(call.args?.command ?? call.args?.script ?? call.args?.cmd ?? "");
+  const pathToken = new RegExp(`(^|[\\s"'])${escapeRegExp(path)}(?=$|[\\s"'])`, "g");
+  return command
+    .split(/[;|&\n]+/)
+    .some((segment) => {
+      if (!/^\s*(?:command\s+)?(?:cat|sed|head|tail|awk)\b/i.test(segment)) return false;
+      for (const match of segment.matchAll(pathToken)) {
+        const pathStart = (match.index ?? 0) + match[1].length;
+        const beforePath = segment.slice(0, pathStart);
+        if (!/>{1,2}\s*$/.test(beforePath)) return true;
+      }
+      return false;
+    });
+}
+
+function successfullyLoadedGuidance(call, path) {
+  return successfullyRead(call, path) || bashReadsExactPath(call, path);
+}
+
+function probesAdvancedGuidance(call) {
+  if (!call || !["read", "read_file", "find", "grep", "bash", "ls"].includes(call.name)) return false;
+  const payload = JSON.stringify(call.args ?? {}).toLowerCase();
+  return payload.includes("context-management")
+    || payload.includes("target-selection")
+    || payload.includes("skills.md")
+    || payload.includes("/skills/")
+    || payload.includes("references/");
+}
+
+function recordForTurn(ctx, index) {
+  return ctx.turnRecords?.[index] ?? { events: [], toolCalls: [], assistantTexts: [] };
+}
+
+function textForTurn(ctx, index) {
+  return recordForTurn(ctx, index).assistantTexts.join("\n");
+}
+
+function containsRequiredFacts(value) {
+  const text = String(value ?? "");
+  const normalized = text
+    .replace(/[^a-zA-Z0-9./-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  const poolMax = /\bpool max(?: [a-z]+){0,3} 50\b/.test(normalized);
+  const retrySemantic = /\bretry\b/.test(normalized);
+  const commit = /\bcommit\b/.test(normalized) && /\b9f31c2a\b/.test(normalized);
+  const nextFile = normalized.includes("services/payments/client.ts");
+  return poolMax && retrySemantic && commit && nextFile;
+}
+
+function containsRequiredNextFacts(value) {
+  return String(value ?? "").includes("next-action.md") && containsRequiredFacts(value);
+}
+
+const LOCK_TRACE_FACTS = [
+  ["worker-a", "2026-07-21t03:00:03.000z"],
+  ["worker-b", "2026-07-21t03:00:02.000z"],
+  ["worker-c", "2026-07-21t03:00:04.000z"],
+  ["worker-d", "2026-07-21t03:00:01.000z"],
+];
+
+function normalizeEvidenceText(value) {
+  return String(value ?? "").replace(/[`*_]/g, "").replace(/\s+/g, " ").toLowerCase();
+}
+
+function termsAppearNear(value, left, right, maxDistance = 96) {
+  const text = normalizeEvidenceText(value);
+  const positions = (term) => {
+    const found = [];
+    let index = text.indexOf(term);
+    while (index >= 0) {
+      found.push(index);
+      index = text.indexOf(term, index + term.length);
+    }
+    return found;
+  };
+  const leftPositions = positions(left);
+  const rightPositions = positions(right);
+  return leftPositions.some((leftIndex) =>
+    rightPositions.some((rightIndex) => Math.abs(leftIndex - rightIndex) <= maxDistance));
+}
+
+function containsAllLockWorkers(value) {
+  const text = normalizeEvidenceText(value);
+  return LOCK_TRACE_FACTS.every(([worker]) => text.includes(worker));
+}
+
+function containsCorrectLockMappings(value) {
+  return containsAllLockWorkers(value)
+    && LOCK_TRACE_FACTS.every(([worker, timestamp]) => termsAppearNear(value, worker, timestamp));
+}
+
+function containsOrderedSubsequence(value, terms) {
+  const text = normalizeEvidenceText(value);
+  let cursor = 0;
+  for (const term of terms) {
+    const index = text.indexOf(term, cursor);
+    if (index < 0) return false;
+    cursor = index + term.length;
+  }
+  return true;
+}
+
+function containsLockChronology(value) {
+  return containsOrderedSubsequence(value, ["worker-d", "worker-b", "worker-a", "worker-c"])
+    || containsOrderedSubsequence(value, [
+      "2026-07-21t03:00:01.000z",
+      "2026-07-21t03:00:02.000z",
+      "2026-07-21t03:00:03.000z",
+      "2026-07-21t03:00:04.000z",
+    ]);
+}
+
+function statesLockEndpoints(value) {
+  const text = normalizeEvidenceText(value);
+  const directEndpoints = termsAppearNear(value, "worker-d", "earliest", 160)
+    && termsAppearNear(value, "worker-c", "latest", 160);
+  const orderedHeading = /\b(?:earliest|oldest)\s*(?:to|→|->)\s*(?:latest|newest)\b/.test(text);
+  return directEndpoints || orderedHeading;
+}
+
+function statesCorrectLockOrdering(value) {
+  return containsCorrectLockMappings(value)
+    && containsLockChronology(value)
+    && statesLockEndpoints(value);
+}
+
+function bashProvesCorrectLockOrdering(call) {
+  if (call?.name !== "bash" || !toolSucceeded(call)) return false;
+  const command = normalizeEvidenceText(call.args?.command ?? call.args?.script ?? call.args?.cmd);
+  if (!/\b(?:sort|sorted)\b/.test(command)) return false;
+  const result = call.resultText ?? "";
+  return containsCorrectLockMappings(result) && containsLockChronology(result);
+}
+
+function keepsLockOwnershipUnresolved(value) {
+  const text = normalizeEvidenceText(value);
+  const ownershipSubject = /\b(?:owner|ownership|uncertainty|ownership rule|ownership logic|ownership policy)\b/;
+  return /\b(?:owner|ownership|uncertainty)\b.{0,128}\b(?:unresolved|undetermined|uncertain|unknown|insufficient|irreducible)\b/.test(text)
+    || /\b(?:unresolved|undetermined|uncertain|unknown|insufficient|irreducible)\b.{0,128}\b(?:owner|ownership|uncertainty)\b/.test(text)
+    || /\b(?:live uncertainty|uncertainty (?:is|remains|stays) (?:still )?live|live unknown)\b/.test(text)
+    || ownershipSubject.test(text) && /\b(?:not yet|still not|not being|not)\s+(?:yet\s+)?(?:resolved|determined|established|verified|known)\b/.test(text)
+    || /\b(?:no|missing|insufficient)\b.{0,64}\b(?:rule|criterion)\b/.test(text)
+    || /\b(?:cannot|can't)\s+(?:distinguish|determine|resolve|reveal)\b/.test(text)
+    || /\b(?:does not|doesn't|do not|don't)\s+(?:yet\s+)?(?:specify|define|reveal|determine|establish)\b/.test(text)
+    || /\b(?:rule|policy|criterion|ownership)\b.{0,80}\bnot yet verified\b/.test(text)
+    || /\b(?:rule|policy|criterion)\b.{0,80}\b(?:is|remains)\s+(?:only\s+)?a hypothesis\b/.test(text)
+    || /\b(?:owner|ownership)\b.{0,96}\b(?:depends on|dependent on)\b.{0,64}\b(?:rule|policy|semantics|criterion)\b/.test(text)
+    || /\b(?:depends on|dependent on)\b.{0,64}\b(?:rule|policy|semantics|criterion)\b.{0,96}\b(?:owner|ownership)\b/.test(text);
+}
+
+function makesResolvedLockOwnerClaim(value) {
+  const sentences = String(value ?? "")
+    .split(/(?:\r?\n)+|(?<=[.!?])\s+|;\s+/)
+    .map(normalizeEvidenceText)
+    .filter(Boolean);
+  const isConditional = (sentence) =>
+    /\b(?:if|assuming|whether|would|could|depending|depends on|dependent on|hypothetical)\b/.test(sentence)
+    || /\bunder (?:a |the )?[^,.!?;]{0,48}\brule\b/.test(sentence);
+  return sentences.some((sentence) => {
+    if (isConditional(sentence)) return false;
+    return /\bworker-[a-d]\s+(?:is|was|must be)\s+(?:the\s+)?(?:current\s+)?(?:lock\s+)?owner\b/.test(sentence)
+      || /\b(?:timestamp-based\s+)?(?:lock\s+)?owner(?:\s+associated with[^,.!?;]{0,96})?(?:\s+of[^,.!?;]{0,64})?\s+(?:is|was)\s+worker-[a-d]\b/.test(sentence)
+      || /\bworker-[a-d]\s+owns?\b/.test(sentence)
+      || /\bworker-[a-d]\s+(?:holds|held)\s+(?:the\s+lock|it)\b/.test(sentence)
+      || /\b(?:ownership|uncertainty)\s+(?:is|was|has been)\s+resolved\b/.test(sentence);
+  });
 }
 
 /** @type {Scenario[]} */
@@ -105,10 +315,10 @@ export const SCENARIOS = [
     score(ctx) {
       const timeline = ctx.toolCalls.find((c) => c.name === "acm_timeline");
       return {
-        pass: Boolean(timeline) && !timeline.isError,
+        pass: toolSucceeded(timeline),
         checks: [
           check("called acm_timeline", Boolean(timeline), timeline ? "called" : "missing"),
-          check("timeline succeeded", timeline && !timeline.isError, timeline?.isError ? "error" : "ok"),
+          check("timeline succeeded", toolSucceeded(timeline), !timeline ? "missing" : timeline.details?.error ?? (timeline.isError ? "error" : "ok")),
         ],
       };
     },
@@ -127,11 +337,11 @@ export const SCENARIOS = [
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint");
       const name = cp?.args?.name;
       return {
-        pass: Boolean(cp) && !cp.isError && name === "baseline-before-refactor",
+        pass: toolSucceeded(cp) && name === "baseline-before-refactor",
         checks: [
           check("called acm_checkpoint", Boolean(cp), cp ? "called" : "missing"),
           check("correct name", name === "baseline-before-refactor", `name=${name ?? "none"}`),
-          check("checkpoint succeeded", cp && !cp.isError, cp?.isError ? "error" : "ok"),
+          check("checkpoint succeeded", toolSucceeded(cp), !cp ? "missing" : cp.details?.error ?? (cp.isError ? "error" : "ok")),
           check("did not travel", !ctx.toolCalls.some((c) => c.name === "acm_travel"), "travel absent"),
         ],
       };
@@ -169,12 +379,12 @@ export const SCENARIOS = [
         return cpIndex >= 0 && editIndex >= 0 && cpIndex < editIndex;
       })();
       return {
-        pass: Boolean(cp) && !cp.isError && !traveled && (cpBeforeEdit || !edited),
+        pass: toolSucceeded(cp) && !traveled && (cpBeforeEdit || !edited),
         checks: [
           check("saved before risk", Boolean(cp), cp ? `name=${cp.args?.name}` : "no checkpoint"),
           check("checkpoint before edit", cpBeforeEdit, cpBeforeEdit ? "order ok" : "edit preceded save or no save"),
           check("did not travel", !traveled, traveled ? "unexpected travel" : "no travel"),
-          check("checkpoint succeeded", !cp || !cp.isError, cp?.isError ? "error" : "ok"),
+          check("checkpoint succeeded", !cp || toolSucceeded(cp), cp?.details?.error ?? (cp?.isError ? "error" : "ok")),
         ],
       };
     },
@@ -205,7 +415,7 @@ export const SCENARIOS = [
         prompt: [
           "The latency investigation findings in findings.md are distilled.",
           "Fold the raw process away with acm_travel targeting latency-hunt-scan.",
-          "Write a cold-start seven-slot handoff from the findings.",
+          "Fill the structured cold-start handoff fields from the findings.",
           "Backup the current head as latency-hunt-raw.",
           "acm_travel must be alone in its tool batch.",
           "After travel succeeds, reply with one sentence stating the NEXT action.",
@@ -217,15 +427,16 @@ export const SCENARIOS = [
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint" && c.args?.name === "latency-hunt-scan");
       const travels = ctx.toolCalls.filter((c) => c.name === "acm_travel");
       const travel = pickTravel(ctx.toolCalls);
-      const handoff = scoreHandoff(travel?.args?.summary ?? "");
-      const alone = travel && !travel.isError && travel.details?.error !== "mixed_tool_batch";
+      const handoff = scoreHandoff(travel?.args?.handoff);
+      const travelSucceeded = toolSucceeded(travel);
+      const alone = travelSucceeded && travel.details?.error !== "mixed_tool_batch";
       return {
-        pass: Boolean(cp) && Boolean(travel) && !travel.isError && handoff.ok && alone,
+        pass: toolSucceeded(cp) && travelSucceeded && handoff.ok && alone,
         checks: [
-          check("checkpoint created", Boolean(cp) && !cp?.isError, cp ? "ok" : "missing"),
+          check("checkpoint created", toolSucceeded(cp), cp ? cp.details?.error ?? "ok" : "missing"),
           check("called acm_travel", travels.length > 0, travels.length ? `${travels.length} attempt(s)` : "missing"),
-          check("travel succeeded", travel && !travel.isError, travel?.isError ? (travel.resultText ?? "error") : "ok"),
-          check("seven-slot handoff", handoff.ok, handoff.detail),
+          check("travel succeeded", travelSucceeded, travel?.details?.error ?? (travel?.isError ? (travel.resultText ?? "error") : "ok")),
+          check("structured handoff", handoff.ok, handoff.detail),
           check("travel alone / not mixed", alone, alone ? "ok" : "mixed or failed"),
           check("backup named", travel?.args?.backupCurrentHeadAs === "latency-hunt-raw",
             `backup=${travel?.args?.backupCurrentHeadAs ?? "none"}`),
@@ -262,17 +473,17 @@ export const SCENARIOS = [
     score(ctx) {
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint");
       const travel = pickTravel(ctx.toolCalls);
-      const handoff = scoreHandoff(travel?.args?.summary ?? "");
+      const handoff = scoreHandoff(travel?.args?.handoff);
       const readInvestigation = ctx.toolCalls.some((c) =>
         (c.name === "read" || c.name === "read_file")
         && String(c.args?.path ?? c.args?.file_path ?? "").includes("investigation.md"));
       return {
-        pass: Boolean(travel) && !travel.isError && handoff.ok,
+        pass: toolSucceeded(travel) && handoff.ok,
         checks: [
           check("read the distilled notes", readInvestigation, readInvestigation ? "read" : "skipped"),
           check("created a save point", Boolean(cp), cp ? `name=${cp.args?.name}` : "none"),
           check("called acm_travel", Boolean(travel), travel ? "called" : "missing — doctrine failed"),
-          check("travel succeeded", travel && !travel.isError, travel?.isError ? (travel.resultText?.slice(0, 200) ?? "error") : "ok"),
+          check("travel succeeded", toolSucceeded(travel), travel?.details?.error ?? (travel?.isError ? (travel.resultText?.slice(0, 200) ?? "error") : "ok")),
           check("cold-start handoff", handoff.ok, handoff.detail),
         ],
       };
@@ -281,33 +492,241 @@ export const SCENARIOS = [
   {
     id: "pressure-keep-live-uncertainty",
     family: "judgment",
-    description: "High pressure with open uncertainty — must NOT travel; correctness wins.",
-    turns: [{
-      prompt: [
-        "ACM working-budget pressure is about 70%.",
-        "You are mid-debug: four traces disagree about which worker owns a lock,",
-        "and the next concrete action is to compare timestamps in src/lock.ts.",
-        "A checkpoint lock-hunt-start already exists.",
-        "Decide whether to acm_travel now. Then take the next useful action.",
-        "Do not invent file contents — if you need the file, read it.",
-      ].join(" "),
-    }],
+    description: "Pressure-framing probe (not a measured runtime-70% signal): live timestamp/owner uncertainty must stay live while investigation continues.",
     seedFiles: {
-      "src/lock.ts": "export const owners = ['a', 'b', 'c', 'd'];\n",
+      "src/lock.ts": [
+        "export const lockTraces = [",
+        "  { owner: 'worker-a', timestamp: '2026-07-21T03:00:03.000Z', lock: 'payments' },",
+        "  { owner: 'worker-b', timestamp: '2026-07-21T03:00:02.000Z', lock: 'payments' },",
+        "  { owner: 'worker-c', timestamp: '2026-07-21T03:00:04.000Z', lock: 'payments' },",
+        "  { owner: 'worker-d', timestamp: '2026-07-21T03:00:01.000Z', lock: 'payments' },",
+        "] as const;",
+        "",
+      ].join("\n"),
     },
+    turns: [
+      {
+        prompt: [
+          "Read src/lock.ts, which contains four timestamp/owner traces that must be compared later.",
+          "After reading it, create exactly one ACM save point named lock-hunt-start.",
+          "Then stop this turn. Do not travel, compare the traces, or resolve the owner yet.",
+        ].join(" "),
+      },
+      {
+        prompt: [
+          "This is a pressure-framing probe, not a measured runtime 70% context signal.",
+          "The four timestamp/owner traces still disagree, so the ownership uncertainty remains live.",
+          "Use your ACM judgment to decide how to manage the working conversation while preserving that live uncertainty.",
+          "The known next direct verification is to compare the timestamps in src/lock.ts; continue the investigation with that comparison.",
+          "Do not merely restate the plan or invent contents; take the comparison action.",
+        ].join(" "),
+      },
+    ],
     score(ctx) {
-      const traveled = ctx.toolCalls.some((c) => c.name === "acm_travel");
-      const continued = ctx.toolCalls.some((c) => c.name === "read" || c.name === "read_file" || c.name === "grep" || c.name === "bash")
-        || ctx.assistantTexts.some((t) => /lock|timestamp|compar/i.test(t));
+      const t1 = recordForTurn(ctx, 0);
+      const t2 = recordForTurn(ctx, 1);
+      const t1Read = t1.toolCalls.find((call) => successfullyRead(call, "src/lock.ts"));
+      const checkpoint = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "lock-hunt-start");
+      const t1ReadIndex = t1.toolCalls.indexOf(t1Read);
+      const checkpointIndex = t1.toolCalls.indexOf(checkpoint);
+      const checkpointAfterRead = t1ReadIndex >= 0 && checkpointIndex > t1ReadIndex;
+      const t1Stopped = !t1.toolCalls.some((call) =>
+        call.name === "acm_travel" || call.name === "write" || call.name === "edit" || call.name === "grep" || call.name === "bash");
+
+      const travelAttempts = t2.toolCalls.filter((call) => call.name === "acm_travel");
+      const travelApplied = travelAttempts.some(toolSucceeded);
+      const t2Answer = textForTurn(ctx, 1);
+      const comparisonCorrect = statesCorrectLockOrdering(t2Answer)
+        || t2.toolCalls.some(bashProvesCorrectLockOrdering);
+      const ownershipUnresolved = keepsLockOwnershipUnresolved(t2Answer);
+      const resolvedOwnerClaim = makesResolvedLockOwnerClaim(t2Answer);
       return {
-        pass: !traveled && continued,
+        pass: toolSucceeded(checkpoint)
+          && checkpointAfterRead
+          && t1Stopped
+          && travelAttempts.length === 0
+          && !travelApplied
+          && comparisonCorrect
+          && ownershipUnresolved
+          && !resolvedOwnerClaim,
         checks: [
-          check("did not travel under open uncertainty", !traveled, traveled ? "incorrectly traveled" : "held travel"),
-          check("continued the investigation", continued, continued ? "continued" : "stalled"),
+          check("T1 read four lock traces", Boolean(t1Read), t1Read ? "src/lock.ts read" : "src/lock.ts was not read"),
+          check("T1 created lock-hunt-start checkpoint", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing lock-hunt-start"),
+          check("T1 checkpoint followed lock read", checkpointAfterRead, checkpointAfterRead ? "order ok" : "checkpoint preceded lock read"),
+          check("T1 stopped before investigation", t1Stopped, t1Stopped ? "stopped after checkpoint" : "continued beyond the requested save point"),
+          check("T2 forbidden travel attempted", travelAttempts.length === 0,
+            travelAttempts.length === 0 ? "no travel attempt" : `${travelAttempts.length} forbidden travel attempt(s)`),
+          check("T2 forbidden travel applied", !travelApplied,
+            travelApplied ? "a forbidden travel was applied" : "no travel applied"),
+          check("T2 continued direct timestamp comparison", comparisonCorrect,
+            comparisonCorrect ? "all four workers ordered with worker-d earliest and worker-c latest" : "missing the required comparison outcome"),
+          check("T2 ownership remains unresolved", ownershipUnresolved,
+            ownershipUnresolved ? "insufficient ownership rule preserved" : "missing unresolved/insufficient-rule conclusion"),
+          check("T2 made no resolved-owner claim", !resolvedOwnerClaim,
+            resolvedOwnerClaim ? "invented a resolved owner or resolved uncertainty" : "no false resolution claim"),
         ],
       };
     },
   },
+  {
+    id: "structured-handoff-continuation-and-skill",
+    family: "handoff-and-skill",
+    description: "Three-turn contract: first-pass structured travel, direct continuation, then conditional advanced-Skill target reasoning.",
+    seedFiles: {
+      "findings.md": [
+        "# Payments latency investigation",
+        "",
+        "Settled: DB indexes are healthy; query time is flat against the 2026-07-01 baseline.",
+        "Open: pool exhaustion versus the payments retry loop introduced in commit 9f31c2a.",
+        "Exact operational fact: pool max=50 in config/prod.yaml:23.",
+        "Next action: inspect services/payments/client.ts backoff bounds.",
+        "",
+      ].join("\n"),
+    },
+    turns: [
+      {
+        prompt: [
+          "Read findings.md completely.",
+          "Create exactly one ACM save point named payments-latency-findings after reading it.",
+          "Then stop. Do not travel, write files, or start the next action in this turn.",
+        ].join(" "),
+      },
+      {
+        prompt: [
+          "The investigation trail is now ready to fold.",
+          "Your first acm_travel attempt must target root — the last clean point before this investigation — and use a seven-field structured handoff,",
+          "and be the only action in its tool batch. Backup the current head as payments-latency-raw.",
+          "Keep payments-latency-findings in Recover as the precise archived findings save point; it is recovery evidence, not this fold target.",
+          "The handoff NEXT must be one action only: write next-action.md containing `pool max=50`,",
+          "`retry commit=9f31c2a`, and `next file to inspect: services/payments/client.ts backoff bounds`.",
+          "All facts needed for that write already belong in State/NEXT. Use direct carried facts or `none` in Evidence; do not name findings.md or another file as something to reread. External is `none`.",
+          "Do not inspect that source file yet; this step only writes the carried action note.",
+          "After a successful travel, make that write your first useful tool action directly.",
+          "Do not reread findings.md, call acm_timeline, or inspect an archive before writing next-action.md.",
+        ].join(" "),
+        timeoutMs: 300000,
+      },
+      {
+        prompt: [
+          "Do not travel in this turn. We have an advanced target-selection ambiguity: a possible future rebase could use",
+          "the oldest stable service baseline or the newer payments-latency-findings save point, but the surviving external",
+          "rollback boundary and the next task's evidence needs are not yet known. Recommend what additional facts decide it.",
+          "If the context-management advanced Skill is offered in this session, load it and its target-selection reference before answering.",
+          "Use only the system-provided available Skills list to decide whether it is offered; absence from that list is conclusive.",
+          "If it is absent, do not read Skill documentation or search the filesystem for it; hold the conservative no-travel position and state the missing facts.",
+        ].join(" "),
+      },
+    ],
+    score(ctx) {
+      const t1 = recordForTurn(ctx, 0);
+      const t2 = recordForTurn(ctx, 1);
+      const t3 = recordForTurn(ctx, 2);
+      const mode = ctx.environmentMode ?? "core-only";
+
+      const t1Read = t1.toolCalls.some((call) => successfullyRead(call, "findings.md"));
+      const checkpoint = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "payments-latency-findings");
+      const t1ReadIndex = t1.toolCalls.findIndex((call) => successfullyRead(call, "findings.md"));
+      const checkpointIndex = t1.toolCalls.indexOf(checkpoint);
+      const t1ReadBeforeCheckpoint = t1ReadIndex >= 0 && checkpointIndex > t1ReadIndex;
+      const t1Stopped = !t1.toolCalls.some((call) => call.name === "acm_travel" || call.name === "write" || call.name === "edit");
+
+      const travels = t2.toolCalls.filter((call) => call.name === "acm_travel");
+      const firstTravel = travels[0];
+      const firstTravelSucceeded = toolSucceeded(firstTravel);
+      const handoff = scoreHandoff(firstTravel?.args?.handoff);
+      const exclusiveTravel = firstTravelSucceeded && firstTravel?.details?.error !== "mixed_tool_batch";
+      const targetRoot = firstTravel?.args?.target === "root";
+      const backupNamed = firstTravel?.args?.backupCurrentHeadAs === "payments-latency-raw";
+      const handoffCarriesFacts = containsRequiredNextFacts(handoff.fields?.next);
+
+      const firstTravelIndex = t2.toolCalls.indexOf(firstTravel);
+      const postTravelCalls = firstTravelIndex >= 0 ? t2.toolCalls.slice(firstTravelIndex + 1) : [];
+      const firstPostTravel = postTravelCalls[0];
+      const directWrite = toolSucceeded(firstPostTravel)
+        && firstPostTravel?.name === "write"
+        && toolPath(firstPostTravel).endsWith("next-action.md");
+      const writeCarriesFacts = directWrite && containsRequiredFacts(firstPostTravel?.args?.content);
+      const requiredWriteIndex = postTravelCalls.findIndex((call) => call.name === "write" && toolPath(call).endsWith("next-action.md"));
+      const beforeRequiredWrite = requiredWriteIndex < 0 ? postTravelCalls : postTravelCalls.slice(0, requiredWriteIndex);
+      const inspectedBeforeNext = beforeRequiredWrite.some((call) =>
+        ["read", "read_file", "find", "grep", "bash", "acm_timeline"].includes(call.name));
+
+      const t3Travel = t3.toolCalls.some((call) => call.name === "acm_travel");
+      const routerRead = t3.toolCalls.some((call) => successfullyLoadedGuidance(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = t3.toolCalls.some((call) => successfullyLoadedGuidance(call, TARGET_SELECTION_REFERENCE_PATH));
+      const advancedProbe = t3.toolCalls.some(probesAdvancedGuidance);
+      const conservativeAnswer = /need|missing|uncertain|insufficient|hold|defer|not travel|no.travel|before deciding/i.test(textForTurn(ctx, 2));
+      const skillMode = mode !== "core-only";
+      const advancedGuidance = skillMode ? routerRead && targetReferenceRead : !advancedProbe;
+      const t3Conservative = !t3Travel && conservativeAnswer;
+
+      const checks = [
+        check("T1 read findings", t1Read, t1Read ? "read" : "findings.md was not read"),
+        check("T1 checkpoint created", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing payments-latency-findings"),
+        check("T1 read before checkpoint", t1ReadBeforeCheckpoint, t1ReadBeforeCheckpoint ? "order ok" : "checkpoint preceded findings read"),
+        check("T1 stopped before travel", t1Stopped, t1Stopped ? "no travel or write" : "continued past the requested stop"),
+        check("T2 first travel attempt succeeded", firstTravelSucceeded,
+          !firstTravel ? "missing" : firstTravel.details?.error ?? (firstTravel.isError ? "error" : "ok")),
+        check("T2 structured handoff", handoff.ok, handoff.detail),
+        check("T2 travel batch exclusive", exclusiveTravel, exclusiveTravel ? "not mixed" : "mixed or failed"),
+        check("T2 chose the pre-investigation root boundary", targetRoot, `target=${firstTravel?.args?.target ?? "none"}`),
+        check("T2 backup alias", backupNamed, `backup=${firstTravel?.args?.backupCurrentHeadAs ?? "none"}`),
+        check("T2 handoff NEXT carries exact continuation", handoffCarriesFacts, handoffCarriesFacts ? "facts preserved" : "NEXT missed a required exact fact"),
+        check("T2 direct first continuation write", directWrite, directWrite ? "next-action.md first" : "first post-travel action was not write next-action.md"),
+        check("T2 write carries handoff facts", writeCarriesFacts, writeCarriesFacts ? "facts written" : "next-action.md missed a required exact fact"),
+        check("T2 did not inspect before REQUIRED NEXT", !inspectedBeforeNext, inspectedBeforeNext ? "inspection occurred before the required write" : "direct continuation"),
+        check("T3 no travel under ambiguity", !t3Travel, t3Travel ? "unexpected travel" : "held travel"),
+        check(skillMode ? "T3 read product advanced guidance" : "T3 kept core-only isolation", advancedGuidance,
+          skillMode
+            ? `router=${routerRead} target-reference=${targetReferenceRead}`
+            : `advanced-probe=${advancedProbe}`),
+        check("T3 conservative target decision", t3Conservative, t3Conservative ? "held travel pending facts" : "missing conservative no-travel explanation"),
+      ];
+      return { pass: checks.every((item) => item.pass), checks };
+    },
+  },
+  {
+    id: "advanced-pointer-routing",
+    family: "handoff-and-skill",
+    description: "Timeline names the exact advanced resource for an ambiguous target; product mode should follow it without the user naming the Skill.",
+    turns: [{
+      prompt: [
+        "Create one ACM save point named pointer-routing-base.",
+        "Then call acm_timeline with view active before answering.",
+        "A future fold target is ambiguous because interleaved fronts and a possibly missing older anchor make the nearest save point unreliable.",
+        "Do not travel. If the timeline result names condition-specific advanced guidance that is offered in this session, load that guidance before stating what facts decide the target.",
+        "If the named resource is not offered, do not search the filesystem for it; keep the conservative no-travel position and state the missing facts.",
+      ].join(" "),
+      timeoutMs: 300000,
+    }],
+    score(ctx) {
+      const checkpoint = ctx.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "pointer-routing-base");
+      const timeline = ctx.toolCalls.find((call) => call.name === "acm_timeline" && (call.args?.view ?? "active") === "active");
+      const checkpointIndex = ctx.toolCalls.indexOf(checkpoint);
+      const timelineIndex = ctx.toolCalls.indexOf(timeline);
+      const timelineAfterCheckpoint = checkpointIndex >= 0 && timelineIndex > checkpointIndex;
+      const routerRead = ctx.toolCalls.some((call) => successfullyLoadedGuidance(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = ctx.toolCalls.some((call) => successfullyLoadedGuidance(call, TARGET_SELECTION_REFERENCE_PATH));
+      const advancedProbe = ctx.toolCalls.some(probesAdvancedGuidance);
+      const traveled = ctx.toolCalls.some((call) => call.name === "acm_travel");
+      const skillMode = ctx.environmentMode !== "core-only";
+      const routing = skillMode ? routerRead && targetReferenceRead : !advancedProbe;
+      const conservativeAnswer = /missing|unknown|uncertain|need|before deciding|hold|defer|no.travel/i.test(ctx.assistantTexts.join("\n"));
+      const checks = [
+        check("checkpoint created", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing"),
+        check("timeline followed checkpoint", toolSucceeded(timeline) && timelineAfterCheckpoint,
+          timelineAfterCheckpoint ? "active timeline after save point" : "timeline missing or ran before checkpoint"),
+        check("did not travel under ambiguity", !traveled, traveled ? "unexpected travel" : "held travel"),
+        check(skillMode ? "followed exact advanced pointer" : "kept unavailable Skill isolated", routing,
+          skillMode ? `router=${routerRead} target-reference=${targetReferenceRead}` : `advanced-probe=${advancedProbe}`),
+        check("reported decision-changing missing facts", conservativeAnswer,
+          conservativeAnswer ? "missing facts named" : "no conservative target rationale"),
+      ];
+      return { pass: checks.every((item) => item.pass), checks };
+    },
+  },
+  ...BEHAVIOR_SCENARIOS,
+  ...TOPOLOGY_SCENARIOS,
 ];
 
 export function listScenarios({ family } = {}) {

@@ -10,12 +10,12 @@
 import { PiRpcDriver } from "./driver.mjs";
 
 export const JUDGE_MODEL = { provider: "local-claude", modelId: "claude-opus-4-8" };
-// v2: ceiling stops rewarding rehydrate-as-ceremony (handoff-carried details
-// make rehydrate unnecessary — correct, not a miss; empirical re-verification
-// of re-derivable facts is equally valid); timing explicitly dings folding
-// while the current turn's obligation is unfulfilled. Scores on these two
-// dimensions are not directly comparable with v1-judged runs.
-export const RUBRIC_VERSION = "acm-activation-v2";
+// v3 is outcome-first. v2 treated any fold during an unfinished turn as a
+// timing failure; v3 instead judges whether the handoff preserves that
+// obligation and whether continuation actually degrades. v1/v2 scores are
+// therefore not directly comparable with v3 scores.
+export const RUBRIC_VERSION = "acm-outcome-v3";
+export const RUBRIC_COMPARABILITY_NOTE = "v3 judges outcome rather than an unfinished-turn prohibition; v1/v2 scores are not directly comparable.";
 
 const ACM_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 
@@ -42,30 +42,48 @@ function summarizeArgs(name, args) {
  */
 export function buildTranscript(turnRecords) {
   const out = [];
+  const renderCall = (call) => {
+    const lines = [];
+    const status = call.completed !== true
+      ? "…INCOMPLETE"
+      : call.isError || call.details?.error
+        ? "✗ERROR"
+        : "✓";
+    if (ACM_TOOLS.has(call.name)) {
+      const args = JSON.stringify(call.args ?? {}, null, 2);
+      lines.push(`  ◆ ${call.name} ${status}`);
+      lines.push(`    args: ${args.replace(/\n/g, "\n    ")}`);
+      const result = (call.resultText ?? "").trim();
+      if (result) lines.push(`    result: ${result.replace(/\n/g, "\n    ")}`);
+      if (call.details) lines.push(`    details: ${JSON.stringify(call.details).slice(0, 800)}`);
+    } else {
+      const summary = summarizeArgs(call.name, call.args);
+      lines.push(`  → ${call.name}(${summary}) ${status}`);
+    }
+    return lines;
+  };
   for (const turn of turnRecords) {
     out.push(`\n════════ 阶段 ${turn.phase} ════════`);
     out.push(`【用户】${turn.prompt}`);
-    if (turn.toolCalls.length) {
-      out.push(`【助手动作】`);
-      for (const call of turn.toolCalls) {
-        const status = call.isError ? "✗ERROR" : "✓";
-        if (ACM_TOOLS.has(call.name)) {
-          const args = JSON.stringify(call.args ?? {}, null, 2);
-          out.push(`  ◆ ${call.name} ${status}`);
-          out.push(`    args: ${args.replace(/\n/g, "\n    ")}`);
-          const result = (call.resultText ?? "").trim();
-          if (result) out.push(`    result: ${result.replace(/\n/g, "\n    ")}`);
-          if (call.details) {
-            out.push(`    details: ${JSON.stringify(call.details).slice(0, 800)}`);
-          }
-        } else {
-          const summary = summarizeArgs(call.name, call.args);
-          out.push(`  → ${call.name}(${summary}) ${status}`);
+    if (Array.isArray(turn.segments)) {
+      let previousKind = null;
+      for (const segment of turn.segments) {
+        if (segment.kind === "assistant_text") {
+          out.push(`【助手回复】${segment.text}`);
+        } else if (segment.kind === "tool") {
+          if (previousKind !== "tool") out.push("【助手动作】");
+          out.push(...renderCall(segment.call));
         }
+        previousKind = segment.kind;
       }
+    } else {
+      if (turn.toolCalls.length) {
+        out.push("【助手动作】");
+        for (const call of turn.toolCalls) out.push(...renderCall(call));
+      }
+      const reply = (turn.assistantText ?? "").trim();
+      if (reply) out.push(`【助手回复】${reply}`);
     }
-    const reply = (turn.assistantText ?? "").trim();
-    if (reply) out.push(`【助手回复】${reply}`);
   }
   return out.join("\n");
 }
@@ -84,7 +102,7 @@ export function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc
 被评估的 agent 拥有三个工具:
 - \`acm_checkpoint\` — 给当前状态打一个可恢复的存档点(save point),不改变上下文。
 - \`acm_timeline\` — 查看会话树、存档点、summary 深度、上下文用量。
-- \`acm_travel\` — 用一份七槽 handoff(Goal/State/Evidence/External/Exclusions/Recover/NEXT)把已成 sediment 的\
+- \`acm_travel\` — 用一份 structured handoff(goal/state/evidence/external/exclusions/recover/next)把已成 sediment 的\
 原始过程折叠(fold)成 working set;也可 rebase 到更早的基底,或 rehydrate 取回归档细节。
 
 **关键:这段会话是去 priming 的——用户从头到尾没有提过 context、压缩、存档、折叠、rebase,也没提过任何 acm_* 工具。**\
@@ -93,13 +111,18 @@ export function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc
 ## 每个阶段本应存在的机会(答案钥匙,agent 并不知道)
 ${buildOpportunityKey(opportunities)}
 
+## 标尺版本
+本轮使用 **${RUBRIC_VERSION}**。它把时机判断改为 outcome-first：旧版 v1/v2 的分数与本轮**不可直接比较**，
+因为旧版曾把“当前回合仍有义务时 travel”本身视作时机错误。
+
 ## 评分维度(每项 0-3 分:0=缺失/错误,1=差,2=合格,3=优秀)并给出 attribution
 1. **activation 激活**:在无提示下到底用没用 ACM。弱模型的地板是哪怕只做了压缩/rebase。
-2. **timing_and_measure 时机与度**:有真 sediment 才折;**没有为折而折**;当不确定性还活着、下一步动作明确时忍住不折。\
-   机械地"到阶段就折"是缺陷不是优点。**在当前回合义务未履行时折叠是明确的时机错误**——\
-   测试还红、用户问题还没答、改动只落地一半,这些时刻折叠就算 handoff 写得再好也扣分。
+2. **timing_and_measure 时机与度（outcome-first）**:有真 sediment 才折;**没有为折而折**;当不确定性还活着、下一步动作明确时通常应继续。\
+   机械地“到阶段就折”是缺陷不是优点。但“当前回合还有义务”**本身不是自动扣分条件**：若 handoff 明确保留了测试、回答、未完成改动等义务，\
+   travel 后 agent 直接从 NEXT 继续，且没有丢失事实、无谓重读、thrash 或转去错误工作，这可以是正确的时机选择。\
+   只有 transcript 显示 travel 造成义务遗漏/扭曲、继续被打断、重复探索、错误行动或任务事实性变差，才把它判为时机错误。
 3. **handoff_quality**:折叠产生的 handoff 能否通过 cold start——新 agent 只凭它和指针能否立刻接着干,\
-   七槽是否完整、State 是否带了 hot set 和未决项。
+   structured fields 是否完整、State 是否带了 hot set 和未决项。
 4. **recoverability 可恢复性**:高风险改动/分叉前是否先 save;需要回退/取回时是否命中**精确正确的节点**,\
    而不是就近的标签(anchor gravity)。
 5. **ceiling 天花板**:是否出现高级/涌现操作——fork、rehydrate 往返、rebase 到最早安全基底、精确 target 选择,\

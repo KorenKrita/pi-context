@@ -1,6 +1,6 @@
 # ACM Tool Contracts
 
-This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `CORE.md` owns judgment about the working set and cadence (道 and 度). Generated TypeScript must be refreshed with `bun run generate:guidance`.
+This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `docs/acm-judgment-contract.md` owns judgment semantics, projected to models through `CORE.md`. Generated TypeScript must be refreshed with `bun run generate:guidance`.
 
 ## Tool descriptions
 
@@ -49,19 +49,27 @@ Run acm_travel alone in its assistant tool batch, and read its result before bui
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point applied; the working set is unchanged. This state is now cheap to return to — explore or compress boldly. When the raw process behind this point stops earning its place, acm_travel targeting it folds that process into a handoff.
+Save point applied; the working set is unchanged. This state is now cheap to return to and acts as an activation foothold for later orientation. Use timeline when topology evidence would improve the next judgment; choose any later travel target by the material it precedes, not merely by this checkpoint.
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-Travel applied: the handoff is now the working set. Verify target, summary leaf, backup, and sync state from this result, then execute NEXT. Files and external systems kept their state — inspect them directly, and rehydrate the archive if one exact detail is missing.
+Travel applied: this result is the mutation receipt, and the handoff is now the authoritative working set. Execute NEXT directly. Trust the handoff's known state; verify only uncertainty it explicitly carries or facts changed by later independent activity. Rehydrate only when one exact missing detail is actually needed.
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another. Rebase instead: merge surviving state into one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
+This spine already carries handoff layers; the next fold would stack another, so a rebase check is worthwhile. Rebase only if one new cold-start handoff at the earliest safe base would replace competing layers and have a better net effect than continuing or making a local fold. Root is a candidate, never a default.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
+<!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->
+If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/target-selection.md` relative to the Skill directory.
+<!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
+
+<!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:START -->
+Before deciding whether or how to retry, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/exceptional-recovery.md` relative to the Skill directory.
+<!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:END -->
+
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-`active` is the spine the model sees. If sediment is visible — distilled bursts, rejected directions, finished phases — fold it into a handoff; keep working raw only when you can name why it must stay live.
+`active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->

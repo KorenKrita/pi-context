@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-21T09:38:00Z",
+  "title": "ACM expanded multi-model evaluation and settled-delivery follow-up",
+  "scope": "Compact evidence index for the 2026-07-21 expanded evaluation. Raw reports, sessions, event streams, workspace outputs, and judge artifacts remain under eval/.runs; this file deliberately does not duplicate transcripts.",
+  "product": {
+    "evaluationLine": [
+      {
+        "commit": "232cd88bc35451a0bdf0fd40f24919d20a79f906",
+        "subject": "fix: expose exact advanced Skill router path"
+      },
+      {
+        "commit": "2899c76121255d3451297d0e7e64304a3e5cbe0e",
+        "subject": "fix: settle traveled context after agent run",
+        "role": "production settled-delivery candidate"
+      },
+      {
+        "commit": "3f9653fcd32e029a995021f71f9d540757258841",
+        "subject": "fix: harden settled context delivery",
+        "role": "hardening successor"
+      }
+    ],
+    "runtimeVersions": {
+      "livePiCli": "0.80.10",
+      "pinnedHostFixture": "0.80.7",
+      "interpretation": "Live behavioral evaluations used the locally installed Pi CLI; deterministic host-contract verification remains pinned to Pi 0.80.7. These are intentionally reported separately."
+    }
+  },
+  "matrixCampaign": {
+    "runs": [
+      {
+        "path": "eval/.runs/matrix-2026-07-21T02-15-32-122Z-acm-expanded-model-effort-v1-p64228",
+        "jobs": 136,
+        "rawSummary": {
+          "passed": 93,
+          "scenarioFailures": 32,
+          "providerFailures": 1,
+          "terminalFailures": 10,
+          "rawPassRate": 0.744
+        }
+      },
+      {
+        "path": "eval/.runs/matrix-2026-07-21T03-28-36-128Z-acm-expanded-model-effort-v1-p64085",
+        "jobs": 136,
+        "purpose": "second expanded run before later scorer/provider calibration"
+      },
+      {
+        "path": "eval/.runs/matrix-2026-07-21T04-56-17-781Z-acm-expanded-followup-v1-p33257",
+        "jobs": 29,
+        "purpose": "serial follow-up for calibrated outcome scoring, topology timing, and provider retry separation",
+        "rawSummary": {
+          "passed": 15,
+          "scenarioFailures": 14,
+          "providerFailures": 0,
+          "terminalFailures": 0,
+          "rawPassRate": 0.5172413793103449
+        }
+      }
+    ],
+    "comparability": "The raw pass rates above are not a product score and must not be compared as a before/after metric: the campaign separately corrected scorer false negatives, tool-shape bias, workspace leakage, scenario temporal conflicts, and local provider/terminal failures. Calibrated conclusions below use the corrected task/outcome classification and explicitly separate provider-invalid results."
+  },
+  "calibratedBehavior": {
+    "primaryShortScenarios": {
+      "passed": 84,
+      "total": 96,
+      "note": "Controlled primary behavior coverage across models, efforts, and core-only/product-isolated environments after follow-up classification."
+    },
+    "cleanCycleRestraint": {
+      "passed": 23,
+      "total": 24,
+      "meaning": "After a successful transition, a small independent task should not induce ritual checkpoint/travel."
+    },
+    "unpromptedPivotFold": {
+      "passed": 15,
+      "total": 24,
+      "meaning": "After prior work sediment, an unrelated front should be checkpointed/folded before the new work and continue directly. This is the largest ordinary-behavior gap in the calibrated set."
+    },
+    "pressureFramingProbe": {
+      "noTravelAttempt": 16,
+      "total": 16,
+      "taskComparisonPassed": 12,
+      "taskComparisonTotal": 16,
+      "boundary": "This is a pressure-framing probe, not a real runtime 30/50/70 usage-nudge measurement."
+    },
+    "checkpointPreciseRecovery": {
+      "passed": 4,
+      "total": 4,
+      "models": ["gpt-5.6-sol", "claude-opus-4-8", "deepseek-v4-flash", "kimi-k3"],
+      "meaning": "The models selected the semantically correct base over a nearer decoy and then continued from the returned handoff."
+    },
+    "rehydrateBaselineFollowup": {
+      "gpt-5.6-sol": "pass",
+      "claude-opus-4-8": "fail",
+      "deepseek-v4-flash": "fail",
+      "kimi-k3": "fail",
+      "meaning": "The baseline round-trip remained model-sensitive and motivated the later continuation/settled-delivery experiments."
+    }
+  },
+  "advancedSkillRouting": {
+    "staticLocationBridge": {
+      "commit": "91d26d62",
+      "results": {
+        "mimo-v2.5": "0/3",
+        "claude-haiku-4-5": "3/3",
+        "claude-sonnet-5": "2/2"
+      },
+      "interpretation": "Naming the available-skill location process helped Haiku but did not make MiMo reliably read the router/reference."
+    },
+    "dynamicExactPathBridge": {
+      "commit": "232cd88bc35451a0bdf0fd40f24919d20a79f906",
+      "productIsolatedResults": {
+        "mimo-v2.5": "3/3",
+        "claude-haiku-4-5": "2/2",
+        "claude-sonnet-5": "1/1"
+      },
+      "coreIsolation": "2/2",
+      "runs": [
+        "eval/.runs/2026-07-21T06-32-26-945Z-eval-mimo-v2.5-p10726",
+        "eval/.runs/2026-07-21T06-32-54-154Z-eval-mimo-v2.5-p11196",
+        "eval/.runs/2026-07-21T06-33-24-325Z-eval-mimo-v2.5-p11775",
+        "eval/.runs/2026-07-21T06-33-55-220Z-eval-claude-haiku-4-5-p12603",
+        "eval/.runs/2026-07-21T06-34-16-088Z-eval-claude-haiku-4-5-p13133",
+        "eval/.runs/2026-07-21T06-34-37-536Z-eval-claude-sonnet-5-p13333",
+        "eval/.runs/2026-07-21T06-35-08-868Z-eval-mimo-v2.5-p14128",
+        "eval/.runs/2026-07-21T06-35-24-468Z-eval-claude-haiku-4-5-p10725"
+      ],
+      "interpretation": "A pointer based on getCommands() provenance exposed the exact checkout router path only when the Skill was actually available. The two core-only runs independently verified that no Skill pointer was exposed there."
+    }
+  },
+  "continuationAndSettledDelivery": {
+    "continuationWordingPrototype": {
+      "commit": "0944da397a9966cf454d62338597338267a9ada0",
+      "verdict": "no-go",
+      "reason": "The wording-only receipt neutralization did not provide sufficient controlled improvement to enter production."
+    },
+    "deferredRefreshPrototype": {
+      "commit": "ab0598a761d9926745218fca3cbb52060a484894",
+      "verdict": "A/B input, not production",
+      "results": {
+        "claude-opus-4-8": "control 0/3 -> prototype 3/3",
+        "kimi-k3": "baseline problem -> prototype 2/2",
+        "gpt-5.6-sol": "1/1 valid",
+        "deepseek-v4-flash": "1/3"
+      },
+      "providerInvalidHandling": "Provider-invalid runs were kept separate from behavioral outcomes."
+    },
+    "freshProductionCandidate": {
+      "commit": "2899c76121255d3451297d0e7e64304a3e5cbe0e",
+      "scenario": "rehydrate-round-trip",
+      "results": {
+        "claude-opus-4-8": "1/2 strict; the other run reached the final outcome but did not read at strict T5",
+        "kimi-k3": "2/2",
+        "gpt-5.6-sol": "0/1; backup misuse",
+        "deepseek-v4-flash": "1/2"
+      },
+      "runs": [
+        "eval/.runs/2026-07-21T08-33-31-557Z-eval-claude-opus-4-8-p55455",
+        "eval/.runs/2026-07-21T08-35-43-774Z-eval-claude-opus-4-8-p58647",
+        "eval/.runs/2026-07-21T08-38-22-776Z-eval-kimi-k3-p61816",
+        "eval/.runs/2026-07-21T08-43-40-452Z-eval-kimi-k3-p70751",
+        "eval/.runs/2026-07-21T08-47-55-598Z-eval-gpt-5.6-sol-p73064",
+        "eval/.runs/2026-07-21T08-49-28-402Z-eval-deepseek-v4-flash-p73793",
+        "eval/.runs/2026-07-21T08-50-45-757Z-eval-deepseek-v4-flash-p55454"
+      ],
+      "interpretation": "Settled delivery removes a demonstrated class of mid-run replacement hazard, but rehydrate success is not yet uniform across model families."
+    }
+  },
+  "realPressureLongFlows": {
+    "gpt-5.6-sol": {
+      "run": "eval/.runs/2026-07-21T09-01-37-137Z-flow-gpt-5.6-sol-p89668",
+      "environment": "core-only",
+      "productCommit": "3f9653fc",
+      "judge": "local-claude/claude-opus-4-8 high, acm-outcome-v3",
+      "overall": 2,
+      "taskCompletion": 3,
+      "timingAndMeasure": 2,
+      "peakContextPercent": 56,
+      "finding": "Task facts stayed correct and the handoff was strong, but a second P2 travel without new material was judged overfold; later recovery discipline was incomplete."
+    },
+    "claudeOpusSameModelPair": {
+      "boundary": "Single-pair stochastic observation at the same model and high thinking level. It is not a causal estimate or a general product ranking.",
+      "coreOnly": {
+        "run": "eval/.runs/2026-07-21T09-38-30-459Z-flow-claude-opus-4-8-p21313",
+        "environment": "core-only",
+        "productCommit": "3f9653fc",
+        "judge": "local-claude/claude-opus-4-8 high, acm-outcome-v3",
+        "overall": 3,
+        "timingAndMeasure": 3,
+        "handoffQuality": 3,
+        "taskCompletion": 3,
+        "recoverability": 2,
+        "peakContextPercent": 58,
+        "p1Action": "checkpoint plus travel",
+        "finding": "It made a checkpoint before the P1 fold, then sustained outcome-first restraint without thrash."
+      },
+      "productIsolated": {
+        "run": "eval/.runs/2026-07-21T09-26-19-639Z-flow-claude-opus-4-8-p12597",
+        "environment": "product-isolated",
+        "productCommit": "3f9653fc",
+        "judge": "local-claude/claude-opus-4-8 high, acm-outcome-v3 rejudge",
+        "overall": 2,
+        "timingAndMeasure": 3,
+        "handoffQuality": 3,
+        "taskCompletion": 3,
+        "recoverability": 1,
+        "peakContextPercent": 59,
+        "checkpointCount": 0,
+        "finding": "It made one well-timed fold and explicitly avoided thrash, but never created a checkpoint; task facts stayed correct while recoverability remained weak."
+      },
+      "interpretation": "In this one matched-model observation, full product did not automatically improve the outcome; core-only showed better checkpoint cadence."
+    }
+  },
+  "verification": {
+    "deterministicGate": {
+      "commit": "3f9653fcd32e029a995021f71f9d540757258841",
+      "rootTests": 256,
+      "hostFixtureTests": 50,
+      "typecheck": "green",
+      "guidanceCheck": "green"
+    },
+    "independentReview": {
+      "initialReview": {
+        "commit": "2899c76121255d3451297d0e7e64304a3e5cbe0e",
+        "findings": 4
+      },
+      "followupFixCommit": "3f9653fcd32e029a995021f71f9d540757258841",
+      "finalReviewedRange": "2899c761..3f9653fc",
+      "finalResult": "0 P0-P3 findings"
+    }
+  },
+  "limits": [
+    "Behavioral runs are stochastic single or small-n observations, not a universal ranking of models or efforts.",
+    "core-only and product-isolated are controlled package environments; neither represents every user-global extension, MCP server, workspace, or real task history.",
+    "The expanded matrix raw pass rate is intentionally non-comparable across its calibration iterations; use the calibrated scenario conclusions and raw artifact paths together.",
+    "The long flows exercised a 40k context window and reached 56%/58%/59% peak context, so they validate real runtime behavior but do not cover every 30/50/70 nudge transition or longer production session.",
+    "The Opus core-only/product-isolated comparison is a single stochastic pair. It shows no automatic full-product uplift in that observation and a better core checkpoint cadence, not a general causal effect.",
+    "No evidence here establishes a global optimum. It records observed strengths, regression targets, and remaining model-specific failure modes."
+  ]
+}

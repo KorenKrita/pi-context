@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T20:50:00Z",
+  "productCommit": "46cb3ad57696cf2478caea8553aee8ac4336c182",
+  "model": "local-openai/deepseek-v4-flash",
+  "thinkingLevel": "high",
+  "environmentMode": "core-only",
+  "scenario": "structured-handoff-continuation-and-skill",
+  "question": "Does a throwaway one-shot guard improve the weak model's first post-travel action when NEXT unambiguously starts with write next-action.md?",
+  "prototype": {
+    "scope": "Throwaway extension; parsed only natural-language NEXT beginning with write/create and blocked the first mismatching tool call once.",
+    "committedToProduct": false,
+    "removedAfterExperiment": true
+  },
+  "baseline": {
+    "runs": 8,
+    "passed": 8,
+    "firstActionMismatches": 0,
+    "runIds": [
+      "2026-07-20T20-43-53-874Z-eval-deepseek-v4-flash-p63423",
+      "2026-07-20T20-44-41-357Z-eval-deepseek-v4-flash-p63835",
+      "2026-07-20T20-45-22-950Z-eval-deepseek-v4-flash-p64384",
+      "2026-07-20T20-45-54-980Z-eval-deepseek-v4-flash-p64833",
+      "2026-07-20T20-46-37-988Z-eval-deepseek-v4-flash-p65145",
+      "2026-07-20T20-47-17-454Z-eval-deepseek-v4-flash-p65433",
+      "2026-07-20T20-47-47-457Z-eval-deepseek-v4-flash-p65728",
+      "2026-07-20T20-48-24-768Z-eval-deepseek-v4-flash-p66055"
+    ]
+  },
+  "guardArm": {
+    "runs": 8,
+    "passed": 7,
+    "firstActionMismatches": 0,
+    "guardBlocksObserved": 0,
+    "failureShape": "The first action was already the expected write, but the written content omitted a required fact; a first-action guard cannot correct content quality.",
+    "runIds": [
+      "2026-07-20T20-37-59-934Z-eval-deepseek-v4-flash-p60352",
+      "2026-07-20T20-38-31-410Z-eval-deepseek-v4-flash-p60645",
+      "2026-07-20T20-39-11-837Z-eval-deepseek-v4-flash-p60972",
+      "2026-07-20T20-39-40-177Z-eval-deepseek-v4-flash-p61238",
+      "2026-07-20T20-40-28-286Z-eval-deepseek-v4-flash-p61614",
+      "2026-07-20T20-40-58-004Z-eval-deepseek-v4-flash-p61851",
+      "2026-07-20T20-41-36-356Z-eval-deepseek-v4-flash-p62202",
+      "2026-07-20T20-42-20-981Z-eval-deepseek-v4-flash-p62588"
+    ]
+  },
+  "historicalContext": {
+    "earlierWeakReplication": "2/3 direct first action at commit 7882e7c3; one run inspected and reread before writing.",
+    "currentInterpretation": "After subsequent receipt, evidence, open-turn, and target improvements, the mismatch did not reproduce in 16 contemporary runs across both arms."
+  },
+  "verdict": {
+    "decision": "do_not_ship_one_shot_guard",
+    "reason": "The prototype observed no mismatch to prevent, baseline outperformed the guard arm 8/8 versus 7/8, and the only guard-arm failure was outside the mechanism's scope. Production enforcement would add autonomy cost without demonstrated current benefit.",
+    "reopenWhen": "Reconsider only after a contemporary guard-off cohort shows a material rate of eligible first-action mismatch, with at least four mismatches in sixteen valid runs and a guard-on arm demonstrating block-then-recovery without task or strong-model regression."
+  }
+}

@@ -6,7 +6,7 @@ import { AcmSessionRuntime } from "./runtime.js";
 import { registerTimelineTool } from "./timeline-tool.js";
 import { registerTravelTool } from "./travel-tool.js";
 
-export { fixOrphanedToolUse } from "./message-sanitizer.js";
+export { fixOrphanedToolUse } from "./tool-protocol.js";
 export { ensureAcmCoreSegment } from "./prompt-registration.js";
 
 /** ACM composition root. Domain behavior lives in behavior-owned modules. */

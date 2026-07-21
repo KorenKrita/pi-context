@@ -138,7 +138,7 @@ describe("ACM tool rendering", () => {
       searchTruncated: true,
       activeSummaryDepth: 1,
       contextUsage: { tokens: 120000, contextWindow: 400000, percent: 30 },
-      liveAgentSessionSyncState: "applied",
+      contextDeliveryPhase: "active",
     };
     const collapsed = timeline.renderResult!(
       { content: [{ type: "text", text: raw }], details },
@@ -163,17 +163,48 @@ describe("ACM tool rendering", () => {
     expect(render(expanded)).toContain("match five");
   });
 
+  test("timeline renders legacy checkpoint details without inventing zero entry counts", () => {
+    const args = { view: "checkpoints", limit: 5 };
+    const result = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]\n---------------------------------------------------\nlegacy checkpoint" }],
+        details: {
+          view: "checkpoints",
+          checkpointsDisplayedAliases: 2,
+          checkpointsMatchingAliases: 4,
+          activeSummaryDepth: 0,
+          contextDeliveryPhase: "active",
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+
+    const output = render(result);
+    expect(output).toContain("2/4 aliases shown · summary depth 0");
+    expect(output).not.toContain("0/0 entries");
+  });
+
   test("travel renders the target, archive pointer, and structural deltas", () => {
     const args = {
       target: "parser-fix-start",
       backupCurrentHeadAs: "parser-fix-done",
-      summary: "Goal: x\nState: x\nEvidence: x\nExternal: none\nExclusions: none\nRecover: parser-fix-done\nNEXT: x",
+      handoff: {
+        goal: "x",
+        state: "x",
+        evidence: "x",
+        external: "none",
+        exclusions: "none",
+        recover: "parser-fix-done",
+        next: "x",
+      },
     };
     const call = travel.renderCall!(args, theme, renderContext(args));
     const callOutput = render(call);
     expect(callOutput).toContain("◆ ACM TRAVEL  → parser-fix-start");
     expect(callOutput).toContain("backup parser-fix-done");
-    expect(callOutput).toContain(`handoff ${args.summary.length} chars`);
+    expect(callOutput).toContain(`field content ${Object.values(args.handoff).reduce((sum, value) => sum + value.length, 0)} chars`);
 
     const result = travel.renderResult!(
       {
@@ -190,7 +221,7 @@ describe("ACM tool rendering", () => {
           activeSummaryDepthBefore: 2,
           activeSummaryDepthAfter: 1,
           backupCurrentHeadAs: "parser-fix-done",
-          liveAgentSessionSyncState: "pending",
+          contextDeliveryPhase: "pending_run_settle",
         },
       },
       { expanded: false, isPartial: false },
@@ -202,7 +233,7 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
-    expect(output).toContain("live sync pending");
+    expect(output).toContain("delivery pending_run_settle · evidence verified · persisted refresh pending");
   });
 
   test("renderers surface actionable error states instead of success chrome", () => {
@@ -218,7 +249,7 @@ describe("ACM tool rendering", () => {
       { content: [{ type: "text", text: "Error: branch prevalidation failed" }], details: { error: "branch_prevalidation_failed" } },
       { expanded: false, isPartial: false },
       theme,
-      renderContext({ target: "root", summary: "" }),
+      renderContext({ target: "root", handoff: {} }),
     );
     expect(render(travelWarning)).toContain("⚠ TRAVEL NEEDS ATTENTION");
   });
@@ -230,7 +261,7 @@ describe("ACM tool rendering", () => {
     const components = [
       checkpoint.renderCall!({ name: payload, target: payload }, theme, renderContext({ name: payload, target: payload })),
       timeline.renderCall!({ view: "search", query: payload }, theme, renderContext({ view: "search", query: payload })),
-      travel.renderCall!({ target: payload, backupCurrentHeadAs: payload, summary: "x" }, theme, renderContext({ target: payload })),
+      travel.renderCall!({ target: payload, backupCurrentHeadAs: payload, handoff: { goal: payload } }, theme, renderContext({ target: payload })),
       checkpoint.renderResult!(
         { content: [{ type: "text", text: payload }], details: { error: "unsafe" } },
         { expanded: false, isPartial: false },
@@ -266,7 +297,7 @@ describe("ACM tool rendering", () => {
             checkpointsDisplayedAliases: 1,
             checkpointsMatchingAliases: 1,
             rootCandidateEntryId: payload,
-            liveAgentSessionSyncState: payload,
+            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },
@@ -281,7 +312,7 @@ describe("ACM tool rendering", () => {
             resultingLeafId: payload,
             structuralMessageDirection: payload,
             backupCurrentHeadAs: payload,
-            liveAgentSessionSyncState: payload,
+            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },

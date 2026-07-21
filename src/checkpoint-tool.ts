@@ -25,18 +25,17 @@ import {
   isCheckpointableMessage,
 } from "./entry-resolution.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
     name: Type.String({
       minLength: 1,
-      maxLength: 64,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic save-point name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the state a future search should find, e.g. payments-retry-baseline, flaky-test-attempt-2, latency-hunt-scan. Suffixes are naming convention only; they never classify workflow state. Avoid generic names like checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots. Max 64 chars.",
+      description: "Semantic save-point name; unique and case-sensitive across the session tree. The structural target keyword 'root' is reserved in every letter case. Name the state a future search should find, e.g. payments-retry-baseline, flaky-test-attempt-2, latency-hunt-scan. Suffixes are naming convention only; they never classify workflow state. Avoid generic names like checkpoint-1 or temp. Only letters, digits, hyphens, underscores, and dots.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      maxLength: 256,
       description: "History node ID or checkpoint name to label. Defaults to the nearest meaningful USER/AI turn; use an explicit target to label an older return state.",
     })),
   }, { additionalProperties: false });
@@ -186,7 +185,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           return {
             content: [{
               type: "text" as const,
-              text: `Checkpoint '${params.name}' already belongs to ${conflict.entryId} (${conflict.onActivePath ? "on-path" : "off-path"}). ${RECOVERY_GUIDANCE.nameCollision}`,
+              text: `Checkpoint '${params.name}' already belongs to ${conflict.entryId} (${conflict.onActivePath ? "on-path" : "off-path"}). ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}`,
             }],
             details: {
               error: "duplicate_name",

@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T18:31:10Z",
+  "productCommit": "4153804cd1b6471314a247fb0384190c3475abfa",
+  "scenario": "advanced-pointer-routing",
+  "thinkingLevel": "high",
+  "purpose": "Verify that a condition-specific pointer emitted by acm_timeline causes strong and weaker models to read the exact context-management router and target-selection reference without the user naming the Skill, while core-only stays isolated.",
+  "matrixResult": {
+    "passed": 4,
+    "total": 4,
+    "scope": "One controlled pointer-routing run per model and environment cell; this proves availability plus conditional invocation in the analogue, not spontaneous production frequency."
+  },
+  "scorerContract": {
+    "productReadRequiresMatchingSuccessfulCompletion": true,
+    "coreOnlyRejectsSkillDocumentationAndFilesystemProbes": true,
+    "travelMustRemainAbsent": true
+  },
+  "runs": [
+    {
+      "runId": "2026-07-20T18-29-22-313Z-eval-gpt-5.6-sol-p43750",
+      "model": "local-responses/gpt-5.6-sol",
+      "environmentMode": "core-only",
+      "durationMs": 13255,
+      "pass": true,
+      "skillAvailability": "absent_as_expected",
+      "toolSequence": ["acm_checkpoint", "acm_timeline"],
+      "routerRead": false,
+      "targetSelectionReferenceRead": false,
+      "traveled": false
+    },
+    {
+      "runId": "2026-07-20T18-30-32-407Z-eval-gpt-5.6-sol-p44384",
+      "model": "local-responses/gpt-5.6-sol",
+      "environmentMode": "product-isolated",
+      "durationMs": 22522,
+      "pass": true,
+      "skillAvailability": "available_from_expected_checkout",
+      "skillPath": "skills/context-management/SKILL.md",
+      "toolSequence": ["acm_checkpoint", "acm_timeline", "read", "read"],
+      "routerRead": true,
+      "targetSelectionReferenceRead": true,
+      "traveled": false
+    },
+    {
+      "runId": "2026-07-20T18-27-09-174Z-eval-deepseek-v4-flash-p42286",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "core-only",
+      "durationMs": 14667,
+      "pass": true,
+      "skillAvailability": "absent_as_expected",
+      "toolSequence": ["acm_checkpoint", "acm_timeline"],
+      "routerRead": false,
+      "targetSelectionReferenceRead": false,
+      "traveled": false
+    },
+    {
+      "runId": "2026-07-20T18-27-49-454Z-eval-deepseek-v4-flash-p42891",
+      "model": "local-openai/deepseek-v4-flash",
+      "environmentMode": "product-isolated",
+      "durationMs": 20049,
+      "pass": true,
+      "skillAvailability": "available_from_expected_checkout",
+      "skillPath": "skills/context-management/SKILL.md",
+      "toolSequence": ["acm_checkpoint", "acm_timeline", "read", "read"],
+      "routerRead": true,
+      "targetSelectionReferenceRead": true,
+      "traveled": false
+    }
+  ]
+}

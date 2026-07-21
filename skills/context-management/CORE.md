@@ -1,6 +1,6 @@
 # ACM Canonical Guidance — CORE
 
-This file owns the always-on ACM doctrine (道 and 度). Tool descriptions, prompt metadata, result cues, and recovery text live in `TOOL-CONTRACTS.md` (术). Generated TypeScript must be refreshed with `bun run generate:guidance`.
+This file is the always-on model-facing projection of `docs/acm-judgment-contract.md`. Tool descriptions, prompt metadata, result cues, and recovery text live in `TOOL-CONTRACTS.md` (术). Changes to judgment semantics originate in the contract; generated TypeScript must be refreshed with `bun run generate:guidance`.
 
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE
@@ -20,7 +20,7 @@ Raw process whose outcome is already extracted — logs read, diffs applied, sea
 
 - **Save** — `acm_checkpoint` labels the current state so it can be found again. It never blocks, branches, or folds anything. Save when returning here later has real value: before a risky attempt, at a validated baseline, before a fork in strategy, when parking one front to work another, before folding raw history away. Recoverability is what makes bold compression and bold exploration cheap. File backups protect the disk; a checkpoint protects this conversation — they never substitute for each other; a risky step deserves both.
 - **Orient** — `acm_timeline` shows the spine, save points, summary depth, usage, and sync state. It reports facts; what they justify stays your call.
-- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. The single test is **cold start**: could a fresh agent, given only the handoff and its pointers, continue immediately — knowns still known, unknowns still open, NEXT executable? Folding mid-investigation is fine when the handoff carries the uncertainty faithfully. Before traveling, answer in one line: what leaves the working set, what pointer recovers it, and what single action is NEXT — and never fold away an unfulfilled promise to the user: red tests, an unanswered question, or a half-landed change stays live until it is kept. Target the last clean point before the material being folded, not the nearest label — **anchor gravity** misleads.
+- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. Fold when low-attention-value, high-noise material has a substantially more concise representation and the expected attention gain exceeds transition and continuity cost. **Cold start** is the handoff integrity test: knowns remain known, uncertainty remains open, current obligations survive, and `next` is executable. Mid-investigation travel can be valuable when those conditions hold. Target the last clean point before the material being folded, not the nearest label — **anchor gravity** misleads.
 - **Rebase** — a fold to an earlier base. When summaries stack or start competing over what is authoritative, merge everything that survives into one handoff at the earliest base that passes cold start without growing projected summary depth. Root is a candidate, never a default.
 - **Rehydrate** — travel toward an archived branch to recover one exact detail. Save your return point first, fetch the detail, then travel back carrying the extract. Compression stays reversible; that is why it can be bold.
 - **Fork** — save the fork point, explore one direction freely, and either fold the winning path forward or travel back to the fork carrying what the failed direction proved in Exclusions.
@@ -31,29 +31,29 @@ Compress continuously — integrate observations into conclusions as you work. F
 
 Two failure modes frame the healthy band. **Sediment**: a better representation exists but the raw process still occupies the working set. **Thrash**: folding tiny deltas, then immediately rereading what was just folded. Between them the band is wide, and different models legitimately choose different batch sizes inside it.
 
-Folding is a habit set by the rhythm of the work, not a reaction to a full gauge: sediment clouds attention long before it fills the window, so low usage is never by itself a reason to keep raw process live. A comfortable cruise — around a third of the working budget (the smaller of the model window and 400K) — is the result of that habit, not its trigger. That is a preference, never an override: correctness, task continuity, and cold start always win, and native compaction is a fallback only when genuinely long work outruns folding.
+ACM Judgment is independent of a full gauge: sediment can cloud attention at low usage, while high usage can still contain details whose attention value remains high. A comfortable cruise — around a third of the working budget (the smaller of the model window and 400K) — is a preferred outcome, not move authorization. Correctness, task continuity, Representation Gain, and cold start determine the result; native compaction remains available when genuinely long work outruns useful travel.
 
-The habit fires at the seams of the work: a burst of reads distilled into findings; a direction rejected; a phase completed as the next begins; a new request over finished work; a final answer coming due — run a rebase check; an archived detail needed again — rehydrate; summaries starting to stack — and, only as a backstop, when pressure has risen. At each, folding is the default, not an optional extra: when the trail behind you is already sediment, fold it and carry pointers. Skip only when you can name why the raw detail must stay live.
+Use ACM Judgment as a standing lens. Distilled reads, rejected directions, completed phases, new requests, possible return points, stacked summaries, missing archived details, and rising pressure are signals to evaluate the working set — not predetermined moves. Check for a Compression Candidate, Compressibility, Attention effect, Recovery value, and Transition effect; then choose the net-positive move or continue with the current working set.
 
 ### The handoff
 
-Seven slots, once each, in order, each starting its own line; write `none` when a slot is empty:
+`acm_travel` accepts a structured handoff with seven semantic fields: `goal`, `state`, `evidence`, `external`, `exclusions`, `recover`, and `next`. Supply every field; write `none` only for empty supporting fields. Runtime owns the durable text format.
 
-Goal / State / Evidence / External / Exclusions / Recover / NEXT
+`state` carries live cognition, not only results: knowns, unknowns, hypotheses, surviving fronts, and the hot set. `next` is one concrete action a fresh agent could execute immediately. A fold mid-investigation:
 
-`State` carries live cognition, not only results: knowns, unknowns, hypotheses, and the hot set. `NEXT` is one concrete action a fresh agent could execute immediately. A fold mid-investigation:
-
-```text
-Goal: Find why checkout p99 latency doubled since v2.3.0.
-State: Not the database — query times flat vs 2026-07-01 baseline. Two hypotheses: pool exhaustion (errors correlate, evidence weak) vs new retry loop in payments client (added in v2.3.0, untested). Hot: pool max=50 in config/prod.yaml:23; retry commit 9f31c2a.
-Evidence: dashboards/checkout-p99.json; git log v2.2.0..v2.3.0 -- services/payments.
-External: none.
-Exclusions: DB indexes — verified healthy, do not revisit.
-Recover: latency-hunt-scan.
-NEXT: Read the retry loop in services/payments/client.ts and check backoff bounds against pool max=50.
+```json
+{
+  "goal": "Find why checkout p99 latency doubled since v2.3.0.",
+  "state": "Not the database — query times flat vs 2026-07-01 baseline. Two hypotheses: pool exhaustion (errors correlate, evidence weak) vs new retry loop in payments client (added in v2.3.0, untested). Hot: pool max=50 in config/prod.yaml:23; retry commit 9f31c2a.",
+  "evidence": "dashboards/checkout-p99.json; git log v2.2.0..v2.3.0 -- services/payments.",
+  "external": "none",
+  "exclusions": "DB indexes — verified healthy, do not revisit.",
+  "recover": "latency-hunt-scan",
+  "next": "Read the retry loop in services/payments/client.ts and check backoff bounds against pool max=50."
+}
 ```
 
 ### Facts and receipts
 
-A tool call is a request; only its matching result is fact — applied, not applied, or indeterminate. Read the result before building on it. Travel rewrites conversation context only: files, processes, and external systems keep their state, covered by the `External` slot and direct inspection.
+A tool call is a request; only its matching result is fact — applied, not applied, or indeterminate. Read the mutation receipt once. After an applied travel, trust the handoff as your authoritative current state and execute `next`; verify only uncertainty recorded in the handoff or facts changed by later independent activity. Travel rewrites conversation context only: files, processes, and external systems keep the state recorded in `external`.
 <!-- ACM:CORE:END -->

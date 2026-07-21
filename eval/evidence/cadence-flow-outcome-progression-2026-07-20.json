@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T19:14:00Z",
+  "flow": "cadence-research-flow",
+  "model": "local-responses/gpt-5.6-sol",
+  "thinkingLevel": "high",
+  "judge": "local-claude/claude-opus-4-8 high",
+  "rubricVersion": "acm-outcome-v3",
+  "scope": "Diagnostic progression across different context regimes and product commits. This is not a single-variable paired causal estimate.",
+  "runs": [
+    {
+      "runId": "2026-07-20T17-16-28-821Z-flow-gpt-5.6-sol-p72325",
+      "productCommit": "effd60884b52dc91190d6ffa3d9ee49feca94587",
+      "contextRegime": "native",
+      "acmCalls": [],
+      "overallScore": 1,
+      "taskCompletionScore": 3,
+      "topAttributions": ["never-activated", "lost-recoverability"],
+      "observation": "The model completed the research accurately without ACM, but the judge marked every ACM dimension inactive. This shows strong task performance alone does not prove the product activates."
+    },
+    {
+      "runId": "2026-07-20T17-52-18-026Z-flow-gpt-5.6-sol-p8869",
+      "productCommit": "a24ec1948d26509d188d65972e5fe941ec0e682f",
+      "contextRegime": "60k shrunk window",
+      "acmCalls": ["acm_checkpoint", "acm_travel"],
+      "overallScore": 2,
+      "taskCompletionScore": 2,
+      "topAttributions": ["event-driven-overfold", "bad-handoff", "task-degraded"],
+      "observation": "The model activated at P3 and built a technically rich handoff, but claimed no answer was outstanding and failed to deliver the current official retry conclusion in that turn. This fossil motivated structural currentUserTurnOpen evidence."
+    },
+    {
+      "runId": "2026-07-20T19-32-52-758Z-flow-gpt-5.6-sol-p3846",
+      "productCommit": "a6f53652c978ceee00b3d3383fbaa872e6901408",
+      "transcriptRebuiltWith": "736b0cfcd0b140a3e2c31520de3bb23e7ca167a4",
+      "contextRegime": "40k shrunk window",
+      "flowCompleted": true,
+      "terminalStatus": "stop",
+      "acmCalls": ["acm_travel"],
+      "overallScore": 3,
+      "taskCompletionScore": 3,
+      "topAttributions": ["healthy"],
+      "observation": "The model delivered the full P3 retry ruling visibly, then rebased to root with a named raw backup and structured handoff. Context fell from 59.7% to 37.6% and messages from 16 to 1; P4-P6 continued accurately, the final synthesis completed, and the ordered outcome-v3 transcript judge gave overall 3/3 and task completion 3/3 with no transition harm."
+    }
+  ],
+  "discardedRuns": [
+    {
+      "runId": "2026-07-20T19-03-26-480Z-flow-gpt-5.6-sol-p73164",
+      "productCommit": "7882e7c35b04d3765dc54e4cdf5f8bf3e21a73c1",
+      "terminalStatus": "provider_error",
+      "flowCompleted": false,
+      "usableScope": "P1-P5 mechanism evidence only",
+      "reason": "The final P6 assistant stream ended before a terminal response event. The old runner incorrectly marked it complete; the run is excluded from full-flow scores after the terminal-error guard was added."
+    }
+  ],
+  "interpretation": [
+    "Pressure can increase activation, but activation alone is not success; timing relative to user-visible delivery is decisive.",
+    "The complete healthy run demonstrates the intended chain: deliver the current answer first, then rebase once the process is sediment; later turns continue from the handoff without task degradation.",
+    "Because context regime and product commit both changed across runs, use these as mechanism fossils and regression targets, not as a numerical causal A/B."
+  ]
+}

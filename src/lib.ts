@@ -21,62 +21,13 @@ export function sanitizeTerminalText(value: string): string {
 /** Fixed token overhead for a branch_summary entry in travel usage estimates. */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
-export const HANDOFF_SLOT_HINT = "Goal/State/Evidence/External/Exclusions/Recover/NEXT";
-
-export const HANDOFF_SLOTS = ["Goal", "State", "Evidence", "External", "Exclusions", "Recover", "NEXT"] as const;
-
-export type HandoffSlot = typeof HANDOFF_SLOTS[number];
-
-export type HandoffValidationResult =
- | { ok: true }
- | {
-   ok: false;
-   missing: HandoffSlot[];
-   empty: HandoffSlot[];
-   duplicate: HandoffSlot[];
-   outOfOrder: boolean;
-  };
-
-/** Validate only the observable seven-slot handoff shape, never semantic sufficiency. */
-export function validateHandoffStructure(summary: string): HandoffValidationResult {
- const occurrences: Record<HandoffSlot, Array<{ index: number; value: string }>> = {
-  Goal: [],
-  State: [],
-  Evidence: [],
-  External: [],
-  Exclusions: [],
-  Recover: [],
-  NEXT: [],
- };
-
- const lines = summary.split(/\r?\n/);
- for (const [index, line] of lines.entries()) {
-  for (const slot of HANDOFF_SLOTS) {
-   const prefix = `${slot}:`;
-   if (!line.startsWith(prefix)) continue;
-   occurrences[slot].push({ index, value: line.slice(prefix.length).trim() });
-  }
- }
-
- const missing = HANDOFF_SLOTS.filter((slot) => occurrences[slot].length === 0);
- const empty = HANDOFF_SLOTS.filter((slot) => occurrences[slot].some(({ value }) => value.length === 0));
- const duplicate = HANDOFF_SLOTS.filter((slot) => occurrences[slot].length > 1);
- const firstIndexes = HANDOFF_SLOTS
-  .map((slot) => occurrences[slot][0]?.index)
-  .filter((index): index is number => index !== undefined);
- const outOfOrder = firstIndexes.some((index, position) => position > 0 && index <= firstIndexes[position - 1]!);
-
- if (missing.length === 0 && empty.length === 0 && duplicate.length === 0 && !outOfOrder) return { ok: true };
- return { ok: false, missing, empty, duplicate, outOfOrder };
-}
-
 export const BOUNDARY_SELECTION_GUIDANCE = "Choose a target by what it precedes, not by proximity or name. A candidate is correct only when it sits immediately before the material being folded — anchor gravity misleads.";
 
-export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
+export function formatBoundaryTravelCue(nearestCheckpointName: string | null, advancedPointer?: string): string {
  if (nearestCheckpointName === null) {
   return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
  }
- return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads. Load Advanced Target Selection only if the target stays ambiguous`;
+ return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded; anchor gravity misleads.${advancedPointer ? ` ${advancedPointer}` : ""}`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };

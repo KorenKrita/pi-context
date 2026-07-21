@@ -11,6 +11,8 @@ function createFixture(sessionManager: object = {}) {
   const sentMessages: Array<{ message: any; options: any }> = [];
   const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let contextUsage = { tokens: 1_000, contextWindow: 100_000, percent: 1 };
+  let pendingMessages = false;
+  let signal: AbortSignal | undefined;
 
   const pi = {
     on(event: string, handler: Handler) {
@@ -37,6 +39,10 @@ function createFixture(sessionManager: object = {}) {
   const context = {
     sessionManager,
     getContextUsage: () => ({ ...contextUsage }),
+    hasPendingMessages: () => pendingMessages,
+    get signal() {
+      return signal;
+    },
     ui: { notify() {} },
   } as unknown as ExtensionContext;
 
@@ -54,6 +60,12 @@ function createFixture(sessionManager: object = {}) {
     sentMessages,
     appendedEntries,
     tools,
+    setPendingMessages(value: boolean) {
+      pendingMessages = value;
+    },
+    setSignal(value: AbortSignal | undefined) {
+      signal = value;
+    },
     setUsagePercent(value: number) {
       contextUsage = {
         ...contextUsage,
@@ -68,6 +80,163 @@ function createFixture(sessionManager: object = {}) {
 }
 
 describe("ACM context usage reminders", () => {
+  test("steers a successful travel directly into the handoff NEXT", async () => {
+    const fixture = createFixture();
+    const handoff = {
+      goal: "continue the latency investigation",
+      state: "pool max=50 and retry commit=9f31c2a are hot",
+      evidence: "findings.md",
+      external: "none",
+      exclusions: "database indexes are healthy",
+      recover: "payments-latency-raw",
+      next: "write next-action.md from the carried hot facts",
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "travel-success",
+      input: { target: "payments-latency-findings", handoff },
+      content: [],
+      isError: false,
+      details: {
+        handoffFormat: "structured-v1",
+        resultingLeafId: "summary-1",
+        currentUserTurnOpen: true,
+      },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]).toMatchObject({
+      message: {
+        customType: "acm:post-travel-continuation",
+        display: false,
+        details: {
+          kind: "post-travel-continuation",
+          toolCallId: "travel-success",
+          resultingLeafId: "summary-1",
+          next: handoff.next,
+          currentUserTurnOpen: true,
+        },
+      },
+      options: { deliverAs: "steer" },
+    });
+    expect(fixture.sentMessages[0]?.message.content).toContain(`REQUIRED NEXT: ${handoff.next}`);
+    expect(fixture.sentMessages[0]?.message.content).toContain("Earlier pre-travel requests are historical");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Evidence and Recover are optional receipts");
+    expect(fixture.sentMessages[0]?.message.content).toContain("CURRENT USER TURN IS STILL OPEN");
+  });
+
+  test("does not steer failed or domain-rejected travel results", async () => {
+    const fixture = createFixture();
+    const input = {
+      target: "root",
+      handoff: {
+        goal: "continue",
+        state: "known",
+        evidence: "none",
+        external: "none",
+        exclusions: "none",
+        recover: "none",
+        next: "act",
+      },
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "transport-error",
+      input,
+      content: [],
+      isError: true,
+      details: {},
+    });
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "domain-error",
+      input,
+      content: [],
+      isError: false,
+      details: { error: "mixed_tool_batch" },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(0);
+  });
+
+  test("still steers an applied travel when post-mutation packet evidence needs persistent recovery", async () => {
+    const fixture = createFixture();
+    const handoff = {
+      goal: "complete the already-open request",
+      state: "tree mutation was verified but packet evidence is temporarily unavailable",
+      evidence: "summary entry receipt",
+      external: "none",
+      exclusions: "do not replay folded history",
+      recover: "archive-before-fold",
+      next: "write the user-visible result from the carried state",
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "travel-applied-evidence-pending",
+      input: { target: "root", handoff },
+      content: [],
+      isError: false,
+      details: {
+        mutationStatus: "applied",
+        handoffFormat: "structured-v1",
+        resultingLeafId: "summary-evidence-pending",
+        currentUserTurnOpen: true,
+        postMutationEvidenceStatus: "unavailable",
+        postMutationEvidenceWarning: "session read failed after mutation",
+      },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]).toMatchObject({
+      message: {
+        customType: "acm:post-travel-continuation",
+        details: {
+          toolCallId: "travel-applied-evidence-pending",
+          resultingLeafId: "summary-evidence-pending",
+          next: handoff.next,
+          currentUserTurnOpen: true,
+        },
+      },
+      options: { deliverAs: "steer" },
+    });
+  });
+
+  test("does not append an old NEXT behind a pending user message or aborted run", async () => {
+    const fixture = createFixture();
+    const event = {
+      toolName: "acm_travel",
+      input: {
+        target: "root",
+        handoff: {
+          goal: "continue",
+          state: "known",
+          evidence: "none",
+          external: "none",
+          exclusions: "none",
+          recover: "none",
+          next: "write the old next action",
+        },
+      },
+      content: [],
+      isError: false,
+      details: { handoffFormat: "structured-v1", resultingLeafId: "summary-1" },
+    };
+
+    fixture.setPendingMessages(true);
+    await fixture.emit("tool_result", { ...event, toolCallId: "pending-user" });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    fixture.setPendingMessages(false);
+    const controller = new AbortController();
+    controller.abort();
+    fixture.setSignal(controller.signal);
+    await fixture.emit("tool_result", { ...event, toolCallId: "aborted" });
+    expect(fixture.sentMessages).toHaveLength(0);
+  });
+
   test("caps only windows above the 400K boundary", () => {
     expect(calculateContextUsagePressure(120_000, 400_000)).toMatchObject({
       workingBudgetTokens: 400_000,
@@ -98,8 +267,10 @@ describe("ACM context usage reminders", () => {
     });
     expect(fixture.sentMessages[0]?.message.content).toContain("[ACM Context Reminder · 30% tier]");
     expect(fixture.sentMessages[0]?.message.content).toContain("comfortable cruise range");
-    expect(fixture.sentMessages[0]?.message.content).toContain("fold that raw process into a cold-start handoff now");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Run ACM Judgment");
     expect(fixture.sentMessages[0]?.message.content).toContain("acm_checkpoint");
+    expect(fixture.sentMessages[0]?.message.content).toContain("acm_timeline");
+    expect(fixture.sentMessages[0]?.message.content).not.toContain("fold that raw process into a cold-start handoff now");
 
     fixture.setUsagePercent(35);
     await fixture.emit("context", { messages: [] });
@@ -113,9 +284,10 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 70 });
     expect(fixture.sentMessages[1]?.message.content).toContain("[ACM Context Reminder · 70% tier · Final reminder]");
-    expect(fixture.sentMessages[1]?.message.content).toContain("attention is the scarce resource");
+    expect(fixture.sentMessages[1]?.message.content).toContain("attention is scarce");
     expect(fixture.sentMessages[1]?.message.content).toContain("native compaction");
-    expect(fixture.sentMessages[1]?.message.content).toContain("acm_travel");
+    expect(fixture.sentMessages[1]?.message.content).toContain("positive net effect");
+    expect(fixture.sentMessages[1]?.message.content).not.toContain("acm_travel at the next safe moment");
     expect(fixture.sentMessages.some(({ message }) => message.details?.level === 50)).toBe(false);
   });
 
@@ -250,8 +422,8 @@ describe("ACM context usage reminders", () => {
       },
       options: { deliverAs: "followUp" },
     });
-    expect(fixture.sentMessages[0]?.message.content).toContain("Actively look for the next worthwhile fold or rebase");
-    expect(fixture.sentMessages[0]?.message.content).toContain("one batched handoff");
+    expect(fixture.sentMessages[0]?.message.content).toContain("Compression Candidate");
+    expect(fixture.sentMessages[0]?.message.content).toContain("best expected task effect");
     expect(fixture.sentMessages[0]?.message.content).toContain("acm_timeline");
   });
 
@@ -299,15 +471,15 @@ describe("ACM context usage reminders", () => {
       "travel-1",
       {
         target: rootId,
-        summary: [
-          "Goal: verify reminder reset after travel",
-          "State: travel completed",
-          "Evidence: lifecycle test",
-          "External: none",
-          "Exclusions: none",
-          "Recover: root",
-          "NEXT: continue testing context reminders",
-        ].join("\n"),
+        handoff: {
+          goal: "verify reminder reset after travel",
+          state: "travel completed",
+          evidence: "lifecycle test",
+          external: "none",
+          exclusions: "none",
+          recover: "root",
+          next: "continue testing context reminders",
+        },
       },
       undefined,
       undefined,
@@ -360,15 +532,15 @@ describe("ACM context usage reminders", () => {
       "travel-1",
       {
         target: rootId,
-        summary: [
-          "Goal: verify seeded baseline after travel",
-          "State: travel completed",
-          "Evidence: lifecycle test",
-          "External: none",
-          "Exclusions: none",
-          "Recover: root",
-          "NEXT: continue testing context reminders",
-        ].join("\n"),
+        handoff: {
+          goal: "verify seeded baseline after travel",
+          state: "travel completed",
+          evidence: "lifecycle test",
+          external: "none",
+          exclusions: "none",
+          recover: "root",
+          next: "continue testing context reminders",
+        },
       },
       undefined,
       undefined,

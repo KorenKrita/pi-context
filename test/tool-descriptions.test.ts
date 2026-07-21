@@ -18,6 +18,8 @@ describe("ACM tool description contract", () => {
     expect(checkpointTool).toContain("promptGuidelines: PROMPT_GUIDELINES.checkpoint.split(\"\\n\")");
     expect(timelineTool).toContain("promptGuidelines: PROMPT_GUIDELINES.timeline.split(\"\\n\")");
     expect(travelTool).toContain("promptGuidelines: PROMPT_GUIDELINES.travel.split(\"\\n\")");
+    expect(travelTool).toContain("handoff: HandoffSchema");
+    expect(travelTool).not.toContain("summary: Type.String");
     expect(generatedGuidance).toContain("Save point: attach a semantic label to a session node");
     expect(generatedGuidance).toContain("Omitting `target` labels the nearest meaningful USER/AI turn");
   });
@@ -38,12 +40,16 @@ describe("ACM tool description contract", () => {
     expect(timelineTool).toContain("structural candidate, not a checkpoint");
     expect(generatedGuidance).toContain("rebase stacked summaries onto an earlier base");
     expect(generatedGuidance).toContain("cold start");
+    expect(generatedGuidance).toContain("a rebase check is worthwhile");
+    expect(generatedGuidance).toContain("Rebase only if");
+    expect(generatedGuidance).toContain("better net effect than continuing or making a local fold");
+    expect(generatedGuidance).not.toContain("Rebase instead");
     expect(generatedGuidance).not.toContain("acm_rebase");
   });
 
   test("presents rehydration as a first-class travel direction", () => {
     expect(generatedGuidance).toContain("rehydrate an archived branch");
-    expect(generatedGuidance).toContain("rehydrate the archive if one exact detail is missing");
+    expect(generatedGuidance).toContain("Rehydrate only when one exact missing detail is actually needed");
   });
 
   test("uses the strict single-object timeline contract", () => {
@@ -63,7 +69,8 @@ describe("ACM tool description contract", () => {
   test("keeps repository guidance aligned with modular runtime ownership", () => {
     expect(agents).toContain("`acm_timeline` 使用 strict `view` discriminator");
     expect(agents).toContain("不要恢复旧的 `estimatedEffect` / `structuralEffect` 阈值 verdict");
-    expect(agents).toContain("`skills/context-management/CORE.md`：道与度（judgment doctrine）的 canonical source");
+    expect(agents).toContain("`docs/acm-judgment-contract.md`：ACM 判断语义与度的 canonical source");
+    expect(agents).toContain("`skills/context-management/CORE.md`：Judgment Contract 面向模型的 always-on projection");
     expect(agents).toContain("`skills/context-management/TOOL-CONTRACTS.md`：术（tool mechanics text）的 canonical source");
   });
 });

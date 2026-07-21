@@ -76,6 +76,7 @@ function captureTimelineTool() {
       getAttemptCount: () => 0,
       hasRebuilt: () => false,
     },
+    getContextDeliveryPhase: () => "active",
     getLiveAgentSyncStatus: () => ({ status: "idle" }),
   };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);
@@ -97,7 +98,7 @@ describe("semantic rebase evidence", () => {
     expect(projectSummaryDepthAfterTravel([root])).toBe(1);
   });
 
-  test("active HUD exposes stacked-summary evidence and the canonical rebase cue", async () => {
+  test("active HUD exposes stacked-summary evidence and a recognition-only rebase cue", async () => {
     const root = message("root", null, "root");
     const first = summary("summary-1", "root", "first handoff");
     const current = message("current", "summary-1", "current");
@@ -116,6 +117,9 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("Summary Depth:    1 active handoff summary layer(s) on the current spine");
     expect(result.content[0].text).not.toContain("normalized rebase");
     expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
+    expect(result.content[0].text).toContain("a rebase check is worthwhile");
+    expect(result.content[0].text).toContain("Rebase only if");
+    expect(result.content[0].text).not.toContain("Rebase instead");
   });
 
   test("checkpoint view exposes root as a structural candidate with projected depth", async () => {

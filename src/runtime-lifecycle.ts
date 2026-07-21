@@ -3,7 +3,10 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { appendCheckpointLabel, buildSessionMessages } from "./host-bridge.js";
+import { appendCheckpointLabel } from "./host-bridge.js";
+import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
+import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
+import { formatToolProtocolDefects } from "./tool-protocol.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -11,11 +14,66 @@ import {
   restoreContextUsageNudgeState,
 } from "./context-usage-nudge.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
-import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
+import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
-import { fixOrphanedToolUse } from "./message-sanitizer.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+
+interface TravelToolResultLike {
+  toolName: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+  isError: boolean;
+  details?: unknown;
+}
+
+export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
+  if (event.toolName !== "acm_travel" || event.isError) return null;
+  const details = typeof event.details === "object" && event.details !== null
+    ? event.details as Record<string, unknown>
+    : undefined;
+  if (details?.error !== undefined || details?.handoffFormat !== "structured-v1" || typeof details.resultingLeafId !== "string") {
+    return null;
+  }
+  const handoff = buildCanonicalHandoff(event.input.handoff as HandoffWireInput);
+  if (!handoff.ok) return null;
+  const next = handoff.value.fields.next;
+  const currentUserTurnOpen = details.currentUserTurnOpen === true;
+  return {
+    customType: "acm:post-travel-continuation",
+    content: [
+      "[ACM POST-TRAVEL CONTINUATION]",
+      "Travel succeeded. This message is not a new objective; it makes the authoritative handoff's current instruction explicit after the transition.",
+      `REQUIRED NEXT: ${next}`,
+      ...(currentUserTurnOpen ? [
+        "CURRENT USER TURN IS STILL OPEN: deliver the result requested by the user who triggered travel. Ignore any NEXT that merely waits for another request; recording an answer in State is not user-visible delivery.",
+      ] : []),
+      "Earlier pre-travel requests are historical. Execute REQUIRED NEXT once now; do not reread folded material, recreate an old save point, or replay an earlier task unless REQUIRED NEXT explicitly requires it.",
+      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites; do not open them unless REQUIRED NEXT names them.",
+    ].join("\n"),
+    display: false,
+    details: {
+      kind: "post-travel-continuation",
+      version: 1,
+      toolCallId: event.toolCallId,
+      resultingLeafId: details.resultingLeafId,
+      next,
+      currentUserTurnOpen,
+    },
+  };
+}
+
+function mayQueuePostTravelContinuation(ctx: ExtensionContext): boolean {
+  if (ctx.signal?.aborted) return false;
+  try {
+    return typeof ctx.hasPendingMessages !== "function" || !ctx.hasPendingMessages();
+  } catch {
+    // If queue ordering cannot be observed, preserve the later-user-wins
+    // invariant by relying on the in-place Context Packet continuation only.
+    return false;
+  }
+}
 
 /**
  * The summarizer model cannot see session node IDs, so the abandoned branch tip
@@ -32,14 +90,16 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
-    const outcome = runtime.applyLiveAgentSync(ctx.sessionManager, event.toolCallId);
-    const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
-    if (outcome.status === "failed" && recovery) {
-      ctx.ui.notify(`Live AgentSession synchronization failed: ${outcome.message}. ${recovery}`, "warning");
-    }
+    // Pi emits this before the run is fully settled. Retain the latest ticket
+    // and live message sequence; agent_settled owns the actual replacement.
+    runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  pi.on("tool_result", (_event, ctx: ExtensionContext) => {
+  pi.on("tool_result", (event, ctx: ExtensionContext) => {
+    const continuation = buildPostTravelContinuationSteer(event);
+    if (continuation && mayQueuePostTravelContinuation(ctx)) {
+      pi.sendMessage(continuation, { deliverAs: "steer" });
+    }
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
     if (!nudge) return;
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
@@ -53,14 +113,39 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
   });
 
+  pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
+    // A settled notification can race a queued continuation or retry. Do not
+    // replace live messages until the host confirms this SessionManager is
+    // genuinely idle; retain the ticket for the next idle settled boundary.
+    try {
+      if (ctx.isIdle?.() === false) return;
+    } catch {
+      return;
+    }
+    const outcome = runtime.settleDeferredRefresh(ctx.sessionManager);
+    if (!outcome) return;
+    const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
+    if (recovery) {
+      const message = "message" in outcome ? outcome.message : "no adapter diagnostic";
+      ctx.ui.notify(
+        `Native context replacement after settled travel ${outcome.status}: ${message}. ${recovery}`,
+        "warning",
+      );
+    }
+  });
+
   pi.on("context", (event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const pressure = calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
     if (pressure) runtime.observeContextUsage(sessionManager, pressure);
+    // A same-run context event may occur after acm_travel while the model is
+    // deciding its next action. Preserve that run's host message sequence;
+    // agent_settled unlocks the first later context event for the persisted rebuild.
+    if (runtime.shouldKeepCurrentRunContext(sessionManager)) return undefined;
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
-      const fixed = fixOrphanedToolUse(original);
+      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
       return changed ? { messages: fixed as typeof event.messages } : undefined;
     }
@@ -71,29 +156,40 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       ctx.ui.notify(
         willRetry
           ? `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Will retry on the next LLM turn.`
-          : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${RECOVERY_GUIDANCE.refreshExhausted}`,
+          : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`,
         "warning",
       );
       return { messages: event.messages };
     };
 
     try {
-      const messagesResult = buildSessionMessages(sessionManager);
-      if (!messagesResult.ok) return reportFailure(messagesResult.message);
-      let messages = messagesResult.value;
+      const packetResult = rebuildAcmContextPacket(sessionManager);
+      if (!packetResult.ok) return reportFailure(packetResult.message);
+      let packet = packetResult.value;
+      let messages = packet.messages;
       if (messages.length === 0) {
         const fallbackLeafId = runtime.getRefreshTarget(sessionManager);
         const fallbackResult = fallbackLeafId
-          ? buildSessionMessages(sessionManager, fallbackLeafId)
-          : { ok: true as const, value: [] as AgentMessage[] };
+          ? rebuildAcmContextPacket(sessionManager, fallbackLeafId)
+          : undefined;
+        if (!fallbackResult) return reportFailure("rebuilt messages array is empty");
         if (!fallbackResult.ok) return reportFailure(fallbackResult.message);
-        messages = fallbackResult.value;
+        packet = fallbackResult.value;
+        messages = packet.messages;
       }
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
+      if (packet.protocol.status === "invalid") {
+        return reportFailure(
+          `Refused persisted context packet with invalid tool protocol: ${formatToolProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}`,
+        );
+      }
 
-      const fixed = fixOrphanedToolUse(messages);
       contextRefresh.markRebuilt(sessionManager);
-      return { messages: fixed as typeof event.messages };
+      // Do not release the delivery gate merely because an attempt began. A
+      // failed or exhausted rebuild must stay visible as non-active context
+      // delivery until a complete persisted packet has actually been rebuilt.
+      runtime.consumeDeferredRefreshForNextContext(sessionManager);
+      return { messages: messages as typeof event.messages };
     } catch (error) {
       return reportFailure(error instanceof Error ? error.message : String(error));
     }

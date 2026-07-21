@@ -15,32 +15,36 @@ import {
   findInTree,
   formatContextUsage,
   formatEntryLabels,
-  HANDOFF_SLOT_HINT,
   isReservedTargetName,
   isValidEntryId,
   resolveTargetId,
   sanitizeTerminalText,
-  validateHandoffStructure,
 } from "./lib.js";
+import { buildCanonicalHandoff, HandoffSchema, type HandoffWireInput } from "./handoff.js";
+import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
-  buildSessionMessages,
   prevalidateBranchWithSummary,
   prevalidateCheckpointLabel,
   type CheckpointLabelConflict,
   type CheckpointLabelPrevalidation,
 } from "./host-bridge.js";
-import { findLastMeaningfulEntry } from "./entry-resolution.js";
+import {
+  findContainingAssistantToolBatch,
+  formatToolProtocolDefects,
+  hasOpenUserTurnAtAssistant,
+} from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
-import {
-  getLiveAgentSyncRecoveryGuidance,
-  type AgentSessionSyncOutcome,
-} from "./live-agent-session-adapter.js";
+import { buildTravelTargetFacts } from "./travel-target-facts.js";
+import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 interface TravelSummaryDetails {
   kind: "acm_travel";
+  handoffVersion: 1;
+  currentUserTurnOpen: boolean;
   originId: string;
   originLabel?: string;
   target: string;
@@ -55,16 +59,6 @@ function formatBackupText(name: string | undefined, entryId: string | undefined,
     : `${name}@${entryId}`;
 }
 
-function countContainingToolBatch(branch: SessionEntry[], toolCallId: string): number | null {
-  for (let index = branch.length - 1; index >= 0; index--) {
-    const entry = branch[index];
-    if (entry?.type !== "message" || entry.message.role !== "assistant" || !Array.isArray(entry.message.content)) continue;
-    const toolCalls = entry.message.content.filter((part) => part.type === "toolCall");
-    if (toolCalls.some((part) => part.id === toolCallId)) return toolCalls.length;
-  }
-  return null;
-}
-
 function formatNumericValue(value: number | null, fractionDigits = 0): string {
   return value === null || !Number.isFinite(value) ? "unknown" : value.toFixed(fractionDigits);
 }
@@ -76,9 +70,9 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, maxLength: 256, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest or best-named label. For a rebase, compare candidates from earliest to latest and take the first whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when ancestry matters." }),
-    summary: Type.String({ minLength: 1, maxLength: 10000, description: `The handoff that becomes the working set after travel. Cold start is the bar: a fresh agent must be able to continue from this text and its pointers alone, without rereading the folded trail. Fill every slot once, in order, each starting its own line, 'none' when empty: ${HANDOFF_SLOT_HINT}. State may carry live cognition — knowns, open unknowns, competing hypotheses, and the hot set of exact values the next steps reuse. NEXT is one concrete, immediately executable action. Keep surviving fronts, external effects, exclusions, and recovery pointers; pointers over dumps. Max 10000 chars.` }),
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._-]+$", description: "Optional save point for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. Use a unique semantic name that makes the archive discoverable, e.g. latency-hunt-scan or parser-attempt-2. The name is a recovery cue, never a workflow state, the travel target, or a substitute for a cold-start handoff." })),
+    target: Type.String({ minLength: 1, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest or best-named label. For a rebase, compare candidates from earliest to latest and take the first whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search; use view tree only when ancestry matters." }),
+    handoff: HandoffSchema,
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional save point for the raw path being folded away. The structural target keyword 'root' is reserved in every letter case. Use a unique semantic name that makes the archive discoverable, e.g. latency-hunt-scan or parser-attempt-2. The name is a recovery cue, never a workflow state, the travel target, or a substitute for a cold-start handoff." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -97,11 +91,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : new Text("", 0, 0);
       const backup = args.backupCurrentHeadAs ? ` · backup ${sanitizeTerminalText(args.backupCurrentHeadAs)}` : "";
       const target = sanitizeTerminalText(args.target ?? "…");
-      const summaryLength = args.summary?.length ?? 0;
+      const handoffLength = typeof args.handoff === "string"
+        ? args.handoff.length
+        : args.handoff && typeof args.handoff === "object"
+          ? Object.values(args.handoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
+          : 0;
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
           + theme.fg("accent", `→ ${target}`)
-          + theme.fg("dim", `${backup} · handoff ${summaryLength} chars`),
+          + theme.fg("dim", `${backup} · field content ${handoffLength} chars`),
       );
       return component;
     },
@@ -136,9 +134,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthBefore = typeof details?.activeSummaryDepthBefore === "number" ? details.activeSummaryDepthBefore : null;
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
-      const liveSync = sanitizeTerminalText(typeof details?.liveAgentSessionSyncState === "string" ? details.liveAgentSessionSyncState : "unknown");
+      const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
+      const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "verified");
       const lines = [
-        theme.fg("success", "✓ TRAVEL COMPLETE")
+        theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ TRAVEL COMPLETE" : "⚠ TRAVEL APPLIED — EVIDENCE PENDING")
           + theme.fg("accent", `  ${target} → ${leaf}`),
         theme.fg("muted",
           `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
@@ -146,7 +145,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ),
         theme.fg("dim",
           `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · backup ${backup} · refresh pending · live sync ${liveSync}`,
+            + ` · backup ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · persisted refresh pending`,
         ),
       ];
       if (expanded && raw) {
@@ -162,28 +161,64 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
-      const params = rawParams;
+      const rawRecord = typeof rawParams === "object" && rawParams !== null
+        ? rawParams as unknown as Record<string, unknown>
+        : {};
+      const paramDefects: string[] = [];
+      const rawTarget = rawRecord.target;
+      const target = typeof rawTarget === "string" ? rawTarget.trim() : "";
+      if (!target) paramDefects.push("target:invalid_type_or_empty");
+      const rawBackup = rawRecord.backupCurrentHeadAs;
+      const backupCurrentHeadAs = rawBackup === undefined
+        ? undefined
+        : typeof rawBackup === "string" && /^[A-Za-z0-9._-]+$/.test(rawBackup)
+          ? rawBackup
+          : undefined;
+      if (rawBackup !== undefined && backupCurrentHeadAs === undefined) {
+        paramDefects.push("backupCurrentHeadAs:invalid_type_or_format");
+      }
+      for (const name of Object.keys(rawRecord)) {
+        if (name !== "target" && name !== "handoff" && name !== "backupCurrentHeadAs") {
+          paramDefects.push(`unexpected:${name}`);
+        }
+      }
+      if (paramDefects.length > 0) {
+        return {
+          content: [{ type: "text" as const, text: `Error: acm_travel parameters are invalid: ${paramDefects.join(", ")}. Nothing was mutated.` }],
+          details: { error: "invalid_params", defects: paramDefects },
+        };
+      }
+      const params = {
+        target,
+        handoff: rawRecord.handoff as HandoffWireInput,
+        ...(backupCurrentHeadAs === undefined ? {} : { backupCurrentHeadAs }),
+      };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
           content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
           details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
         };
       }
-      const handoffValidation = validateHandoffStructure(params.summary);
-      if (!handoffValidation.ok) {
-        const defects = [
-          handoffValidation.missing.length > 0 ? `missing: ${handoffValidation.missing.join(", ")}` : null,
-          handoffValidation.empty.length > 0 ? `empty: ${handoffValidation.empty.join(", ")} (write 'none' instead)` : null,
-          handoffValidation.duplicate.length > 0 ? `duplicated: ${handoffValidation.duplicate.join(", ")}` : null,
-          handoffValidation.outOfOrder ? "slots out of order" : null,
-        ].filter((part): part is string => part !== null).join("; ");
+      const handoffResult = buildCanonicalHandoff(params.handoff, {
+        ...(params.backupCurrentHeadAs ? { rawArchiveAlias: params.backupCurrentHeadAs } : {}),
+      });
+      if (!handoffResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: handoff must contain each slot once, in order, each starting its own line: ${HANDOFF_SLOT_HINT}. Problems — ${defects}. Fix the handoff text and reissue acm_travel; nothing was mutated.` }],
-          details: { error: "invalid_handoff", validation: handoffValidation },
+          content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
+          details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
+      const canonicalHandoff = handoffResult.value;
 
-      const containingToolCallCount = countContainingToolBatch(ctx.sessionManager.getBranch(), toolCallId);
+      const preTravelBranch = ctx.sessionManager.getBranch();
+      const containingBatch = findContainingAssistantToolBatch(
+        preTravelBranch,
+        toolCallId,
+      );
+      const containingToolCallCount = containingBatch?.toolCallCount ?? null;
+      const currentUserTurnOpen = containingBatch
+        ? hasOpenUserTurnAtAssistant(preTravelBranch, containingBatch.entryIndex)
+        : false;
       if (containingToolCallCount !== null && containingToolCallCount > 1) {
         return {
           content: [{ type: "text" as const, text: `Error: acm_travel must run alone in its assistant tool batch; found ${containingToolCallCount} tool calls in the containing assistant message. Travel aborted before mutation. Reissue acm_travel in a new assistant message without sibling tools.` }],
@@ -210,7 +245,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (requestedRoot && tree.length > 1) {
         ctx.ui.notify(`Note: 'root' resolved to the first top-level node (${targetId}); this session has ${tree.length} top-level roots.`, "info");
       }
-      if (!findInTree(tree, (node) => node.entry.id === targetId)) {
+      const targetNode = findInTree(tree, (node) => node.entry.id === targetId);
+      if (!targetNode) {
         const hint = " Use acm_timeline to choose the last clean node before the material being folded; raw node IDs are valid targets.";
         return {
           content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
@@ -243,53 +279,115 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
         : undefined;
       const usageBeforeText = formatContextUsage(usageBefore, true);
-      const currentMessagesResult = buildSessionMessages(sessionManager);
-      if (!currentMessagesResult.ok) {
+      const currentPacketResult = rebuildAcmContextPacket(sessionManager);
+      if (!currentPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentMessagesResult.message}. Travel aborted.` }],
-          details: { error: "build_messages_failed", message: currentMessagesResult.message, target: params.target, targetId },
+          content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentPacketResult.message}. Travel aborted.` }],
+          details: { error: "build_messages_failed", message: currentPacketResult.message, target: params.target, targetId },
         };
       }
-      const currentMessages = currentMessagesResult.value;
-      const targetMessagesResult = buildSessionMessages(sessionManager, targetId);
-      if (!targetMessagesResult.ok) {
+      const currentMessages = currentPacketResult.value.messages;
+      const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
+      if (!targetPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetMessagesResult.message}. Travel aborted.` }],
-          details: { error: "build_messages_failed", message: targetMessagesResult.message, target: params.target, targetId },
+          content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetPacketResult.message}. Travel aborted.` }],
+          details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
+        };
+      }
+      const targetBranch = sessionManager.getBranch(targetId);
+      const targetAnalysis = buildTravelTargetFacts({
+        targetId,
+        targetEntry: targetNode.entry,
+        targetBranch,
+        protocol: {
+          ...targetPacketResult.value.protocol,
+          messages: targetPacketResult.value.messages,
+        },
+        fromOffPath: resolved.fromOffPath,
+      });
+      if (targetAnalysis.facts.protocolStatus === "invalid") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: target '${params.target}' has invalid tool-call identity and cannot become a travel base. Choose a different checkpoint/node or repair the persisted session protocol; nothing was mutated.`,
+          }],
+          details: {
+            error: "target_protocol_invalid",
+            target: params.target,
+            targetId,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
+          },
         };
       }
       const estimatedUsagePreview = estimateUsageAtTravelTarget(
         usageBefore,
         currentMessages,
-        targetMessagesResult.value,
-        params.summary,
+        targetPacketResult.value.messages,
+        canonicalHandoff.text,
       );
       const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
       const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
-      const targetSummaryDepth = countActiveSummaryDepth(sessionManager.getBranch(targetId));
+      const targetSummaryDepth = countActiveSummaryDepth(targetBranch);
 
       let backupEntryId: string | undefined;
       let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
       if (params.backupCurrentHeadAs) {
-        const headResolve = findLastMeaningfulEntry(branch, signal);
-        if (headResolve.aborted) {
+        if (signal?.aborted) {
           return {
             content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
             details: { error: "aborted", target: params.target, targetId },
           };
         }
-        backupEntryId = headResolve.entryId ?? undefined;
-        if (!backupEntryId) {
+        const backupCandidateIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
+        const backupCandidate = backupCandidateIndex >= 0 ? branch[backupCandidateIndex] : undefined;
+        if (!backupCandidate) {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no meaningful USER/AI message found near HEAD. Travel aborted.` }],
-            details: { error: "no_meaningful_backup_target", name: params.backupCurrentHeadAs, headId: originId },
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no protocol-complete session prefix exists before this travel call. Travel aborted.` }],
+            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs, headId: originId },
           };
         }
+        const backupPacketResult = rebuildAcmContextPacket(sessionManager, backupCandidate.id);
+        if (!backupPacketResult.ok) {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupPacketResult.message}. Travel aborted.` }],
+            details: {
+              error: "backup_context_build_failed",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              message: backupPacketResult.message,
+            },
+          };
+        }
+        const backupProtocol = backupPacketResult.value.protocol;
+        if (backupProtocol.status === "invalid") {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
+            details: {
+              error: "backup_protocol_invalid",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              defects: backupProtocol.defects,
+            },
+          };
+        }
+        if (backupProtocol.status === "repaired") {
+          return {
+            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' would require tool-protocol repair at ${backupCandidate.id}. Finish or explicitly recover the interrupted tool batch before traveling.` }],
+            details: {
+              error: "backup_protocol_incomplete",
+              name: params.backupCurrentHeadAs,
+              candidateId: backupCandidate.id,
+              repairs: backupProtocol.repairs,
+            },
+          };
+        }
+        backupEntryId = backupCandidate.id;
         if (backupEntryId !== originId) {
           backupResolvedFromHead = originId;
-          ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on ${backupEntryId} (${headResolve.role ?? "message"}) instead of HEAD ${originId} (tool/internal traffic).`, "info");
+          ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
         }
       }
 
@@ -314,7 +412,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
+              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}` }],
               details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
             };
           }
@@ -335,6 +433,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       const travelDetails: TravelSummaryDetails = {
         kind: "acm_travel",
+        handoffVersion: 1,
+        currentUserTurnOpen,
         originId,
         ...(originLabel === undefined ? {} : { originLabel }),
         target: params.target,
@@ -344,7 +444,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const mutation = executeTravelMutation({
         sessionManager,
         targetId,
-        summary: params.summary,
+        summary: canonicalHandoff.text,
         details: travelDetails,
         ...(params.backupCurrentHeadAs && backupEntryId && backupPrevalidation
           ? { backup: { targetId: backupEntryId, name: params.backupCurrentHeadAs, prevalidation: backupPrevalidation } }
@@ -357,12 +457,20 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
           recoveryAction = mutation.remainingBackupLabelState === "present"
-            ? (mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped)
+            ? withAvailableAdvancedGuidance(
+              pi,
+              mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped,
+              GUIDANCE_CUES.advancedExceptionalPointer,
+            )
             : mutation.remainingBackupLabelState === "unknown"
               ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
               : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
         } else if (mutation.branchState === "indeterminate") {
-          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
+          recoveryAction = withAvailableAdvancedGuidance(
+            pi,
+            "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.",
+            GUIDANCE_CUES.advancedExceptionalPointer,
+          );
         } else {
           recoveryAction = mutation.backupRolledBack
             ? RECOVERY_GUIDANCE.branchRolledBack
@@ -390,11 +498,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         const prefix = mutation.error === "backup_label_failed"
           ? `Error: archive bookmark '${params.backupCurrentHeadAs}' could not be set`
           : "Error: branchWithSummary failed";
-        const liveAgentSessionSync: AgentSessionSyncOutcome = {
-          status: "skipped",
-          reason: "branch_not_applied",
-          message: "Live AgentSession synchronization was not scheduled because travel did not definitively succeed",
-        };
         return {
           content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}${refreshNote}` }],
           details: {
@@ -414,9 +517,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             remainingBackupLabelState: mutation.remainingBackupLabelState,
             contextRefreshPending: mutation.refreshRequired,
             contextRefreshState: mutation.refreshRequired ? "pending" : "not_scheduled",
-            liveAgentSessionSyncState: "skipped",
-            liveAgentSessionSync,
+            contextDeliveryPhase: "active",
             recoveryAction,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
           },
         };
       }
@@ -426,20 +530,43 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const resultingLeafId = mutation.resultingLeafId;
       const activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
       const activeSummaryDepthDelta = activeSummaryDepthAfter - activeSummaryDepthBefore;
-      runtime.scheduleRefresh(sessionManager, summaryEntryId);
-      const liveAgentSessionSync = runtime.scheduleLiveAgentSync(
+      const liveAgentSessionSync = runtime.deferPostTravelRefresh(
         sessionManager,
         toolCallId,
         resultingLeafId,
       );
       const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
-      const afterMessagesResult = buildSessionMessages(sessionManager);
-      if (!afterMessagesResult.ok) {
+      const afterPacketResult = rebuildAcmContextPacket(sessionManager);
+      const postMutationEvidence = !afterPacketResult.ok
+        ? {
+            status: "unavailable" as const,
+            warning: `Session-message evidence could not be rebuilt after the applied mutation: ${afterPacketResult.message}`,
+          }
+        : afterPacketResult.value.protocol.status === "invalid"
+          ? {
+              status: "invalid_protocol" as const,
+              warning: `Session-message evidence has invalid tool protocol: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
+              defects: afterPacketResult.value.protocol.defects,
+            }
+          : { status: "verified" as const };
+      if (postMutationEvidence.status !== "verified") {
         return {
-          content: [{ type: "text" as const, text: `Travel mutation completed, but session-message evidence is unavailable: ${afterMessagesResult.message}. ${RECOVERY_GUIDANCE.refreshPending}${liveAgentSessionSyncRecovery ? ` ${liveAgentSessionSyncRecovery}` : ""}` }],
+          content: [{
+            type: "text" as const,
+            text: [
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
+              `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
+              "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
+              `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+              currentUserTurnOpen
+                ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+                : null,
+              liveAgentSessionSyncRecovery,
+              GUIDANCE_CUES.travel,
+            ].filter((line): line is string => line !== null).join("\n"),
+          }],
           details: {
-            error: "build_messages_failed",
-            message: afterMessagesResult.message,
+            mutationStatus: "applied",
             target: params.target,
             targetId,
             originId,
@@ -449,14 +576,40 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             activeSummaryDepthAfter,
             activeSummaryDepthDelta,
             contextRefreshPending: true,
+            contextRefreshState: "pending_run_settle",
+            contextDeliveryPhase: "pending_run_settle",
+            sameRunContext: "preserved",
+            // Keep the raw adapter outcome available to callers that need to
+            // distinguish native replacement capability from delivery phase.
+            nativeContextReplacementState: liveAgentSessionSync.status,
+            nativeContextReplacement: liveAgentSessionSync,
+            // Compatibility aliases retained for existing integrations.
             liveAgentSessionSyncState: liveAgentSessionSync.status,
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
+            postMutationEvidenceStatus: postMutationEvidence.status,
+            postMutationEvidenceWarning: postMutationEvidence.warning,
+            ...(postMutationEvidence.status === "invalid_protocol"
+              ? {
+                  postMutationProtocolStatus: "invalid" as const,
+                  postMutationProtocolDefects: postMutationEvidence.defects,
+                }
+              : {}),
+            handoffFormat: "structured-v1",
+            handoffNext: canonicalHandoff.fields.next,
+            currentUserTurnOpen,
+            targetFacts: targetAnalysis.facts,
+            targetWarnings: targetAnalysis.warnings,
           },
         };
       }
 
-      const afterMessages = afterMessagesResult.value;
+      // The non-verified branches returned above. Keep this explicit guard so
+      // future evidence variants cannot accidentally turn an applied receipt
+      // back into a post-mutation tool error.
+      if (!afterPacketResult.ok) throw new Error("unreachable post-mutation evidence state");
+      const afterPacket = afterPacketResult.value;
+      const afterMessages = afterPacket.messages;
       const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
       const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
@@ -491,10 +644,17 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextRefresh=pending; liveAgentSessionSync=${liveAgentSessionSync.status}.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
+            targetAnalysis.warnings.length > 0
+              ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
+              : null,
+            `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+            currentUserTurnOpen
+              ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+              : null,
             nextCue,
           ].filter((line): line is string => line !== null).join("\n"),
         }],
@@ -538,10 +698,28 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           summaryEntryId,
           resultingLeafId,
           contextRefreshPending: true,
-          contextRefreshState: "pending",
+          contextRefreshState: "pending_run_settle",
+          contextDeliveryPhase: "pending_run_settle",
+          sameRunContext: "preserved",
+          // Native replacement is scheduled independently from when the
+          // persisted Context Packet becomes deliverable to the model.
+          nativeContextReplacementState: liveAgentSessionSync.status,
+          nativeContextReplacement: liveAgentSessionSync,
+          // Compatibility aliases retained for existing integrations.
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
+          mutationStatus: "applied",
+          postMutationEvidenceStatus: "verified",
+          postMutationProtocolStatus: afterPacket.protocol.status,
+          postMutationProtocolRepairs: afterPacket.protocol.repairs,
+          postMutationProtocolDefects: afterPacket.protocol.defects,
           fromOffPath: resolved.fromOffPath,
+          targetFacts: targetAnalysis.facts,
+          targetWarnings: targetAnalysis.warnings,
+          handoffFormat: "structured-v1",
+          canonicalHandoffLength: canonicalHandoff.text.length,
+          handoffNext: canonicalHandoff.fields.next,
+          currentUserTurnOpen,
         },
       };
     },

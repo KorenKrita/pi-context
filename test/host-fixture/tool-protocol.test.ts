@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { fixOrphanedToolUse } from "./.acm-build/message-sanitizer.js";
+import { fixOrphanedToolUse } from "./.acm-build/tool-protocol.js";
 
 describe("message sanitation", () => {
   test("orders preserved and synthesized tool results by assistant tool-call order", () => {

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-20T21:16:00Z",
+  "productCommit": "17a66468da3a515ceb14a5d907e03870f96d0ef2",
+  "flow": "cadence-research-flow",
+  "seed": "eval/fixtures/cadence-docs",
+  "model": "local-responses/gpt-5.6-sol",
+  "thinkingLevel": "high",
+  "contextWindow": 40000,
+  "judge": "local-claude/claude-opus-4-8 high",
+  "rubricVersion": "acm-outcome-v3",
+  "controlledVariables": [
+    "same product commit",
+    "same model and thinking level",
+    "same six user turns and seed docs",
+    "same shrunk context window",
+    "same ordered-transcript and terminal-integrity runner"
+  ],
+  "experimentalVariable": "raw-control loads no ACM extensions/CORE/Skill; product-isolated loads the current checkout's full product and exact Skill.",
+  "rawControl": {
+    "runId": "2026-07-20T20-59-45-953Z-flow-gpt-5.6-sol-p74765",
+    "environmentMode": "raw-control",
+    "flowCompleted": true,
+    "acmCalls": [],
+    "overallScore": 1,
+    "taskCompletionScore": 3,
+    "topAttributions": ["never-activated", "lost-recoverability", "healthy"],
+    "observation": "The research answers and final synthesis were accurate, but there was no checkpoint, timeline, travel, recovery anchor, or working-set reduction."
+  },
+  "product": {
+    "runId": "2026-07-20T21-05-45-503Z-flow-gpt-5.6-sol-p78105",
+    "environmentMode": "product-isolated",
+    "flowCompleted": true,
+    "acmCalls": ["acm_checkpoint", "acm_travel"],
+    "overallScore": 3,
+    "taskCompletionScore": 3,
+    "topAttributions": ["healthy"],
+    "travel": {
+      "target": "cadence-docs-full-analysis",
+      "usageBeforePercent": 66.685,
+      "estimatedUsageAfterPercent": 55.13,
+      "tokenDelta": -4622,
+      "messagesBefore": 26,
+      "messagesAfter": 16,
+      "targetWarnings": [
+        "target_packet_repaired",
+        "target_prefix_open_user_turn",
+        "target_is_assistant_tool_batch"
+      ],
+      "currentUserTurnOpen": true
+    },
+    "observation": "The model checkpointed the full analysis, then used a named raw backup and structured handoff while preserving and delivering the retry-policy answer. Later turns and the final synthesis remained accurate; task completion stayed 3/3."
+  },
+  "pairedInterpretation": [
+    "In this single same-commit pair, ACM improved activation, recoverability, timing, handoff and overall outcome scores without reducing task completion.",
+    "The product run is a positive counterexample to blanket rejection of all repaired/open/tool-batch targets: the runtime surfaced all three warnings, and the transition still produced a healthy 3/3 outcome.",
+    "This is one stochastic pair, not a population estimate. The staged policy therefore keeps non-invalid hazards as warnings and reserves rejection escalation for replicated causal evidence."
+  ]
+}

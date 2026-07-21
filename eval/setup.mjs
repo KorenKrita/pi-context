@@ -15,6 +15,8 @@ export const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const HARNESS_DIR = join(EVAL_ROOT, ".harness");
 export const RUNS_DIR = join(EVAL_ROOT, ".runs");
 export const EXTENSION_PATH = join(EVAL_ROOT, "..", "src", "index.ts");
+export const CONTEXT_EXTENSION_PATH = join(EVAL_ROOT, "..", "src", "context.ts");
+export const CONTEXT_MANAGEMENT_SKILL_PATH = join(EVAL_ROOT, "..", "skills", "context-management", "SKILL.md");
 
 /**
  * Build (or rebuild) the harness agent dir.
