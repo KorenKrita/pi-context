@@ -137,15 +137,15 @@ function bashViolation(command, workspace) {
   // remains subject to the existing policy.
   const pathCheckedCommand = maskWorkspacePaths(command, workspace);
   const pathChecks = [
-    ["bash_absolute_path", /(^|[\s"'=;|&(])\/(?!\/)/],
-    ["bash_parent_escape", /(^|[\/\s"'=;|&()])\.\.([\/\s"'=;|&()]|$)/],
+    ["bash_absolute_path", /(^|[\s"'=;|&()<>])\/(?!\/)/],
+    ["bash_parent_escape", /(^|[\/\s"'=;|&()<>])\.\.([\/\s"'=;|&<>]|$)/],
   ];
   for (const [code, pattern] of pathChecks) {
     if (pattern.test(pathCheckedCommand)) return code;
   }
   const checks = [
-    ["bash_home_or_pi_discovery", /(^|[\/\s"'=;|&()])(?:~(?=$|[\/\s"'=;|&()])|\$HOME(?=$|[\/\s"'=;|&()])|\$\{HOME\}(?=$|[\/\s"'=;|&()])|\.pi(?=$|[\/\s"'=;|&()])|PI_CODING_AGENT_DIR(?=$|[\/\s"'=;|&()])|CODEX_HOME(?=$|[\/\s"'=;|&()]))/i],
-    ["bash_eval_run_discovery", /(^|[\/\s"'=;|&()])eval\/\.runs(?=$|[\/\s"'=;|&()])/i],
+    ["bash_home_or_pi_discovery", /(?:^|[\s"'=;|&()<>])~(?:[^\s\/"'=;|&()<>]+)?(?=$|[\/\s"'=;|&()<>])|(?:^|[\/\s"'=;|&()<>])(?:\$HOME(?=$|[\/\s"'=;|&()<>])|\$\{HOME\}(?=$|[\/\s"'=;|&()<>])|\.pi(?=$|[\/\s"'=;|&()<>])|PI_CODING_AGENT_DIR(?=$|[\/\s"'=;|&()<>])|CODEX_HOME(?=$|[\/\s"'=;|&()<>]))/i],
+    ["bash_eval_run_discovery", /(^|[\/\s"'=;|&()<>])eval\/\.runs(?=$|[\/\s"'=;|&()<>])/i],
     ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
   ];
   for (const [code, pattern] of checks) {

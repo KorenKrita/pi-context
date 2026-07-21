@@ -181,6 +181,13 @@ describe("measurement integrity tool-call gate", () => {
       ["cd /private/tmp/saffron-workspace && cd ~&&pwd", "bash_home_or_pi_discovery"],
       ["find /private/tmp/saffron-workspace/.pi)", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && find eval/.runs)", "bash_eval_run_discovery"],
+      ["cd /private/tmp/saffron-workspace/..>x", "bash_parent_escape"],
+      ["cd /private/tmp/saffron-workspace && cd ~korenkrita; pwd", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace && cd ~+; pwd", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace && cd ~-; pwd", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace/..2>/dev/null", "bash_absolute_path"],
+      ["cd /private/tmp/saffron-workspace && find eval/.runs>x", "bash_eval_run_discovery"],
+      ["cd /private/tmp/saffron-workspace && cd ~user/path", "bash_home_or_pi_discovery"],
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
@@ -212,6 +219,7 @@ describe("measurement integrity tool-call gate", () => {
     ]) {
       expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toMatchObject({ block: true });
     }
+    expect(evaluateToolCall({ toolName: "bash", input: { command: "echo foo~bar" }, ...policy })).toEqual({ block: false });
     expect(evaluateToolCall({ toolName: "bash", input: { command: "bun test && git status --short" }, ...policy })).toMatchObject({ block: false });
   });
 
