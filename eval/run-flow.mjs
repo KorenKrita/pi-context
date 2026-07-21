@@ -37,15 +37,15 @@ import {
   buildPiRpcArgs,
   classifySkillAvailability,
   finalAssistantOutcome,
+  FULL_ENV_DENIED_TOOLS,
   normalizeEnvironmentMode,
   PiRpcDriver,
-  SESSION_RECALL_TOOLS,
 } from "./driver.mjs";
 import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments } from "./scenarios.mjs";
 import { createFlowWorkspace } from "./scenario-workspace.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
-import { ACM_CORE_MARKER, FORBIDDEN_RECALL_TOOLS, readIntegrityAudit, REQUIRED_ACM_TOOLS } from "./integrity-guard.mjs";
+import { ACM_CORE_MARKER, readIntegrityAudit, REQUIRED_ACM_TOOLS } from "./integrity-guard.mjs";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -413,9 +413,9 @@ function staticAuditFailures() {
   const exclusionIndex = driverArgs.indexOf("--exclude-tools");
   appendConstraintFailure(
     failures,
-    exclusionIndex >= 0 && driverArgs[exclusionIndex + 1] === SESSION_RECALL_TOOLS.join(","),
-    "session_recall_tool_denylist_missing",
-    `full-env must deny ${SESSION_RECALL_TOOLS.join(",")}`,
+    exclusionIndex >= 0 && driverArgs[exclusionIndex + 1] === FULL_ENV_DENIED_TOOLS.join(","),
+    "full_env_tool_denylist_missing",
+    `full-env must deny ${FULL_ENV_DENIED_TOOLS.join(",")}`,
   );
   return failures;
 }
@@ -444,7 +444,7 @@ function integrityFailures(records, { requirePromptAudit = false } = {}) {
       const count = (start.activeTools ?? []).filter((candidate) => candidate === name).length;
       appendConstraintFailure(failures, count === 1, "integrity_guard_acm_tool_mismatch", `expected one active ${name} at session_start, found ${count}`);
     }
-    const forbidden = FORBIDDEN_RECALL_TOOLS.filter((name) => (start.activeTools ?? []).includes(name));
+    const forbidden = FULL_ENV_DENIED_TOOLS.filter((name) => (start.activeTools ?? []).includes(name));
     appendConstraintFailure(failures, forbidden.length === 0, "integrity_guard_recall_tool_active", `forbidden recall tools active: ${forbidden.join(", ")}`);
   }
   if (requirePromptAudit) {

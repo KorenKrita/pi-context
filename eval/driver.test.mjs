@@ -8,6 +8,7 @@ import {
   CONTEXT_MANAGEMENT_COMMAND,
   assertTurnCompleted,
   finalAssistantOutcome,
+  FULL_ENV_DENIED_TOOLS,
   PiRpcDriver,
   sanitizePiChildEnvironment,
   SESSION_RECALL_TOOLS,
@@ -80,7 +81,8 @@ describe("Pi RPC eval environment composition", () => {
 
     expect(args).not.toContain("--no-extensions");
     expect(args).not.toContain("--no-skills");
-    expect(args).toEqual(expect.arrayContaining(["--exclude-tools", SESSION_RECALL_TOOLS.join(",")]));
+    expect(args).toEqual(expect.arrayContaining(["--exclude-tools", FULL_ENV_DENIED_TOOLS.join(",")]));
+    expect(FULL_ENV_DENIED_TOOLS).toEqual(expect.arrayContaining(SESSION_RECALL_TOOLS));
     expect(args).toEqual(expect.arrayContaining(["-e", "/checkout/src/index.ts", "--skill", EXPECTED_SKILL]));
   });
 });

@@ -9,6 +9,32 @@ export const ACM_CORE_MARKER = "<!-- PI-CONTEXT:ACM-CORE:v1 -->";
 export const ACM_CORE_HEADING = "## Agentic Context Management CORE";
 export const REQUIRED_ACM_TOOLS = Object.freeze(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 export const FORBIDDEN_RECALL_TOOLS = Object.freeze(["session_search", "session_query"]);
+export const FULL_ENV_DENIED_TOOLS = Object.freeze([
+  ...FORBIDDEN_RECALL_TOOLS,
+  "bash_bg",
+  "Agent",
+  "StopAgent",
+  "AgentStatus",
+  "agent_bg",
+  "jobs",
+  "job_decide",
+  "monitor",
+  "mcp",
+  "replace",
+  "undo_last_replace",
+  "ask_user_question",
+  "find_roots",
+  "observe_ui",
+  "search_ui",
+  "expand_ui",
+  "inspect_ui",
+  "act_ui",
+  "read_text",
+  "wait_for",
+  "launch_browser",
+  "navigate_browser",
+  "evaluate_browser",
+]);
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_TOOLS = new Set([...READ_ONLY_TOOLS, "edit", "write"]);
@@ -40,7 +66,7 @@ export function inspectPromptIntegrity({ systemPrompt, activeTools, requiredMark
     name,
     (activeTools ?? []).filter((candidate) => candidate === name).length,
   ]));
-  const forbiddenActiveTools = FORBIDDEN_RECALL_TOOLS.filter((name) => (activeTools ?? []).includes(name));
+  const forbiddenActiveTools = FULL_ENV_DENIED_TOOLS.filter((name) => (activeTools ?? []).includes(name));
   const violations = [];
   for (const marker of markerRequirements) {
     const count = markerCounts[marker.id];
@@ -90,7 +116,7 @@ function bashViolation(command) {
     ["bash_parent_escape", /(^|[\/\s"'=])\.\.([\/\s"'=]|$)/],
     ["bash_home_or_pi_discovery", /(^|[\s"'=;|&(])(?:~(?:\/|$)|\$HOME\b|\$\{HOME\}|\.pi(?:\/|\b)|PI_CODING_AGENT_DIR\b|CODEX_HOME\b)/i],
     ["bash_eval_run_discovery", /(^|[\/\s"'=])eval\/\.runs(?:[\/\s"'=]|$)/i],
-    ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(/i],
+    ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof|set)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
   ];
   for (const [code, pattern] of checks) {
     if (pattern.test(command)) return code;
@@ -100,6 +126,13 @@ function bashViolation(command) {
 
 /** Pure policy seam used by the extension and focused tests. */
 export function evaluateToolCall({ toolName, input, workspace, approvedSkillRoots = [] }) {
+  if (FULL_ENV_DENIED_TOOLS.includes(toolName)) {
+    return {
+      block: true,
+      code: "escape_capable_tool_denied",
+      reason: `measurement integrity guard denies escape-capable tool ${toolName}`,
+    };
+  }
   if (toolName === "bash") {
     const command = typeof input?.command === "string" ? input.command : "";
     const code = bashViolation(command);
@@ -176,13 +209,21 @@ export function readIntegrityAudit(path) {
 }
 
 export default function integrityGuard(pi) {
-  const auditPath = process.env.ACM_INTEGRITY_AUDIT_PATH;
-  const workspace = process.env.ACM_INTEGRITY_WORKSPACE;
+  const integrityEnvironmentNames = [
+    "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
+    "ACM_INTEGRITY_AUDIT_PATH",
+    "ACM_INTEGRITY_REQUIRED_MARKERS",
+    "ACM_INTEGRITY_WORKSPACE",
+  ];
+  const integrityEnvironment = Object.fromEntries(integrityEnvironmentNames.map((name) => [name, process.env[name]]));
+  for (const name of integrityEnvironmentNames) delete process.env[name];
+  const auditPath = integrityEnvironment.ACM_INTEGRITY_AUDIT_PATH;
+  const workspace = integrityEnvironment.ACM_INTEGRITY_WORKSPACE;
   if (!auditPath || !workspace) {
     throw new Error("ACM integrity guard requires ACM_INTEGRITY_AUDIT_PATH and ACM_INTEGRITY_WORKSPACE");
   }
-  const approvedSkillRoots = new Set(parseApprovedRoots(process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS));
-  const requiredMarkers = parseRequiredMarkers(process.env.ACM_INTEGRITY_REQUIRED_MARKERS);
+  const approvedSkillRoots = new Set(parseApprovedRoots(integrityEnvironment.ACM_INTEGRITY_APPROVED_SKILL_ROOTS));
+  const requiredMarkers = parseRequiredMarkers(integrityEnvironment.ACM_INTEGRITY_REQUIRED_MARKERS);
   appendAudit(auditPath, {
     type: "extension_loaded",
     workspaceSha256: sha256(canonicalExistingPath(workspace)),

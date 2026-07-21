@@ -6,12 +6,19 @@ import { join } from "node:path";
 import integrityGuard, {
   ACM_CORE_MARKER,
   evaluateToolCall,
+  FULL_ENV_DENIED_TOOLS,
   inspectPromptIntegrity,
   readIntegrityAudit,
 } from "./integrity-guard.mjs";
 
 const CORE = `${ACM_CORE_MARKER}\n## Agentic Context Management CORE`;
 const ACM_TOOLS = ["acm_checkpoint", "acm_timeline", "acm_travel"];
+const OBSERVED_FULL_ENV_ACTIVE_TOOLS = [
+  "read", "bash", "edit", "write", ...ACM_TOOLS, "grep", "find",
+  "Agent", "StopAgent", "AgentStatus", "ask_user_question", "todo", "replace", "undo_last_replace",
+  "bash_bg", "jobs", "job_decide", "agent_bg", "monitor", "mcp", "find_roots", "observe_ui", "search_ui",
+  "expand_ui", "inspect_ui", "act_ui", "read_text", "wait_for", "launch_browser", "navigate_browser", "evaluate_browser",
+];
 
 describe("measurement integrity prompt gate", () => {
   test("accepts one CORE heading, one of each active ACM tool, and no recall tools", () => {
@@ -54,6 +61,14 @@ describe("measurement integrity prompt gate", () => {
     });
     expect(result.valid).toBe(true);
     expect(result.markerCounts).toMatchObject({ global_agents_heading: 1, project_agents_heading: 1 });
+  });
+
+  test("the real observed full-env inventory becomes harmless after the CLI denylist", () => {
+    const activeTools = OBSERVED_FULL_ENV_ACTIVE_TOOLS.filter((name) => !FULL_ENV_DENIED_TOOLS.includes(name));
+    expect(activeTools).toEqual(["read", "bash", "edit", "write", ...ACM_TOOLS, "grep", "find", "todo"]);
+    expect(inspectPromptIntegrity({ systemPrompt: CORE, activeTools }).valid).toBe(true);
+    expect(OBSERVED_FULL_ENV_ACTIVE_TOOLS.filter((name) => FULL_ENV_DENIED_TOOLS.includes(name)))
+      .toEqual(expect.arrayContaining(["bash_bg", "Agent", "replace", "mcp", "launch_browser"]));
   });
 });
 
@@ -119,10 +134,23 @@ describe("measurement integrity tool-call gate", () => {
       "ls ~/.pi/agent",
       "find eval/.runs -type f",
       "ps aux",
+      "set",
+      "export -p",
+      "declare -x",
+      "echo $ACM_INTEGRITY_AUDIT_PATH",
     ]) {
       expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toMatchObject({ block: true });
     }
     expect(evaluateToolCall({ toolName: "bash", input: { command: "bun test && git status --short" }, ...policy })).toMatchObject({ block: false });
+  });
+
+  test("blocks denied background, subagent, and replacement tools even if CLI filtering regresses", () => {
+    for (const toolName of ["bash_bg", "Agent", "replace"]) {
+      expect(evaluateToolCall({ toolName, input: {}, ...policy })).toMatchObject({
+        block: true,
+        code: "escape_capable_tool_denied",
+      });
+    }
   });
 });
 
@@ -137,13 +165,21 @@ test("extension registers only integrity handlers and persists blocked attempts 
   };
   const previous = {
     audit: process.env.ACM_INTEGRITY_AUDIT_PATH,
+    roots: process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS,
+    markers: process.env.ACM_INTEGRITY_REQUIRED_MARKERS,
     workspace: process.env.ACM_INTEGRITY_WORKSPACE,
   };
   process.env.ACM_INTEGRITY_AUDIT_PATH = auditPath;
+  process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS = JSON.stringify(["/opt/pi-skills/context-management"]);
+  process.env.ACM_INTEGRITY_REQUIRED_MARKERS = JSON.stringify([]);
   process.env.ACM_INTEGRITY_WORKSPACE = join(root, "workspace");
 
   try {
     integrityGuard(pi);
+    expect(process.env.ACM_INTEGRITY_AUDIT_PATH).toBeUndefined();
+    expect(process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS).toBeUndefined();
+    expect(process.env.ACM_INTEGRITY_REQUIRED_MARKERS).toBeUndefined();
+    expect(process.env.ACM_INTEGRITY_WORKSPACE).toBeUndefined();
     expect([...handlers.keys()].sort()).toEqual(["before_agent_start", "session_start", "tool_call"]);
     await handlers.get("before_agent_start")({
       systemPrompt: `${CORE}\nbody`,
@@ -163,6 +199,10 @@ test("extension registers only integrity handlers and persists blocked attempts 
   } finally {
     if (previous.audit === undefined) delete process.env.ACM_INTEGRITY_AUDIT_PATH;
     else process.env.ACM_INTEGRITY_AUDIT_PATH = previous.audit;
+    if (previous.roots === undefined) delete process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS;
+    else process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS = previous.roots;
+    if (previous.markers === undefined) delete process.env.ACM_INTEGRITY_REQUIRED_MARKERS;
+    else process.env.ACM_INTEGRITY_REQUIRED_MARKERS = previous.markers;
     if (previous.workspace === undefined) delete process.env.ACM_INTEGRITY_WORKSPACE;
     else process.env.ACM_INTEGRITY_WORKSPACE = previous.workspace;
     rmSync(root, { recursive: true, force: true });

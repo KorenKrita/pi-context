@@ -7,10 +7,12 @@
 
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
+import { FULL_ENV_DENIED_TOOLS } from "./integrity-guard.mjs";
 
 export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "full-env"]);
 export const CONTEXT_MANAGEMENT_COMMAND = "skill:context-management";
 export const SESSION_RECALL_TOOLS = Object.freeze(["session_search", "session_query"]);
+export { FULL_ENV_DENIED_TOOLS };
 const ALLOWED_ACM_CHILD_ENV = new Set([
   "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
   "ACM_INTEGRITY_AUDIT_PATH",
@@ -68,7 +70,7 @@ export function buildPiRpcArgs(options) {
   // Defense in depth for full-env: the sanitized settings exclude the package
   // that registers these tools, while the CLI denylist makes a leaked or
   // manually installed copy unavailable to the evaluated model.
-  if (mode === "full-env") args.push("--exclude-tools", SESSION_RECALL_TOOLS.join(","));
+  if (mode === "full-env") args.push("--exclude-tools", FULL_ENV_DENIED_TOOLS.join(","));
   for (const extensionPath of extensionPaths) args.push("-e", extensionPath);
   for (const skillPath of skillPaths) args.push("--skill", skillPath);
   args.push(
