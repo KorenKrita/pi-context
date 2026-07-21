@@ -352,6 +352,26 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
     expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
   });
 
+  test("accepts separate retry semantics and commit facts without a contiguous phrase", () => {
+    const handoff = {
+      ...CONTINUATION_HANDOFF,
+      next: "Write next-action.md with pool max 50. The retry loop was introduced in Commit 9f31c2a. Then inspect services/payments/client.ts backoff bounds.",
+    };
+    const result = scenario.score(continuationContext({
+      t2: [
+        call("acm_travel", { target: "root", handoff, backupCurrentHeadAs: "payments-latency-raw" }),
+        call("write", {
+          path: "next-action.md",
+          content: "Retry Loop Introduced: Commit 9f31c2a. Pool max: 50. Next file: services/payments/client.ts backoff bounds.",
+        }),
+      ],
+    }));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 handoff NEXT carries exact continuation")?.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 write carries handoff facts")?.pass).toBe(true);
+  });
+
   test("accepts a clarified pool-max label without losing the numeric fact", () => {
     const result = scenario.score(continuationContext({
       t2: [
@@ -374,6 +394,18 @@ describe("structured handoff continuation and advanced Skill scenario", () => {
 
     expect(result.pass).toBe(false);
     expect(result.checks.find((check) => check.name === "T3 read product advanced guidance")?.pass).toBe(false);
+  });
+
+  test("accepts successful bash readers for the advanced Skill router and reference", () => {
+    const result = scenario.score(continuationContext({
+      t3: [
+        call("bash", { command: `cat ${CONTEXT_MANAGEMENT_SKILL_PATH}` }),
+        call("bash", { command: `sed -n '1,160p' ${TARGET_SELECTION_REFERENCE_PATH}` }),
+      ],
+    }));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T3 read product advanced guidance")?.pass).toBe(true);
   });
 
   test("core-only remains isolated and is rewarded for a conservative no-travel answer", () => {
@@ -442,5 +474,99 @@ describe("advanced pointer routing scenario", () => {
     ]));
     expect(probedCore.pass).toBe(false);
     expect(probedCore.checks.find((check) => check.name === "kept unavailable Skill isolated")?.pass).toBe(false);
+  });
+
+  test("accepts bash readers but not find-only path mentions for product routing", () => {
+    const bashLoaded = scenario.score(context("product-isolated", [
+      call("bash", { command: `head -n 80 ${CONTEXT_MANAGEMENT_SKILL_PATH}` }),
+      call("bash", { command: `awk 'NR <= 160 { print }' ${TARGET_SELECTION_REFERENCE_PATH}` }),
+    ]));
+    expect(bashLoaded.pass).toBe(true);
+    expect(bashLoaded.checks.find((check) => check.name === "followed exact advanced pointer")?.pass).toBe(true);
+
+    const findOnly = scenario.score(context("product-isolated", [
+      call("bash", { command: `find /tmp -path '*context-management*' -o -name target-selection.md # ${CONTEXT_MANAGEMENT_SKILL_PATH}` }),
+      call("bash", { command: `find /tmp -name target-selection.md # ${TARGET_SELECTION_REFERENCE_PATH}` }),
+    ]));
+    expect(findOnly.pass).toBe(false);
+    expect(findOnly.checks.find((check) => check.name === "followed exact advanced pointer")?.pass).toBe(false);
+  });
+
+  test("recognizes every supported bash reader command for exact guidance paths", () => {
+    const readers = [
+      ["cat", (path) => `cat ${path}`],
+      ["sed", (path) => `sed -n '1,160p' ${path}`],
+      ["head", (path) => `head -n 80 ${path}`],
+      ["tail", (path) => `tail -n 80 ${path}`],
+      ["awk", (path) => `awk 'NR <= 160 { print }' ${path}`],
+    ];
+
+    for (const [name, command] of readers) {
+      const result = scenario.score(context("product-isolated", [
+        call("bash", { command: command(CONTEXT_MANAGEMENT_SKILL_PATH) }),
+        call("bash", { command: command(TARGET_SELECTION_REFERENCE_PATH) }),
+      ]));
+      expect(result.pass, name).toBe(true);
+    }
+  });
+
+  test("does not treat a bash redirection or plain path mention as reading guidance", () => {
+    const result = scenario.score(context("product-isolated", [
+      call("bash", { command: `echo router is ${CONTEXT_MANAGEMENT_SKILL_PATH}; cat /tmp/input > ${CONTEXT_MANAGEMENT_SKILL_PATH}` }),
+      call("bash", { command: `echo reference is ${TARGET_SELECTION_REFERENCE_PATH}; sed -n '1,10p' /tmp/input > ${TARGET_SELECTION_REFERENCE_PATH}` }),
+    ]));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "followed exact advanced pointer")?.pass).toBe(false);
+  });
+});
+
+describe("pressure-framing restraint scenario", () => {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === "pressure-keep-live-uncertainty");
+  if (!scenario) throw new Error("pressure restraint scenario missing");
+
+  function context({ t1, t2 } = {}) {
+    const turns = [
+      {
+        events: [],
+        toolCalls: t1 ?? [
+          call("read", { path: "src/lock.ts" }),
+          call("acm_checkpoint", { name: "lock-hunt-start" }),
+        ],
+        assistantTexts: ["The save point is established; I will stop before comparing traces."],
+      },
+      {
+        events: [],
+        toolCalls: t2 ?? [call("read", { path: "src/lock.ts" })],
+        assistantTexts: ["I compared the timestamp and owner trace evidence; the ownership remains live uncertainty."],
+      },
+    ];
+    return {
+      events: [],
+      toolCalls: turns.flatMap((turn) => turn.toolCalls),
+      assistantTexts: turns.flatMap((turn) => turn.assistantTexts),
+      turnRecords: turns,
+    };
+  }
+
+  test("creates the lock save point in T1, then continues the live investigation in T2", () => {
+    const result = scenario.score(context());
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T1 created lock-hunt-start checkpoint")?.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 continued direct timestamp comparison")?.pass).toBe(true);
+  });
+
+  test("reports a rejected travel as an attempted violation, not an applied travel", () => {
+    const result = scenario.score(context({
+      t2: [
+        call("acm_travel", { target: "lock-hunt-start", handoff: VALID_HANDOFF }, { error: "invalid_handoff" }),
+        call("read", { path: "src/lock.ts" }),
+      ],
+    }));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 forbidden travel attempted")?.pass).toBe(false);
+    expect(result.checks.find((check) => check.name === "T2 forbidden travel applied")?.pass).toBe(true);
+    expect(result.checks.find((check) => check.name === "T2 forbidden travel applied")?.detail).toContain("no travel applied");
   });
 });

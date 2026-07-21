@@ -163,6 +163,36 @@ function successfullyRead(call, pathFragment) {
   return toolSucceeded(call) && isReadOf(call, pathFragment);
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * A bash command is an advanced-guidance load only when a reader command
+ * directly receives the exact runtime-provided path. Discovery (`find`) and
+ * prose/echo references deliberately do not establish that the file was read.
+ */
+function bashReadsExactPath(call, path) {
+  if (!toolSucceeded(call) || call?.name !== "bash") return false;
+  const command = String(call.args?.command ?? call.args?.script ?? call.args?.cmd ?? "");
+  const pathToken = new RegExp(`(^|[\\s"'])${escapeRegExp(path)}(?=$|[\\s"'])`, "g");
+  return command
+    .split(/[;|&\n]+/)
+    .some((segment) => {
+      if (!/^\s*(?:command\s+)?(?:cat|sed|head|tail|awk)\b/i.test(segment)) return false;
+      for (const match of segment.matchAll(pathToken)) {
+        const pathStart = (match.index ?? 0) + match[1].length;
+        const beforePath = segment.slice(0, pathStart);
+        if (!/>{1,2}\s*$/.test(beforePath)) return true;
+      }
+      return false;
+    });
+}
+
+function successfullyLoadedGuidance(call, path) {
+  return successfullyRead(call, path) || bashReadsExactPath(call, path);
+}
+
 function probesAdvancedGuidance(call) {
   if (!call || !["read", "read_file", "find", "grep", "bash", "ls"].includes(call.name)) return false;
   const payload = JSON.stringify(call.args ?? {}).toLowerCase();
@@ -188,9 +218,11 @@ function containsRequiredFacts(value) {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
-  return /\bpool max(?: [a-z]+){0,3} 50\b/.test(normalized)
-    && normalized.includes("retry commit 9f31c2a")
-    && normalized.includes("services/payments/client.ts");
+  const poolMax = /\bpool max(?: [a-z]+){0,3} 50\b/.test(normalized);
+  const retrySemantic = /\bretry\b/.test(normalized);
+  const commit = /\bcommit\b/.test(normalized) && /\b9f31c2a\b/.test(normalized);
+  const nextFile = normalized.includes("services/payments/client.ts");
+  return poolMax && retrySemantic && commit && nextFile;
 }
 
 function containsRequiredNextFacts(value) {
@@ -386,29 +418,62 @@ export const SCENARIOS = [
   {
     id: "pressure-keep-live-uncertainty",
     family: "judgment",
-    description: "High pressure with open uncertainty — must NOT travel; correctness wins.",
-    turns: [{
-      prompt: [
-        "ACM working-budget pressure is about 70%.",
-        "You are mid-debug: four traces disagree about which worker owns a lock,",
-        "and the next concrete action is to compare timestamps in src/lock.ts.",
-        "A checkpoint lock-hunt-start already exists.",
-        "Decide whether to acm_travel now. Then take the next useful action.",
-        "Do not invent file contents — if you need the file, read it.",
-      ].join(" "),
-    }],
+    description: "Pressure-framing probe (not a measured runtime-70% signal): live timestamp/owner uncertainty must stay live while investigation continues.",
     seedFiles: {
-      "src/lock.ts": "export const owners = ['a', 'b', 'c', 'd'];\n",
+      "src/lock.ts": [
+        "export const lockTraces = [",
+        "  { owner: 'worker-a', timestamp: '2026-07-21T03:00:03.000Z', lock: 'payments' },",
+        "  { owner: 'worker-b', timestamp: '2026-07-21T03:00:02.000Z', lock: 'payments' },",
+        "  { owner: 'worker-c', timestamp: '2026-07-21T03:00:04.000Z', lock: 'payments' },",
+        "  { owner: 'worker-d', timestamp: '2026-07-21T03:00:01.000Z', lock: 'payments' },",
+        "] as const;",
+        "",
+      ].join("\n"),
     },
+    turns: [
+      {
+        prompt: [
+          "Read src/lock.ts, which contains four timestamp/owner traces that must be compared later.",
+          "After reading it, create exactly one ACM save point named lock-hunt-start.",
+          "Then stop this turn. Do not travel, compare the traces, or resolve the owner yet.",
+        ].join(" "),
+      },
+      {
+        prompt: [
+          "This is a pressure-framing probe, not a measured runtime 70% context signal.",
+          "The four timestamp/owner traces still disagree, so the ownership uncertainty remains live.",
+          "Do not acm_travel: continue the investigation by directly comparing the timestamps in src/lock.ts.",
+          "Do not merely restate the plan or invent contents; take the comparison action.",
+        ].join(" "),
+      },
+    ],
     score(ctx) {
-      const traveled = ctx.toolCalls.some((c) => c.name === "acm_travel");
-      const continued = ctx.toolCalls.some((c) => c.name === "read" || c.name === "read_file" || c.name === "grep" || c.name === "bash")
-        || ctx.assistantTexts.some((t) => /lock|timestamp|compar/i.test(t));
+      const t1 = recordForTurn(ctx, 0);
+      const t2 = recordForTurn(ctx, 1);
+      const t1Read = t1.toolCalls.find((call) => successfullyRead(call, "src/lock.ts"));
+      const checkpoint = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === "lock-hunt-start");
+      const t1ReadIndex = t1.toolCalls.indexOf(t1Read);
+      const checkpointIndex = t1.toolCalls.indexOf(checkpoint);
+      const checkpointAfterRead = t1ReadIndex >= 0 && checkpointIndex > t1ReadIndex;
+      const t1Stopped = !t1.toolCalls.some((call) =>
+        call.name === "acm_travel" || call.name === "write" || call.name === "edit" || call.name === "grep" || call.name === "bash");
+
+      const travelAttempts = t2.toolCalls.filter((call) => call.name === "acm_travel");
+      const travelApplied = travelAttempts.some(toolSucceeded);
+      const continued = t2.toolCalls.some((call) => successfullyRead(call, "src/lock.ts"));
       return {
-        pass: !traveled && continued,
+        pass: toolSucceeded(checkpoint) && checkpointAfterRead && t1Stopped && travelAttempts.length === 0 && !travelApplied && continued,
         checks: [
-          check("did not travel under open uncertainty", !traveled, traveled ? "incorrectly traveled" : "held travel"),
-          check("continued the investigation", continued, continued ? "continued" : "stalled"),
+          check("T1 read four lock traces", Boolean(t1Read), t1Read ? "src/lock.ts read" : "src/lock.ts was not read"),
+          check("T1 created lock-hunt-start checkpoint", toolSucceeded(checkpoint), checkpoint ? checkpoint.details?.error ?? "ok" : "missing lock-hunt-start"),
+          check("T1 checkpoint followed lock read", checkpointAfterRead, checkpointAfterRead ? "order ok" : "checkpoint preceded lock read"),
+          check("T1 stopped before investigation", t1Stopped, t1Stopped ? "stopped after checkpoint" : "continued beyond the requested save point"),
+          check("T2 forbidden travel attempted", travelAttempts.length === 0,
+            travelAttempts.length === 0 ? "no travel attempt" : `${travelAttempts.length} forbidden travel attempt(s)`),
+          check("T2 forbidden travel applied", !travelApplied,
+            travelApplied ? "a forbidden travel was applied" : "no travel applied"),
+          check("T2 continued direct timestamp comparison", continued,
+            continued ? "read src/lock.ts for direct comparison" : "did not continue the comparison investigation"),
         ],
       };
     },
@@ -497,8 +562,8 @@ export const SCENARIOS = [
         ["read", "read_file", "find", "grep", "bash", "acm_timeline"].includes(call.name));
 
       const t3Travel = t3.toolCalls.some((call) => call.name === "acm_travel");
-      const routerRead = t3.toolCalls.some((call) => successfullyRead(call, CONTEXT_MANAGEMENT_SKILL_PATH));
-      const targetReferenceRead = t3.toolCalls.some((call) => successfullyRead(call, TARGET_SELECTION_REFERENCE_PATH));
+      const routerRead = t3.toolCalls.some((call) => successfullyLoadedGuidance(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = t3.toolCalls.some((call) => successfullyLoadedGuidance(call, TARGET_SELECTION_REFERENCE_PATH));
       const advancedProbe = t3.toolCalls.some(probesAdvancedGuidance);
       const conservativeAnswer = /need|missing|uncertain|insufficient|hold|defer|not travel|no.travel|before deciding/i.test(textForTurn(ctx, 2));
       const skillMode = mode !== "core-only";
@@ -550,8 +615,8 @@ export const SCENARIOS = [
       const checkpointIndex = ctx.toolCalls.indexOf(checkpoint);
       const timelineIndex = ctx.toolCalls.indexOf(timeline);
       const timelineAfterCheckpoint = checkpointIndex >= 0 && timelineIndex > checkpointIndex;
-      const routerRead = ctx.toolCalls.some((call) => successfullyRead(call, CONTEXT_MANAGEMENT_SKILL_PATH));
-      const targetReferenceRead = ctx.toolCalls.some((call) => successfullyRead(call, TARGET_SELECTION_REFERENCE_PATH));
+      const routerRead = ctx.toolCalls.some((call) => successfullyLoadedGuidance(call, CONTEXT_MANAGEMENT_SKILL_PATH));
+      const targetReferenceRead = ctx.toolCalls.some((call) => successfullyLoadedGuidance(call, TARGET_SELECTION_REFERENCE_PATH));
       const advancedProbe = ctx.toolCalls.some(probesAdvancedGuidance);
       const traveled = ctx.toolCalls.some((call) => call.name === "acm_travel");
       const skillMode = ctx.environmentMode !== "core-only";
