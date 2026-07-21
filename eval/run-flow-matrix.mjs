@@ -6,9 +6,9 @@
 // resource audit, and session semantics in the one production evaluation path.
 
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classifyFlowEvidence, collectFlowTelemetry, compareContextArms } from "./flow-telemetry.mjs";
@@ -25,7 +25,7 @@ import {
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 
-export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 4;
+export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 5;
 export const CONTROLLED_MAX_TOKENS = 16_000;
 export const CONTROLLED_WINDOWS = Object.freeze([400_000, 1_000_000]);
 export const DEFAULT_FLOW_ID = "saffron-cutover-long-flow-v1";
@@ -37,6 +37,7 @@ const compactFileName = "matrix-report.json";
 const markdownFileName = "matrix-report.md";
 const lockFileName = ".matrix.lock";
 const INTEGRITY_GUARD_PATH = join(repoRoot, "eval", "integrity-guard.mjs");
+const FULL_ENV_LINKED_RESOURCE_ROOTS = Object.freeze(["git", "npm", "extensions", "skills", "themes", "agents", "bin"]);
 const PINNED_SOURCE_FILES = Object.freeze([
   EXTENSION_PATH,
   CONTEXT_EXTENSION_PATH,
@@ -164,6 +165,217 @@ function fileHash(path) {
   return existsSync(path) ? sha256(readFileSync(path)) : null;
 }
 
+function stableCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function displayTreePath(path) {
+  return path.replaceAll(sep, "/");
+}
+
+function pathIsInside(root, candidate) {
+  const pathFromRoot = relative(root, candidate);
+  return pathFromRoot === "" || (pathFromRoot !== ".." && !pathFromRoot.startsWith(`..${sep}`) && !isAbsolute(pathFromRoot));
+}
+
+function treeError(label, path, error) {
+  const reason = error instanceof Error ? error.message : String(error);
+  return new Error(`${label} content tree cannot certify ${path}: ${reason}`);
+}
+
+function lstatTreeNode(label, path) {
+  try {
+    return lstatSync(path);
+  } catch (error) {
+    throw treeError(label, path, error);
+  }
+}
+
+function treeNodeKind(stat) {
+  if (stat.isFile()) return "file";
+  if (stat.isDirectory()) return "dir";
+  if (stat.isSymbolicLink()) return "symlink";
+  return null;
+}
+
+function hashContentTreeRoot({ name, path, boundaryPath = path }) {
+  const label = `content tree root ${name}`;
+  let boundary;
+  try {
+    boundary = realpathSync(boundaryPath);
+  } catch (error) {
+    throw treeError(label, boundaryPath, error);
+  }
+  const entries = [];
+
+  const visit = (nodePath, nodeName) => {
+    const stat = lstatTreeNode(label, nodePath);
+    const kind = treeNodeKind(stat);
+    if (!kind) throw new Error(`${label} rejects special node ${nodePath}`);
+    const normalizedName = displayTreePath(nodeName);
+    const mode = stat.mode & 0o777;
+    if (kind === "file") {
+      let content;
+      try {
+        content = readFileSync(nodePath);
+      } catch (error) {
+        throw treeError(label, nodePath, error);
+      }
+      entries.push({ path: normalizedName, kind, mode, sha256: sha256(content) });
+      return;
+    }
+    if (kind === "symlink") {
+      let target;
+      let resolved;
+      try {
+        target = readlinkSync(nodePath);
+        resolved = realpathSync(nodePath);
+      } catch (error) {
+        throw treeError(label, nodePath, error);
+      }
+      if (!pathIsInside(boundary, resolved)) {
+        throw new Error(`${label} rejects symlink escaping its root: ${nodePath} -> ${target}`);
+      }
+      const targetStat = lstatTreeNode(label, resolved);
+      const targetKind = treeNodeKind(targetStat);
+      if (!targetKind) throw new Error(`${label} rejects symlink to special node ${nodePath} -> ${target}`);
+      entries.push({
+        path: normalizedName,
+        kind,
+        mode,
+        target,
+        resolved: displayTreePath(relative(boundary, resolved) || "."),
+        targetKind,
+      });
+      return;
+    }
+    let names;
+    try {
+      names = readdirSync(nodePath).sort(stableCompare);
+    } catch (error) {
+      throw treeError(label, nodePath, error);
+    }
+    entries.push({ path: normalizedName, kind, mode });
+    for (const childName of names) visit(join(nodePath, childName), join(nodeName, childName));
+  };
+
+  visit(path, ".");
+  const root = {
+    name,
+    path,
+    boundaryPath,
+    realpath: boundary,
+    entryCount: entries.length,
+    sha256: sha256(JSON.stringify(entries)),
+  };
+  return root;
+}
+
+/**
+ * Fingerprint an auditable content tree without trusting only command discovery.
+ * Files contribute bytes and modes; directories and symlinks keep their own
+ * identity. Symlinks are never traversed and an escape from the declared root
+ * is a hard failure, so a link cannot quietly import mutable outside content.
+ */
+export function hashContentTree(roots) {
+  if (!Array.isArray(roots) || roots.length === 0) throw new Error("content tree requires at least one root");
+  const names = new Set();
+  const normalizedRoots = roots.map((root) => {
+    if (!root?.name || !root?.path) throw new Error("content tree root requires name and path");
+    if (names.has(root.name)) throw new Error(`content tree has duplicate root name: ${root.name}`);
+    names.add(root.name);
+    return {
+      name: root.name,
+      path: root.path,
+      boundaryPath: root.boundaryPath ?? root.path,
+    };
+  }).sort((left, right) => stableCompare(left.name, right.name));
+  const treeRoots = normalizedRoots.map(hashContentTreeRoot);
+  const tree = {
+    schemaVersion: 1,
+    roots: treeRoots,
+  };
+  return { ...tree, sha256: sha256(JSON.stringify(tree)) };
+}
+
+export function rehashContentTree(pinnedTree) {
+  if (!pinnedTree?.roots) throw new Error("pinned content tree is missing roots");
+  return hashContentTree(pinnedTree.roots.map((root) => ({
+    name: root.name,
+    path: root.path,
+    boundaryPath: root.boundaryPath,
+  })));
+}
+
+export function hashFullEnvLinkedResourceTree(fullEnvAudit) {
+  const linked = fullEnvAudit?.linkedDirectories;
+  if (!Array.isArray(linked)) throw new Error("full-env audit lacks linkedDirectories");
+  const byName = new Map(linked.map((entry) => [entry?.name, entry]));
+  const roots = FULL_ENV_LINKED_RESOURCE_ROOTS.map((name) => {
+    const entry = byName.get(name);
+    if (!entry?.source || !entry?.target) throw new Error(`full-env audit lacks linked ${name} resource root`);
+    const target = lstatTreeNode(`full-env linked root ${name}`, entry.target);
+    if (!target.isSymbolicLink()) throw new Error(`full-env audit ${name} target is not a symlink: ${entry.target}`);
+    let sourceRealpath;
+    let targetRealpath;
+    try {
+      sourceRealpath = realpathSync(entry.source);
+      targetRealpath = realpathSync(entry.target);
+    } catch (error) {
+      throw treeError(`full-env linked root ${name}`, entry.source, error);
+    }
+    if (sourceRealpath !== targetRealpath) {
+      throw new Error(`full-env audit ${name} target does not resolve to its recorded source`);
+    }
+    return { name, path: entry.source, boundaryPath: entry.source };
+  });
+  return hashContentTree(roots);
+}
+
+export function hashRepoLocalPiRuntimeTree() {
+  const nodeModules = join(repoRoot, "node_modules");
+  return hashContentTree([
+    { name: "@earendil-works", path: join(nodeModules, "@earendil-works"), boundaryPath: nodeModules },
+    { name: "pi-wrapper", path: join(nodeModules, ".bin", "pi"), boundaryPath: nodeModules },
+  ]);
+}
+
+function captureContentTree(makeTree) {
+  try {
+    return { tree: makeTree(), error: null };
+  } catch (error) {
+    return { tree: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export function verifyPinnedRuntimeTrees(pinnedProvenance) {
+  const reasons = [];
+  const globalResources = captureContentTree(() => rehashContentTree(pinnedProvenance?.globalResourceTree));
+  const piRuntime = captureContentTree(() => rehashContentTree(pinnedProvenance?.piRuntimeTree));
+  if (globalResources.error) reasons.push(`global_resource_tree_unavailable:${globalResources.error}`);
+  else if (globalResources.tree.sha256 !== pinnedProvenance?.globalResourceTree?.sha256) reasons.push("global_resource_tree_mismatch");
+  if (piRuntime.error) reasons.push(`pi_runtime_tree_unavailable:${piRuntime.error}`);
+  else if (piRuntime.tree.sha256 !== pinnedProvenance?.piRuntimeTree?.sha256) reasons.push("pi_runtime_tree_mismatch");
+  return { valid: reasons.length === 0, reasons, globalResources, piRuntime };
+}
+
+export function assertCleanGitWorktree({ cwd = repoRoot, execFileSyncImpl = execFileSync } = {}) {
+  let status;
+  try {
+    status = execFileSyncImpl("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, encoding: "utf8" });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`matrix execution requires a verifiable clean Git worktree: ${reason}`);
+  }
+  if (status.trim()) {
+    throw new Error(`matrix execution requires a clean Git worktree, including non-ignored untracked files:\n${status.trim()}`);
+  }
+}
+
+export function assertMatrixWorktreeClean({ execute = false, resume = false, assertClean = assertCleanGitWorktree } = {}) {
+  if (execute || resume) assertClean();
+}
+
 function relativeRepoPath(path) {
   return path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path;
 }
@@ -254,7 +466,7 @@ export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOption
 
 export function assertPinnedProvenance(expected, actual) {
   if (JSON.stringify(expected) !== JSON.stringify(actual)) {
-    throw new Error("resume provenance mismatch: HEAD, prompts, fixture, Pi, or full-env configuration changed");
+    throw new Error("resume provenance mismatch: HEAD, prompts, fixture, Pi, full-env configuration, or resource trees changed");
   }
 }
 
@@ -439,12 +651,15 @@ export async function runAuditPreflight({ manifest, secretSeed, piBinary, timeou
   if (report.status !== "completed" || report.infrastructureInvalid) {
     throw new Error(`audit preflight failed: ${report.infrastructureInvalid?.reason ?? report.status}`);
   }
+  const fullEnvAudit = report.resources?.fullEnvHarness ?? null;
   return {
     reportPath,
     reportSha256: fileHash(reportPath),
     commandInventory: normalizeGlobalCommandInventory(report.commands ?? []),
     piBinary: report.piBinary ?? null,
     resources: report.resources ?? null,
+    globalResourceTree: hashFullEnvLinkedResourceTree(fullEnvAudit),
+    piRuntimeTree: hashRepoLocalPiRuntimeTree(),
   };
 }
 
@@ -517,6 +732,10 @@ function runtimeCellProvenance(report, runDir) {
   const saffron = existsSync(saffronManifestPath) ? readJson(saffronManifestPath) : null;
   const audit = report?.resources?.fullEnvHarness ?? null;
   const configuredModel = report?.runtimeAudit?.configuredModel ?? null;
+  const globalResourceTree = audit === null
+    ? { tree: null, error: "full-env audit missing" }
+    : captureContentTree(() => hashFullEnvLinkedResourceTree(audit));
+  const piRuntimeTree = captureContentTree(hashRepoLocalPiRuntimeTree);
   return {
     productGitHead: report?.gitHead ?? null,
     flowId: report?.flowId ?? null,
@@ -534,6 +753,8 @@ function runtimeCellProvenance(report, runDir) {
       realpath: report?.piBinary?.realpath ?? null,
       version: report?.piBinary?.version ?? null,
       binarySha256: report?.piBinary?.realpath ? fileHash(report.piBinary.realpath) : null,
+      runtimeTree: piRuntimeTree.tree,
+      runtimeTreeError: piRuntimeTree.error,
     },
     fullEnv: audit ? {
       sanitizedSettingsSha256: audit.settings?.sanitizedSha256 ?? null,
@@ -542,6 +763,8 @@ function runtimeCellProvenance(report, runDir) {
       originalPackagesSha256: audit.settings?.originalPackagesSha256 ?? null,
       globalAgentsSha256: audit.globalAgents?.harness?.sha256 ?? null,
       rootConfigHashes: Object.fromEntries((audit.rootConfigs ?? []).map((entry) => [entry.name, entry.harness?.sha256 ?? null])),
+      linkedResourceTree: globalResourceTree.tree,
+      linkedResourceTreeError: globalResourceTree.error,
     } : null,
     runtime: {
       contextWindow: configuredModel?.contextWindow ?? report?.contextWindow ?? null,
@@ -571,11 +794,15 @@ export function validateCellProvenance(cell, runtime, pinned) {
     if (pinned?.sourceHashes?.[entry.path] !== entry.sha256) reasons.push(`runtime_source_mismatch:${entry.path}`);
   }
   if (runtime?.pi?.version !== pinned?.pi?.version || runtime?.pi?.binarySha256 !== pinned?.pi?.binarySha256) reasons.push("pi_binary_mismatch");
+  if (runtime?.pi?.runtimeTreeError) reasons.push("pi_runtime_tree_unavailable");
+  if (runtime?.pi?.runtimeTree?.sha256 !== pinned?.piRuntimeTree?.sha256) reasons.push("pi_runtime_tree_mismatch");
   if (runtime?.globalCommands?.sha256 !== pinned?.globalCommands?.sha256) reasons.push("global_command_inventory_mismatch");
   if (runtime?.fullEnv?.sanitizedSettingsSha256 !== arm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
   if (runtime?.fullEnv?.sanitizedPackagesSha256 !== arm?.sanitizedPackagesSha256) reasons.push("sanitized_packages_mismatch");
   if (runtime?.fullEnv?.globalAgentsSha256 !== arm?.globalAgentsSha256) reasons.push("global_agents_mismatch");
   if (JSON.stringify(runtime?.fullEnv?.rootConfigHashes) !== JSON.stringify(arm?.rootConfigHashes)) reasons.push("global_config_hash_mismatch");
+  if (runtime?.fullEnv?.linkedResourceTreeError) reasons.push("global_resource_tree_unavailable");
+  if (runtime?.fullEnv?.linkedResourceTree?.sha256 !== pinned?.globalResourceTree?.sha256) reasons.push("global_resource_tree_mismatch");
   if (runtime?.runtime?.contextWindow !== cell.contextWindow) reasons.push("context_window_mismatch");
   if (runtime?.runtime?.maxTokens !== cell.maxTokensCap) reasons.push("max_tokens_mismatch");
   if (runtime?.runtime?.model?.provider !== cell.model.provider || runtime?.runtime?.model?.modelId !== cell.model.modelId) reasons.push("selected_model_mismatch");
@@ -609,6 +836,8 @@ function compactMatrix(state) {
       reportPath: preflight.reportPath,
       reportSha256: preflight.reportSha256,
       commandInventorySha256: preflight.commandInventory?.sha256 ?? null,
+      globalResourceTreeSha256: preflight.globalResourceTree?.sha256 ?? null,
+      piRuntimeTreeSha256: preflight.piRuntimeTree?.sha256 ?? null,
     })),
     manifest: state.manifest,
     classifications: Object.fromEntries(["pending", "running", "certifying_run", "occupancy_miss", "infrastructure_invalid", "run_error", "task_failure", "coverage_insufficient"].map((kind) => [kind, cells.filter((cell) => (cell.classification ?? cell.status) === kind).length])),
@@ -702,6 +931,33 @@ async function runWithConcurrency(items, concurrency, worker) {
 }
 
 async function executeCell(cell, options, pinnedProvenance) {
+  // The preflight itself is gated in main. Recheck immediately before each
+  // provider child so edits made during an earlier arm cannot leak into a
+  // later comparison cell.
+  assertCleanGitWorktree();
+  const runtimeTreeCheck = verifyPinnedRuntimeTrees(pinnedProvenance);
+  if (!runtimeTreeCheck.valid) {
+    const report = {
+      status: "infrastructure_invalid",
+      infrastructureInvalid: {
+        reason: `prelaunch_runtime_tree_mismatch:${runtimeTreeCheck.reasons.join(",")}`,
+      },
+      fullEnv: true,
+      contextWindow: cell.contextWindow,
+      maxTokensCap: cell.maxTokensCap,
+      deterministicVerification: null,
+    };
+    const telemetry = collectFlowTelemetry({ report, contextWindow: cell.contextWindow, integrity: { audit: { present: false } } });
+    return {
+      child: { exitCode: null, signal: null, error: null, stderr: "" },
+      report,
+      telemetry,
+      reportPath: null,
+      telemetryPath: null,
+      provenance: null,
+      provenanceCheck: { valid: false, reasons: runtimeTreeCheck.reasons },
+    };
+  }
   const child = await runFlowChild({ cell, options });
   const reportedPath = reportPathFromOutput(`${child.stdout}\n${child.stderr}`);
   const reportPath = reportedPath && existsSync(reportedPath) ? reportedPath : null;
@@ -755,6 +1011,10 @@ async function main() {
   const output = option("--output");
   const suppliedFlowSeed = option("--flow-seed") ?? process.env.ACM_FLOW_SEED;
   if (execute && !suppliedFlowSeed) throw new Error("--execute requires --flow-seed or ACM_FLOW_SEED");
+  // A resume always starts an audit Pi process, so it has the same immutable
+  // checkout requirement as execution. Plain previews remain available for
+  // inspection from a dirty worktree.
+  assertMatrixWorktreeClean({ execute, resume });
   if (resume && output) throw new Error("--resume and --output are mutually exclusive");
   const flowId = option("--flow") ?? DEFAULT_FLOW_ID;
   const newMatrixRunId = resume ? null : generateMatrixRunId();
@@ -774,8 +1034,8 @@ async function main() {
     if (resume) {
       if (!existsSync(statePath)) throw new Error(`no matrix state to resume: ${statePath}`);
       state = readJson(statePath);
-      if (!state.secretSeedSha256 || !state.matrixRunId || !state.pinnedProvenance) {
-        throw new Error("resume state lacks secretSeedSha256, matrixRunId, or pinnedProvenance");
+      if (!state.secretSeedSha256 || !state.matrixRunId || !state.pinnedProvenance?.globalResourceTree || !state.pinnedProvenance?.piRuntimeTree) {
+        throw new Error("resume state lacks secretSeedSha256, matrixRunId, or pinned resource-tree provenance");
       }
       assertResumeSeed(state.secretSeedSha256, suppliedFlowSeed);
       secretSeed = suppliedFlowSeed;
@@ -783,6 +1043,8 @@ async function main() {
       if (JSON.stringify(state.manifest) !== JSON.stringify(manifest)) throw new Error("resume manifest differs from this runner's fixed declaration");
       const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId });
       assertPiProvenance(baseProvenance.pi);
+      const runtimeTrees = verifyPinnedRuntimeTrees(state.pinnedProvenance);
+      if (!runtimeTrees.valid) throw new Error(`resume runtime tree mismatch: ${runtimeTrees.reasons.join(",")}`);
       const rehashedCommands = rehashGlobalCommandInventory(state.pinnedProvenance.globalCommands);
       const originalPreflight = state.pinnedProvenance.preflight;
       const rehashedPreflight = {
@@ -793,6 +1055,8 @@ async function main() {
         ...baseProvenance,
         globalCommands: rehashedCommands,
         preflight: rehashedPreflight,
+        globalResourceTree: runtimeTrees.globalResources.tree,
+        piRuntimeTree: runtimeTrees.piRuntime.tree,
       };
       assertPinnedProvenance(state.pinnedProvenance, recomputedPinned);
       const resumePreflight = await runAuditPreflight({
@@ -803,6 +1067,12 @@ async function main() {
       });
       if (resumePreflight.commandInventory.sha256 !== state.pinnedProvenance.globalCommands.sha256) {
         throw new Error("resume global command inventory mismatch");
+      }
+      if (resumePreflight.globalResourceTree.sha256 !== state.pinnedProvenance.globalResourceTree.sha256) {
+        throw new Error("resume global resource tree mismatch");
+      }
+      if (resumePreflight.piRuntimeTree.sha256 !== state.pinnedProvenance.piRuntimeTree.sha256) {
+        throw new Error("resume Pi runtime tree mismatch");
       }
       state.preflightRuns = [...(state.preflightRuns ?? []), resumePreflight];
       pinnedProvenance = state.pinnedProvenance;
@@ -823,6 +1093,8 @@ async function main() {
         ...baseProvenance,
         globalCommands: preflight.commandInventory,
         preflight: { reportPath: preflight.reportPath, reportSha256: preflight.reportSha256 },
+        globalResourceTree: preflight.globalResourceTree,
+        piRuntimeTree: preflight.piRuntimeTree,
       };
       state = createInitialMatrixState({
         manifest,

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,8 @@ import {
   CONTROLLED_WINDOWS,
   DEFAULT_FLOW_ID,
   acquireMatrixLock,
+  assertCleanGitWorktree,
+  assertMatrixWorktreeClean,
   assertPinnedProvenance,
   assertResumeSeed,
   buildSaffronPin,
@@ -18,13 +20,42 @@ import {
   createInitialMatrixState,
   createLongFlowMatrixManifest,
   finalMatrixStatus,
+  hashContentTree,
+  hashFullEnvLinkedResourceTree,
   normalizeGlobalCommandInventory,
+  rehashContentTree,
   rehashGlobalCommandInventory,
   releaseMatrixLock,
   runAuditPreflight,
   runFlowChild,
   shouldSkipMatrixCell,
 } from "./run-flow-matrix.mjs";
+
+const LINKED_RESOURCE_ROOTS = ["git", "npm", "extensions", "skills", "themes", "agents", "bin"];
+
+function writeFixtureFile(path, content) {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, content);
+}
+
+function makeLinkedResourceAudit(output) {
+  const sourceAgentDir = join(output, "source-agent");
+  const harnessAgentDir = join(output, "harness-agent");
+  const linkedDirectories = LINKED_RESOURCE_ROOTS.map((name) => {
+    const source = join(sourceAgentDir, name);
+    const target = join(harnessAgentDir, name);
+    mkdirSync(source, { recursive: true });
+    mkdirSync(harnessAgentDir, { recursive: true });
+    symlinkSync(source, target, "dir");
+    return { name, source, target };
+  });
+  writeFixtureFile(join(sourceAgentDir, "extensions", "hook-only.ts"), "export const hook = 'v1';\n");
+  writeFixtureFile(join(sourceAgentDir, "extensions", "lib", "imported-module.ts"), "export const imported = 'v1';\n");
+  writeFixtureFile(join(sourceAgentDir, "skills", "context-management", "SKILL.md"), "# Fixture skill\n");
+  writeFixtureFile(join(sourceAgentDir, "skills", "context-management", "references", "deep.md"), "reference v1\n");
+  writeFixtureFile(join(sourceAgentDir, "skills", "context-management", "scripts", "check.mjs"), "export default 'v1';\n");
+  return { sourceAgentDir, harnessAgentDir, linkedDirectories };
+}
 
 describe("real Pi long-flow matrix declaration", () => {
   test("declares exactly the requested four model/effort pairs across two controlled windows", () => {
@@ -140,9 +171,11 @@ describe("real Pi long-flow matrix declaration", () => {
     try {
       const source = join(output, "global-extension.ts");
       const reportPath = join(output, "report.json");
+      const fullEnvHarness = makeLinkedResourceAudit(output);
       writeFileSync(source, "export default 'v1';\n");
       writeFileSync(reportPath, `${JSON.stringify({
         status: "completed",
+        resources: { fullEnvHarness },
         commands: [{
           name: "global:command",
           source: "extension",
@@ -177,6 +210,9 @@ describe("real Pi long-flow matrix declaration", () => {
         expect.objectContaining({ kind: "file" }),
         expect.objectContaining({ kind: "nonfile" }),
       ]));
+      expect(preflight.globalResourceTree.sha256).toHaveLength(64);
+      expect(preflight.globalResourceTree.roots.map((root) => root.name)).toEqual([...LINKED_RESOURCE_ROOTS].sort());
+      expect(preflight.piRuntimeTree.sha256).toHaveLength(64);
       const originalHash = preflight.commandInventory.sha256;
       writeFileSync(source, "export default 'v2';\n");
       expect(rehashGlobalCommandInventory(preflight.commandInventory).sha256).not.toBe(originalHash);
@@ -184,6 +220,66 @@ describe("real Pi long-flow matrix declaration", () => {
     } finally {
       rmSync(output, { recursive: true, force: true });
     }
+  });
+
+  test("content-tree pin covers global hook-only extensions, imports, and Skill support files", () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-resource-tree-"));
+    try {
+      const audit = makeLinkedResourceAudit(output);
+      const pinned = hashFullEnvLinkedResourceTree(audit);
+      expect(rehashContentTree(pinned).sha256).toBe(pinned.sha256);
+
+      writeFixtureFile(join(audit.sourceAgentDir, "extensions", "hook-only.ts"), "export const hook = 'v2';\n");
+      expect(rehashContentTree(pinned).sha256).not.toBe(pinned.sha256);
+
+      const repinned = hashFullEnvLinkedResourceTree(audit);
+      writeFixtureFile(join(audit.sourceAgentDir, "extensions", "lib", "imported-module.ts"), "export const imported = 'v2';\n");
+      expect(rehashContentTree(repinned).sha256).not.toBe(repinned.sha256);
+
+      const skillPinned = hashFullEnvLinkedResourceTree(audit);
+      writeFixtureFile(join(audit.sourceAgentDir, "skills", "context-management", "scripts", "check.mjs"), "export default 'v2';\n");
+      expect(rehashContentTree(skillPinned).sha256).not.toBe(skillPinned.sha256);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  test("content-tree rejects symlinks that escape a pinned root", () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-resource-escape-"));
+    try {
+      const root = join(output, "root");
+      const outside = join(output, "outside");
+      mkdirSync(root, { recursive: true });
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(join(outside, "mutable.mjs"), "export default 'outside';\n");
+      symlinkSync(outside, join(root, "escape"), "dir");
+      expect(() => hashContentTree([{ name: "fixture", path: root }])).toThrow("escaping its root");
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  test("execution and resume require a clean worktree while preview bypasses the gate", () => {
+    const calls = [];
+    expect(() => assertCleanGitWorktree({
+      cwd: "/fixture",
+      execFileSyncImpl: (binary, args, options) => {
+        calls.push({ binary, args, options });
+        return "?? non-ignored-untracked.txt\n";
+      },
+    })).toThrow("including non-ignored untracked files");
+    expect(calls).toEqual([{
+      binary: "git",
+      args: ["status", "--porcelain=v1", "--untracked-files=all"],
+      options: { cwd: "/fixture", encoding: "utf8" },
+    }]);
+
+    let gateCalls = 0;
+    const gate = () => { gateCalls += 1; };
+    assertMatrixWorktreeClean({ execute: false, resume: false, assertClean: gate });
+    assertMatrixWorktreeClean({ execute: true, resume: false, assertClean: gate });
+    assertMatrixWorktreeClean({ execute: false, resume: true, assertClean: gate });
+    expect(gateCalls).toBe(2);
   });
 
   test("resume rejects any pinned provenance drift", () => {
