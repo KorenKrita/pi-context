@@ -40,12 +40,15 @@ const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_TOOLS = new Set([...READ_ONLY_TOOLS, "edit", "write"]);
 const BASH_TOKEN_START_BOUNDARY = String.raw`[\s"'=;|&()<>:]`;
 const BASH_PATH_START_BOUNDARY = String.raw`[\/\s"'=;|&()<>:]`;
+const BASH_TOKEN_END_BOUNDARY = String.raw`[\s"'=;|&()<>]`;
 const BASH_PATH_END_BOUNDARY = String.raw`[\/\s"'=;|&()<>]`;
 const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_START_BOUNDARY})`;
 const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
+const BASH_TOKEN_END = `(?=$|${BASH_TOKEN_END_BOUNDARY})`;
 const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
 const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
+const BASH_SAFE_DEVICE_PATH_PATTERN = new RegExp(`(${BASH_PATH_START})/dev/null${BASH_TOKEN_END}`, "g");
 const BASH_HOME_OR_PI_PATTERN = new RegExp(
   `${BASH_TOKEN_START}${String.raw`~(?:[^/\s"'=;|&()<>]+)?`}${BASH_PATH_END}`
   + `|${BASH_PATH_START}(?:\\$HOME|\\$\\{HOME\\}|\\.pi|PI_CODING_AGENT_DIR|CODEX_HOME)${BASH_PATH_END}`,
@@ -144,12 +147,16 @@ function maskWorkspacePaths(command, workspace) {
   ), command);
 }
 
+function maskSafeDevicePaths(command) {
+  return command.replace(BASH_SAFE_DEVICE_PATH_PATTERN, "$1__ACM_SAFE_DEVICE__");
+}
+
 function bashViolation(command, workspace) {
   // Evaluation agents normally enter their isolated workspace by absolute path.
   // Mask only that exact root (and its realpath alias) before path-escape
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
-  const pathCheckedCommand = maskWorkspacePaths(command, workspace);
+  const pathCheckedCommand = maskSafeDevicePaths(maskWorkspacePaths(command, workspace));
   const pathChecks = [
     ["bash_absolute_path", BASH_ABSOLUTE_PATH_PATTERN],
     ["bash_parent_escape", BASH_PARENT_ESCAPE_PATTERN],

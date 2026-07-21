@@ -178,6 +178,22 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("allows only exact /dev/null redirection paths", () => {
+    for (const command of [
+      "command -v rg >/dev/null && echo rg-present",
+      "git status 2>/dev/null",
+      "cat </dev/null",
+      "cat 0</dev/null",
+      "cd /private/tmp/saffron-workspace/..2>/dev/null",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toEqual({ block: false });
+    }
+    for (const command of ["cat /dev/zero", "cat /dev/null/child", "cat /etc/passwd"]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_absolute_path" });
+    }
+  });
+
   test("blocks parent, HOME, and eval-run escapes separated from an allowed workspace", () => {
     for (const [command, code] of [
       ["cd /private/tmp/saffron-workspace/..; pwd", "bash_parent_escape"],
@@ -193,7 +209,6 @@ describe("measurement integrity tool-call gate", () => {
       ["cd /private/tmp/saffron-workspace && cd ~korenkrita; pwd", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~+; pwd", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~-; pwd", "bash_home_or_pi_discovery"],
-      ["cd /private/tmp/saffron-workspace/..2>/dev/null", "bash_absolute_path"],
       ["cd /private/tmp/saffron-workspace && find eval/.runs>x", "bash_eval_run_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~user/path", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && x=foo:/etc; cd ${x#*:}", "bash_absolute_path"],
