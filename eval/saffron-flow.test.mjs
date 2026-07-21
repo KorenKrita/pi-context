@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,10 @@ const TEST_SEED = "saffron-test-seed-2026-07-22";
 
 function temporaryDirectory(label) {
   return mkdtempSync(join(tmpdir(), `${label}-`));
+}
+
+function git(workspace, args) {
+  return execFileSync("git", args, { cwd: workspace, encoding: "utf8" }).trim();
 }
 
 function writeReferenceDelivery(workspace, oracle) {
@@ -157,6 +162,48 @@ test("Saffron persists only hashes before stop and writes private oracle evidenc
     expect(persistedEvidence.oracle.legalExclusion).toBe(flow.hiddenOracle.legalExclusion);
     expect(JSON.stringify(persistedEvidence)).not.toContain(TEST_SEED);
   } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("Saffron beforeRun establishes a clean, deterministic local Git baseline without run artifacts", () => {
+  const workspace = temporaryDirectory("saffron-git-baseline");
+  const runDir = temporaryDirectory("saffron-git-run");
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    const flow = materializeSaffronFlow({
+      seed: TEST_SEED,
+      packetTokenTarget: 2_000,
+      earlyDigestTokenTarget: 1_500,
+      supplementTokenTarget: 1_500,
+    });
+
+    const first = flow.beforeRun({ workspace, runDir });
+    const baselineCommit = git(workspace, ["rev-parse", "HEAD"]);
+    expect(first).toEqual({ state: "initialized", commit: baselineCommit });
+    expect(git(workspace, ["status", "--porcelain"])).toBe("");
+    expect(git(workspace, ["branch", "--show-current"])).toBe("main");
+    expect(git(workspace, ["log", "-1", "--format=%s"]))
+      .toBe("chore: establish Saffron fixture baseline");
+    expect(git(workspace, ["log", "-1", "--format=%an <%ae> %aI %cI"]))
+      .toBe("KorenKrita <KorenKrita@gmail.com> 2000-01-01T00:00:00Z 2000-01-01T00:00:00Z");
+    expect(git(workspace, ["config", "--local", "--get", "user.name"]))
+      .toBe("KorenKrita");
+    expect(git(workspace, ["config", "--local", "--get", "user.email"]))
+      .toBe("KorenKrita@gmail.com");
+    const trackedFiles = git(workspace, ["ls-files"]).split("\n");
+    expect(trackedFiles).toContain("AGENTS.md");
+    expect(trackedFiles).toContain("src/event-gate.mjs");
+    expect(trackedFiles).not.toContain("saffron-manifest.json");
+    expect(trackedFiles).not.toContain("saffron-oracle.json");
+    expect(readFileSync(join(runDir, "saffron-manifest.json"), "utf8")).toContain("fixtureSha256");
+
+    const second = flow.beforeRun({ workspace, runDir });
+    expect(second).toEqual({ state: "existing", commit: baselineCommit });
+    expect(git(workspace, ["rev-parse", "HEAD"])).toBe(baselineCommit);
+    expect(git(workspace, ["status", "--porcelain"])).toBe("");
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
     rmSync(runDir, { recursive: true, force: true });
   }
 });

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.1";
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.2";
 // P4's early digest plus this packet place the pre-P7 active working set near
 // 260K–300K tokens after real Pi/system/tool overhead, leaving safety room in
 // a 400K host window for the model's current-turn work.
@@ -66,6 +67,73 @@ function checkedTokenTarget(value, label, upperBound) {
 
 function freshSeed() {
   return randomBytes(32).toString("hex");
+}
+
+const SAFFRON_BASELINE_GIT_IDENTITY = Object.freeze({
+  name: "KorenKrita",
+  email: "KorenKrita@gmail.com",
+});
+const SAFFRON_BASELINE_GIT_DATE = "2000-01-01T00:00:00+00:00";
+const SAFFRON_BASELINE_GIT_SUBJECT = "chore: establish Saffron fixture baseline";
+
+function git(workspace, args, { env } = {}) {
+  return execFileSync("git", args, {
+    cwd: workspace,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  }).trim();
+}
+
+function hasGitHead(workspace) {
+  try {
+    return git(workspace, ["rev-parse", "--verify", "HEAD"]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The copied Saffron fixture intentionally starts as a non-Git directory.
+ * Establish a local, deterministic baseline before P1 so the fixture's own
+ * AGENTS.md applies Git recoverability rather than the non-Git backup rule.
+ */
+function initializeSaffronWorkspaceGitBaseline(workspace) {
+  if (!workspace) throw new Error("workspace is required to initialize the Saffron Git baseline");
+
+  const gitDirectory = join(workspace, ".git");
+  if (existsSync(gitDirectory)) {
+    const initialHead = hasGitHead(workspace);
+    if (initialHead) {
+      return Object.freeze({ state: "existing", commit: initialHead });
+    }
+  }
+
+  if (!existsSync(gitDirectory)) {
+    git(workspace, ["init", "--quiet", "--initial-branch=main"]);
+  } else {
+    // An empty fixture repository can inherit a caller's default branch.
+    // Pin it before its first commit without touching any global configuration.
+    git(workspace, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+  }
+  git(workspace, ["config", "--local", "user.name", SAFFRON_BASELINE_GIT_IDENTITY.name]);
+  git(workspace, ["config", "--local", "user.email", SAFFRON_BASELINE_GIT_IDENTITY.email]);
+  git(workspace, ["config", "--local", "commit.gpgSign", "false"]);
+  git(workspace, ["add", "--all"]);
+  git(workspace, ["-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m", SAFFRON_BASELINE_GIT_SUBJECT], {
+    env: {
+      GIT_AUTHOR_NAME: SAFFRON_BASELINE_GIT_IDENTITY.name,
+      GIT_AUTHOR_EMAIL: SAFFRON_BASELINE_GIT_IDENTITY.email,
+      GIT_AUTHOR_DATE: SAFFRON_BASELINE_GIT_DATE,
+      GIT_COMMITTER_NAME: SAFFRON_BASELINE_GIT_IDENTITY.name,
+      GIT_COMMITTER_EMAIL: SAFFRON_BASELINE_GIT_IDENTITY.email,
+      GIT_COMMITTER_DATE: SAFFRON_BASELINE_GIT_DATE,
+    },
+  });
+  const commit = hasGitHead(workspace);
+  if (!commit) throw new Error("Saffron Git baseline commit was not created");
+  const dirty = git(workspace, ["status", "--porcelain"]);
+  if (dirty) throw new Error(`Saffron Git baseline must be clean after initialization: ${dirty}`);
+  return Object.freeze({ state: "initialized", commit });
 }
 
 function sortedFixtureFiles(dir = SAFFRON_FIXTURE_DIR, prefix = "") {
@@ -443,7 +511,11 @@ export function materializeSaffronFlow({
     hiddenOracle: oracle,
     promptHashes,
     manifest,
-    beforeRun: ({ runDir: actualRunDir }) => persistRunEvidence(actualRunDir),
+    beforeRun: ({ workspace, runDir: actualRunDir }) => {
+      const baseline = initializeSaffronWorkspaceGitBaseline(workspace);
+      persistRunEvidence(actualRunDir);
+      return baseline;
+    },
     verify: ({ workspace, turnRecords }) => import("./saffron-verifier.mjs")
       .then(({ verifySaffronDelivery }) => verifySaffronDelivery({ workspace, oracle, turnRecords })),
     persistPrivateEvidence: ({ runDir: actualRunDir }) => persistSaffronPrivateEvidence({ runDir: actualRunDir, oracle, manifest }),
