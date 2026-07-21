@@ -256,6 +256,42 @@ function indeterminateTravelContext() {
   };
 }
 
+function successfulTravelContext() {
+  const root = userEntry("travel-root");
+  const head = userEntry("travel-head", root.id);
+  const entries: SessionEntry[] = [root, head];
+  let leafId = head.id;
+  const sessionManager = {
+    getTree: () => [{ entry: root, children: [{ entry: head, children: [] }] }],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => {
+      if (fromId === root.id) return [root];
+      return leafId === head.id ? [root, head] : [root, entries.at(-1)!];
+    },
+    getLeafId: () => leafId,
+    getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    branchWithSummary: (targetId: string, summary: string, details: unknown) => {
+      const entry: SessionEntry = {
+        type: "branch_summary",
+        id: "travel-summary",
+        parentId: targetId,
+        timestamp: "2026-01-01T00:00:01.000Z",
+        fromId: leafId,
+        summary,
+        details,
+      } as SessionEntry;
+      entries.push(entry);
+      leafId = entry.id;
+      return entry.id;
+    },
+  };
+  return {
+    sessionManager,
+    getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+    ui: { notify() {} },
+  };
+}
+
 const executeCheckpoint = captureExecute(registerCheckpointTool);
 const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
@@ -528,5 +564,33 @@ describe("ACM tool execution contracts", () => {
     });
     expect(result.content[0]?.text).toContain("Branch mutation cannot be excluded");
     expect(result.content[0]?.text).not.toContain("backup pointer");
+  });
+
+  test("preserves the raw scheduled native replacement outcome alongside delivery phase", async () => {
+    const nativeOutcome = { status: "pending" as const, preferredLeafId: "adapter-leaf" };
+    const adapter = {
+      installation: { status: "ready" as const },
+      schedule: () => nativeOutcome,
+      apply: () => ({ status: "skipped" as const, reason: "not_pending" as const, message: "not exercised" }),
+      getStatus: () => nativeOutcome,
+      clear() {},
+    };
+    const executeWithAdapter = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime(adapter)));
+
+    const result = await executeWithAdapter(
+      "travel-native-outcome",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      successfulTravelContext(),
+    );
+
+    expect(result.details).toMatchObject({
+      contextDeliveryPhase: "pending_run_settle",
+      nativeContextReplacementState: "pending",
+      nativeContextReplacement: nativeOutcome,
+      liveAgentSessionSyncState: "pending",
+      liveAgentSessionSync: nativeOutcome,
+    });
   });
 });

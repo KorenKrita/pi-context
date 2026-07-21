@@ -59,6 +59,7 @@ function createSession(id: string) {
 function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: object) {
   const handlers = new Map<string, Handler[]>();
   const notifications: string[] = [];
+  let idle: boolean | "throw" = true;
   const pi = {
     on(name: string, handler: Handler) {
       const current = handlers.get(name) ?? [];
@@ -73,10 +74,15 @@ function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: obje
     sessionManager,
     getContextUsage: () => undefined,
     hasPendingMessages: () => false,
+    isIdle() {
+      if (idle === "throw") throw new Error("idle state unavailable");
+      return idle;
+    },
     ui: { notify(message: string) { notifications.push(message); } },
   } as unknown as ExtensionContext;
   return {
     notifications,
+    setIdle(value: boolean | "throw") { idle = value; },
     async emit(event: string, data: object = {}) {
       let result: unknown;
       for (const handler of handlers.get(event) ?? []) result = await handler({ type: event, ...data }, context);
@@ -122,6 +128,80 @@ describe("deferred post-travel context delivery", () => {
     expect(secondLaterContext.messages).toHaveLength(1);
     expect(JSON.stringify(secondLaterContext.messages)).toContain("persisted persisted-leaf");
     expect(fixture.notifications).toEqual([]);
+  });
+
+  test("keeps the travel ticket pending until agent_settled can prove the session is idle", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const session = createSession("idle-guard-leaf");
+    const fixture = createLifecycleFixture(runtime, session);
+
+    runtime.deferPostTravelRefresh(session, "idle-guard-call", "traveled-leaf");
+    fixture.setIdle(false);
+    await fixture.emit("agent_settled");
+    expect(adapter.applied).toEqual([]);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+
+    fixture.setIdle("throw");
+    await fixture.emit("agent_settled");
+    expect(adapter.applied).toEqual([]);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+
+    fixture.setIdle(true);
+    await fixture.emit("agent_settled");
+    expect(adapter.applied).toEqual(["idle-guard-call"]);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
+  });
+
+  test("retains the delivery phase through rebuild failures and consumes it only after a later rebuild succeeds", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const entry = persistedUserEntry("rebuild-retry-leaf", "persisted after retry");
+    let failRebuild = true;
+    const session = {
+      getLeafId: () => entry.id,
+      getEntries: () => {
+        if (failRebuild) throw new Error("temporary session read failure");
+        return [entry];
+      },
+      getBranch: () => [entry],
+    };
+    const fixture = createLifecycleFixture(runtime, session);
+
+    runtime.deferPostTravelRefresh(session, "rebuild-retry-call", "traveled-leaf");
+    await fixture.emit("agent_settled");
+    expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
+
+    const failed = await fixture.emit("context", { messages: [{ role: "user", content: "retain live message" }] });
+    expect(failed).toEqual({ messages: [{ role: "user", content: "retain live message" }] });
+    expect(runtime.contextRefresh.isPending(session)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
+
+    failRebuild = false;
+    const rebuilt = await fixture.emit("context", { messages: [] }) as { messages: Array<{ role: string; content?: unknown }> };
+    expect(JSON.stringify(rebuilt.messages)).toContain("persisted after retry");
+    expect(runtime.contextRefresh.isPending(session)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("active");
+  });
+
+  test("keeps an exhausted persisted rebuild visibly non-active", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const session = {
+      getLeafId: () => "exhausted-leaf",
+      getEntries: () => { throw new Error("persistent session read failure"); },
+      getBranch: () => [],
+    };
+    const fixture = createLifecycleFixture(runtime, session);
+
+    runtime.deferPostTravelRefresh(session, "exhausted-call", "traveled-leaf");
+    await fixture.emit("agent_settled");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await fixture.emit("context", { messages: [] });
+    }
+
+    expect(runtime.contextRefresh.isPending(session)).toBe(false);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
   });
 
   test("multiple successful travels retain only the latest ticket until settlement", () => {

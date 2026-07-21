@@ -113,6 +113,14 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
+    // A settled notification can race a queued continuation or retry. Do not
+    // replace live messages until the host confirms this SessionManager is
+    // genuinely idle; retain the ticket for the next idle settled boundary.
+    try {
+      if (ctx.isIdle?.() === false) return;
+    } catch {
+      return;
+    }
     const outcome = runtime.settleDeferredRefresh(ctx.sessionManager);
     if (!outcome) return;
     const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
@@ -134,7 +142,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // deciding its next action. Preserve that run's host message sequence;
     // agent_settled unlocks the first later context event for the persisted rebuild.
     if (runtime.shouldKeepCurrentRunContext(sessionManager)) return undefined;
-    runtime.consumeDeferredRefreshForNextContext(sessionManager);
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
       const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
@@ -170,6 +177,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
 
       contextRefresh.markRebuilt(sessionManager);
+      // Do not release the delivery gate merely because an attempt began. A
+      // failed or exhausted rebuild must stay visible as non-active context
+      // delivery until a complete persisted packet has actually been rebuilt.
+      runtime.consumeDeferredRefreshForNextContext(sessionManager);
       return { messages: messages as typeof event.messages };
     } catch (error) {
       return reportFailure(error instanceof Error ? error.message : String(error));

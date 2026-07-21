@@ -121,7 +121,7 @@ export class AcmSessionRuntime {
     return liveAgentSessionSync;
   }
 
-  /** Consume the one-shot gate immediately before the persisted rebuild. */
+  /** Release the one-shot gate only after a successful persisted rebuild. */
   consumeDeferredRefreshForNextContext(session: object): boolean {
     if (this.deferredTravelRefresh.get(session)?.phase !== "next_context") return false;
     this.deferredTravelRefresh.delete(session);

@@ -553,6 +553,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             contextRefreshState: "pending_run_settle",
             contextDeliveryPhase: "pending_run_settle",
             sameRunContext: "preserved",
+            // Keep the raw adapter outcome available to callers that need to
+            // distinguish native replacement capability from delivery phase.
+            nativeContextReplacementState: liveAgentSessionSync.status,
+            nativeContextReplacement: liveAgentSessionSync,
+            // Compatibility aliases retained for existing integrations.
+            liveAgentSessionSyncState: liveAgentSessionSync.status,
+            liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
             currentUserTurnOpen,
             targetFacts: targetAnalysis.facts,
@@ -653,6 +660,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           contextRefreshState: "pending_run_settle",
           contextDeliveryPhase: "pending_run_settle",
           sameRunContext: "preserved",
+          // Native replacement is scheduled independently from when the
+          // persisted Context Packet becomes deliverable to the model.
+          nativeContextReplacementState: liveAgentSessionSync.status,
+          nativeContextReplacement: liveAgentSessionSync,
+          // Compatibility aliases retained for existing integrations.
+          liveAgentSessionSyncState: liveAgentSessionSync.status,
+          liveAgentSessionSync,
           fromOffPath: resolved.fromOffPath,
           targetFacts: targetAnalysis.facts,
           targetWarnings: targetAnalysis.warnings,

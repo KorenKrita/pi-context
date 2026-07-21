@@ -131,6 +131,20 @@ describe("deferred live synchronization fallback", () => {
     expect(result.details).toMatchObject({
       contextRefreshState: "pending_run_settle",
       contextDeliveryPhase: "pending_run_settle",
+      // Even when native AgentSession replacement is unavailable, successful
+      // tree mutation remains recoverable through the persisted packet.  The
+      // raw outcome must be present on the initial receipt, not inferred from
+      // a later timeline render.
+      nativeContextReplacementState: "unavailable",
+      nativeContextReplacement: {
+        status: "unavailable",
+        reason: "unsupported_host_shape",
+      },
+      liveAgentSessionSyncState: "unavailable",
+      liveAgentSessionSync: {
+        status: "unavailable",
+        reason: "unsupported_host_shape",
+      },
     });
     expect(await emit(handlers, "context", { messages: staleMessages }, context)).toBeUndefined();
 
@@ -197,6 +211,74 @@ describe("deferred live synchronization fallback", () => {
       contextDeliveryPhase: "active",
       nativeContextReplacement: { status: "failed", reason: "replace_messages_failed" },
     });
+  });
+
+  test("a transient persisted-rebuild failure keeps delivery non-active until a later exact-host rebuild succeeds", async () => {
+    const { rootId, sessionManager } = createSession();
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
+    const runtime = new AcmSessionRuntime(adapter);
+    const { context, handlers, travelTool } = registerFixture(sessionManager, runtime);
+
+    await travelTool.execute("transient-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    await emit(handlers, "agent_settled", {}, context);
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+
+    const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
+    let failReads = 1;
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: () => {
+        if (failReads-- > 0) throw new Error("temporary persisted session read failure");
+        return originalGetEntries();
+      },
+    });
+    const retained = [{ role: "user", content: "retain live messages until rebuild succeeds" }] as AgentMessage[];
+    const failed = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
+    expect(failed.messages).toBe(retained);
+    expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+
+    const recovered = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
+    const rebuilt = rebuildAcmContextPacket(sessionManager);
+    if (!rebuilt.ok) throw new Error(rebuilt.message);
+    expect(recovered.messages).toEqual(rebuilt.value.messages);
+    expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("active");
+  });
+
+  test("bounded rebuild exhaustion does not falsely report active delivery", async () => {
+    const { rootId, sessionManager } = createSession();
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
+    const runtime = new AcmSessionRuntime(adapter);
+    const { context, handlers, notifications, travelTool } = registerFixture(sessionManager, runtime);
+
+    await travelTool.execute("exhausted-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    await emit(handlers, "agent_settled", {}, context);
+    const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: () => { throw new Error("persistent session read failure"); },
+    });
+    const retained = [{ role: "user", content: "do not claim this is refreshed" }] as AgentMessage[];
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const failed = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
+      expect(failed.messages).toBe(retained);
+      expect(runtime.getContextDeliveryPhase(sessionManager)).not.toBe("active");
+      expect(runtime.contextRefresh.getAttemptCount(sessionManager)).toBe(attempt);
+      expect(runtime.contextRefresh.isPending(sessionManager)).toBe(attempt < 3);
+    }
+    expect(notifications.at(-1)).toContain("failed after 3 attempts");
+
+    // Restore host capability after the bounded retry budget is exhausted.
+    // No successful persisted rebuild occurred, so delivery must remain
+    // non-active rather than silently claiming the stale array is current.
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: originalGetEntries,
+    });
+    expect(await emit(handlers, "context", { messages: retained }, context)).toBeUndefined();
+    expect(runtime.getContextDeliveryPhase(sessionManager)).not.toBe("active");
   });
 
   test("not-applied mutation never defers, while indeterminate mutation keeps immediate persistent recovery", async () => {
