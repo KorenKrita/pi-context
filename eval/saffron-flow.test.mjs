@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   BANNED_PROMPT_TERMS,
+  DEFAULT_EARLY_DIGEST_TOKEN_TARGET,
+  DEFAULT_PACKET_TOKEN_TARGET,
+  DEFAULT_SUPPLEMENT_TOKEN_TARGET,
+  MAX_PACKET_TOKEN_TARGET,
   SAFFRON_FIXTURE_DIR,
   applySaffronControlPlaneR2,
   assertSaffronWorkspaceHasNoOracleFacts,
@@ -90,24 +94,35 @@ test("Saffron materialization is deterministic across context-window arms", () =
   const first = materializeSaffronFlow({
     contextWindow: 400_000,
     seed: TEST_SEED,
-    packetTokenTarget: 2_000,
-    earlyDigestTokenTarget: 1_500,
-    supplementTokenTarget: 1_500,
   });
   const second = materializeSaffronFlow({
     contextWindow: 1_000_000,
     seed: TEST_SEED,
-    packetTokenTarget: 2_000,
-    earlyDigestTokenTarget: 1_500,
-    supplementTokenTarget: 1_500,
   });
   expect(first.promptHashes).toEqual(second.promptHashes);
   expect(first.manifest.packet.sha256).toBe(second.manifest.packet.sha256);
-  expect(first.manifest.packet.tokenEstimate).toBeGreaterThanOrEqual(2_000);
-  expect(first.manifest.earlyDigest.tokenEstimate).toBeGreaterThanOrEqual(1_500);
-  expect(first.manifest.supplement.tokenEstimate).toBeGreaterThanOrEqual(1_500);
+  expect(first.manifest.packet.tokenEstimate).toBeGreaterThanOrEqual(DEFAULT_PACKET_TOKEN_TARGET);
+  expect(first.manifest.earlyDigest.tokenEstimate).toBeGreaterThanOrEqual(DEFAULT_EARLY_DIGEST_TOKEN_TARGET);
+  expect(first.manifest.supplement.tokenEstimate).toBeGreaterThanOrEqual(DEFAULT_SUPPLEMENT_TOKEN_TARGET);
   expect(first.manifest.requestedContextWindow).toBe(400_000);
   expect(second.manifest.requestedContextWindow).toBe(1_000_000);
+});
+
+test("Saffron default materialization calibrates packet occupancy without exceeding a 400K arm", () => {
+  const flow = materializeSaffronFlow({ contextWindow: 400_000, seed: TEST_SEED });
+  const largestPayloadEstimate = Math.max(
+    flow.manifest.packet.tokenEstimate,
+    flow.manifest.earlyDigest.tokenEstimate,
+    flow.manifest.supplement.tokenEstimate,
+  );
+  const preP7PayloadEstimate = flow.manifest.packet.tokenEstimate + flow.manifest.earlyDigest.tokenEstimate;
+
+  expect(DEFAULT_PACKET_TOKEN_TARGET).toBe(235_000);
+  expect(flow.manifest.packet.tokenTarget).toBe(DEFAULT_PACKET_TOKEN_TARGET);
+  expect(flow.manifest.packet.tokenEstimate).toBeGreaterThanOrEqual(DEFAULT_PACKET_TOKEN_TARGET);
+  expect(flow.manifest.packet.tokenEstimate).toBeLessThanOrEqual(MAX_PACKET_TOKEN_TARGET);
+  expect(largestPayloadEstimate).toBeLessThan(400_000);
+  expect(preP7PayloadEstimate).toBeLessThan(400_000);
 });
 
 test("Saffron defaults use fresh cryptographic seeds while explicit seed pairs remain identical", () => {

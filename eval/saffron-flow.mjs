@@ -8,11 +8,11 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.3";
-// P4's early digest plus this packet place the pre-P7 active working set near
-// 260K–300K tokens after real Pi/system/tool overhead, leaving safety room in
-// a 400K host window for the model's current-turn work.
-export const DEFAULT_PACKET_TOKEN_TARGET = 220_000;
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.4";
+// P4's early digest plus this 235K packet calibrate the pre-P7 active working
+// set to roughly 287K tokens (about 71.7%) after observed Pi/system/tool
+// overhead in a 400K host window, preserving headroom for current-turn work.
+export const DEFAULT_PACKET_TOKEN_TARGET = 235_000;
 export const DEFAULT_EARLY_DIGEST_TOKEN_TARGET = 35_000;
 export const DEFAULT_SUPPLEMENT_TOKEN_TARGET = 55_000;
 export const MAX_PACKET_TOKEN_TARGET = 240_000;
@@ -265,7 +265,7 @@ export function buildSaffronEvidencePacket({
   while (count < tokenTarget) {
     const record = recordFor(index, oracle);
     records.push(record);
-    // Incremental estimation keeps a 220K-packet materialization linear. A
+    // Incremental estimation keeps a 235K-packet materialization linear. A
     // final exact estimate below handles only the message-level overhead.
     count += estimateUserTokens(record);
     index += 1;
