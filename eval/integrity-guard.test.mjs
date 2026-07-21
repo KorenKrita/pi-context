@@ -138,11 +138,12 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("allows only the configured workspace root in absolute bash commands", () => {
+  test("allows configured workspace paths and ordinary URL literals in bash", () => {
     for (const command of [
       "cd /private/tmp/saffron-workspace && find . -maxdepth 2 -type f",
       "ls /private/tmp/saffron-workspace>x",
       "ls /private/tmp/saffron-workspace<in",
+      "echo https://example.com",
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
@@ -195,6 +196,8 @@ describe("measurement integrity tool-call gate", () => {
       ["cd /private/tmp/saffron-workspace/..2>/dev/null", "bash_absolute_path"],
       ["cd /private/tmp/saffron-workspace && find eval/.runs>x", "bash_eval_run_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~user/path", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace && x=foo:/etc; cd ${x#*:}", "bash_absolute_path"],
+      ["cd /private/tmp/saffron-workspace && x=:~korenkrita; cd ${x#:}", "bash_home_or_pi_discovery"],
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",

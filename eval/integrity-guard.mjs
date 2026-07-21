@@ -38,11 +38,12 @@ export const FULL_ENV_DENIED_TOOLS = Object.freeze([
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_TOOLS = new Set([...READ_ONLY_TOOLS, "edit", "write"]);
-const BASH_TOKEN_BOUNDARY = String.raw`[\s"'=;|&()<>]`;
-const BASH_PATH_BOUNDARY = String.raw`[\/\s"'=;|&()<>]`;
-const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_BOUNDARY})`;
-const BASH_PATH_START = `(?:^|${BASH_PATH_BOUNDARY})`;
-const BASH_PATH_END = `(?=$|${BASH_PATH_BOUNDARY})`;
+const BASH_TOKEN_START_BOUNDARY = String.raw`[\s"'=;|&()<>:]`;
+const BASH_PATH_START_BOUNDARY = String.raw`[\/\s"'=;|&()<>:]`;
+const BASH_PATH_END_BOUNDARY = String.raw`[\/\s"'=;|&()<>]`;
+const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_START_BOUNDARY})`;
+const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
+const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
 const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
 const BASH_HOME_OR_PI_PATTERN = new RegExp(
