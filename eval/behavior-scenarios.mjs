@@ -79,15 +79,32 @@ function containsCompletedResearchBrief(contents) {
     && text.includes("operating constraints");
 }
 
-function writesCompletedResearchBrief(call) {
-  if (!toolSucceeded(call)) return false;
-  if (writesPath(call, "research-brief.md")) {
-    return containsCompletedResearchBrief(call.args?.content);
+function readResultText(call) {
+  return call?.resultText ?? call?.resultPreview ?? call?.details?.resultText ?? "";
+}
+
+function preTravelBriefWasComplete(calls) {
+  let wroteBrief = false;
+  let completeAtBoundary = false;
+  for (const call of calls) {
+    if (!toolSucceeded(call)) continue;
+    if (writesPath(call, "research-brief.md")) {
+      wroteBrief = true;
+      completeAtBoundary = containsCompletedResearchBrief(call.args?.content);
+      continue;
+    }
+    if (shellWritesPath(call, "research-brief.md")) {
+      wroteBrief = true;
+      // A shell command is opaque: only a later successful readback can prove
+      // what reached the target file at this boundary.
+      completeAtBoundary = false;
+      continue;
+    }
+    if (readsAny(call, ["research-brief.md"])) {
+      completeAtBoundary = wroteBrief && containsCompletedResearchBrief(readResultText(call));
+    }
   }
-  if (shellWritesPath(call, "research-brief.md")) {
-    return containsCompletedResearchBrief(call.args?.command);
-  }
-  return false;
+  return wroteBrief && completeAtBoundary;
 }
 
 function escapeRegExp(value) {
@@ -154,9 +171,8 @@ async function scorePivotRecoverability({ toolCalls, travel, travelIndex, handof
     };
   }
 
-  const briefWriteBeforeTravel = callsBeforeTravel.find(writesCompletedResearchBrief);
-  if (!briefWriteBeforeTravel) {
-    return { pass: false, detail: "Recover names research-brief.md, but no successful pre-travel write carried the complete brief sections" };
+  if (!preTravelBriefWasComplete(callsBeforeTravel)) {
+    return { pass: false, detail: "Recover names research-brief.md, but pre-travel write/readback evidence did not prove the complete brief sections" };
   }
 
   const brief = await readWorkspaceFile(workspace, "research-brief.md");

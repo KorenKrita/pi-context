@@ -16,8 +16,8 @@ function workspace() {
   return path;
 }
 
-function call(name, args = {}, details = {}) {
-  return { name, args, completed: true, isError: false, details };
+function call(name, args = {}, details = {}, resultPreview = "") {
+  return { name, args, completed: true, isError: false, details, resultPreview };
 }
 
 const HANDOFF = {
@@ -239,6 +239,7 @@ describe("unprompted pivot behavior scenario", () => {
       call("bash", {
         command: "printf '%s\\n' '## Market signals' '## Interview conclusions' '## Operating constraints' > research-brief.md",
       }),
+      call("read", { path: "research-brief.md" }, {}, COMPLETED_RESEARCH_BRIEF),
       call("acm_travel", {
         target: "root",
         handoff: { ...HANDOFF, recover: "research-brief.md durable artifact for the accepted research front." },
@@ -373,6 +374,28 @@ describe("unprompted pivot behavior scenario", () => {
     writeCompletedResearchBrief(root);
     const calls = [
       call("write", { path: "research-brief.md", content: "## Market signals\nOnly one section existed before travel." }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md is the durable artifact." },
+      }),
+      call("write", { path: "research-brief.md", content: COMPLETED_RESEARCH_BRIEF }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects an opaque shell write whose unrelated command text names the sections before a post-travel overwrite", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("bash", {
+        command: "echo incomplete > research-brief.md; # Market signals Interview conclusions Operating constraints",
+      }),
       call("acm_travel", {
         target: "root",
         handoff: { ...HANDOFF, recover: "research-brief.md is the durable artifact." },
