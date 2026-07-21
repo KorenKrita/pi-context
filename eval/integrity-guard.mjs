@@ -152,6 +152,75 @@ function maskSafeDevicePaths(command) {
   return command.replace(BASH_SAFE_DEVICE_PATH_PATTERN, "$1__ACM_SAFE_DEVICE__");
 }
 
+function neutralizeHeredocLine(line) {
+  return line.replace(/[^\r]/g, "_");
+}
+
+function quotedHeredocSpecs(line) {
+  const specs = [];
+  let quote = null;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote !== null) {
+      if (quote === '"' && character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (line.slice(index, index + 2) !== "<<") continue;
+
+    let delimiterIndex = index + 2;
+    const stripTabs = line[delimiterIndex] === "-";
+    if (stripTabs) delimiterIndex += 1;
+    while (line[delimiterIndex] === " " || line[delimiterIndex] === "\t") delimiterIndex += 1;
+    const delimiterQuote = line[delimiterIndex];
+    if (delimiterQuote !== "'" && delimiterQuote !== '"') continue;
+
+    delimiterIndex += 1;
+    let delimiter = "";
+    for (; delimiterIndex < line.length; delimiterIndex += 1) {
+      const delimiterCharacter = line[delimiterIndex];
+      if (delimiterQuote === '"' && delimiterCharacter === "\\" && delimiterIndex + 1 < line.length) {
+        delimiter += line[delimiterIndex + 1];
+        delimiterIndex += 1;
+      } else if (delimiterCharacter === delimiterQuote) {
+        specs.push({ delimiter, stripTabs });
+        index = delimiterIndex;
+        break;
+      } else {
+        delimiter += delimiterCharacter;
+      }
+    }
+  }
+  return specs;
+}
+
+function maskQuotedHeredocBodies(command) {
+  const lines = command.split("\n");
+  const maskedLines = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    maskedLines.push(lines[index]);
+    for (const spec of quotedHeredocSpecs(lines[index])) {
+      index += 1;
+      while (index < lines.length) {
+        const line = lines[index];
+        const comparison = (spec.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
+        maskedLines.push(neutralizeHeredocLine(line));
+        if (comparison === spec.delimiter) break;
+        index += 1;
+      }
+    }
+  }
+  return maskedLines.join("\n");
+}
+
 // Quoted prose may contain shell-looking separators. Preserve only a quoted
 // word's leading path signal; neutralize its interior delimiters for checks.
 function quoteAwarePathCommands(command) {
@@ -211,7 +280,8 @@ function bashViolation(command, workspace) {
   // Mask only that exact root (and its realpath alias) before path-escape
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
-  const maskedPathCommand = maskSafeDevicePaths(maskWorkspacePaths(command, workspace));
+  const quotedHeredocMaskedCommand = maskQuotedHeredocBodies(command);
+  const maskedPathCommand = maskSafeDevicePaths(maskWorkspacePaths(quotedHeredocMaskedCommand, workspace));
   const { absolutePathCommand, pathCommand } = quoteAwarePathCommands(maskedPathCommand);
   if (BASH_ABSOLUTE_PATH_PATTERN.test(absolutePathCommand)) return "bash_absolute_path";
   if (BASH_PARENT_ESCAPE_PATTERN.test(pathCommand)) return "bash_parent_escape";

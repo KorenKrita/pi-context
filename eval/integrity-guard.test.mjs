@@ -147,6 +147,20 @@ describe("measurement integrity tool-call gate", () => {
       "git log -1 --pretty='author=%an <%ae> / committer=%cn <%ce> / %h'",
       "git commit -m 'Control / Policy'",
       'printf "author=\\"%an / %ae\\""',
+      [
+        "cat >> docs/provenance-map.md <<'EOF'",
+        "# Control / Policy",
+        "| vendor / digest |",
+        "/etc is quoted body prose, not a shell path",
+        "EOF",
+      ].join("\n"),
+      [
+        "cat <<'ONE' <<-\"TWO\"",
+        "Control / Policy",
+        "ONE",
+        "\tvendor / digest",
+        "\tTWO",
+      ].join("\n"),
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
@@ -220,6 +234,9 @@ describe("measurement integrity tool-call gate", () => {
       [`cd "${policy.workspace}/.."`, "bash_parent_escape"],
       ["cd '~korenkrita'", "bash_home_or_pi_discovery"],
       ["find 'eval/.runs'", "bash_eval_run_discovery"],
+      ["cat >/etc/out <<'EOF'\nControl / Policy\nEOF", "bash_absolute_path"],
+      ["cat <<EOF\n$(cat /etc/passwd)\nEOF", "bash_absolute_path"],
+      ["printf '%s\\n' \"literal <<'EOF'\"\ncat /etc/passwd", "bash_absolute_path"],
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
