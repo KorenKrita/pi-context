@@ -161,7 +161,9 @@ describe("canonical guidance generation", () => {
     for (const cue of Object.values(GUIDANCE_CUES)) {
       expect(cue).not.toContain("Goal: <");
     }
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold start");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start handoff");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("Rebase only if");
+    expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
     expect(GUIDANCE_CUES.rebaseCheck).toContain("Root is a candidate");
     expect(GUIDANCE_CUES.timelineActive).toContain("`active`");
     expect(GUIDANCE_CUES.timelineCheckpoints).toContain("`checkpoints`");

@@ -57,7 +57,7 @@ Travel applied: this result is the mutation receipt, and the handoff is now the 
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another. Rebase instead: merge surviving state into one handoff at the earliest base that passes cold start without growing projected depth. Root is a candidate, never a default.
+This spine already carries handoff layers; the next fold would stack another, so a rebase check is worthwhile. Rebase only if one new cold-start handoff at the earliest safe base would replace competing layers and have a better net effect than continuing or making a local fold. Root is a candidate, never a default.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->

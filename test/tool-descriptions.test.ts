@@ -40,6 +40,10 @@ describe("ACM tool description contract", () => {
     expect(timelineTool).toContain("structural candidate, not a checkpoint");
     expect(generatedGuidance).toContain("rebase stacked summaries onto an earlier base");
     expect(generatedGuidance).toContain("cold start");
+    expect(generatedGuidance).toContain("a rebase check is worthwhile");
+    expect(generatedGuidance).toContain("Rebase only if");
+    expect(generatedGuidance).toContain("better net effect than continuing or making a local fold");
+    expect(generatedGuidance).not.toContain("Rebase instead");
     expect(generatedGuidance).not.toContain("acm_rebase");
   });
 

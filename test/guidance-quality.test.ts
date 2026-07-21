@@ -52,11 +52,19 @@ describe("ACM guidance quality", () => {
     expect(ACM_CORE.split("```json").length - 1).toBe(1);
   });
 
-  test("each result cue points at the concrete next move", () => {
+  test("result cues give concrete direction without forcing a rebase", () => {
     expect(GUIDANCE_CUES.checkpoint).toContain("activation foothold");
     expect(GUIDANCE_CUES.checkpoint).toContain("timeline");
     expect(GUIDANCE_CUES.travel).toContain("Execute NEXT directly");
     expect(GUIDANCE_CUES.rebaseCheck).toContain("the next fold would stack another");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("a rebase check is worthwhile");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("Rebase only if");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start handoff");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("earliest safe base");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("replace competing layers");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("better net effect than continuing or making a local fold");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("Root is a candidate, never a default");
+    expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
   });
 
   test("never reintroduces mandatory workflow machinery", () => {
