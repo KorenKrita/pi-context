@@ -454,6 +454,8 @@ export function compareContextArms({ pairKey, constrained400k, native1m }) {
   if (leftProvenance?.fixtureSha256 !== rightProvenance?.fixtureSha256) mismatchReasons.push("fixture_hash_mismatch");
   if (leftProvenance?.oracleSha256 !== rightProvenance?.oracleSha256) mismatchReasons.push("oracle_hash_mismatch");
   if (leftProvenance?.secretSeedSha256 !== rightProvenance?.secretSeedSha256) mismatchReasons.push("seed_hash_mismatch");
+  if (leftProvenance?.globalCommands?.sha256 !== rightProvenance?.globalCommands?.sha256) mismatchReasons.push("global_command_inventory_mismatch");
+  if (constrained400k?.provenanceCheck?.valid === false || native1m?.provenanceCheck?.valid === false) mismatchReasons.push("cell_provenance_invalid");
   const comparable = mismatchReasons.length === 0;
   return {
     pairKey,

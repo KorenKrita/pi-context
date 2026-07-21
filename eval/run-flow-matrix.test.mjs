@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,7 +18,10 @@ import {
   createInitialMatrixState,
   createLongFlowMatrixManifest,
   finalMatrixStatus,
+  normalizeGlobalCommandInventory,
+  rehashGlobalCommandInventory,
   releaseMatrixLock,
+  runAuditPreflight,
   runFlowChild,
   shouldSkipMatrixCell,
 } from "./run-flow-matrix.mjs";
@@ -131,6 +135,57 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(pin.secretSeedSha256).toHaveLength(64);
   });
 
+  test("audit preflight pins actual global command source files and detects later drift", async () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-preflight-"));
+    try {
+      const source = join(output, "global-extension.ts");
+      const reportPath = join(output, "report.json");
+      writeFileSync(source, "export default 'v1';\n");
+      writeFileSync(reportPath, `${JSON.stringify({
+        status: "completed",
+        commands: [{
+          name: "global:command",
+          source: "extension",
+          sourceInfo: { path: source, scope: "user", origin: "package", source: "npm:fixture" },
+        }, {
+          name: "inline:command",
+          source: "skill",
+          sourceInfo: { scope: "user", origin: "inline", source: "inline:fixture" },
+        }],
+      })}\n`);
+      const fakeSpawn = (_binary, args) => {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdout.setEncoding = () => {};
+        child.stderr.setEncoding = () => {};
+        queueMicrotask(() => {
+          child.stdout.emit("data", `report: ${reportPath}\n`);
+          child.emit("close", 0, null);
+        });
+        expect(args).toContain("--audit-only");
+        return child;
+      };
+      const preflight = await runAuditPreflight({
+        manifest: createLongFlowMatrixManifest({ matrixRunId: "preflight-test" }),
+        secretSeed: "preflight-secret",
+        piBinary: "/fake/pi",
+        spawnImpl: fakeSpawn,
+      });
+      expect(preflight.reportPath).toBe(reportPath);
+      expect(preflight.commandInventory.sources).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "file" }),
+        expect.objectContaining({ kind: "nonfile" }),
+      ]));
+      const originalHash = preflight.commandInventory.sha256;
+      writeFileSync(source, "export default 'v2';\n");
+      expect(rehashGlobalCommandInventory(preflight.commandInventory).sha256).not.toBe(originalHash);
+      expect(normalizeGlobalCommandInventory([]).commands).toEqual([]);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
   test("resume rejects any pinned provenance drift", () => {
     const pinned = { headSha: "a".repeat(40), saffron: { fixtureSha256: "fixture" } };
     expect(() => assertPinnedProvenance(pinned, structuredClone(pinned))).not.toThrow();
@@ -150,7 +205,11 @@ describe("real Pi long-flow matrix declaration", () => {
     try {
       const lock = acquireMatrixLock(output);
       expect(() => acquireMatrixLock(output)).toThrow("matrix output is locked");
+      expect(() => acquireMatrixLock(output, { recoverStale: true, isPidAlive: () => true })).toThrow("live or unverifiable");
       releaseMatrixLock(lock);
+      writeFileSync(join(output, ".matrix.lock"), `${JSON.stringify({ pid: 999_999_999, acquiredAt: "old" })}\n`);
+      const recovered = acquireMatrixLock(output, { recoverStale: true, isPidAlive: () => false });
+      releaseMatrixLock(recovered);
       const replacement = acquireMatrixLock(output);
       releaseMatrixLock(replacement);
     } finally {
@@ -167,5 +226,15 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(finalMatrixStatus(state)).toBe("partial");
     for (const cell of Object.values(state.cells)) cell.status = "completed";
     expect(finalMatrixStatus(state)).toBe("completed");
+  });
+
+  test("execute refuses to start without an explicit flow seed", () => {
+    const result = spawnSync("bun", ["eval/run-flow-matrix.mjs", "--execute"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { ...process.env, ACM_FLOW_SEED: "" },
+    });
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain("--execute requires --flow-seed or ACM_FLOW_SEED");
   });
 });

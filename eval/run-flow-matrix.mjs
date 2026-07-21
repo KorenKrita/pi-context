@@ -6,7 +6,7 @@
 // resource audit, and session semantics in the one production evaluation path.
 
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,7 @@ import {
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 
-export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 3;
+export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 4;
 export const CONTROLLED_MAX_TOKENS = 16_000;
 export const CONTROLLED_WINDOWS = Object.freeze([400_000, 1_000_000]);
 export const DEFAULT_FLOW_ID = "saffron-cutover-long-flow-v1";
@@ -92,7 +92,7 @@ function localPiPath() {
 
 function usage() {
   return [
-    "usage: bun eval/run-flow-matrix.mjs [--execute] [--concurrency 4] [--output DIR] [--resume DIR] [--flow-seed SECRET] [--arm 400k|1m] [--cell ID] [--no-judge] [--timeout-scale N]",
+    "usage: bun eval/run-flow-matrix.mjs [--execute] [--concurrency 4] [--output DIR] [--resume DIR] [--flow-seed SECRET] [--recover-stale-lock] [--arm 400k|1m] [--cell ID] [--no-judge] [--timeout-scale N]",
     "",
     "Fixed matrix: Sol medium, Terra high, Opus 4.6 max, Opus 4.8 high × 400K/1M hard windows.",
     "Cells run through eval/run-flow.mjs using full-env, Saffron materialization, local Pi, and maxTokensCap=16000.",
@@ -263,7 +263,17 @@ export function assertResumeSeed(expectedHash, suppliedSeed) {
   if (sha256(suppliedSeed) !== expectedHash) throw new Error("resume flow seed does not match matrix state");
 }
 
-export function acquireMatrixLock(outputDir) {
+function defaultPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+export function acquireMatrixLock(outputDir, { recoverStale = false, isPidAlive = defaultPidAlive } = {}) {
   const path = join(outputDir, lockFileName);
   let descriptor;
   try {
@@ -273,6 +283,25 @@ export function acquireMatrixLock(outputDir) {
   } catch (error) {
     if (descriptor !== undefined) closeSync(descriptor);
     const holder = existsSync(path) ? readFileSync(path, "utf8").trim() : "unknown";
+    if (recoverStale && existsSync(path)) {
+      let parsed;
+      try { parsed = JSON.parse(holder); } catch { /* malformed locks are never auto-removed */ }
+      if (!Number.isInteger(parsed?.pid) || isPidAlive(parsed.pid)) {
+        throw new Error(`matrix output is locked by a live or unverifiable holder: ${path}; holder=${holder}`);
+      }
+      const quarantine = `${path}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
+      let recovered;
+      try {
+        renameSync(path, quarantine);
+        recovered = acquireMatrixLock(outputDir, { recoverStale: false, isPidAlive });
+        unlinkSync(quarantine);
+        return recovered;
+      } catch (recoveryError) {
+        if (recovered) releaseMatrixLock(recovered);
+        if (existsSync(quarantine)) unlinkSync(quarantine);
+        throw new Error(`stale matrix lock recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+      }
+    }
     throw new Error(`matrix output is locked: ${path}; holder=${holder}; ${error instanceof Error ? error.message : String(error)}`);
   }
   return path;
@@ -317,6 +346,7 @@ export function buildRunFlowArgs(cell, {
   judgeThinking,
   piBinary = localPiPath(),
   secretSeed,
+  auditOnly = false,
 } = {}) {
   const args = [
     "eval/run-flow.mjs",
@@ -332,7 +362,8 @@ export function buildRunFlowArgs(cell, {
     "--matrix-id", cell.matrixRunId,
     "--timeout-scale", String(timeoutScale),
   ];
-  if (!doJudge) args.push("--no-judge");
+  if (!doJudge || auditOnly) args.push("--no-judge");
+  if (auditOnly) args.push("--audit-only");
   if (judgeModel) args.push("--judge-model", judgeModel);
   if (judgeThinking) args.push("--judge-thinking", judgeThinking);
   // The seed is passed to the orchestration process as an argv value, not an
@@ -344,6 +375,77 @@ export function buildRunFlowArgs(cell, {
 
 function reportPathFromOutput(output) {
   return output.match(/^report:\s*(.+)\s*$/m)?.[1]?.trim() ?? null;
+}
+
+function stableSourcePath(path) {
+  if (typeof path !== "string" || path.length === 0) return null;
+  try { return realpathSync(path); } catch { return null; }
+}
+
+export function normalizeGlobalCommandInventory(commands = []) {
+  const globalCommands = commands
+    .filter((command) => (command?.source === "extension" || command?.source === "skill") && command?.sourceInfo?.scope !== "temporary")
+    .map((command) => {
+      const declaredPath = command.sourceInfo?.path ?? null;
+      const realpath = stableSourcePath(declaredPath);
+      return {
+        name: command.name ?? null,
+        source: command.source,
+        scope: command.sourceInfo?.scope ?? null,
+        origin: command.sourceInfo?.origin ?? null,
+        packageSource: command.sourceInfo?.source ?? null,
+        sourceKey: realpath ?? `nonfile:${declaredPath ?? command.name ?? "unknown"}`,
+      };
+    })
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  const sources = [...new Set(globalCommands.map((command) => command.sourceKey))]
+    .sort()
+    .map((sourceKey) => sourceKey.startsWith("nonfile:")
+      ? { kind: "nonfile", key: sourceKey, sha256: null }
+      : { kind: "file", key: sourceKey, sha256: fileHash(sourceKey) });
+  const inventory = { commands: globalCommands, sources };
+  return { ...inventory, sha256: sha256(JSON.stringify(inventory)) };
+}
+
+export function rehashGlobalCommandInventory(pinned) {
+  const sources = (pinned?.sources ?? []).map((source) => source.kind === "file"
+    ? { ...source, sha256: fileHash(source.key) }
+    : source);
+  const inventory = { commands: pinned?.commands ?? [], sources };
+  return { ...inventory, sha256: sha256(JSON.stringify(inventory)) };
+}
+
+function preflightCell(manifest) {
+  const base = manifest.cells.find((cell) => cell.contextWindow === 400_000) ?? manifest.cells[0];
+  return {
+    ...base,
+    id: `${manifest.matrixRunId}-preflight`,
+    agentLabel: `acm-saffron-${manifest.matrixRunId}-preflight`,
+  };
+}
+
+export async function runAuditPreflight({ manifest, secretSeed, piBinary, timeoutScale = 1, spawnImpl = spawn } = {}) {
+  const cell = preflightCell(manifest);
+  const child = await runFlowChild({
+    cell,
+    options: { timeoutScale, doJudge: false, auditOnly: true, piBinary, secretSeed },
+    spawnImpl,
+  });
+  const reportPath = reportPathFromOutput(`${child.stdout}\n${child.stderr}`);
+  if (!reportPath || !existsSync(reportPath)) {
+    throw new Error(`audit preflight produced no readable report: ${child.error ?? child.stderr ?? "unknown"}`);
+  }
+  const report = readJson(reportPath);
+  if (report.status !== "completed" || report.infrastructureInvalid) {
+    throw new Error(`audit preflight failed: ${report.infrastructureInvalid?.reason ?? report.status}`);
+  }
+  return {
+    reportPath,
+    reportSha256: fileHash(reportPath),
+    commandInventory: normalizeGlobalCommandInventory(report.commands ?? []),
+    piBinary: report.piBinary ?? null,
+    resources: report.resources ?? null,
+  };
 }
 
 /** Injectable child process seam for deterministic orchestration tests. */
@@ -427,6 +529,7 @@ function runtimeCellProvenance(report, runDir) {
       extensions: (report?.resources?.extensions ?? []).map((entry) => ({ path: relativeRepoPath(entry.path), sha256: entry.sha256 })),
       skills: (report?.resources?.skill ?? []).map((entry) => ({ path: relativeRepoPath(entry.path), sha256: entry.sha256 })),
     },
+    globalCommands: normalizeGlobalCommandInventory(report?.commands ?? []),
     pi: {
       realpath: report?.piBinary?.realpath ?? null,
       version: report?.piBinary?.version ?? null,
@@ -468,6 +571,7 @@ export function validateCellProvenance(cell, runtime, pinned) {
     if (pinned?.sourceHashes?.[entry.path] !== entry.sha256) reasons.push(`runtime_source_mismatch:${entry.path}`);
   }
   if (runtime?.pi?.version !== pinned?.pi?.version || runtime?.pi?.binarySha256 !== pinned?.pi?.binarySha256) reasons.push("pi_binary_mismatch");
+  if (runtime?.globalCommands?.sha256 !== pinned?.globalCommands?.sha256) reasons.push("global_command_inventory_mismatch");
   if (runtime?.fullEnv?.sanitizedSettingsSha256 !== arm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
   if (runtime?.fullEnv?.sanitizedPackagesSha256 !== arm?.sanitizedPackagesSha256) reasons.push("sanitized_packages_mismatch");
   if (runtime?.fullEnv?.globalAgentsSha256 !== arm?.globalAgentsSha256) reasons.push("global_agents_mismatch");
@@ -501,6 +605,11 @@ function compactMatrix(state) {
     outputDir: state.outputDir,
     piProvenance: state.piProvenance,
     pinnedProvenance: state.pinnedProvenance,
+    preflightRuns: (state.preflightRuns ?? []).map((preflight) => ({
+      reportPath: preflight.reportPath,
+      reportSha256: preflight.reportSha256,
+      commandInventorySha256: preflight.commandInventory?.sha256 ?? null,
+    })),
     manifest: state.manifest,
     classifications: Object.fromEntries(["pending", "running", "certifying_run", "occupancy_miss", "infrastructure_invalid", "run_error", "task_failure", "coverage_insufficient"].map((kind) => [kind, cells.filter((cell) => (cell.classification ?? cell.status) === kind).length])),
     cells: cells.map((cell) => ({
@@ -645,6 +754,7 @@ async function main() {
   const resume = option("--resume");
   const output = option("--output");
   const suppliedFlowSeed = option("--flow-seed") ?? process.env.ACM_FLOW_SEED;
+  if (execute && !suppliedFlowSeed) throw new Error("--execute requires --flow-seed or ACM_FLOW_SEED");
   if (resume && output) throw new Error("--resume and --output are mutually exclusive");
   const flowId = option("--flow") ?? DEFAULT_FLOW_ID;
   const newMatrixRunId = resume ? null : generateMatrixRunId();
@@ -654,7 +764,7 @@ async function main() {
       ? asAbsolute(output)
       : join(RUNS_DIR, `saffron-flow-matrix-${timestampLabel()}-${newMatrixRunId}`);
   mkdirSync(outputDir, { recursive: true });
-  const lockPath = acquireMatrixLock(outputDir);
+  const lockPath = acquireMatrixLock(outputDir, { recoverStale: flag("--recover-stale-lock") });
   try {
     const statePath = join(outputDir, stateFileName);
     let state;
@@ -671,14 +781,49 @@ async function main() {
       secretSeed = suppliedFlowSeed;
       manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: state.matrixRunId });
       if (JSON.stringify(state.manifest) !== JSON.stringify(manifest)) throw new Error("resume manifest differs from this runner's fixed declaration");
-      pinnedProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId });
-      assertPinnedProvenance(state.pinnedProvenance, pinnedProvenance);
+      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId });
+      assertPiProvenance(baseProvenance.pi);
+      const rehashedCommands = rehashGlobalCommandInventory(state.pinnedProvenance.globalCommands);
+      const originalPreflight = state.pinnedProvenance.preflight;
+      const rehashedPreflight = {
+        ...originalPreflight,
+        reportSha256: originalPreflight?.reportPath ? fileHash(originalPreflight.reportPath) : null,
+      };
+      const recomputedPinned = {
+        ...baseProvenance,
+        globalCommands: rehashedCommands,
+        preflight: rehashedPreflight,
+      };
+      assertPinnedProvenance(state.pinnedProvenance, recomputedPinned);
+      const resumePreflight = await runAuditPreflight({
+        manifest,
+        secretSeed,
+        piBinary: baseProvenance.pi.path,
+        timeoutScale,
+      });
+      if (resumePreflight.commandInventory.sha256 !== state.pinnedProvenance.globalCommands.sha256) {
+        throw new Error("resume global command inventory mismatch");
+      }
+      state.preflightRuns = [...(state.preflightRuns ?? []), resumePreflight];
+      pinnedProvenance = state.pinnedProvenance;
       for (const cell of Object.values(state.cells)) if (cell.status === "running") cell.status = "pending";
     } else {
       if (existsSync(statePath)) throw new Error(`output already contains ${stateFileName}; use --resume`);
       secretSeed = suppliedFlowSeed ?? generateMatrixSecret();
       manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: newMatrixRunId });
-      pinnedProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: newMatrixRunId });
+      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: newMatrixRunId });
+      assertPiProvenance(baseProvenance.pi);
+      const preflight = await runAuditPreflight({
+        manifest,
+        secretSeed,
+        piBinary: baseProvenance.pi.path,
+        timeoutScale,
+      });
+      pinnedProvenance = {
+        ...baseProvenance,
+        globalCommands: preflight.commandInventory,
+        preflight: { reportPath: preflight.reportPath, reportSha256: preflight.reportSha256 },
+      };
       state = createInitialMatrixState({
         manifest,
         outputDir,
@@ -687,6 +832,7 @@ async function main() {
         pinnedProvenance,
         piProvenance: pinnedProvenance.pi,
       });
+      state.preflightRuns = [preflight];
       if (!suppliedFlowSeed) {
         console.log("matrix seed is ephemeral and only its hash is persisted; resume requires starting a new matrix unless --flow-seed was supplied");
       }
