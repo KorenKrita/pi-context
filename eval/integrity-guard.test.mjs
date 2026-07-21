@@ -271,6 +271,24 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("blocks sensitive environment locator keys and their filesystem use", () => {
+    for (const command of [
+      "node -e 'console.log(process.env.HOME)'",
+      "node -e 'console.log(process.env?.PI_CODING_AGENT_DIR)'",
+      "node -e 'console.log(process.env[\"CODEX_HOME\"])'",
+      "node -e 'console.log(process.env?.[\"ACM_INTEGRITY_AUDIT_PATH\"])'",
+      "python -c 'print(os.environ[\"HOME\"])'",
+      "python -c 'print(os.environ.get(\"PI_CODING_AGENT_DIR\"))'",
+      "deno eval 'console.log(Deno.env.get(\"CODEX_HOME\"))'",
+      "python -c 'print(getenv(\"HOME\")); print(os.getenv(\"ACM_INTEGRITY_AUDIT_PATH\"))'",
+      "node -e 'const fs=require(\"node:fs\"); fs.readFileSync(require(\"node:path\").join(process.env.HOME, \".pi\", \"config\"))'",
+      "python -c 'from pathlib import Path; open(Path(os.environ[\"HOME\"]) / \".pi\" / \"config\")'",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    }
+  });
+
   test("blocks whole-environment enumeration", () => {
     for (const command of [
       "node -e 'console.log(process.env)'",

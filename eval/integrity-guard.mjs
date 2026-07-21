@@ -57,6 +57,15 @@ const BASH_HOME_OR_PI_PATTERN = new RegExp(
   "i",
 );
 const BASH_EVAL_RUN_PATTERN = new RegExp(`${BASH_PATH_START}eval/\\.runs${BASH_PATH_END}`, "i");
+const SENSITIVE_ENVIRONMENT_KEY_PATTERN = String.raw`(?:HOME|PI_CODING_AGENT_DIR|CODEX_HOME|ACM_INTEGRITY_[A-Z0-9_]+)`;
+const SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN = String.raw`["']${SENSITIVE_ENVIRONMENT_KEY_PATTERN}["']`;
+const BASH_SENSITIVE_ENVIRONMENT_KEY_PATTERN = new RegExp([
+  String.raw`process\.env\s*(?:\??\.\s*${SENSITIVE_ENVIRONMENT_KEY_PATTERN}|(?:\?\.\s*)?\[\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}\s*\])`,
+  String.raw`os\.environ\s*(?:\[\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}\s*\]|\.\s*get\s*\(\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN})`,
+  String.raw`os\.getenv\s*\(\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}`,
+  String.raw`Deno\.env\s*\.\s*get\s*\(\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}`,
+  String.raw`(?:^|[^\w.])getenv\s*\(\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}`,
+].join("|"), "i");
 const BASH_WHOLE_ENVIRONMENT_PATTERN = /(?:process\.env|os\.environ|Deno\.env)(?=\s*(?:[),;}:]|$))|(?:process\.env|os\.environ|Deno\.env)\s*\.\s*(?:keys|values|items|entries|copy|toObject)\s*\(/i;
 const BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN = /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|\bACM_INTEGRITY_[A-Z0-9_]+\b/i;
 
@@ -315,6 +324,7 @@ function bashViolation(command, workspace) {
     if (pattern.test(pathCommand)) return code;
   }
   const checks = [
+    ["bash_process_or_env_discovery", BASH_SENSITIVE_ENVIRONMENT_KEY_PATTERN],
     ["bash_process_or_env_discovery", BASH_WHOLE_ENVIRONMENT_PATTERN],
     ["bash_process_or_env_discovery", BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN],
   ];
