@@ -171,6 +171,25 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("blocks parent, HOME, and eval-run escapes separated from an allowed workspace", () => {
+    for (const [command, code] of [
+      ["cd /private/tmp/saffron-workspace/..; pwd", "bash_parent_escape"],
+      ["cd /private/tmp/saffron-workspace/..&&pwd", "bash_parent_escape"],
+      ["cd /private/tmp/saffron-workspace && cd ~; pwd", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace && find eval/.runs; true", "bash_eval_run_discovery"],
+      ["cd /private/tmp/saffron-workspace/../..; pwd", "bash_parent_escape"],
+      ["cd /private/tmp/saffron-workspace && cd ~&&pwd", "bash_home_or_pi_discovery"],
+      ["find /private/tmp/saffron-workspace/.pi)", "bash_home_or_pi_discovery"],
+      ["cd /private/tmp/saffron-workspace && find eval/.runs)", "bash_eval_run_discovery"],
+    ]) {
+      expect(evaluateToolCall({
+        toolName: "bash",
+        input: { command },
+        ...policy,
+      })).toMatchObject({ block: true, code });
+    }
+  });
+
   test("blocks bash escape and process/environment discovery patterns", () => {
     for (const command of [
       "cat /etc/passwd",
