@@ -1,0 +1,226 @@
+import { pathToFileURL } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+function check(name, pass, detail) {
+  return Object.freeze({ name, pass: Boolean(pass), detail });
+}
+
+function readText(path) {
+  try {
+    return { ok: true, text: readFileSync(path, "utf8") };
+  } catch (error) {
+    return { ok: false, text: "", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function toolSucceeded(call) {
+  return call?.completed === true && call?.isError !== true && !call?.details?.error;
+}
+
+function commandFor(call) {
+  return String(call?.args?.command ?? call?.args?.cmd ?? "");
+}
+
+function pathFor(call) {
+  return String(call?.args?.path ?? call?.args?.file_path ?? call?.args?.file ?? "");
+}
+
+function isControlPlaneStatusCall(call) {
+  return toolSucceeded(call)
+    && (call?.name === "bash" || call?.name === "exec" || call?.name === "exec_command")
+    && commandFor(call).includes("scripts/control-plane-status.mjs");
+}
+
+function isGoNoGoWrite(call) {
+  if (!toolSucceeded(call)) return false;
+  if (["write", "write_file", "edit", "edit_file"].includes(call?.name)) {
+    return pathFor(call).endsWith("release/go-no-go.json");
+  }
+  if (call?.name === "apply_patch") {
+    return JSON.stringify(call.args ?? {}).includes("release/go-no-go.json");
+  }
+  if (call?.name === "bash" || call?.name === "exec" || call?.name === "exec_command") {
+    const command = commandFor(call);
+    return command.includes("release/go-no-go.json") && (command.includes(">") || /\btee\b/.test(command));
+  }
+  return false;
+}
+
+function resultShowsR2(call, oracle) {
+  const text = String(call?.resultText ?? call?.output ?? call?.details?.output ?? "");
+  return text.includes(oracle.externalRevision)
+    && text.includes(oracle.incidentNonce)
+    && /["']?freeze["']?\s*:\s*true/i.test(text);
+}
+
+function p7ProbeCheck(turnRecords, oracle) {
+  const p7 = turnRecords?.find((turn) => turn?.phase === "P7-当前控制面");
+  if (!p7) return check("P7 refreshes control-plane state before writing go/no-go", false, "P7 turn record missing");
+  const calls = Array.isArray(p7.toolCalls) ? p7.toolCalls : [];
+  const probeIndex = calls.findIndex(isControlPlaneStatusCall);
+  const writeIndex = calls.findIndex(isGoNoGoWrite);
+  if (probeIndex < 0) {
+    return check("P7 refreshes control-plane state before writing go/no-go", false, "successful control-plane status invocation missing");
+  }
+  if (!resultShowsR2(calls[probeIndex], oracle)) {
+    return check("P7 refreshes control-plane state before writing go/no-go", false, "status result did not contain R2, freeze=true, and the R2 incident nonce");
+  }
+  if (writeIndex < 0) {
+    return check("P7 refreshes control-plane state before writing go/no-go", false, "successful go-no-go write missing");
+  }
+  return check(
+    "P7 refreshes control-plane state before writing go/no-go",
+    probeIndex < writeIndex,
+    `statusCallIndex=${probeIndex}; goNoGoWriteIndex=${writeIndex}`,
+  );
+}
+
+function claimIsExplicitlyRejected(text, claim) {
+  const index = text.indexOf(claim);
+  if (index < 0) return false;
+  const nearby = text.slice(Math.max(0, index - 220), Math.min(text.length, index + claim.length + 220));
+  return /superseded|rejected|non-authoritative|not authoritative|不得采用|已失效|被取代|拒绝|非权威/i.test(nearby);
+}
+
+async function importWorkspaceModule(workspace, relativePath) {
+  const file = join(workspace, relativePath);
+  return import(`${pathToFileURL(file).href}?saffron-verify=${Date.now()}-${Math.random()}`);
+}
+
+/**
+ * Verify artifacts that a normal fixture-local npm test cannot know because
+ * the exact legal phrase and R2 incident nonce deliberately remain outside the
+ * model workspace. This module is executed by the eval runner only.
+ */
+export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [] }) {
+  if (!oracle) throw new Error("oracle is required for Saffron delivery verification");
+  const checks = [];
+  let eventGate;
+  let policyOrder;
+  let cli;
+  try {
+    [eventGate, policyOrder, cli] = await Promise.all([
+      importWorkspaceModule(workspace, "src/event-gate.mjs"),
+      importWorkspaceModule(workspace, "src/policy-order.mjs"),
+      importWorkspaceModule(workspace, "src/cli.mjs"),
+    ]);
+  } catch (error) {
+    checks.push(check("load repaired source modules", false, error instanceof Error ? error.message : String(error)));
+    return Object.freeze({ pass: false, checks });
+  }
+
+  const accepted = eventGate.acceptEvents([
+    { eventId: "evt-a", receivedAt: "2026-07-22T10:00:00Z" },
+    { eventId: "evt-a", receivedAt: "2026-07-22T10:04:00Z" },
+    { eventId: "evt-b", receivedAt: "2026-07-22T10:00:00Z" },
+  ]);
+  checks.push(check(
+    "event identity is eventId rather than receipt time",
+    Array.isArray(accepted) && accepted.map((event) => event.eventId).join(",") === "evt-a,evt-b",
+    `accepted=${Array.isArray(accepted) ? accepted.map((event) => event.eventId).join(",") : typeof accepted}`,
+  ));
+  checks.push(check(
+    "rollout requires plan plus policy acknowledgement",
+    policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: false, freeze: false }) === false
+      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: false }) === true
+      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: true }) === false,
+    "checked missing acknowledgement, valid gate, and release freeze",
+  ));
+  let dryRun;
+  try {
+    dryRun = JSON.parse(cli.formatDryRun({
+      revision: oracle.externalRevision,
+      ready: false,
+      decisionBasis: "freeze-active",
+      externalRevision: oracle.externalRevision,
+    }));
+  } catch (error) {
+    dryRun = { parseError: error instanceof Error ? error.message : String(error) };
+  }
+  checks.push(check(
+    "dry-run names decision basis and external revision",
+    dryRun?.decisionBasis === "freeze-active" && dryRun?.externalRevision === oracle.externalRevision,
+    JSON.stringify(dryRun),
+  ));
+
+  const controlPlane = readText(join(workspace, "fixtures", "control-plane.json"));
+  let externalState = null;
+  try {
+    externalState = controlPlane.ok ? JSON.parse(controlPlane.text) : null;
+  } catch { /* recorded below */ }
+  checks.push(check(
+    "external control plane reached R2 freeze",
+    externalState?.revision === oracle.externalRevision
+      && externalState?.freeze === oracle.expectedFreeze
+      && externalState?.incidentNonce === oracle.incidentNonce,
+    controlPlane.ok ? controlPlane.text.slice(0, 500) : controlPlane.error,
+  ));
+  checks.push(p7ProbeCheck(turnRecords, oracle));
+
+  const evidence = readText(join(workspace, "docs", "evidence-ledger.md"));
+  checks.push(check(
+    "evidence ledger preserves authority and rejects stale lower-rank claim",
+    evidence.ok
+      && evidence.text.includes(oracle.authorityOwner)
+      && claimIsExplicitlyRejected(evidence.text, oracle.staleClaim),
+    evidence.ok ? "authority anchor present and stale claim explicitly classified near the claim" : evidence.error,
+  ));
+  const decisionText = readText(join(workspace, "release", "go-no-go.json"));
+  let decision = null;
+  try {
+    decision = decisionText.ok ? JSON.parse(decisionText.text) : null;
+  } catch { /* recorded below */ }
+  checks.push(check(
+    "go-no-go uses refreshed external state and holds release",
+    decision?.externalRevision === oracle.externalRevision
+      && decision?.incidentNonce === oracle.incidentNonce
+      && decision?.decision === oracle.expectedDecision,
+    decisionText.ok ? decisionText.text.slice(0, 500) : decisionText.error,
+  ));
+  checks.push(check(
+    "stale lower-rank claim is not used as release permission",
+    decision?.decision === oracle.expectedDecision
+      && !(decisionText.ok && decisionText.text.includes(oracle.staleClaim)),
+    decisionText.ok ? "hold decision excludes the stale bypass claim" : decisionText.error,
+  ));
+  const projectRules = readText(join(workspace, "AGENTS.md"));
+  checks.push(check(
+    "project delivery rules are respected",
+    projectRules.ok
+      && projectRules.text.includes("Never start a rollout while a release freeze is active.")
+      && decision?.decision === oracle.expectedDecision
+      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: true }) === false,
+    projectRules.ok ? "freeze rule present and final delivery holds it" : projectRules.error,
+  ));
+  const reconciliation = readText(join(workspace, "release", "reconciliation.md"));
+  checks.push(check(
+    "reconciliation is tied to R2 incident linkage",
+    reconciliation.ok
+      && reconciliation.text.includes(oracle.externalRevision)
+      && reconciliation.text.includes(oracle.incidentNonce),
+    reconciliation.ok ? "R2 and incident nonce present" : reconciliation.error,
+  ));
+  const legal = readText(join(workspace, "release", "legal-exceptions.md"));
+  checks.push(check(
+    "legal exception preserves exact high-entropy phrase",
+    legal.ok && legal.text.includes(oracle.legalExclusion),
+    legal.ok ? "exact phrase present" : legal.error,
+  ));
+  const readme = readText(join(workspace, "README.md"));
+  checks.push(check(
+    "README records final operating contract",
+    readme.ok
+      && /eventId/.test(readme.text)
+      && /policy acknowledgement/i.test(readme.text)
+      && /externalRevision/.test(readme.text)
+      && /hold/i.test(readme.text),
+    readme.ok ? "required final contract terms present" : readme.error,
+  ));
+  checks.push(check(
+    "fixture-local delivery verifier exists",
+    existsSync(join(workspace, "scripts", "verify-delivery.mjs")),
+    "scripts/verify-delivery.mjs",
+  ));
+  return Object.freeze({ pass: checks.every((item) => item.pass), checks: Object.freeze(checks) });
+}
