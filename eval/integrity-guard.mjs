@@ -38,6 +38,19 @@ export const FULL_ENV_DENIED_TOOLS = Object.freeze([
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_TOOLS = new Set([...READ_ONLY_TOOLS, "edit", "write"]);
+const BASH_TOKEN_BOUNDARY = String.raw`[\s"'=;|&()<>]`;
+const BASH_PATH_BOUNDARY = String.raw`[\/\s"'=;|&()<>]`;
+const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_BOUNDARY})`;
+const BASH_PATH_START = `(?:^|${BASH_PATH_BOUNDARY})`;
+const BASH_PATH_END = `(?=$|${BASH_PATH_BOUNDARY})`;
+const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
+const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
+const BASH_HOME_OR_PI_PATTERN = new RegExp(
+  `${BASH_TOKEN_START}${String.raw`~(?:[^/\s"'=;|&()<>]+)?`}${BASH_PATH_END}`
+  + `|${BASH_PATH_START}(?:\\$HOME|\\$\\{HOME\\}|\\.pi|PI_CODING_AGENT_DIR|CODEX_HOME)${BASH_PATH_END}`,
+  "i",
+);
+const BASH_EVAL_RUN_PATTERN = new RegExp(`${BASH_PATH_START}eval/\\.runs${BASH_PATH_END}`, "i");
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -126,7 +139,7 @@ function maskWorkspacePaths(command, workspace) {
   const roots = [...new Set([resolve(workspace), canonicalExistingPath(workspace)])]
     .sort((left, right) => right.length - left.length);
   return roots.reduce((masked, root) => (
-    masked.replace(new RegExp(`${escapeRegExp(root)}(?=$|[/\\s"'=;|&()])`, "g"), "__ACM_WORKSPACE__")
+    masked.replace(new RegExp(`${escapeRegExp(root)}${BASH_PATH_END}`, "g"), "__ACM_WORKSPACE__")
   ), command);
 }
 
@@ -137,15 +150,15 @@ function bashViolation(command, workspace) {
   // remains subject to the existing policy.
   const pathCheckedCommand = maskWorkspacePaths(command, workspace);
   const pathChecks = [
-    ["bash_absolute_path", /(^|[\s"'=;|&()<>])\/(?!\/)/],
-    ["bash_parent_escape", /(^|[\/\s"'=;|&()<>])\.\.([\/\s"'=;|&<>]|$)/],
+    ["bash_absolute_path", BASH_ABSOLUTE_PATH_PATTERN],
+    ["bash_parent_escape", BASH_PARENT_ESCAPE_PATTERN],
   ];
   for (const [code, pattern] of pathChecks) {
     if (pattern.test(pathCheckedCommand)) return code;
   }
   const checks = [
-    ["bash_home_or_pi_discovery", /(?:^|[\s"'=;|&()<>])~(?:[^\s\/"'=;|&()<>]+)?(?=$|[\/\s"'=;|&()<>])|(?:^|[\/\s"'=;|&()<>])(?:\$HOME(?=$|[\/\s"'=;|&()<>])|\$\{HOME\}(?=$|[\/\s"'=;|&()<>])|\.pi(?=$|[\/\s"'=;|&()<>])|PI_CODING_AGENT_DIR(?=$|[\/\s"'=;|&()<>])|CODEX_HOME(?=$|[\/\s"'=;|&()<>]))/i],
-    ["bash_eval_run_discovery", /(^|[\/\s"'=;|&()<>])eval\/\.runs(?=$|[\/\s"'=;|&()<>])/i],
+    ["bash_home_or_pi_discovery", BASH_HOME_OR_PI_PATTERN],
+    ["bash_eval_run_discovery", BASH_EVAL_RUN_PATTERN],
     ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
   ];
   for (const [code, pattern] of checks) {

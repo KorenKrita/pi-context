@@ -139,11 +139,17 @@ describe("measurement integrity tool-call gate", () => {
   });
 
   test("allows only the configured workspace root in absolute bash commands", () => {
-    expect(evaluateToolCall({
-      toolName: "bash",
-      input: { command: "cd /private/tmp/saffron-workspace && find . -maxdepth 2 -type f" },
-      ...policy,
-    })).toEqual({ block: false });
+    for (const command of [
+      "cd /private/tmp/saffron-workspace && find . -maxdepth 2 -type f",
+      "ls /private/tmp/saffron-workspace>x",
+      "ls /private/tmp/saffron-workspace<in",
+    ]) {
+      expect(evaluateToolCall({
+        toolName: "bash",
+        input: { command },
+        ...policy,
+      })).toEqual({ block: false });
+    }
     expect(evaluateToolCall({
       toolName: "bash",
       input: { command: "cd /private/tmp/saffron-other && find . -maxdepth 2 -type f" },
@@ -182,6 +188,7 @@ describe("measurement integrity tool-call gate", () => {
       ["find /private/tmp/saffron-workspace/.pi)", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && find eval/.runs)", "bash_eval_run_discovery"],
       ["cd /private/tmp/saffron-workspace/..>x", "bash_parent_escape"],
+      ["cd /private/tmp/saffron-workspace/..)", "bash_parent_escape"],
       ["cd /private/tmp/saffron-workspace && cd ~korenkrita; pwd", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~+; pwd", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && cd ~-; pwd", "bash_home_or_pi_discovery"],
