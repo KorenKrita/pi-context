@@ -16,8 +16,7 @@
 // Writes eval/.runs/<stamp>-flow-<model>/{report.json, transcript.txt, verdict.json}.
 
 import { execSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildAgentDir,
@@ -29,6 +28,7 @@ import {
 } from "./setup.mjs";
 import { classifySkillAvailability, finalAssistantOutcome, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
 import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments } from "./scenarios.mjs";
+import { createFlowWorkspace } from "./scenario-workspace.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
 
@@ -100,10 +100,10 @@ const agentDir = fullEnv
   ? buildFullEnvAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL })
   : buildAgentDir({ contextWindow, shrink, label: process.env.ACM_AGENT_LABEL });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`);
-// full-env runs must NOT keep the workspace inside this repo: cwd-ancestry
-// context-file discovery would find the repo's own AGENTS.md (the ACM design
-// doc) and leak it into the tested agent's prompt.
-const workspace = fullEnv ? mkdtempSync(join(tmpdir(), "acm-flow-ws-")) : join(runDir, "workspace");
+// Keep every model-visible workspace out of eval/.runs. Otherwise a flow can
+// traverse into persisted events/session artifacts from an earlier phase and
+// invalidate environment isolation. Retain the directory for post-run evidence.
+const workspace = createFlowWorkspace({ flowId: flow.id, environmentMode });
 cpSync(flow.seedDir, workspace, { recursive: true });
 
 console.log(`flow=${flow.id} model=${modelSpec.provider}/${modelSpec.modelId} thinking=${thinkingLevel}`);
@@ -198,7 +198,7 @@ const report = {
   skillAvailability,
   infrastructureInvalid,
   runError,
-  workspace, // full-env runs live outside the repo; kept for post-hoc inspection
+  workspace, // kept outside eval/.runs for post-hoc inspection
   turns: turnRecords.map((t) => ({
     phase: t.phase,
     toolCallCount: t.toolCalls.length,
