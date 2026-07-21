@@ -4,6 +4,7 @@
 import { join } from "node:path";
 import { CONTEXT_MANAGEMENT_SKILL_PATH } from "./setup.mjs";
 import { BEHAVIOR_SCENARIOS } from "./behavior-scenarios.mjs";
+import { TOPOLOGY_SCENARIOS } from "./topology-scenarios.mjs";
 
 export { CONTEXT_MANAGEMENT_SKILL_PATH };
 
@@ -570,6 +571,7 @@ export const SCENARIOS = [
     },
   },
   ...BEHAVIOR_SCENARIOS,
+  ...TOPOLOGY_SCENARIOS,
 ];
 
 export function listScenarios({ family } = {}) {
