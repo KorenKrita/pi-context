@@ -6,34 +6,44 @@
   "product": {
     "base": {
       "commit": "eb0c8010e4fd2a8c759de858592451667ad08f57",
-      "subject": "Merge pull request #18 from KorenKrita/codex/acm-redesign-plan"
+      "subject": "Merge pull request #18 from KorenKrita/codex/acm-redesign-plan",
+      "role": "live-experiment base after PR #18 merge"
     },
     "candidateLine": [
       {
-        "commit": "cc14926e60edc1f408333ac072c28f105ec95129",
+        "commit": "c73514b7ac64c5ef7eb3a14139aab07b957a0d65",
         "subject": "test: add post-merge pivot optimization matrix"
       },
       {
-        "commit": "9f0e5ce501b1898e1f7b240a524b5c26f7122693",
+        "commit": "cf07262f95a2a1178d824f5a2fe515de1158d4f7",
         "subject": "test: align pivot recovery scoring with handoff"
       },
       {
-        "commit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+        "commit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
         "subject": "fix: clarify rehydrate recovery pointers"
       },
       {
-        "commit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
+        "commit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2",
         "subject": "test: accept explicit deferred wait wording"
       },
       {
-        "commit": "77eb9380231ef5a25d6be0ae997c9d277eecbf7e",
+        "commit": "1b2d7eab6be2610e17b6c9298f056b9ecf1b25a5",
         "subject": "test: pin pivot artifact evidence to pre-travel content"
+      },
+      {
+        "commit": "04fe8927301a01e01713901bdc6a53dc4ab8087f",
+        "subject": "test: require shell readback for pivot artifacts"
       }
     ],
     "runtimeVersions": {
       "livePiCli": "0.80.10",
-      "pinnedHostFixture": "0.80.7",
-      "note": "Live stochastic behavior and exact deterministic host-contract verification use separate recorded versions."
+      "pinnedHostFixture": "0.81.1",
+      "note": "Live stochastic behavior was collected with the local Pi CLI 0.80.10 before the final branch rebased onto the 0.81.1 host-contract upgrade. The final deterministic gate validates the rebased source against exact Pi 0.81.1; these evidence classes are intentionally reported separately."
+    },
+    "finalBase": {
+      "commit": "1e9911d9db6b5532f3c63edbec54ca6bb98164a0",
+      "subject": "chore: upgrade Pi host contract to 0.81.1",
+      "role": "final branch base after rebase; applied after the live experiment campaign"
     }
   },
   "baselineAndCalibration": {
@@ -58,7 +68,7 @@
       "meaning": "Fresh control after scorer calibration; remaining failures separated task/provider stochasticity, unusable Recover routes, and one post-travel reread."
     },
     "deferredWaitScorerCalibration": {
-      "commit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
+      "commit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2",
       "acceptedEquivalentForms": [
         "Wait explicitly for the next user instruction",
         "Wait for explicit next user instruction"
@@ -169,7 +179,7 @@
     ]
   },
   "productionCandidate": {
-    "commit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+    "commit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
     "changes": [
       "backupCurrentHeadAs is defined as a brand-new alias on the exact protocol-complete origin path and never as destination selection.",
       "Existing checkpoint/archive/return aliases belong in target; bounded off-path recovery executes NEXT and returns through the handoff-named pointer without substituting an older fold base.",
@@ -187,15 +197,15 @@
         "passed": 3,
         "total": 6,
         "rawProductCommit": "30f754e3401063e6d81e1f69c39f71ca2ccedc6b",
-        "productionEquivalentCommit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+        "productionEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
         "equivalenceProof": {
           "paths": [
             "skills/context-management/TOOL-CONTRACTS.md",
             "src/generated-guidance.ts",
             "src/travel-tool.ts"
           ],
-          "command": "git diff --quiet 1640cce8 30f754e3 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
-          "result": "identical runtime prompt surface"
+          "command": "git diff --quiet a7ba6470 30f754e3 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
+          "result": "identical runtime prompt surface; the final branch additionally inherits the later Pi 0.81.1 host-contract base"
         }
       },
       "structuralEffect": "The candidate removed every backup_protocol_incomplete, rejected travel, and extra retry branch. Its three failures were only older-base target choices."
@@ -223,11 +233,13 @@
       },
       "calibration": "One Haiku handoff used semantically correct \"Wait for explicit next user instruction\" wording and is accepted by the final evaluator. The remaining Haiku failure reused the return alias as backup before retrying correctly.",
       "rawProductCommit": "497d98855044c99fa1d0ce10435a09d88605ef51",
-      "currentEquivalentCommit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
       "equivalenceProof": {
-        "command": "git diff --quiet 497d9885 8759f124 -- src skills package.json package-lock.json",
-        "result": "identical product files; only eval/topology-scenarios.mjs and its test differ"
-      }
+        "runtimeCommand": "git diff --quiet 497d9885 a7ba6470 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
+        "runtimeResult": "identical ACM runtime prompt surface",
+        "boundary": "raw live runs predate the final Pi 0.81.1 dependency-base rebase; exact 0.81.1 compatibility is established by the deterministic host fixture, not claimed from these 0.80.10 CLI runs"
+      },
+      "runtimeEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
+      "evaluatorCalibrationCommit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2"
     },
     "ordinaryBehaviorRegression": {
       "path": "eval/.runs/matrix-2026-07-21T16-52-42-539Z-rehydrate-production-regression-v1-p17412",
@@ -311,16 +323,18 @@
           ],
           "repeats": 1
         }
-      ]
+      ],
+      "runtimeEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef"
     }
   },
   "verification": {
     "deterministicGate": {
       "command": "bun run verify:acm",
-      "rootTests": 279,
+      "rootTests": 280,
       "hostFixtureTests": 53,
       "typecheck": "pass",
-      "generatedGuidance": "pass"
+      "generatedGuidance": "pass",
+      "hostFixtureVersion": "0.81.1"
     },
     "focusedFinalScorer": {
       "command": "bun test eval/topology-scenarios.test.mjs",
@@ -330,14 +344,21 @@
     "review": {
       "initialFindings": [
         "pivot artifact completion was attributed from final workspace state instead of pre-travel write content",
+        "opaque shell command text was treated as target-file content without a boundary readback",
         "raw behavior artifacts needed exact product/manifest provenance mapping"
       ],
       "resolution": [
-        "scorer now requires complete section evidence in the pre-travel write or shell command and still verifies the final file",
-        "evidence now records raw product commits, manifest hashes/snapshots, canonical copies, and source-equivalence commands"
+        "direct writes must carry complete sections before travel; shell writes reset proof until a successful pre-travel readback proves the target content; the final file must still be complete",
+        "evidence records raw product commits, manifest hashes/snapshots, canonical copies, and source-equivalence commands"
       ],
-      "status": "fixes applied; outgoing re-review pending"
-    }
+      "status": "fixes applied after rebase; final outgoing re-review pending"
+    },
+    "installGate": {
+      "command": "npm ci --ignore-scripts",
+      "status": "pass after moving the partial node_modules directory aside",
+      "auditWarning": "1 moderate vulnerability; non-blocking and pre-existing dependency state"
+    },
+    "packDryRun": "pass; 50 files, package generated successfully"
   },
   "limits": [
     "Behavior runs are stochastic samples, not model rankings or population estimates.",
