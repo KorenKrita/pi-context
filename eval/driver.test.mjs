@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildPiRpcArgs,
   classifySkillAvailability,
@@ -6,6 +9,8 @@ import {
   assertTurnCompleted,
   finalAssistantOutcome,
   PiRpcDriver,
+  sanitizePiChildEnvironment,
+  SESSION_RECALL_TOOLS,
 } from "./driver.mjs";
 
 const BASE = {
@@ -19,6 +24,7 @@ const BASE = {
 const EXPECTED_SKILL = "/checkout/skills/context-management/SKILL.md";
 const OTHER_SKILL = "/another/skills/context-management/SKILL.md";
 const realpath = (path) => path;
+const LOCAL_PI_081 = join(process.cwd(), "node_modules", ".bin", "pi");
 const expectedCommand = (path = EXPECTED_SKILL) => ({
   name: CONTEXT_MANAGEMENT_COMMAND,
   source: "skill",
@@ -74,8 +80,35 @@ describe("Pi RPC eval environment composition", () => {
 
     expect(args).not.toContain("--no-extensions");
     expect(args).not.toContain("--no-skills");
+    expect(args).toEqual(expect.arrayContaining(["--exclude-tools", SESSION_RECALL_TOOLS.join(",")]));
     expect(args).toEqual(expect.arrayContaining(["-e", "/checkout/src/index.ts", "--skill", EXPECTED_SKILL]));
   });
+});
+
+test("Pi child environment removes secrets and private flow seed while retaining runtime essentials", () => {
+  const sanitized = sanitizePiChildEnvironment({
+    PATH: "/usr/bin",
+    HOME: "/Users/fixture",
+    LANG: "en_US.UTF-8",
+    OPENAI_API_KEY: "secret",
+    GITHUB_TOKEN: "secret",
+    AWS_SECRET_ACCESS_KEY: "secret",
+    ACM_FLOW_SEED: "oracle-seed",
+    ACM_MATRIX_ID: "matrix-1",
+    ACM_INTEGRITY_AUDIT_PATH: "/outside/audit.jsonl",
+  });
+
+  expect(sanitized).toMatchObject({
+    PATH: "/usr/bin",
+    HOME: "/Users/fixture",
+    LANG: "en_US.UTF-8",
+    ACM_INTEGRITY_AUDIT_PATH: "/outside/audit.jsonl",
+  });
+  expect(sanitized.OPENAI_API_KEY).toBeUndefined();
+  expect(sanitized.GITHUB_TOKEN).toBeUndefined();
+  expect(sanitized.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+  expect(sanitized.ACM_FLOW_SEED).toBeUndefined();
+  expect(sanitized.ACM_MATRIX_ID).toBeUndefined();
 });
 
 describe("context-management Skill availability gate", () => {
@@ -145,6 +178,106 @@ test("getCommands propagates a rejected RPC response without running a prompt", 
   driver.request = async () => ({ success: false, error: "unavailable" });
   await expect(driver.getCommands()).rejects.toThrow("get_commands rejected: unavailable");
 });
+
+test("public RPC telemetry and host-perturbation helpers use their exact command names", async () => {
+  const driver = new PiRpcDriver(BASE);
+  const received = [];
+  driver.request = async (command) => {
+    received.push(command);
+    switch (command.type) {
+      case "get_state": return { success: true, data: { model: { id: "fixture" } } };
+      case "get_available_models": return { success: true, data: { models: [{ id: "fixture" }] } };
+      case "get_available_thinking_levels": return { success: true, data: { levels: ["medium", "high"] } };
+      case "compact": return { success: true, data: { summary: "folded" } };
+      case "get_entries": return { success: true, data: { entries: [], leafId: null } };
+      case "get_messages": return { success: true, data: { messages: [] } };
+      case "get_session_stats": return { success: true, data: { entries: 0 } };
+      default: return { success: false, error: "unexpected" };
+    }
+  };
+
+  await expect(driver.getState()).resolves.toEqual({ model: { id: "fixture" } });
+  await expect(driver.getAvailableModels()).resolves.toEqual([{ id: "fixture" }]);
+  await expect(driver.getThinkingLevels()).resolves.toEqual(["medium", "high"]);
+  await expect(driver.compact("keep facts")).resolves.toEqual({ summary: "folded" });
+  await expect(driver.getEntries("entry-1")).resolves.toEqual({ entries: [], leafId: null });
+  await expect(driver.getMessages()).resolves.toEqual([]);
+  await expect(driver.getSessionStats()).resolves.toEqual({ entries: 0 });
+  expect(received).toEqual([
+    { type: "get_state" },
+    { type: "get_available_models" },
+    { type: "get_available_thinking_levels" },
+    { type: "compact", customInstructions: "keep facts" },
+    { type: "get_entries", since: "entry-1" },
+    { type: "get_messages" },
+    { type: "get_session_stats" },
+  ]);
+});
+
+test("runs public audit RPC helpers through the explicitly selected local Pi 0.81.1 binary", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-081-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+    packages: [],
+    quietStartup: true,
+    defaultProjectTrust: "always",
+  }));
+  writeFileSync(join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      fixture: {
+        baseUrl: "http://127.0.0.1:1",
+        api: "openai-completions",
+        models: [{
+          id: "fixture",
+          name: "Fixture",
+          contextWindow: 400000,
+          maxTokens: 16000,
+          reasoning: true,
+          thinkingLevelMap: { off: "off", minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: "max" },
+        }],
+      },
+    },
+  }));
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    environmentMode: "core-only",
+    extensionPaths: [],
+    skillPaths: [],
+    provider: "fixture",
+    modelId: "fixture",
+    thinkingLevel: "high",
+    piBinary: LOCAL_PI_081,
+  });
+
+  driver.start();
+  try {
+    const [state, levels, stats] = await Promise.all([
+      driver.getState(),
+      driver.getThinkingLevels(),
+      driver.getSessionStats(),
+    ]);
+    expect(state.model.contextWindow).toBe(400000);
+    expect(state.model.maxTokens).toBe(16000);
+    expect(state.thinkingLevel).toBe("high");
+    expect(levels).toContain("high");
+    expect(stats.contextUsage.contextWindow).toBe(400000);
+    await expect(driver.getEntries()).resolves.toMatchObject({
+      entries: expect.any(Array),
+      leafId: expect.any(String),
+    });
+    await expect(driver.getMessages()).resolves.toEqual([]);
+  } finally {
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
 
 describe("assistant turn completion", () => {
   test("accepts a terminal successful assistant message", () => {

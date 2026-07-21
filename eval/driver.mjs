@@ -10,6 +10,26 @@ import { appendFileSync } from "node:fs";
 
 export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "full-env"]);
 export const CONTEXT_MANAGEMENT_COMMAND = "skill:context-management";
+export const SESSION_RECALL_TOOLS = Object.freeze(["session_search", "session_query"]);
+const ALLOWED_ACM_CHILD_ENV = new Set([
+  "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
+  "ACM_INTEGRITY_AUDIT_PATH",
+  "ACM_INTEGRITY_REQUIRED_MARKERS",
+  "ACM_INTEGRITY_WORKSPACE",
+]);
+
+/** Remove credentials and private matrix/oracle coordination from the real Pi child. */
+export function sanitizePiChildEnvironment(environment) {
+  const sanitized = {};
+  for (const [name, value] of Object.entries(environment ?? {})) {
+    if (value === undefined) continue;
+    const upper = name.toUpperCase();
+    if (upper.startsWith("ACM_") && !ALLOWED_ACM_CHILD_ENV.has(upper)) continue;
+    if (/(?:^|_)(?:API_?KEY|AUTH|CREDENTIALS?|COOKIE|FLOW_SEED|MATRIX_ID|ORACLE|PASSWORD|PASSWD|PRIVATE_?KEY|SECRET|SESSION_?TOKEN|TOKEN)(?:_|$)/.test(upper)) continue;
+    sanitized[name] = value;
+  }
+  return sanitized;
+}
 
 /** Resolve compatibility aliases and reject an unknown resource policy. */
 export function normalizeEnvironmentMode(options = {}) {
@@ -45,6 +65,10 @@ export function buildPiRpcArgs(options) {
     );
   }
   args.push("--approve");
+  // Defense in depth for full-env: the sanitized settings exclude the package
+  // that registers these tools, while the CLI denylist makes a leaked or
+  // manually installed copy unavailable to the evaluated model.
+  if (mode === "full-env") args.push("--exclude-tools", SESSION_RECALL_TOOLS.join(","));
   for (const extensionPath of extensionPaths) args.push("-e", extensionPath);
   for (const skillPath of skillPaths) args.push("--skill", skillPath);
   args.push(
@@ -202,6 +226,7 @@ export class PiRpcDriver {
    *   provider: string,
    *   modelId: string,
    *   thinkingLevel?: string,
+   *   piBinary?: string,
    *   eventLogPath?: string,
    *   env?: Record<string, string>,
    * }} options
@@ -220,13 +245,15 @@ export class PiRpcDriver {
 
   start() {
     const args = buildPiRpcArgs(this.options);
-    this.child = spawn("pi", args, {
+    const piBinary = this.options.piBinary ?? process.env.ACM_PI_BINARY ?? "pi";
+    const childEnvironment = {
+      ...sanitizePiChildEnvironment(process.env),
+      ...sanitizePiChildEnvironment(this.options.env),
+      PI_CODING_AGENT_DIR: this.options.agentDir,
+    };
+    this.child = spawn(piBinary, args, {
       cwd: this.options.cwd,
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: this.options.agentDir,
-        ...this.options.env,
-      },
+      env: childEnvironment,
       stdio: ["pipe", "pipe", "pipe"],
     });
     this.exited = new Promise((resolve) => {
@@ -334,6 +361,49 @@ export class PiRpcDriver {
 
   async getState() {
     const response = await this.request({ type: "get_state" });
+    if (!response.success) throw new Error(`get_state rejected: ${response.error ?? "unknown error"}`);
+    return response.data;
+  }
+
+  /** Return the effective model catalog after Pi has loaded the harness config. */
+  async getAvailableModels() {
+    const response = await this.request({ type: "get_available_models" });
+    if (!response.success) throw new Error(`get_available_models rejected: ${response.error ?? "unknown error"}`);
+    return response.data?.models;
+  }
+
+  /** Return the effort levels Pi makes available for the currently selected model. */
+  async getThinkingLevels() {
+    const response = await this.request({ type: "get_available_thinking_levels" });
+    if (!response.success) throw new Error(`get_available_thinking_levels rejected: ${response.error ?? "unknown error"}`);
+    return response.data?.levels;
+  }
+
+  /** Invoke Pi's native compaction boundary for flow-level perturbation tests. */
+  async compact(customInstructions) {
+    const response = await this.request({ type: "compact", ...(customInstructions === undefined ? {} : { customInstructions }) }, { timeoutMs: 600000 });
+    if (!response.success) throw new Error(`compact rejected: ${response.error ?? "unknown error"}`);
+    return response.data;
+  }
+
+  /** Return persisted session entries, optionally after a known entry id. */
+  async getEntries(since) {
+    const response = await this.request({ type: "get_entries", ...(since === undefined ? {} : { since }) });
+    if (!response.success) throw new Error(`get_entries rejected: ${response.error ?? "unknown error"}`);
+    return response.data;
+  }
+
+  /** Return the current model-visible message array through Pi's public RPC surface. */
+  async getMessages() {
+    const response = await this.request({ type: "get_messages" });
+    if (!response.success) throw new Error(`get_messages rejected: ${response.error ?? "unknown error"}`);
+    return response.data?.messages;
+  }
+
+  /** Return Pi's public session statistics for per-turn telemetry. */
+  async getSessionStats() {
+    const response = await this.request({ type: "get_session_stats" });
+    if (!response.success) throw new Error(`get_session_stats rejected: ${response.error ?? "unknown error"}`);
     return response.data;
   }
 
