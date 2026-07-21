@@ -3,6 +3,7 @@
 
 import { join } from "node:path";
 import { CONTEXT_MANAGEMENT_SKILL_PATH } from "./setup.mjs";
+import { BEHAVIOR_SCENARIOS } from "./behavior-scenarios.mjs";
 
 export { CONTEXT_MANAGEMENT_SKILL_PATH };
 
@@ -13,7 +14,7 @@ export { CONTEXT_MANAGEMENT_SKILL_PATH };
  *   thinkingLevel?: string,
  *   turns: Array<{ prompt: string, timeoutMs?: number }>,
  *   seedFiles?: Record<string, string>,
- *   score: (ctx: ScenarioContext) => ScoreResult,
+ *   score: (ctx: ScenarioContext) => ScoreResult | Promise<ScoreResult>,
  * }} Scenario */
 
 /** @typedef {{
@@ -22,6 +23,7 @@ export { CONTEXT_MANAGEMENT_SKILL_PATH };
  *   assistantTexts: string[],
  *   turnRecords?: Array<{ events: object[], toolCalls: Array<{ name: string, args: any, resultText?: string, isError?: boolean, details?: any }>, assistantTexts: string[] }>,
  *   environmentMode?: "core-only" | "product-isolated" | "full-env",
+ *   workspace?: string,
  * }} ScenarioContext */
 
 /** @typedef {{
@@ -567,6 +569,7 @@ export const SCENARIOS = [
       return { pass: checks.every((item) => item.pass), checks };
     },
   },
+  ...BEHAVIOR_SCENARIOS,
 ];
 
 export function listScenarios({ family } = {}) {

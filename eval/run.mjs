@@ -214,12 +214,13 @@ for (const scenario of scenarios) {
       }
       const toolCalls = extractToolCalls(allEvents);
       const assistantTexts = extractAssistantTexts(allEvents);
-      const scored = scenario.score({
+      const scored = await scenario.score({
         events: allEvents,
         toolCalls,
         assistantTexts,
         turnRecords,
         environmentMode,
+        workspace,
       });
       result = {
         ...result,
