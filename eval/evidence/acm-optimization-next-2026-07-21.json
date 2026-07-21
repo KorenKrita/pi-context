@@ -24,6 +24,10 @@
       {
         "commit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
         "subject": "test: accept explicit deferred wait wording"
+      },
+      {
+        "commit": "77eb9380231ef5a25d6be0ae997c9d277eecbf7e",
+        "subject": "test: pin pivot artifact evidence to pre-travel content"
       }
     ],
     "runtimeVersions": {
@@ -175,12 +179,24 @@
       "control": {
         "path": "eval/.runs/matrix-2026-07-21T16-35-25-136Z-rehydrate-final-ds-v1-p5195",
         "passed": 0,
-        "total": 6
+        "total": 6,
+        "rawProductCommit": "9f0e5ce501b1898e1f7b240a524b5c26f7122693"
       },
       "candidate": {
         "path": "/private/tmp/pi-context-rehydrate-pointer-prototype/eval/.runs/matrix-2026-07-21T16-35-06-282Z-rehydrate-final-ds-v1-p4999",
         "passed": 3,
-        "total": 6
+        "total": 6,
+        "rawProductCommit": "30f754e3401063e6d81e1f69c39f71ca2ccedc6b",
+        "productionEquivalentCommit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+        "equivalenceProof": {
+          "paths": [
+            "skills/context-management/TOOL-CONTRACTS.md",
+            "src/generated-guidance.ts",
+            "src/travel-tool.ts"
+          ],
+          "command": "git diff --quiet 1640cce8 30f754e3 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
+          "result": "identical runtime prompt surface"
+        }
       },
       "structuralEffect": "The candidate removed every backup_protocol_incomplete, rejected travel, and extra retry branch. Its three failures were only older-base target choices."
     },
@@ -205,7 +221,13 @@
         "claude-opus-4-8": "3/3",
         "claude-haiku-4-5": "2/3"
       },
-      "calibration": "One Haiku handoff used semantically correct \"Wait for explicit next user instruction\" wording and is accepted by the final evaluator. The remaining Haiku failure reused the return alias as backup before retrying correctly."
+      "calibration": "One Haiku handoff used semantically correct \"Wait for explicit next user instruction\" wording and is accepted by the final evaluator. The remaining Haiku failure reused the return alias as backup before retrying correctly.",
+      "rawProductCommit": "497d98855044c99fa1d0ce10435a09d88605ef51",
+      "currentEquivalentCommit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
+      "equivalenceProof": {
+        "command": "git diff --quiet 497d9885 8759f124 -- src skills package.json package-lock.json",
+        "result": "identical product files; only eval/topology-scenarios.mjs and its test differ"
+      }
     },
     "ordinaryBehaviorRegression": {
       "path": "eval/.runs/matrix-2026-07-21T16-52-42-539Z-rehydrate-production-regression-v1-p17412",
@@ -222,13 +244,80 @@
         "claude-opus-4-8",
         "claude-haiku-4-5",
         "gemini-3.5-flash"
+      ],
+      "rawProductCommit": "497d98855044c99fa1d0ce10435a09d88605ef51",
+      "rawMatrixSource": "/tmp/rehydrate-production-regression.mjs",
+      "rawMatrixSha256": "e1d2fa4a018a6f4b1ac2cd47a7eeaaa152ac24434c65276634ece40a63d05b70",
+      "canonicalManifest": "eval/matrix.optimization-final.mjs regression cells",
+      "manifestEquivalence": "model, thinking, environment, scenarios, repeats, and contextWindow normalize identically; only cell ids and experimentalVariable labels differ",
+      "manifestSnapshot": [
+        {
+          "model": "local-openai/deepseek-v4-flash",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 2
+        },
+        {
+          "model": "local-responses/gpt-5.4-mini",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 2
+        },
+        {
+          "model": "local-responses/gpt-5.6-sol",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-claude/claude-opus-4-8",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-claude/claude-haiku-4-5",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-openai/gemini-3.5-flash",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        }
       ]
     }
   },
   "verification": {
     "deterministicGate": {
       "command": "bun run verify:acm",
-      "rootTests": 276,
+      "rootTests": 279,
       "hostFixtureTests": 53,
       "typecheck": "pass",
       "generatedGuidance": "pass"
@@ -239,8 +328,15 @@
       "failed": 0
     },
     "review": {
-      "reviewer": "independent reviewer sub-agent",
-      "result": "no P0-P2; one P3 test-name mismatch fixed before production commit"
+      "initialFindings": [
+        "pivot artifact completion was attributed from final workspace state instead of pre-travel write content",
+        "raw behavior artifacts needed exact product/manifest provenance mapping"
+      ],
+      "resolution": [
+        "scorer now requires complete section evidence in the pre-travel write or shell command and still verifies the final file",
+        "evidence now records raw product commits, manifest hashes/snapshots, canonical copies, and source-equivalence commands"
+      ],
+      "status": "fixes applied; outgoing re-review pending"
     }
   },
   "limits": [
