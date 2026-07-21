@@ -72,6 +72,120 @@ function containsOnboardingOutline(contents) {
   return text.includes("first day") && text.includes("access setup") && text.includes("first support task");
 }
 
+function containsCompletedResearchBrief(contents) {
+  const text = String(contents).toLowerCase();
+  return text.includes("market signals")
+    && text.includes("interview conclusions")
+    && text.includes("operating constraints");
+}
+
+function readResultText(call) {
+  return call?.resultText ?? call?.resultPreview ?? call?.details?.resultText ?? "";
+}
+
+function preTravelBriefWasComplete(calls) {
+  let wroteBrief = false;
+  let completeAtBoundary = false;
+  for (const call of calls) {
+    if (!toolSucceeded(call)) continue;
+    if (writesPath(call, "research-brief.md")) {
+      wroteBrief = true;
+      completeAtBoundary = containsCompletedResearchBrief(call.args?.content);
+      continue;
+    }
+    if (shellWritesPath(call, "research-brief.md")) {
+      wroteBrief = true;
+      // A shell command is opaque: only a later successful readback can prove
+      // what reached the target file at this boundary.
+      completeAtBoundary = false;
+      continue;
+    }
+    if (readsAny(call, ["research-brief.md"])) {
+      completeAtBoundary = wroteBrief && containsCompletedResearchBrief(readResultText(call));
+    }
+  }
+  return wroteBrief && completeAtBoundary;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Recover is a human-facing pointer, not a bag of related terms. Accept a
+ * label only when it is the first recovery reference: either the bare label,
+ * or an explicit checkpoint/save-point/backup/archive label. This keeps a
+ * later incidental mention from making an unrelated route look recoverable.
+ */
+function recoverStartsWithLabel(recover, label) {
+  if (typeof recover !== "string" || typeof label !== "string" || label.trim().length === 0) return false;
+
+  const escapedLabel = escapeRegExp(label.trim());
+  const boundary = "(?=$|[\\s,;:.\\)\\]\\}\\\"'`])";
+  const withoutReferenceKind = recover.trim().replace(
+    /^(?:checkpoint|save[ -]?point|backup|archive)\s*(?:[:=]\s*)?/i,
+    "",
+  );
+  return new RegExp("^[\\\"'`]?" + escapedLabel + boundary).test(withoutReferenceKind);
+}
+
+function recoverStartsWithResearchBrief(recover) {
+  if (typeof recover !== "string") return false;
+  return /^`?research-brief\.md`?(?=$|[\s,;:.\)\]\}])/.test(recover.trim());
+}
+
+async function scorePivotRecoverability({ toolCalls, travel, travelIndex, handoff, workspace }) {
+  if (!toolSucceeded(travel)) {
+    return { pass: false, detail: "no successful transition carries a Recover reference" };
+  }
+
+  const recover = handoff.fields?.recover;
+  if (typeof recover !== "string" || recover.trim().length === 0 || recover.trim().toLowerCase() === "none") {
+    return { pass: false, detail: "Recover does not name a usable recovery route" };
+  }
+
+  const callsBeforeTravel = toolCalls.slice(0, travelIndex);
+  const matchingCheckpoint = callsBeforeTravel.find((call) =>
+    call.name === "acm_checkpoint"
+      && toolSucceeded(call)
+      && typeof call.args?.name === "string"
+      && recoverStartsWithLabel(recover, call.args.name));
+  if (matchingCheckpoint) {
+    return {
+      pass: true,
+      detail: `checkpoint=${matchingCheckpoint.args.name} matches primary Recover reference`,
+    };
+  }
+
+  const backup = typeof travel.args?.backupCurrentHeadAs === "string"
+    ? travel.args.backupCurrentHeadAs.trim()
+    : "";
+  if (backup.length > 0 && recoverStartsWithLabel(recover, backup)) {
+    return { pass: true, detail: `travel backup=${backup} matches primary Recover reference` };
+  }
+
+  if (!recoverStartsWithResearchBrief(recover)) {
+    return {
+      pass: false,
+      detail: "Recover does not begin with a verified checkpoint, backup, or research-brief.md artifact reference",
+    };
+  }
+
+  if (!preTravelBriefWasComplete(callsBeforeTravel)) {
+    return { pass: false, detail: "Recover names research-brief.md, but pre-travel write/readback evidence did not prove the complete brief sections" };
+  }
+
+  const brief = await readWorkspaceFile(workspace, "research-brief.md");
+  if (!brief.ok || !containsCompletedResearchBrief(brief.contents)) {
+    return {
+      pass: false,
+      detail: `${brief.detail}; research-brief.md must contain Market signals, Interview conclusions, and Operating constraints`,
+    };
+  }
+
+  return { pass: true, detail: "research-brief.md was written before travel and verified as a complete durable artifact" };
+}
+
 function validTravelBefore(toolCalls, beforeIndex) {
   const candidates = toolCalls
     .map((call, index) => ({ call, index }))
@@ -141,14 +255,14 @@ export const BEHAVIOR_SCENARIOS = [
       const transition = validTravelBefore(allCalls, transitionBoundary);
       const travel = transition?.call;
       const travelIndex = transition?.index ?? -1;
-      const checkpoint = travelIndex >= 0
-        ? allCalls.slice(0, travelIndex).find((call) => call.name === "acm_checkpoint" && toolSucceeded(call))
-        : undefined;
-      const backup = typeof travel?.args?.backupCurrentHeadAs === "string"
-        ? travel.args.backupCurrentHeadAs.trim()
-        : "";
-      const savePoint = toolSucceeded(checkpoint) || backup.length > 0;
       const handoff = scoreHandoff(travel?.args?.handoff);
+      const recoverabilityEvidence = await scorePivotRecoverability({
+        toolCalls: allCalls,
+        travel,
+        travelIndex,
+        handoff,
+        workspace: ctx.workspace,
+      });
       const firstPostTravel = travelIndex >= 0 ? allCalls[travelIndex + 1] : undefined;
       const directNewFrontAction = toolSucceeded(firstPostTravel) && writesPath(firstPostTravel, "onboarding-outline.md");
       const postTravelBeforeOutline = travelIndex >= 0
@@ -161,12 +275,7 @@ export const BEHAVIOR_SCENARIOS = [
       const actualOutline = outline.ok && containsOnboardingOutline(outline.contents);
 
       const checks = [
-        check("recoverable save point before the pivot", savePoint,
-          toolSucceeded(checkpoint)
-            ? `checkpoint=${checkpoint.args?.name ?? "unnamed"}`
-            : backup.length > 0
-              ? `travel backup=${backup}`
-              : "no successful checkpoint or non-empty travel backup before the pivot"),
+        check("handoff Recover identifies a verified recovery route", recoverabilityEvidence.pass, recoverabilityEvidence.detail),
         check("successful transition before the new-front write", toolSucceeded(travel) && toolSucceeded(outlineWrite),
           outlineWriteIndex < 0 && travel
             ? "travel succeeded, but onboarding-outline.md was never attempted"

@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-21T17:18:32Z",
+  "title": "ACM post-merge pivot and rehydrate optimization evidence",
+  "scope": "Compact evidence index for the optimization round after PR #18 merged. Raw reports, sessions, event streams, and workspaces remain under eval/.runs or the named throwaway worktrees; this file records only decision-relevant outcomes and extrapolation limits.",
+  "product": {
+    "base": {
+      "commit": "eb0c8010e4fd2a8c759de858592451667ad08f57",
+      "subject": "Merge pull request #18 from KorenKrita/codex/acm-redesign-plan",
+      "role": "live-experiment base after PR #18 merge"
+    },
+    "candidateLine": [
+      {
+        "commit": "c73514b7ac64c5ef7eb3a14139aab07b957a0d65",
+        "subject": "test: add post-merge pivot optimization matrix"
+      },
+      {
+        "commit": "cf07262f95a2a1178d824f5a2fe515de1158d4f7",
+        "subject": "test: align pivot recovery scoring with handoff"
+      },
+      {
+        "commit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
+        "subject": "fix: clarify rehydrate recovery pointers"
+      },
+      {
+        "commit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2",
+        "subject": "test: accept explicit deferred wait wording"
+      },
+      {
+        "commit": "1b2d7eab6be2610e17b6c9298f056b9ecf1b25a5",
+        "subject": "test: pin pivot artifact evidence to pre-travel content"
+      },
+      {
+        "commit": "04fe8927301a01e01713901bdc6a53dc4ab8087f",
+        "subject": "test: require shell readback for pivot artifacts"
+      }
+    ],
+    "runtimeVersions": {
+      "livePiCli": "0.80.10",
+      "pinnedHostFixture": "0.81.1",
+      "note": "Live stochastic behavior was collected with the local Pi CLI 0.80.10 before the final branch rebased onto the 0.81.1 host-contract upgrade. The final deterministic gate validates the rebased source against exact Pi 0.81.1; these evidence classes are intentionally reported separately."
+    },
+    "finalBase": {
+      "commit": "1e9911d9db6b5532f3c63edbec54ca6bb98164a0",
+      "subject": "chore: upgrade Pi host contract to 0.81.1",
+      "role": "final branch base after rebase; applied after the live experiment campaign"
+    }
+  },
+  "baselineAndCalibration": {
+    "postMergePivotMatrix": {
+      "path": "eval/.runs/matrix-2026-07-21T12-08-36-354Z-acm-pivot-restraint-post-merge-v1-p67174",
+      "raw": {
+        "passed": 80,
+        "total": 88,
+        "scenarioFailures": 8
+      },
+      "currentScorerPivotReclassification": {
+        "passed": 38,
+        "total": 44,
+        "previousPassed": 36
+      },
+      "reason": "Two Sonnet product runs named a complete pre-travel research-brief.md as the primary Recover route. The previous scorer incorrectly required a checkpoint or backup even when raw conversation had no independent recovery value."
+    },
+    "currentHeadPivotControl": {
+      "path": "eval/.runs/matrix-2026-07-21T15-39-01-257Z-pivot-current-head-control-v1-p47129",
+      "passed": 8,
+      "total": 14,
+      "meaning": "Fresh control after scorer calibration; remaining failures separated task/provider stochasticity, unusable Recover routes, and one post-travel reread."
+    },
+    "deferredWaitScorerCalibration": {
+      "commit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2",
+      "acceptedEquivalentForms": [
+        "Wait explicitly for the next user instruction",
+        "Wait for explicit next user instruction"
+      ],
+      "boundary": "The scorer still requires an explicit future user trigger and still rejects early checkpoint/travel execution."
+    }
+  },
+  "prototypeSearch": {
+    "pivotAndNext": [
+      {
+        "prototype": "pivot-backup-cue",
+        "commit": "e27d2e5e9340d8a2810c78f2a0c26c28a1a48f72",
+        "raw": "21/31",
+        "verdict": "reject",
+        "reason": "No reliable pivot uplift; global backup salience also reinforced the exact alias-role confusion seen in rehydrate."
+      },
+      {
+        "prototype": "pivot-precommit",
+        "commit": "18879e343f57fa6ccfbf22524c4b4f1fc67336b0",
+        "raw": "33/45",
+        "verdict": "reject",
+        "reason": "Broadened a signal into a pre-action seam without improving Haiku and risked a fixed pivot ritual."
+      },
+      {
+        "prototype": "checkpoint-parking",
+        "commit": "a7e7dbfd74019d77d5a41dd0afc99cf096492201",
+        "raw": "31/39",
+        "verdict": "reject",
+        "reason": "Did not improve the target Haiku cohort and duplicated existing CORE parking guidance."
+      },
+      {
+        "prototype": "recover-artifact",
+        "commit": "6a1da6476377e610eef92921df6c677e05b88669",
+        "raw": "28/39",
+        "verdict": "reject",
+        "reason": "Expanded Recover slot semantics globally without stable behavior gain; complete artifacts remain accepted by the calibrated scenario without changing the production schema."
+      },
+      {
+        "prototype": "next-obligation-long",
+        "commit": "e47239d0fd53adfb27259fac08413cc699814bde",
+        "paired": {
+          "control": {
+            "path": "eval/.runs/matrix-2026-07-21T16-09-50-471Z-next-obligation-paired-v1-p83443",
+            "overall": "16/18",
+            "nextCheck": "17/18"
+          },
+          "treatment": {
+            "path": "/private/tmp/pi-context-next-obligation-cue-prototype/eval/.runs/matrix-2026-07-21T16-09-50-471Z-next-obligation-paired-v1-p83444",
+            "overall": "15/18",
+            "nextCheck": "17/18"
+          }
+        },
+        "verdict": "reject",
+        "reason": "DeepSeek NEXT improved 5/6 to 6/6, but Gemini shifted 3/3 to 2/3 and aggregate NEXT correctness was unchanged."
+      },
+      {
+        "prototype": "next-obligation-short",
+        "commit": "9cb78938d8fec9deb040773e17948324b300e657",
+        "verdict": "reject",
+        "reason": "DeepSeek pivot was 6/6, but the first three Gemini runs all showed stale replay or wrong first continuation action; the run was stopped because the cue had no cross-model net benefit."
+      }
+    ],
+    "rehydrate": [
+      {
+        "prototype": "return-cue",
+        "commit": "297c3c23f465b01e1886cde09051c71f4309122a",
+        "raw": "7/19",
+        "verdict": "reject",
+        "reason": "Clarified the return destination but left backupCurrentHeadAs role confusion untouched."
+      },
+      {
+        "prototype": "travel-guideline",
+        "commit": "844c229dde99dbcec486dcc95ecb50a1d4f1d5c6",
+        "raw": "13/23",
+        "verdict": "superseded",
+        "reason": "Directional improvement, but copied advanced workflow into every travel prompt and weak models still reused existing aliases as backups."
+      },
+      {
+        "prototype": "verified-pointer-runtime",
+        "commit": "ba01261b21dc44d695dce3bde0789f3bb7a329d9",
+        "partial": {
+          "deepseekFlash": "1/6",
+          "gptMini": "1/6"
+        },
+        "verdict": "reject",
+        "reason": "A heuristic runtime alias inference added complexity and public details without behavior gain."
+      },
+      {
+        "prototype": "target-description",
+        "commit": "337db9f1e705ac69f803c778ed39ec6d524b7bd5",
+        "partial": {
+          "deepseekFlash": "4/6",
+          "gptMiniValid": "1/4",
+          "solValid": "1/2"
+        },
+        "verdict": "reject",
+        "reason": "No gain over the smaller candidate and one strong-model regression signal."
+      },
+      {
+        "prototype": "recover-ordering",
+        "commit": "0ed1695ab92c13c18571e90887ce351bcc57a877",
+        "partial": {
+          "gptMini": "0/5"
+        },
+        "verdict": "reject",
+        "reason": "The Recover ordering hint was not the tool-argument decision point and widened global schema text."
+      }
+    ]
+  },
+  "productionCandidate": {
+    "commit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
+    "changes": [
+      "backupCurrentHeadAs is defined as a brand-new alias on the exact protocol-complete origin path and never as destination selection.",
+      "Existing checkpoint/archive/return aliases belong in target; bounded off-path recovery executes NEXT and returns through the handoff-named pointer without substituting an older fold base.",
+      "No runtime return target is inferred, stored, or silently rewritten."
+    ],
+    "sameTimeDeepSeekPair": {
+      "control": {
+        "path": "eval/.runs/matrix-2026-07-21T16-35-25-136Z-rehydrate-final-ds-v1-p5195",
+        "passed": 0,
+        "total": 6,
+        "rawProductCommit": "9f0e5ce501b1898e1f7b240a524b5c26f7122693"
+      },
+      "candidate": {
+        "path": "/private/tmp/pi-context-rehydrate-pointer-prototype/eval/.runs/matrix-2026-07-21T16-35-06-282Z-rehydrate-final-ds-v1-p4999",
+        "passed": 3,
+        "total": 6,
+        "rawProductCommit": "30f754e3401063e6d81e1f69c39f71ca2ccedc6b",
+        "productionEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
+        "equivalenceProof": {
+          "paths": [
+            "skills/context-management/TOOL-CONTRACTS.md",
+            "src/generated-guidance.ts",
+            "src/travel-tool.ts"
+          ],
+          "command": "git diff --quiet a7ba6470 30f754e3 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
+          "result": "identical runtime prompt surface; the final branch additionally inherits the later Pi 0.81.1 host-contract base"
+        }
+      },
+      "structuralEffect": "The candidate removed every backup_protocol_incomplete, rejected travel, and extra retry branch. Its three failures were only older-base target choices."
+    },
+    "productionRehydrateMatrix": {
+      "path": "eval/.runs/matrix-2026-07-21T16-57-47-135Z-acm-rehydrate-pointer-production-v1-p20611",
+      "raw": {
+        "passed": 11,
+        "valid": 20,
+        "total": 21,
+        "providerFailures": 1,
+        "rawValidPassRate": 0.55
+      },
+      "calibrated": {
+        "passed": 12,
+        "valid": 20,
+        "validPassRate": 0.6
+      },
+      "byModelCalibrated": {
+        "deepseek-v4-flash": "2/6",
+        "gpt-5.4-mini": "2/5 valid; 1 provider failure",
+        "gpt-5.6-sol": "3/3",
+        "claude-opus-4-8": "3/3",
+        "claude-haiku-4-5": "2/3"
+      },
+      "calibration": "One Haiku handoff used semantically correct \"Wait for explicit next user instruction\" wording and is accepted by the final evaluator. The remaining Haiku failure reused the return alias as backup before retrying correctly.",
+      "rawProductCommit": "497d98855044c99fa1d0ce10435a09d88605ef51",
+      "equivalenceProof": {
+        "runtimeCommand": "git diff --quiet 497d9885 a7ba6470 -- skills/context-management/TOOL-CONTRACTS.md src/generated-guidance.ts src/travel-tool.ts",
+        "runtimeResult": "identical ACM runtime prompt surface",
+        "boundary": "raw live runs predate the final Pi 0.81.1 dependency-base rebase; exact 0.81.1 compatibility is established by the deterministic host fixture, not claimed from these 0.80.10 CLI runs"
+      },
+      "runtimeEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef",
+      "evaluatorCalibrationCommit": "3e856d4f4460eb7bc60bbc87bb8650b6243a8fd2"
+    },
+    "ordinaryBehaviorRegression": {
+      "path": "eval/.runs/matrix-2026-07-21T16-52-42-539Z-rehydrate-production-regression-v1-p17412",
+      "passed": 16,
+      "total": 16,
+      "scenarios": [
+        "unprompted-fold-on-pivot",
+        "restraint-clean-new-cycle"
+      ],
+      "models": [
+        "deepseek-v4-flash",
+        "gpt-5.4-mini",
+        "gpt-5.6-sol",
+        "claude-opus-4-8",
+        "claude-haiku-4-5",
+        "gemini-3.5-flash"
+      ],
+      "rawProductCommit": "497d98855044c99fa1d0ce10435a09d88605ef51",
+      "rawMatrixSource": "/tmp/rehydrate-production-regression.mjs",
+      "rawMatrixSha256": "e1d2fa4a018a6f4b1ac2cd47a7eeaaa152ac24434c65276634ece40a63d05b70",
+      "canonicalManifest": "eval/matrix.optimization-final.mjs regression cells",
+      "manifestEquivalence": "model, thinking, environment, scenarios, repeats, and contextWindow normalize identically; only cell ids and experimentalVariable labels differ",
+      "manifestSnapshot": [
+        {
+          "model": "local-openai/deepseek-v4-flash",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 2
+        },
+        {
+          "model": "local-responses/gpt-5.4-mini",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 2
+        },
+        {
+          "model": "local-responses/gpt-5.6-sol",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-claude/claude-opus-4-8",
+          "thinking": "high",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-claude/claude-haiku-4-5",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        },
+        {
+          "model": "local-openai/gemini-3.5-flash",
+          "thinking": "medium",
+          "environment": "product-isolated",
+          "scenarios": [
+            "unprompted-fold-on-pivot",
+            "restraint-clean-new-cycle"
+          ],
+          "repeats": 1
+        }
+      ],
+      "runtimeEquivalentCommit": "a7ba6470f6b8c2a6fd15773a6926c066edcb48ef"
+    }
+  },
+  "verification": {
+    "deterministicGate": {
+      "command": "bun run verify:acm",
+      "rootTests": 280,
+      "hostFixtureTests": 53,
+      "typecheck": "pass",
+      "generatedGuidance": "pass",
+      "hostFixtureVersion": "0.81.1"
+    },
+    "focusedFinalScorer": {
+      "command": "bun test eval/topology-scenarios.test.mjs",
+      "passed": 20,
+      "failed": 0
+    },
+    "review": {
+      "initialFindings": [
+        "pivot artifact completion was attributed from final workspace state instead of pre-travel write content",
+        "opaque shell command text was treated as target-file content without a boundary readback",
+        "raw behavior artifacts needed exact product/manifest provenance mapping"
+      ],
+      "resolution": [
+        "direct writes must carry complete sections before travel; shell writes reset proof until a successful pre-travel readback proves the target content; the final file must still be complete",
+        "evidence records raw product commits, manifest hashes/snapshots, canonical copies, and source-equivalence commands"
+      ],
+      "status": "fixes applied after rebase; final outgoing re-review pending"
+    },
+    "installGate": {
+      "command": "npm ci --ignore-scripts",
+      "status": "pass after moving the partial node_modules directory aside",
+      "auditWarning": "1 moderate vulnerability; non-blocking and pre-existing dependency state"
+    },
+    "packDryRun": "pass; 50 files, package generated successfully"
+  },
+  "limits": [
+    "Behavior runs are stochastic samples, not model rankings or population estimates.",
+    "The same-time DeepSeek pair is the strongest causal evidence; broader matrices are regression and boundary evidence.",
+    "The production candidate improves the mechanical backup/target floor but does not make all weak-model return-target decisions correct.",
+    "GPT mini failures mix wrong target choice, malformed strict-object arguments, nested top-level parameters, retry branches, and one provider failure; no schema relaxation or runtime retargeting was adopted.",
+    "Raw reports under eval/.runs are local evidence artifacts and are not part of the published package."
+  ]
+}

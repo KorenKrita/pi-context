@@ -131,7 +131,7 @@ Travel mutation landed, but rebuilt message evidence is pending. Use the reporte
 <!-- ACM:RECOVERY_REFRESH_PENDING:END -->
 
 <!-- ACM:RECOVERY_RESTORED_HISTORY:START -->
-Off-path travel restored raw history. Take the exact detail this rehydration came for, then travel back to the summary branch unless this branch intentionally becomes the new working set.
+Off-path travel restored history. Execute this handoff's NEXT directly. For a bounded rehydration lookup, carry the extracted detail back through the return pointer named by the handoff; use that pointer as the next `target`, not `backupCurrentHeadAs`, and do not substitute an older fold base. Stay only when this branch intentionally becomes the new working set.
 <!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
 
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->

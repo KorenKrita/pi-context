@@ -254,6 +254,32 @@ describe("rehydrate-round-trip scoring", () => {
     expect(result.pass).toBe(true);
   });
 
+  test("accepts an explicit-wait adverb before the next-user trigger", () => {
+    const ctx = rehydrateHappyContext();
+    const fold = ctx.turnRecords[2]?.toolCalls[0];
+    if (!fold) throw new Error("fold travel missing");
+    fold.args.handoff = handoff({
+      recover: REHYDRATE_ARCHIVE,
+      next: `Wait explicitly for the next user instruction before creating the return save point ${REHYDRATE_RETURN}; take no further action now.`,
+    });
+
+    const result = scenario("rehydrate-round-trip").score(ctx);
+    expect(result.pass).toBe(true);
+  });
+
+  test("accepts explicit-next adjective order for the deferred user trigger", () => {
+    const ctx = rehydrateHappyContext();
+    const fold = ctx.turnRecords[2]?.toolCalls[0];
+    if (!fold) throw new Error("fold travel missing");
+    fold.args.handoff = handoff({
+      recover: REHYDRATE_ARCHIVE,
+      next: `Wait for explicit next user instruction before creating the return save point ${REHYDRATE_RETURN}.`,
+    });
+
+    const result = scenario("rehydrate-round-trip").score(ctx);
+    expect(result.pass).toBe(true);
+  });
+
   test("accepts Kimi's possessive future-user wording while still rejecting its early return", () => {
     const ctx = rehydrateHappyContext();
     const fold = ctx.turnRecords[2]?.toolCalls[0];
