@@ -72,6 +72,34 @@ describe("unprompted pivot behavior scenario", () => {
     expect(result.checks.find((item) => item.name === "onboarding outline exists with required content")?.pass).toBe(true);
   });
 
+  test("accepts the travel transaction backup as the pivot save point", async () => {
+    const root = workspace();
+    writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
+    const calls = [
+      call("acm_travel", { target: "root", handoff: HANDOFF, backupCurrentHeadAs: "research-pivot-raw" }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(true);
+  });
+
+  test("rejects a pivot that has neither a standalone checkpoint nor a travel backup", async () => {
+    const root = workspace();
+    writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
+    const calls = [
+      call("acm_travel", { target: "root", handoff: HANDOFF }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(false);
+  });
+
   test("does not credit write arguments when the real workspace file is absent", async () => {
     const root = workspace();
     const calls = [
@@ -110,34 +138,25 @@ describe("unprompted pivot behavior scenario", () => {
 describe("clean-cycle restraint behavior scenario", () => {
   const restraint = scenario("restraint-clean-new-cycle");
 
-  function context(root, secondTurnCalls) {
+  function context(root, secondTurnCalls, firstTurnCalls = [
+    call("read", { path: "release-review.md" }),
+    call("acm_checkpoint", { name: "release-review-closed" }),
+    call("acm_travel", {
+      target: "release-review-closed",
+      handoff: { ...HANDOFF, goal: "Preserve the closed release review", next: "Wait for the next unrelated task." },
+    }),
+  ]) {
     return {
       events: [],
       toolCalls: [
-        call("read", { path: "release-review.md" }),
-        call("acm_checkpoint", { name: "release-review-closed" }),
-        call("acm_travel", {
-          target: "release-review-closed",
-          handoff: {
-            ...HANDOFF,
-            goal: "Preserve the closed release review",
-            next: "Wait for the next unrelated task.",
-          },
-        }),
+        ...firstTurnCalls,
         ...secondTurnCalls,
       ],
       assistantTexts: [],
       turnRecords: [
         {
           events: [],
-          toolCalls: [
-            call("read", { path: "release-review.md" }),
-            call("acm_checkpoint", { name: "release-review-closed" }),
-            call("acm_travel", {
-              target: "release-review-closed",
-              handoff: { ...HANDOFF, goal: "Preserve the closed release review", next: "Wait for the next unrelated task." },
-            }),
-          ],
+          toolCalls: firstTurnCalls,
           assistantTexts: [],
         },
         { events: [], toolCalls: secondTurnCalls, assistantTexts: [] },
@@ -157,6 +176,41 @@ describe("clean-cycle restraint behavior scenario", () => {
     expect(result.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "tiny task reached its real workspace file")?.pass).toBe(true);
     expect(result.checks.find((item) => item.name === "no extra save or transition before tiny task completion")?.pass).toBe(true);
+  });
+
+  test("accepts a successful shell redirection without an initial standalone checkpoint", async () => {
+    const root = workspace();
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "docs/release-tag.txt"), "release-2026.07.21\n");
+    const firstTurn = [
+      call("read", { path: "release-review.md" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, goal: "Preserve the closed release review", next: "Wait for the next unrelated task." },
+      }),
+    ];
+    const secondTurn = [call("bash", { command: "printf 'release-2026.07.21\\n' > docs/release-tag.txt" })];
+
+    const result = await restraint.score(context(root, secondTurn, firstTurn));
+
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "tiny task reached its real workspace file")?.pass).toBe(true);
+  });
+
+  test("fails when a transition precedes the successful shell write", async () => {
+    const root = workspace();
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "docs/release-tag.txt"), "release-2026.07.21\n");
+    const secondTurn = [
+      call("acm_checkpoint", { name: "unnecessary-small-task-save" }),
+      call("bash", { command: "printf 'release-2026.07.21\\n' > docs/release-tag.txt" }),
+    ];
+
+    const result = await restraint.score(context(root, secondTurn));
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "tiny task reached its real workspace file")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "no extra save or transition before tiny task completion")?.pass).toBe(false);
   });
 
   test("fails when a second save or transition occurs before the tiny task completes", async () => {

@@ -30,6 +30,22 @@ function writesPath(call, relativePath) {
   return call?.name === "write" && (path === relativePath || path.endsWith(`/${relativePath}`));
 }
 
+function shellWritesPath(call, relativePath) {
+  if (call?.name !== "bash" || typeof call.args?.command !== "string") return false;
+
+  const command = call.args.command;
+  const escapedPath = relativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const target = `(?:[\"'](?:[^\"']*\\/)?${escapedPath}[\"']|(?:[^\\s;|&]*\\/)?${escapedPath})(?=$|\\s|[;|&])`;
+  const redirect = new RegExp(`(?:^|[\\s;&|])(?:\\d*>>?|&>>?)\\s*${target}`, "m");
+  const tee = new RegExp(`(?:^|[\\s;&|])tee(?:\\s+(?:--append|-[A-Za-z]+))*\\s+(?:--\\s+)?${target}`, "m");
+
+  return redirect.test(command) || tee.test(command);
+}
+
+function writesReleaseTag(call) {
+  return writesPath(call, "docs/release-tag.txt") || shellWritesPath(call, "docs/release-tag.txt");
+}
+
 function readsAny(call, names) {
   if (call?.name !== "read" && call?.name !== "read_file") return false;
   const path = toolPath(call);
@@ -126,6 +142,10 @@ export const BEHAVIOR_SCENARIOS = [
       const checkpoint = travelIndex >= 0
         ? allCalls.slice(0, travelIndex).find((call) => call.name === "acm_checkpoint" && toolSucceeded(call))
         : undefined;
+      const backup = typeof travel?.args?.backupCurrentHeadAs === "string"
+        ? travel.args.backupCurrentHeadAs.trim()
+        : "";
+      const savePoint = toolSucceeded(checkpoint) || backup.length > 0;
       const handoff = scoreHandoff(travel?.args?.handoff);
       const firstPostTravel = travelIndex >= 0 ? allCalls[travelIndex + 1] : undefined;
       const directNewFrontAction = toolSucceeded(firstPostTravel) && writesPath(firstPostTravel, "onboarding-outline.md");
@@ -139,7 +159,12 @@ export const BEHAVIOR_SCENARIOS = [
       const actualOutline = outline.ok && containsOnboardingOutline(outline.contents);
 
       const checks = [
-        check("checkpoint before the pivot", toolSucceeded(checkpoint), checkpoint ? `name=${checkpoint.args?.name ?? "unnamed"}` : "no successful checkpoint before travel"),
+        check("recoverable save point before the pivot", savePoint,
+          toolSucceeded(checkpoint)
+            ? `checkpoint=${checkpoint.args?.name ?? "unnamed"}`
+            : backup.length > 0
+              ? `travel backup=${backup}`
+              : "no successful checkpoint or non-empty travel backup before the pivot"),
         check("successful transition before the new-front write", toolSucceeded(travel) && toolSucceeded(outlineWrite),
           travel ? "travel succeeded before onboarding-outline.md" : "no successful travel before onboarding-outline.md"),
         check("structured handoff", handoff.ok, handoff.detail),
@@ -193,20 +218,16 @@ export const BEHAVIOR_SCENARIOS = [
       const newCycle = recordForTurn(ctx, 1);
       const initialTravelIndex = firstCycle.toolCalls.findIndex((call) => call.name === "acm_travel" && toolSucceeded(call));
       const initialTravel = initialTravelIndex >= 0 ? firstCycle.toolCalls[initialTravelIndex] : undefined;
-      const checkpoint = initialTravelIndex >= 0
-        ? firstCycle.toolCalls.slice(0, initialTravelIndex).find((call) => call.name === "acm_checkpoint" && toolSucceeded(call))
-        : undefined;
       const handoff = scoreHandoff(initialTravel?.args?.handoff);
-      const tagWriteIndex = newCycle.toolCalls.findIndex((call) => toolSucceeded(call) && writesPath(call, "docs/release-tag.txt"));
+      const tagWriteIndex = newCycle.toolCalls.findIndex((call) => toolSucceeded(call) && writesReleaseTag(call));
       const tagWrite = tagWriteIndex >= 0 ? newCycle.toolCalls[tagWriteIndex] : undefined;
       const transitionBeforeCompletion = tagWriteIndex >= 0
         ? newCycle.toolCalls.slice(0, tagWriteIndex).filter((call) => call.name === "acm_checkpoint" || call.name === "acm_travel")
         : newCycle.toolCalls.filter((call) => call.name === "acm_checkpoint" || call.name === "acm_travel");
       const tag = await readWorkspaceFile(ctx.workspace, "docs/release-tag.txt");
-      const actualTag = tag.ok && tag.contents.trim() === "release-2026.07.21";
+      const actualTag = tag.ok && ["release-2026.07.21", "release-2026.07.21\n", "release-2026.07.21\r\n"].includes(tag.contents);
 
       const checks = [
-        check("first cycle checkpoint succeeded", toolSucceeded(checkpoint), checkpoint ? `name=${checkpoint.args?.name ?? "unnamed"}` : "missing before initial travel"),
         check("first cycle transition succeeded", toolSucceeded(initialTravel),
           initialTravel ? "travel succeeded" : "missing successful travel in first cycle"),
         check("first cycle has a structured handoff", handoff.ok, handoff.detail),
