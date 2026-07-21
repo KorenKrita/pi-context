@@ -72,8 +72,8 @@ function handoffCarriesNonce(handoff, nonce) {
 
 function nextWaitsForNextUserInstruction(next) {
   const text = String(next ?? "");
-  const nextUser = "(?:(?:the\\s+)?next(?:\\s+explicit)?\\s+user\\s+(?:instruction|request|message|turn)|(?:the\\s+)?user['’]s\\s+next(?:\\s+explicit)?\\s+(?:instruction|request|message|turn))";
-  const directTrigger = new RegExp(`\\b(?:on|after|when\\s+following|wait(?:ing)?\\s+(?:for|until)|await(?:ing)?)\\s+${nextUser}\\b`, "i");
+  const nextUser = "(?:(?:the\\s+)?(?:next(?:\\s+explicit)?|explicit\\s+next)\\s+user\\s+(?:instruction|request|message|turn)|(?:the\\s+)?user['’]s\\s+(?:next(?:\\s+explicit)?|explicit\\s+next)\\s+(?:instruction|request|message|turn))";
+  const directTrigger = new RegExp(`\\b(?:on|after|when\\s+following|wait(?:ing)?(?:\\s+explicitly)?\\s+(?:for|until)|await(?:ing)?(?:\\s+explicitly)?)\\s+${nextUser}\\b`, "i");
   const deferredUntil = new RegExp(`\\bdefer(?:red|ring)?\\b[\\s\\S]{0,120}\\buntil\\s+${nextUser}\\b`, "i");
   return directTrigger.test(text) || deferredUntil.test(text);
 }
