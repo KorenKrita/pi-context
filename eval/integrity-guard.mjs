@@ -117,10 +117,33 @@ function hasShellOptionOrEnvironmentDump(command) {
   return /(?:^|[;&|()\s])set(?:\s*(?=$|[;&|()\n#])|\s+[+-]o\s*(?=$|[;&|()\n#]))/.test(command);
 }
 
-function bashViolation(command) {
-  const checks = [
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function maskWorkspacePaths(command, workspace) {
+  if (typeof workspace !== "string" || workspace.length === 0) return command;
+  const roots = [...new Set([resolve(workspace), canonicalExistingPath(workspace)])]
+    .sort((left, right) => right.length - left.length);
+  return roots.reduce((masked, root) => (
+    masked.replace(new RegExp(`${escapeRegExp(root)}(?=$|[/\\s"'=;|&()])`, "g"), "__ACM_WORKSPACE__")
+  ), command);
+}
+
+function bashViolation(command, workspace) {
+  // Evaluation agents normally enter their isolated workspace by absolute path.
+  // Mask only that exact root (and its realpath alias) before path-escape
+  // checks; paths below it still expose `..`, and every other absolute path
+  // remains subject to the existing policy.
+  const pathCheckedCommand = maskWorkspacePaths(command, workspace);
+  const pathChecks = [
     ["bash_absolute_path", /(^|[\s"'=;|&(])\/(?!\/)/],
     ["bash_parent_escape", /(^|[\/\s"'=])\.\.([\/\s"'=]|$)/],
+  ];
+  for (const [code, pattern] of pathChecks) {
+    if (pattern.test(pathCheckedCommand)) return code;
+  }
+  const checks = [
     ["bash_home_or_pi_discovery", /(^|[\s"'=;|&(])(?:~(?:\/|$)|\$HOME\b|\$\{HOME\}|\.pi(?:\/|\b)|PI_CODING_AGENT_DIR\b|CODEX_HOME\b)/i],
     ["bash_eval_run_discovery", /(^|[\/\s"'=])eval\/\.runs(?:[\/\s"'=]|$)/i],
     ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
@@ -143,7 +166,7 @@ export function evaluateToolCall({ toolName, input, workspace, approvedSkillRoot
   }
   if (toolName === "bash") {
     const command = typeof input?.command === "string" ? input.command : "";
-    const code = bashViolation(command);
+    const code = bashViolation(command, workspace);
     return code
       ? { block: true, code, reason: `measurement integrity guard blocked bash command (${code})` }
       : { block: false };

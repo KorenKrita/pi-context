@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -135,6 +135,39 @@ describe("measurement integrity tool-call gate", () => {
       "bun test && set -o errexit && bun run typecheck",
     ]) {
       expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toEqual({ block: false });
+    }
+  });
+
+  test("allows only the configured workspace root in absolute bash commands", () => {
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "cd /private/tmp/saffron-workspace && find . -maxdepth 2 -type f" },
+      ...policy,
+    })).toEqual({ block: false });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "cd /private/tmp/saffron-other && find . -maxdepth 2 -type f" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_absolute_path" });
+  });
+
+  test("allows the configured workspace's raw and canonical absolute paths", () => {
+    const root = mkdtempSync(join(tmpdir(), "acm-integrity-bash-realpath-"));
+    const target = join(root, "target");
+    const workspace = join(root, "workspace-link");
+    mkdirSync(target);
+    symlinkSync(target, workspace, "dir");
+    try {
+      for (const workspacePath of [workspace, realpathSync(workspace)]) {
+        expect(evaluateToolCall({
+          toolName: "bash",
+          input: { command: `cd ${workspacePath} && find . -maxdepth 2 -type f` },
+          workspace,
+          approvedSkillRoots: [],
+        })).toEqual({ block: false });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
