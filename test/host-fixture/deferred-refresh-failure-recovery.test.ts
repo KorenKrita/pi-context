@@ -246,6 +246,55 @@ describe("deferred live synchronization fallback", () => {
     expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("active");
   });
 
+  test("an exact-host invalid persisted packet stays pending and leaves current delivery untouched", async () => {
+    const { rootId, sessionManager } = createSession();
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
+    const runtime = new AcmSessionRuntime(adapter);
+    const { context, handlers, notifications, travelTool } = registerFixture(sessionManager, runtime);
+
+    const receipt = await travelTool.execute(
+      "invalid-persisted-packet",
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+    expect(receipt.details?.error).toBeUndefined();
+    await emit(handlers, "agent_settled", {}, context);
+
+    const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: () => {
+        const entries = originalGetEntries();
+        const root = entries.find((entry) => entry.id === rootId);
+        if (!root) throw new Error("missing test root");
+        const invalidRoot = {
+          ...root,
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "", name: "broken-tool", arguments: {} }],
+            api: "test",
+            provider: "test",
+            model: "test",
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        };
+        return [invalidRoot, ...entries.filter((entry) => entry.id !== rootId)];
+      },
+    });
+    const retained = [{ role: "user", content: "retain exact-host live messages" }] as AgentMessage[];
+
+    const refused = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
+
+    expect(refused.messages).toBe(retained);
+    expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+    expect(notifications.at(-1)).toContain("invalid tool protocol");
+    expect(notifications.at(-1)).toContain("invalid_tool_call_id");
+  });
+
   test("bounded rebuild exhaustion does not falsely report active delivery", async () => {
     const { rootId, sessionManager } = createSession();
     const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });

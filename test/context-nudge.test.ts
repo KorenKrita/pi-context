@@ -161,6 +161,49 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages).toHaveLength(0);
   });
 
+  test("still steers an applied travel when post-mutation packet evidence needs persistent recovery", async () => {
+    const fixture = createFixture();
+    const handoff = {
+      goal: "complete the already-open request",
+      state: "tree mutation was verified but packet evidence is temporarily unavailable",
+      evidence: "summary entry receipt",
+      external: "none",
+      exclusions: "do not replay folded history",
+      recover: "archive-before-fold",
+      next: "write the user-visible result from the carried state",
+    };
+
+    await fixture.emit("tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "travel-applied-evidence-pending",
+      input: { target: "root", handoff },
+      content: [],
+      isError: false,
+      details: {
+        mutationStatus: "applied",
+        handoffFormat: "structured-v1",
+        resultingLeafId: "summary-evidence-pending",
+        currentUserTurnOpen: true,
+        postMutationEvidenceStatus: "unavailable",
+        postMutationEvidenceWarning: "session read failed after mutation",
+      },
+    });
+
+    expect(fixture.sentMessages).toHaveLength(1);
+    expect(fixture.sentMessages[0]).toMatchObject({
+      message: {
+        customType: "acm:post-travel-continuation",
+        details: {
+          toolCallId: "travel-applied-evidence-pending",
+          resultingLeafId: "summary-evidence-pending",
+          next: handoff.next,
+          currentUserTurnOpen: true,
+        },
+      },
+      options: { deliverAs: "steer" },
+    });
+  });
+
   test("does not append an old NEXT behind a pending user message or aborted run", async () => {
     const fixture = createFixture();
     const event = {

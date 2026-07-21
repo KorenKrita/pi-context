@@ -6,6 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
+import type { ToolProtocolDefect } from "./tool-protocol.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -164,7 +165,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     try {
       const packetResult = rebuildAcmContextPacket(sessionManager);
       if (!packetResult.ok) return reportFailure(packetResult.message);
-      let messages = packetResult.value.messages;
+      let packet = packetResult.value;
+      let messages = packet.messages;
       if (messages.length === 0) {
         const fallbackLeafId = runtime.getRefreshTarget(sessionManager);
         const fallbackResult = fallbackLeafId
@@ -172,9 +174,15 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : undefined;
         if (!fallbackResult) return reportFailure("rebuilt messages array is empty");
         if (!fallbackResult.ok) return reportFailure(fallbackResult.message);
-        messages = fallbackResult.value.messages;
+        packet = fallbackResult.value;
+        messages = packet.messages;
       }
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
+      if (packet.protocol.status === "invalid") {
+        return reportFailure(
+          `Refused persisted context packet with invalid tool protocol: ${formatProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}`,
+        );
+      }
 
       contextRefresh.markRebuilt(sessionManager);
       // Do not release the delivery gate merely because an attempt began. A
@@ -266,4 +274,14 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     );
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
+}
+function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
+  return defects.map((defect) => {
+    if (defect.kind === "duplicate_tool_call_id") {
+      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
+    }
+    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
+    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
+      + (toolCallId ? ` (${toolCallId})` : "");
+  }).join("; ");
 }

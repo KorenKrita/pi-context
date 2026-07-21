@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import type { ReadonlySessionManager } from "./host-bridge.js";
+import type { ToolProtocolDefect } from "./tool-protocol.js";
 
 const INSTALLATION_SYMBOL = Symbol.for("pi-context.live-agent-session-adapter.v1");
 
@@ -27,7 +28,12 @@ export type AgentSessionSyncOutcome =
   | { status: "unavailable"; reason: "unsupported_host_shape" | "unsupported_session_shape"; message: string }
   | { status: "pending"; preferredLeafId?: string }
   | { status: "applied"; leafId: string | null; messageCount: number }
-  | { status: "failed"; reason: "read_leaf_failed" | "build_messages_failed" | "replace_messages_failed"; message: string }
+  | {
+      status: "failed";
+      reason: "read_leaf_failed" | "build_messages_failed" | "invalid_protocol" | "replace_messages_failed";
+      message: string;
+      defects?: ToolProtocolDefect[];
+    }
   | { status: "skipped"; reason: "branch_not_applied" | "missing_association" | "not_pending" | "stale_leaf"; message: string };
 
 type AgentSessionUnavailableOutcome = Extract<AgentSessionSyncOutcome, { status: "unavailable" }>;
@@ -246,7 +252,6 @@ export function createLiveAgentSessionAdapter(
           message: "No live AgentSession synchronization matches this tool execution",
         };
       }
-      state.pending.delete(sessionManager);
 
       let currentLeafId: string | null;
       try {
@@ -261,6 +266,7 @@ export function createLiveAgentSessionAdapter(
         return outcome;
       }
       if (pending.preferredLeafId && currentLeafId !== pending.preferredLeafId) {
+        state.pending.delete(sessionManager);
         const outcome: AgentSessionSyncOutcome = {
           status: "skipped",
           reason: "stale_leaf",
@@ -295,6 +301,16 @@ export function createLiveAgentSessionAdapter(
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       }
+      if (packetResult.value.protocol.status === "invalid") {
+        const outcome: AgentSessionSyncOutcome = {
+          status: "failed",
+          reason: "invalid_protocol",
+          message: `Refused native context replacement for invalid tool protocol: ${formatProtocolDefects(packetResult.value.protocol.defects) || "no defect details were supplied"}`,
+          defects: packetResult.value.protocol.defects,
+        };
+        state.outcomes.set(sessionManager, outcome);
+        return outcome;
+      }
       const messages = packetResult.value.messages;
       try {
         inspected.session.agent.state.messages = messages;
@@ -306,6 +322,7 @@ export function createLiveAgentSessionAdapter(
           leafId: currentLeafId,
           messageCount: messages.length,
         };
+        state.pending.delete(sessionManager);
         state.outcomes.set(sessionManager, outcome);
         return outcome;
       } catch (error) {
@@ -326,4 +343,14 @@ export function createLiveAgentSessionAdapter(
       state.outcomes.delete(sessionManager);
     },
   };
+}
+function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
+  return defects.map((defect) => {
+    if (defect.kind === "duplicate_tool_call_id") {
+      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
+    }
+    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
+    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
+      + (toolCallId ? ` (${toolCallId})` : "");
+  }).join("; ");
 }

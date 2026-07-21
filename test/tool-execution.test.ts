@@ -256,14 +256,31 @@ function indeterminateTravelContext() {
   };
 }
 
-function successfulTravelContext() {
+function successfulTravelContext(failPostMutationRebuild = false, invalidatePostMutationPacket = false) {
   const root = userEntry("travel-root");
   const head = userEntry("travel-head", root.id);
   const entries: SessionEntry[] = [root, head];
   let leafId = head.id;
+  let postMutationRebuildFailed = false;
+  let postMutationPacketInvalid = false;
+  const invalidRoot = {
+    ...root,
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "", name: "broken-tool", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 0,
+    },
+  } as SessionEntry;
   const sessionManager = {
     getTree: () => [{ entry: root, children: [{ entry: head, children: [] }] }],
-    getEntries: () => entries,
+    getEntries: () => {
+      if (postMutationRebuildFailed) throw new Error("post-mutation session messages are temporarily unavailable");
+      return postMutationPacketInvalid ? [invalidRoot, ...entries.slice(1)] : entries;
+    },
     getBranch: (fromId?: string) => {
       if (fromId === root.id) return [root];
       return leafId === head.id ? [root, head] : [root, entries.at(-1)!];
@@ -282,6 +299,8 @@ function successfulTravelContext() {
       } as SessionEntry;
       entries.push(entry);
       leafId = entry.id;
+      postMutationRebuildFailed = failPostMutationRebuild;
+      postMutationPacketInvalid = invalidatePostMutationPacket;
       return entry.id;
     },
   };
@@ -592,5 +611,55 @@ describe("ACM tool execution contracts", () => {
       liveAgentSessionSyncState: "pending",
       liveAgentSessionSync: nativeOutcome,
     });
+  });
+
+  test("keeps an applied travel receipt and post-travel steer data when post-mutation evidence cannot rebuild", async () => {
+    const result = await executeTravel(
+      "travel-post-mutation-rebuild-failure",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      successfulTravelContext(true),
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      resultingLeafId: "travel-summary",
+      handoffFormat: "structured-v1",
+      handoffNext: HANDOFF.next,
+      currentUserTurnOpen: false,
+      contextRefreshPending: true,
+      contextDeliveryPhase: "pending_run_settle",
+      postMutationEvidenceStatus: "unavailable",
+      postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
+    });
+    expect(result.content[0]?.text).toContain("Travel complete");
+    expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+  });
+
+  test("keeps an applied travel receipt and protocol defects when post-mutation packet evidence is invalid", async () => {
+    const result = await executeTravel(
+      "travel-post-mutation-invalid-packet",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      successfulTravelContext(false, true),
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      resultingLeafId: "travel-summary",
+      handoffFormat: "structured-v1",
+      handoffNext: HANDOFF.next,
+      currentUserTurnOpen: false,
+      contextRefreshPending: true,
+      contextDeliveryPhase: "pending_run_settle",
+      postMutationEvidenceStatus: "invalid_protocol",
+      postMutationProtocolStatus: "invalid",
+      postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],
+    });
+    expect(result.content[0]?.text).toContain("Travel complete");
+    expect(result.content[0]?.text).toContain("invalid_tool_call_id");
+    expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
   });
 });

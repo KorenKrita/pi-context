@@ -152,6 +152,44 @@ describe("live AgentSession capability adapter", () => {
     expect(adapter.getStatus(brokenManager)).toMatchObject({ status: "failed", reason: "read_leaf_failed" });
   });
 
+  test("refuses an invalid rebuilt packet, keeps native messages intact, and retains the ticket for recovery", () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "valid root", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "", name: "broken-tool", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    } as never);
+    const stale = [{ role: "user", content: "retain this native context", timestamp: Date.now() }] as AgentMessage[];
+    const agent = { state: { messages: stale } };
+    const HostClass = createHostClass();
+    const session = new (HostClass as any)(sessionManager, agent);
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    session.getContextUsage();
+
+    expect(adapter.schedule(sessionManager, "invalid-packet")).toMatchObject({ status: "pending" });
+    const first = adapter.apply(sessionManager, "invalid-packet");
+
+    expect(first).toMatchObject({
+      status: "failed",
+      reason: "invalid_protocol",
+      defects: [{ kind: "invalid_tool_call_id" }],
+    });
+    if (first.status !== "failed") throw new Error("invalid packet unexpectedly replaced native messages");
+    expect(first.message).toContain("invalid_tool_call_id");
+    expect(agent.state.messages).toBe(stale);
+    // A later repair/reload can retry the same verified travel ticket instead
+    // of silently treating the refusal as an applied native replacement.
+    expect(adapter.apply(sessionManager, "invalid-packet")).toMatchObject({
+      status: "failed",
+      reason: "invalid_protocol",
+    });
+  });
+
   test("only the matching latest tool ticket may consume pending synchronization", () => {
     const HostClass = createHostClass();
     const manager = SessionManager.inMemory();

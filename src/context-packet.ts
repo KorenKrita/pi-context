@@ -16,6 +16,7 @@ export interface AcmContextPacket {
   };
   continuation:
     | { status: "projected"; count: number }
+    | { status: "ambiguous"; candidates: number }
     | { status: "not_present" };
 }
 
@@ -59,17 +60,28 @@ function trustedContinuationQueues(entries: readonly SessionEntry[]): Map<string
   return queues;
 }
 
-function projectContinuation(message: AgentMessage, trusted: Map<string, TrustedContinuationMetadata[]>): AgentMessage {
+function trustedContinuationMetadata(
+  message: AgentMessage,
+  trusted: ReadonlyMap<string, TrustedContinuationMetadata[]>,
+): { metadata?: TrustedContinuationMetadata; candidates: number } | undefined {
   if (
     message.role !== "branchSummary"
     || typeof message.summary !== "string"
     || !message.summary.startsWith(ACM_CONTINUATION_MARKER)
-  ) return message;
+  ) return undefined;
   const key = continuationKey(message.summary, message.fromId, message.timestamp);
-  const queue = trusted.get(key);
-  const metadata = queue?.shift();
-  if (!metadata) return message;
-  if (queue?.length === 0) trusted.delete(key);
+  const candidates = trusted.get(key);
+  // One message may only be projected when its persisted provenance has one
+  // unambiguous owner. Multiple marked candidates must stay archival: their
+  // order is evidence, not permission to make every handoff authoritative.
+  if (!candidates || candidates.length === 0) return undefined;
+  if (candidates.length !== 1) return { candidates: candidates.length };
+  const metadata = candidates[0];
+  return metadata ? { metadata, candidates: 1 } : { candidates: 1 };
+}
+
+function projectContinuation(message: AgentMessage, metadata: TrustedContinuationMetadata): AgentMessage {
+  if (message.role !== "branchSummary" || typeof message.summary !== "string") return message;
   const handoff = message.summary.slice(ACM_CONTINUATION_MARKER.length).replace(/^\n/, "");
   const goal = canonicalField(handoff, "Goal", "State");
   const next = canonicalField(handoff, "NEXT");
@@ -105,12 +117,16 @@ export function normalizeExistingAcmPacket(
   activeEntries: readonly SessionEntry[] = [],
 ): AcmContextPacket {
   const trusted = trustedContinuationQueues(activeEntries);
-  let projectedCount = 0;
-  const projected = messages.map((message) => {
-    const next = projectContinuation(message, trusted);
-    if (next !== message) projectedCount++;
-    return next;
+  const candidates = messages.flatMap((message, index) => {
+    const match = trustedContinuationMetadata(message, trusted);
+    return match ? [{ index, ...match }] : [];
   });
+  const totalCandidates = candidates.reduce((count, candidate) => count + candidate.candidates, 0);
+  const projected = candidates.length === 1 && candidates[0]!.metadata
+    ? messages.map((message, index) => index === candidates[0]!.index
+      ? projectContinuation(message, candidates[0]!.metadata!)
+      : message)
+    : [...messages];
   const protocol = analyzeToolProtocol(projected);
   return {
     messages: protocol.messages,
@@ -119,9 +135,11 @@ export function normalizeExistingAcmPacket(
       repairs: protocol.repairs,
       defects: protocol.defects,
     },
-    continuation: projectedCount > 0
-      ? { status: "projected", count: projectedCount }
-      : { status: "not_present" },
+    continuation: totalCandidates === 0
+      ? { status: "not_present" }
+      : candidates.length === 1 && candidates[0]!.metadata
+        ? { status: "projected", count: 1 }
+        : { status: "ambiguous", candidates: totalCandidates },
   };
 }
 

@@ -31,6 +31,7 @@ import {
 import {
   findContainingAssistantToolBatch,
   hasOpenUserTurnAtAssistant,
+  type ToolProtocolDefect,
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
@@ -134,8 +135,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
       const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
+      const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "verified");
       const lines = [
-        theme.fg("success", "✓ TRAVEL COMPLETE")
+        theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ TRAVEL COMPLETE" : "⚠ TRAVEL APPLIED — EVIDENCE PENDING")
           + theme.fg("accent", `  ${target} → ${leaf}`),
         theme.fg("muted",
           `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
@@ -143,7 +145,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ),
         theme.fg("dim",
           `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · backup ${backup} · delivery ${delivery} · persisted refresh pending`,
+            + ` · backup ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · persisted refresh pending`,
         ),
       ];
       if (expanded && raw) {
@@ -535,12 +537,36 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       );
       const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
       const afterPacketResult = rebuildAcmContextPacket(sessionManager);
-      if (!afterPacketResult.ok) {
+      const postMutationEvidence = !afterPacketResult.ok
+        ? {
+            status: "unavailable" as const,
+            warning: `Session-message evidence could not be rebuilt after the applied mutation: ${afterPacketResult.message}`,
+          }
+        : afterPacketResult.value.protocol.status === "invalid"
+          ? {
+              status: "invalid_protocol" as const,
+              warning: `Session-message evidence has invalid tool protocol: ${formatProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
+              defects: afterPacketResult.value.protocol.defects,
+            }
+          : { status: "verified" as const };
+      if (postMutationEvidence.status !== "verified") {
         return {
-          content: [{ type: "text" as const, text: `Travel mutation completed, but session-message evidence is unavailable: ${afterPacketResult.message}. ${RECOVERY_GUIDANCE.refreshPending}${liveAgentSessionSyncRecovery ? ` ${liveAgentSessionSyncRecovery}` : ""}` }],
+          content: [{
+            type: "text" as const,
+            text: [
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
+              `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
+              "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
+              `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+              currentUserTurnOpen
+                ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+                : null,
+              liveAgentSessionSyncRecovery,
+              GUIDANCE_CUES.travel,
+            ].filter((line): line is string => line !== null).join("\n"),
+          }],
           details: {
-            error: "build_messages_failed",
-            message: afterPacketResult.message,
+            mutationStatus: "applied",
             target: params.target,
             targetId,
             originId,
@@ -561,6 +587,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             liveAgentSessionSyncState: liveAgentSessionSync.status,
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
+            postMutationEvidenceStatus: postMutationEvidence.status,
+            postMutationEvidenceWarning: postMutationEvidence.warning,
+            ...(postMutationEvidence.status === "invalid_protocol"
+              ? {
+                  postMutationProtocolStatus: "invalid" as const,
+                  postMutationProtocolDefects: postMutationEvidence.defects,
+                }
+              : {}),
+            handoffFormat: "structured-v1",
+            handoffNext: canonicalHandoff.fields.next,
             currentUserTurnOpen,
             targetFacts: targetAnalysis.facts,
             targetWarnings: targetAnalysis.warnings,
@@ -568,7 +604,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      const afterMessages = afterPacketResult.value.messages;
+      // The non-verified branches returned above. Keep this explicit guard so
+      // future evidence variants cannot accidentally turn an applied receipt
+      // back into a post-mutation tool error.
+      if (!afterPacketResult.ok) throw new Error("unreachable post-mutation evidence state");
+      const afterPacket = afterPacketResult.value;
+      const afterMessages = afterPacket.messages;
       const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
       const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
@@ -667,6 +708,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           // Compatibility aliases retained for existing integrations.
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
+          mutationStatus: "applied",
+          postMutationEvidenceStatus: "verified",
+          postMutationProtocolStatus: afterPacket.protocol.status,
+          postMutationProtocolRepairs: afterPacket.protocol.repairs,
+          postMutationProtocolDefects: afterPacket.protocol.defects,
           fromOffPath: resolved.fromOffPath,
           targetFacts: targetAnalysis.facts,
           targetWarnings: targetAnalysis.warnings,
@@ -678,4 +724,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       };
     },
   });
+}
+function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
+  return defects.map((defect) => {
+    if (defect.kind === "duplicate_tool_call_id") {
+      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
+    }
+    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
+    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
+      + (toolCallId ? ` (${toolCallId})` : "");
+  }).join("; ");
 }

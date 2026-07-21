@@ -233,7 +233,7 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
-    expect(output).toContain("delivery pending_run_settle · persisted refresh pending");
+    expect(output).toContain("delivery pending_run_settle · evidence verified · persisted refresh pending");
   });
 
   test("renderers surface actionable error states instead of success chrome", () => {

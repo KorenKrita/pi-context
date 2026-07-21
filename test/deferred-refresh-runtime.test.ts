@@ -56,6 +56,30 @@ function createSession(id: string) {
   };
 }
 
+function createProtocolInvalidSession(id: string) {
+  const root = persistedUserEntry(`${id}-root`, "persisted root");
+  const invalidAssistant = {
+    id,
+    type: "message",
+    parentId: root.id,
+    timestamp: "2026-07-21T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "", name: "broken-tool", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 1,
+    },
+  } as SessionEntry;
+  return {
+    getLeafId: () => id,
+    getEntries: () => [root, invalidAssistant],
+    getBranch: () => [root, invalidAssistant],
+  };
+}
+
 function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: object) {
   const handlers = new Map<string, Handler[]>();
   const notifications: string[] = [];
@@ -182,6 +206,25 @@ describe("deferred post-travel context delivery", () => {
     expect(JSON.stringify(rebuilt.messages)).toContain("persisted after retry");
     expect(runtime.contextRefresh.isPending(session)).toBe(true);
     expect(runtime.getContextDeliveryPhase(session)).toBe("active");
+  });
+
+  test("refuses an invalid persisted packet without consuming the settled delivery retry", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const session = createProtocolInvalidSession("invalid-protocol-leaf");
+    const fixture = createLifecycleFixture(runtime, session);
+
+    runtime.deferPostTravelRefresh(session, "invalid-protocol-call", "traveled-leaf");
+    await fixture.emit("agent_settled");
+    const liveMessages = [{ role: "user", content: "retain live messages until the protocol is repaired" }];
+
+    const result = await fixture.emit("context", { messages: liveMessages });
+
+    expect(result).toEqual({ messages: liveMessages });
+    expect(runtime.contextRefresh.isPending(session)).toBe(true);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
+    expect(fixture.notifications.at(-1)).toContain("invalid tool protocol");
+    expect(fixture.notifications.at(-1)).toContain("invalid_tool_call_id");
   });
 
   test("keeps an exhausted persisted rebuild visibly non-active", async () => {
