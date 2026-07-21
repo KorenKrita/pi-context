@@ -7,7 +7,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { scoreHandoff, toolSucceeded } from "./scenarios.mjs";
+import { scoreHandoff, toolSucceeded } from "./scenario-scoring.mjs";
 
 function check(name, pass, detail) {
   return { name, pass: Boolean(pass), detail };

@@ -6,7 +6,7 @@
 // `acm_travel.target` value.  Scores therefore assess the observable branch
 // choice rather than compliance with a copied target string.
 
-import { scoreHandoff, toolSucceeded } from "./scenarios.mjs";
+import { scoreHandoff, toolSucceeded } from "./scenario-scoring.mjs";
 
 /** @typedef {{ name: string, pass: boolean, detail: string }} ScoreCheck */
 /** @typedef {{ pass: boolean, checks: ScoreCheck[] }} ScoreResult */
@@ -68,6 +68,21 @@ function handoffCarriesNonce(handoff, nonce) {
     handoff.fields.recover,
     handoff.fields.next,
   ].some((value) => includesExactNonce(value, nonce));
+}
+
+function nextWaitsForNextUserInstruction(next) {
+  return /\b(?:on|after|when\s+following|wait(?:ing)?\s+(?:for|until))\s+(?:the\s+)?next\s+user\s+(?:instruction|request|message|turn)\b/i.test(String(next ?? ""));
+}
+
+function nextDirectsCurrentTurn(next) {
+  const text = String(next ?? "");
+  return !nextWaitsForNextUserInstruction(text)
+    && /\b(?:immediately|now|this\s+(?:same|current)\s+turn|after\s+(?:the\s+)?travel)\b/i.test(text);
+}
+
+function firstCallAfter(turn, call) {
+  const index = turn.toolCalls.indexOf(call);
+  return index < 0 ? undefined : turn.toolCalls[index + 1];
 }
 
 function noRejectedTravelBranch(ctx, expectedCount) {
@@ -137,7 +152,7 @@ export const TOPOLOGY_SCENARIOS = [
           "The trace is now sediment. Fold it into one seven-field cold-start handoff.",
           "Select the semantic boundary that was established before the raw trace, rather than the nearer marker created after that trace; do not use root.",
           `Archive the raw path under ${PRECISE_ARCHIVE}.`,
-          `The handoff must preserve the exact remediation nonce ${PRECISE_NONCE} and its NEXT must be one action: write recovered-plan.md containing that nonce.`,
+          `The handoff must preserve the exact remediation nonce ${PRECISE_NONCE}; its NEXT must explicitly defer one action until the next user instruction: write recovered-plan.md containing that nonce.`,
           "acm_travel must be the only tool in its assistant tool batch. Do not write recovered-plan.md in this turn.",
         ].join(" "),
         timeoutMs: 300000,
@@ -166,7 +181,10 @@ export const TOPOLOGY_SCENARIOS = [
         && travel?.details?.backupCurrentHeadAs === PRECISE_ARCHIVE;
       const carriedNext = handoff.ok
         && includesExactNonce(handoff.fields?.next, PRECISE_NONCE)
-        && /recovered-plan\.md/i.test(handoff.fields?.next ?? "");
+        && /recovered-plan\.md/i.test(handoff.fields?.next ?? "")
+        && nextWaitsForNextUserInstruction(handoff.fields?.next);
+      const t3EarlyWrite = t3.toolCalls.some((call) =>
+        call.name === "write" && pathFor(call).endsWith("recovered-plan.md"));
       const directWrite = writeSucceeded(t4, "recovered-plan.md");
       const recoveredWrite = t4.toolCalls.find((call) => call.name === "write" && pathFor(call).endsWith("recovered-plan.md"));
       const writeCarriesNonce = includesExactNonce(recoveredWrite?.args?.content, PRECISE_NONCE);
@@ -184,7 +202,10 @@ export const TOPOLOGY_SCENARIOS = [
         check("T3 preserves the raw recovery alias", archivedRawPath,
           `requested=${travel?.args?.backupCurrentHeadAs ?? "missing"}; receipt=${travel?.details?.backupCurrentHeadAs ?? "missing"}`),
         check("T3 has a cold-start handoff", handoff.ok, handoff.detail),
-        check("T3 handoff NEXT carries exact nonce", carriedNext, handoff.ok ? String(handoff.fields?.next) : handoff.detail),
+        check("T3 handoff leaves NEXT for the next user instruction", carriedNext,
+          handoff.ok ? String(handoff.fields?.next) : handoff.detail),
+        check("T3 does not execute the future-triggered write", !t3EarlyWrite,
+          t3EarlyWrite ? "recovered-plan.md was written before the next user instruction" : "no early recovered-plan.md write"),
         check("T4 executes NEXT without archive reread", directWrite && writeCarriesNonce && !rereadAfterTravel,
           `write=${directWrite}; nonce=${writeCarriesNonce}; reread=${rereadAfterTravel}`),
         check("no rejected or extra travel branch", allTravel.ok, allTravel.detail),
@@ -231,7 +252,7 @@ export const TOPOLOGY_SCENARIOS = [
           "Fold the now-archival audit into a seven-field cold-start handoff.",
           "Choose the existing semantic save point from before the audit, not root and not a newly invented marker.",
           `Archive the raw path under ${REHYDRATE_ARCHIVE}.`,
-          "Do not carry the exact forensic nonce in this fold; NEXT is to create a return save point before recovering that one archived detail.",
+          `Do not carry the exact forensic nonce in this fold; NEXT must explicitly wait for the next user instruction before creating the return save point ${REHYDRATE_RETURN}.`,
           "acm_travel must be the only tool in its assistant tool batch. Do not create the return save point yet.",
         ].join(" "),
         timeoutMs: 300000,
@@ -246,21 +267,15 @@ export const TOPOLOGY_SCENARIOS = [
         prompt: [
           "Rehydrate only the archived audit branch needed to recover the exact forensic nonce.",
           "Use the archive recovery pointer created by the earlier fold rather than root, the current return point, or a guessed node ID.",
-          "Use a seven-field handoff whose NEXT is one action: read archive/provenance.txt. Travel must be alone in its tool batch; do not read the file yet.",
+          "Use a seven-field handoff whose NEXT is one immediate current-turn action: read archive/provenance.txt. acm_travel must be alone in its tool batch; once it returns, directly read that file in this same turn.",
         ].join(" "),
         timeoutMs: 300000,
       },
       {
         prompt: [
-          "Read archive/provenance.txt and extract its exact forensic correlation nonce.",
-          "Stop after the read. Do not travel, create a checkpoint, or write a file in this turn.",
-        ].join(" "),
-      },
-      {
-        prompt: [
           "Return to the save point created immediately before archive recovery, carrying the exact extracted forensic nonce in the new seven-field handoff.",
           "Use its semantic return role rather than root, the archive alias, or a node ID guessed from output.",
-          "NEXT must be one action: write migration-receipt.md containing the exact nonce. acm_travel must be alone in its tool batch; do not write the receipt yet.",
+          "NEXT must be one immediate current-turn action: write migration-receipt.md containing the exact nonce. acm_travel must be alone in its tool batch; once it returns, directly write that receipt in this same turn.",
         ].join(" "),
         timeoutMs: 300000,
       },
@@ -273,12 +288,11 @@ export const TOPOLOGY_SCENARIOS = [
       const t4 = recordForTurn(ctx, 3);
       const t5 = recordForTurn(ctx, 4);
       const t6 = recordForTurn(ctx, 5);
-      const t7 = recordForTurn(ctx, 6);
       const base = t1.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === REHYDRATE_BASE);
       const fold = t3.toolCalls.find((call) => call.name === "acm_travel");
       const returnPoint = t4.toolCalls.find((call) => call.name === "acm_checkpoint" && call.args?.name === REHYDRATE_RETURN);
       const rehydrate = t5.toolCalls.find((call) => call.name === "acm_travel");
-      const returnTravel = t7.toolCalls.find((call) => call.name === "acm_travel");
+      const returnTravel = t6.toolCalls.find((call) => call.name === "acm_travel");
       const foldHandoff = scoreHandoff(fold?.args?.handoff);
       const rehydrateHandoff = scoreHandoff(rehydrate?.args?.handoff);
       const returnHandoff = scoreHandoff(returnTravel?.args?.handoff);
@@ -286,16 +300,24 @@ export const TOPOLOGY_SCENARIOS = [
       const foldTargetsBase = fold?.args?.target === REHYDRATE_BASE;
       const foldArchivesRaw = fold?.args?.backupCurrentHeadAs === REHYDRATE_ARCHIVE
         && fold?.details?.backupCurrentHeadAs === REHYDRATE_ARCHIVE;
+      const noEarlyReturnPoint = !t3.toolCalls.some((call) =>
+        call.name === "acm_checkpoint" && call.args?.name === REHYDRATE_RETURN);
       const rehydratesArchive = rehydrate?.args?.target === REHYDRATE_ARCHIVE
         && rehydrate?.details?.fromOffPath === true;
       const returnsToSavedPoint = returnTravel?.args?.target === REHYDRATE_RETURN
         && returnTravel?.details?.fromOffPath === true;
       const rehydrateNext = rehydrateHandoff.ok
-        && /archive\/provenance\.txt/i.test(rehydrateHandoff.fields?.next ?? "");
-      const nonceRead = readSucceeded(t6, "archive/provenance.txt");
+        && /archive\/provenance\.txt/i.test(rehydrateHandoff.fields?.next ?? "")
+        && nextDirectsCurrentTurn(rehydrateHandoff.fields?.next);
+      const archiveRead = firstCallAfter(t5, rehydrate);
+      const directArchiveRead = readSucceeded({ toolCalls: [archiveRead] }, "archive/provenance.txt");
       const returnedNonce = handoffCarriesNonce(returnHandoff, REHYDRATE_NONCE)
         && includesExactNonce(returnHandoff.fields?.next, REHYDRATE_NONCE)
-        && /migration-receipt\.md/i.test(returnHandoff.fields?.next ?? "");
+        && /migration-receipt\.md/i.test(returnHandoff.fields?.next ?? "")
+        && nextDirectsCurrentTurn(returnHandoff.fields?.next);
+      const returnedReceipt = firstCallAfter(t6, returnTravel);
+      const directReturnedReceipt = writeSucceeded({ toolCalls: [returnedReceipt] }, "migration-receipt.md")
+        && includesExactNonce(returnedReceipt?.args?.content, REHYDRATE_NONCE);
 
       const checks = [
         check("T1 read baseline", readSucceeded(t1, "baseline.md"), "baseline.md read"),
@@ -306,17 +328,25 @@ export const TOPOLOGY_SCENARIOS = [
         check("T3 records raw archive recovery pointer", foldArchivesRaw,
           `requested=${fold?.args?.backupCurrentHeadAs ?? "missing"}; receipt=${fold?.details?.backupCurrentHeadAs ?? "missing"}`),
         check("T3 fold succeeds alone", travelIsACompleteSoloMutation(fold), travelFailureDetail(fold)),
+        check("T3 fold NEXT waits for the next user instruction", foldHandoff.ok && nextWaitsForNextUserInstruction(foldHandoff.fields?.next),
+          foldHandoff.ok ? String(foldHandoff.fields?.next) : foldHandoff.detail),
+        check("T3 does not create the return save point early", noEarlyReturnPoint,
+          noEarlyReturnPoint ? "return save point deferred to T4" : "return save point was created during the fold turn"),
         check("T4 created return save point", toolSucceeded(returnPoint), returnPoint ? travelFailureDetail(returnPoint) : "missing"),
         check("T5 travels to the off-path archive", rehydratesArchive,
           `target=${rehydrate?.args?.target ?? "missing"}; offPath=${rehydrate?.details?.fromOffPath ?? "missing"}`),
         check("T5 archive travel has complete handoff", rehydrateHandoff.ok, rehydrateHandoff.detail),
-        check("T5 archive handoff NEXT reads exact source", rehydrateNext, rehydrateHandoff.ok ? String(rehydrateHandoff.fields?.next) : rehydrateHandoff.detail),
-        check("T6 reads archived detail after rehydrate", nonceRead, "archive/provenance.txt read on archive branch"),
-        check("T7 returns to the saved off-path return point", returnsToSavedPoint,
+        check("T5 archive handoff NEXT is immediate exact source read", rehydrateNext,
+          rehydrateHandoff.ok ? String(rehydrateHandoff.fields?.next) : rehydrateHandoff.detail),
+        check("T5 directly reads the archive after travel", directArchiveRead,
+          `first post-travel=${archiveRead?.name ?? "missing"}; path=${pathFor(archiveRead) || "missing"}`),
+        check("T6 returns to the saved off-path return point", returnsToSavedPoint,
           `target=${returnTravel?.args?.target ?? "missing"}; offPath=${returnTravel?.details?.fromOffPath ?? "missing"}`),
-        check("T7 returned handoff carries recovered exact nonce", returnedNonce,
+        check("T6 returned handoff carries recovered exact nonce", returnedNonce,
           returnHandoff.ok ? String(returnHandoff.fields?.next) : returnHandoff.detail),
-        check("T7 return succeeds alone", travelIsACompleteSoloMutation(returnTravel), travelFailureDetail(returnTravel)),
+        check("T6 return succeeds alone", travelIsACompleteSoloMutation(returnTravel), travelFailureDetail(returnTravel)),
+        check("T6 directly writes the returned receipt", directReturnedReceipt,
+          `first post-travel=${returnedReceipt?.name ?? "missing"}; path=${pathFor(returnedReceipt) || "missing"}; nonce=${includesExactNonce(returnedReceipt?.args?.content, REHYDRATE_NONCE)}`),
         check("no rejected, mixed, or extra travel branch", allTravel.ok, allTravel.detail),
       ];
       return { pass: checks.every((item) => item.pass), checks };
