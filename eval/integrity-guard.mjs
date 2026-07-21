@@ -47,6 +47,7 @@ const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
 const BASH_TOKEN_END = `(?=$|${BASH_TOKEN_END_BOUNDARY})`;
 const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
 const BASH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_TOKEN_START_BOUNDARY);
+const HEREDOC_DELIMITER_TERMINATOR_PATTERN = /[\s;|&()<>]/;
 const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
 const BASH_SAFE_DEVICE_PATH_PATTERN = new RegExp(`(${BASH_PATH_START})/dev/null${BASH_TOKEN_END}`, "g");
@@ -156,7 +157,7 @@ function neutralizeHeredocLine(line) {
   return line.replace(/[^\r]/g, "_");
 }
 
-function quotedHeredocSpecs(line) {
+function heredocSpecs(line) {
   const specs = [];
   let quote = null;
   for (let index = 0; index < line.length; index += 1) {
@@ -181,22 +182,40 @@ function quotedHeredocSpecs(line) {
     if (stripTabs) delimiterIndex += 1;
     while (line[delimiterIndex] === " " || line[delimiterIndex] === "\t") delimiterIndex += 1;
     const delimiterQuote = line[delimiterIndex];
-    if (delimiterQuote !== "'" && delimiterQuote !== '"') continue;
-
-    delimiterIndex += 1;
-    let delimiter = "";
-    for (; delimiterIndex < line.length; delimiterIndex += 1) {
-      const delimiterCharacter = line[delimiterIndex];
-      if (delimiterQuote === '"' && delimiterCharacter === "\\" && delimiterIndex + 1 < line.length) {
-        delimiter += line[delimiterIndex + 1];
-        delimiterIndex += 1;
-      } else if (delimiterCharacter === delimiterQuote) {
-        specs.push({ delimiter, stripTabs });
-        index = delimiterIndex;
-        break;
-      } else {
-        delimiter += delimiterCharacter;
+    if (delimiterQuote === "'" || delimiterQuote === '"') {
+      delimiterIndex += 1;
+      let delimiter = "";
+      for (; delimiterIndex < line.length; delimiterIndex += 1) {
+        const delimiterCharacter = line[delimiterIndex];
+        if (delimiterQuote === '"' && delimiterCharacter === "\\" && delimiterIndex + 1 < line.length) {
+          delimiter += line[delimiterIndex + 1];
+          delimiterIndex += 1;
+        } else if (delimiterCharacter === delimiterQuote) {
+          specs.push({ delimiter, quoted: true, stripTabs });
+          index = delimiterIndex;
+          break;
+        } else {
+          delimiter += delimiterCharacter;
+        }
       }
+      continue;
+    }
+
+    const delimiterStart = delimiterIndex;
+    while (
+      delimiterIndex < line.length
+      && !HEREDOC_DELIMITER_TERMINATOR_PATTERN.test(line[delimiterIndex])
+      && line.slice(delimiterIndex, delimiterIndex + 2) !== "<<"
+    ) {
+      delimiterIndex += 1;
+    }
+    if (delimiterIndex > delimiterStart) {
+      specs.push({
+        delimiter: line.slice(delimiterStart, delimiterIndex),
+        quoted: false,
+        stripTabs,
+      });
+      index = delimiterIndex - 1;
     }
   }
   return specs;
@@ -207,13 +226,14 @@ function maskQuotedHeredocBodies(command) {
   const maskedLines = [];
   for (let index = 0; index < lines.length; index += 1) {
     maskedLines.push(lines[index]);
-    for (const spec of quotedHeredocSpecs(lines[index])) {
+    for (const spec of heredocSpecs(lines[index])) {
       index += 1;
       while (index < lines.length) {
         const line = lines[index];
         const comparison = (spec.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
-        maskedLines.push(neutralizeHeredocLine(line));
-        if (comparison === spec.delimiter) break;
+        const terminator = comparison === spec.delimiter;
+        maskedLines.push(spec.quoted || terminator ? neutralizeHeredocLine(line) : line);
+        if (terminator) break;
         index += 1;
       }
     }

@@ -236,6 +236,20 @@ describe("measurement integrity tool-call gate", () => {
       ["find 'eval/.runs'", "bash_eval_run_discovery"],
       ["cat >/etc/out <<'EOF'\nControl / Policy\nEOF", "bash_absolute_path"],
       ["cat <<EOF\n$(cat /etc/passwd)\nEOF", "bash_absolute_path"],
+      [[
+        "cat <<ONE <<'TWO'",
+        "$(cat /etc/passwd)",
+        "ONE",
+        "Control / Policy",
+        "TWO",
+      ].join("\n"), "bash_absolute_path"],
+      [[
+        "cat <<'ONE' <<TWO",
+        "Control / Policy",
+        "ONE",
+        "$(cat /etc/passwd)",
+        "TWO",
+      ].join("\n"), "bash_absolute_path"],
       ["printf '%s\\n' \"literal <<'EOF'\"\ncat /etc/passwd", "bash_absolute_path"],
     ]) {
       expect(evaluateToolCall({
