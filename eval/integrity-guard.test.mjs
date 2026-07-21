@@ -260,6 +260,29 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("allows explicit non-sensitive environment-key reads", () => {
+    for (const command of [
+      "node -e 'const QUERIED_AT=process.env.QUERIED_AT; console.log(QUERIED_AT)'",
+      "node -e 'console.log(process.env[\"FOO\"])'",
+      "python -c 'print(os.environ[\"FOO\"]); print(os.environ.get(\"FOO\"))'",
+      "python -c 'print(getenv(\"FOO\"))'",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toEqual({ block: false });
+    }
+  });
+
+  test("blocks whole-environment enumeration", () => {
+    for (const command of [
+      "node -e 'console.log(process.env)'",
+      "node -e 'Object.keys(process.env)'",
+      "python -c 'print(dict(os.environ))'",
+      "python -c 'for key in os.environ: print(key)'",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    }
+  });
+
   test("blocks bash escape and process/environment discovery patterns", () => {
     for (const command of [
       "cat /etc/passwd",
