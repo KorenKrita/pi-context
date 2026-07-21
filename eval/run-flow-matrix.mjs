@@ -484,6 +484,60 @@ export function assertCleanGitWorktree({ cwd = repoRoot, execFileSyncImpl = exec
   }
 }
 
+/**
+ * Recheck the exact checkout contract around every provider child. The source
+ * list deliberately includes late-loaded verifier/judge/driver modules, so a
+ * run cannot be certified after a mid-cell edit or commit changed its code.
+ */
+export function verifyPinnedCheckout(pinnedProvenance, {
+  cwd = repoRoot,
+  execFileSyncImpl = execFileSync,
+  sourceFiles = PINNED_SOURCE_FILES,
+  hashFile = fileHash,
+} = {}) {
+  const reasons = [];
+  let worktreeStatus = null;
+  let currentHeadSha = null;
+  try {
+    worktreeStatus = execFileSyncImpl("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd, encoding: "utf8" });
+    if (worktreeStatus.trim()) reasons.push("git_worktree_dirty");
+  } catch (error) {
+    reasons.push(`git_worktree_unverifiable:${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    currentHeadSha = execFileSyncImpl("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+    if (currentHeadSha !== pinnedProvenance?.headSha) reasons.push("git_head_mismatch");
+  } catch (error) {
+    reasons.push(`git_head_unverifiable:${error instanceof Error ? error.message : String(error)}`);
+  }
+  const sourceHashes = {};
+  for (const sourcePath of sourceFiles) {
+    const key = relativeRepoPath(sourcePath);
+    let actualHash;
+    try {
+      actualHash = hashFile(sourcePath);
+    } catch (error) {
+      reasons.push(`pinned_source_unreadable:${key}:${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    sourceHashes[key] = actualHash;
+    if (actualHash !== pinnedProvenance?.sourceHashes?.[key]) reasons.push(`pinned_source_mismatch:${key}`);
+  }
+  return { valid: reasons.length === 0, reasons, currentHeadSha, worktreeStatus, sourceHashes };
+}
+
+export function mergeCheckoutProvenanceCheck(provenanceCheck, checkout, phase) {
+  const base = provenanceCheck ?? { valid: false, reasons: ["runtime_provenance_missing"] };
+  const checks = { ...(base.checkout ?? {}), [phase]: checkout };
+  if (checkout?.valid) return { ...base, checkout: checks };
+  return {
+    ...base,
+    valid: false,
+    reasons: [...(base.reasons ?? []), ...(checkout?.reasons ?? ["checkout_verification_missing"]).map((reason) => `checkout_${phase}:${reason}`)],
+    checkout: checks,
+  };
+}
+
 export function assertMatrixWorktreeClean({ execute = false, resume = false, assertClean = assertCleanGitWorktree } = {}) {
   if (execute || resume) assertClean();
 }
@@ -1072,10 +1126,32 @@ async function runWithConcurrency(items, concurrency, worker) {
 }
 
 async function executeCell(cell, options, pinnedProvenance) {
-  // The preflight itself is gated in main. Recheck immediately before each
-  // provider child so edits made during an earlier arm cannot leak into a
-  // later comparison cell.
-  assertCleanGitWorktree();
+  // The preflight itself is gated in main. Recheck the complete checkout
+  // contract immediately before and after each provider child so late-loaded
+  // flow/verifier/judge modules cannot change without invalidating the cell.
+  const checkoutBefore = verifyPinnedCheckout(pinnedProvenance);
+  if (!checkoutBefore.valid) {
+    const report = {
+      status: "infrastructure_invalid",
+      infrastructureInvalid: {
+        reason: `prelaunch_checkout_mismatch:${checkoutBefore.reasons.join(",")}`,
+      },
+      fullEnv: true,
+      contextWindow: cell.contextWindow,
+      maxTokensCap: cell.maxTokensCap,
+      deterministicVerification: null,
+    };
+    const telemetry = collectFlowTelemetry({ report, contextWindow: cell.contextWindow, integrity: { audit: { present: false } } });
+    return {
+      child: { exitCode: null, signal: null, error: null, stderr: "" },
+      report,
+      telemetry,
+      reportPath: null,
+      telemetryPath: null,
+      provenance: null,
+      provenanceCheck: mergeCheckoutProvenanceCheck({ valid: false, reasons: checkoutBefore.reasons }, checkoutBefore, "prelaunch"),
+    };
+  }
   const runtimeTreeCheck = verifyPinnedRuntimeTrees(pinnedProvenance);
   if (!runtimeTreeCheck.valid) {
     const report = {
@@ -1100,6 +1176,7 @@ async function executeCell(cell, options, pinnedProvenance) {
     };
   }
   const child = await runFlowChild({ cell, options, bunBinary: options.bunBinary });
+  const checkoutAfter = verifyPinnedCheckout(pinnedProvenance);
   const reportedPath = reportPathFromOutput(`${child.stdout}\n${child.stderr}`);
   const reportPath = reportedPath && existsSync(reportedPath) ? reportedPath : null;
   if (!reportPath) {
@@ -1112,7 +1189,15 @@ async function executeCell(cell, options, pinnedProvenance) {
       deterministicVerification: null,
     };
     const telemetry = collectFlowTelemetry({ report, contextWindow: cell.contextWindow, integrity: { audit: { present: false } } });
-    return { child, report, telemetry, reportPath: null, telemetryPath: null, provenance: null, provenanceCheck: { valid: false, reasons: ["run_report_missing"] } };
+    return {
+      child,
+      report,
+      telemetry,
+      reportPath: null,
+      telemetryPath: null,
+      provenance: null,
+      provenanceCheck: mergeCheckoutProvenanceCheck({ valid: false, reasons: ["run_report_missing"] }, checkoutAfter, "post_child"),
+    };
   }
   const report = readJson(reportPath);
   const runDir = dirname(reportPath);
@@ -1131,7 +1216,11 @@ async function executeCell(cell, options, pinnedProvenance) {
     target: { provider: cell.model.provider, modelId: cell.model.modelId, thinking: cell.thinking },
   });
   const provenance = runtimeCellProvenance(report, runDir);
-  const provenanceCheck = validateCellProvenance(cell, provenance, pinnedProvenance);
+  const provenanceCheck = mergeCheckoutProvenanceCheck(
+    validateCellProvenance(cell, provenance, pinnedProvenance),
+    checkoutAfter,
+    "post_child",
+  );
   const telemetryPath = join(runDir, "telemetry.json");
   writeFileSync(telemetryPath, `${JSON.stringify(telemetry, null, 2)}\n`);
   return { child, report, telemetry, reportPath, telemetryPath, provenance, provenanceCheck };

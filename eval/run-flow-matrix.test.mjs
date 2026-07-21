@@ -26,12 +26,14 @@ import {
   hashFullEnvLinkedResourceTree,
   hashRepoLocalPiRuntimeTree,
   normalizeGlobalCommandInventory,
+  mergeCheckoutProvenanceCheck,
   rehashContentTree,
   rehashGlobalCommandInventory,
   releaseMatrixLock,
   runAuditPreflight,
   runFlowChild,
   shouldSkipMatrixCell,
+  verifyPinnedCheckout,
 } from "./run-flow-matrix.mjs";
 
 const LINKED_RESOURCE_ROOTS = ["git", "npm", "extensions", "skills", "themes", "agents", "bin"];
@@ -379,6 +381,35 @@ describe("real Pi long-flow matrix declaration", () => {
     assertMatrixWorktreeClean({ execute: true, resume: false, assertClean: gate });
     assertMatrixWorktreeClean({ execute: false, resume: true, assertClean: gate });
     expect(gateCalls).toBe(2);
+  });
+
+  test("pinned checkout verifier rejects dirty worktrees, head drift, and late source drift", () => {
+    const source = "/fixture/eval/saffron-verifier.mjs";
+    const pinned = {
+      headSha: "a".repeat(40),
+      sourceHashes: { [source]: "source-v1" },
+    };
+    const execute = ({ status = "", head = pinned.headSha } = {}) => (_binary, args) => {
+      if (args[0] === "status") return status;
+      if (args[0] === "rev-parse") return `${head}\n`;
+      throw new Error(`unexpected git args: ${args.join(" ")}`);
+    };
+    const options = { sourceFiles: [source], hashFile: () => "source-v1" };
+    expect(verifyPinnedCheckout(pinned, { ...options, execFileSyncImpl: execute() }).valid).toBe(true);
+    expect(verifyPinnedCheckout(pinned, { ...options, execFileSyncImpl: execute({ status: " M eval/saffron-verifier.mjs\n" }) }).reasons).toContain("git_worktree_dirty");
+    expect(verifyPinnedCheckout(pinned, { ...options, execFileSyncImpl: execute({ head: "b".repeat(40) }) }).reasons).toContain("git_head_mismatch");
+    expect(verifyPinnedCheckout(pinned, { ...options, execFileSyncImpl: execute(), hashFile: () => "source-v2" }).reasons).toContain(`pinned_source_mismatch:${source}`);
+  });
+
+  test("post-child checkout drift invalidates an otherwise accepted cell provenance", () => {
+    const accepted = { valid: true, reasons: ["all_runtime_evidence_matches"] };
+    const postChild = mergeCheckoutProvenanceCheck(accepted, {
+      valid: false,
+      reasons: ["pinned_source_mismatch:eval/saffron-verifier.mjs"],
+    }, "post_child");
+    expect(postChild.valid).toBe(false);
+    expect(postChild.reasons).toContain("checkout_post_child:pinned_source_mismatch:eval/saffron-verifier.mjs");
+    expect(postChild.checkout.post_child.valid).toBe(false);
   });
 
   test("resume rejects any pinned provenance drift", () => {
