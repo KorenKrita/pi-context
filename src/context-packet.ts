@@ -121,10 +121,14 @@ export function normalizeExistingAcmPacket(
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
   });
-  const totalCandidates = candidates.reduce((count, candidate) => count + candidate.candidates, 0);
-  const projected = candidates.length === 1 && candidates[0]!.metadata
-    ? messages.map((message, index) => index === candidates[0]!.index
-      ? projectContinuation(message, candidates[0]!.metadata!)
+  // Active-path ordering resolves stacked continuation epochs: the latest
+  // provenance-valid ACM summary is the current authority, while older
+  // summaries remain archival. Ambiguity is reserved for the latest message
+  // itself having duplicate/unresolvable persisted provenance owners.
+  const latestCandidate = candidates.at(-1);
+  const projected = latestCandidate?.metadata
+    ? messages.map((message, index) => index === latestCandidate.index
+      ? projectContinuation(message, latestCandidate.metadata!)
       : message)
     : [...messages];
   const protocol = analyzeToolProtocol(projected);
@@ -135,11 +139,11 @@ export function normalizeExistingAcmPacket(
       repairs: protocol.repairs,
       defects: protocol.defects,
     },
-    continuation: totalCandidates === 0
+    continuation: latestCandidate === undefined
       ? { status: "not_present" }
-      : candidates.length === 1 && candidates[0]!.metadata
+      : latestCandidate.metadata
         ? { status: "projected", count: 1 }
-        : { status: "ambiguous", candidates: totalCandidates },
+        : { status: "ambiguous", candidates: latestCandidate.candidates },
   };
 }
 

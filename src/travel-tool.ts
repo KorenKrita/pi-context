@@ -30,8 +30,8 @@ import {
 } from "./host-bridge.js";
 import {
   findContainingAssistantToolBatch,
+  formatToolProtocolDefects,
   hasOpenUserTurnAtAssistant,
-  type ToolProtocolDefect,
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
@@ -545,7 +545,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : afterPacketResult.value.protocol.status === "invalid"
           ? {
               status: "invalid_protocol" as const,
-              warning: `Session-message evidence has invalid tool protocol: ${formatProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
+              warning: `Session-message evidence has invalid tool protocol: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
               defects: afterPacketResult.value.protocol.defects,
             }
           : { status: "verified" as const };
@@ -724,14 +724,4 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       };
     },
   });
-}
-function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
-  return defects.map((defect) => {
-    if (defect.kind === "duplicate_tool_call_id") {
-      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
-    }
-    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
-    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
-      + (toolCallId ? ` (${toolCallId})` : "");
-  }).join("; ");
 }

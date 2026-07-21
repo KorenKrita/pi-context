@@ -13,6 +13,18 @@ export type ToolProtocolDefect =
   | { kind: "invalid_tool_name"; assistantIndex: number; contentIndex: number; toolCallId?: string }
   | { kind: "duplicate_tool_call_id"; assistantIndex: number; toolCallId: string };
 
+/** Render protocol defects consistently across receipts, rebuilds, and native replacement diagnostics. */
+export function formatToolProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
+  return defects.map((defect) => {
+    if (defect.kind === "duplicate_tool_call_id") {
+      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
+    }
+    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
+    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
+      + (toolCallId ? ` (${toolCallId})` : "");
+  }).join("; ");
+}
+
 export interface ToolProtocolAnalysis {
   status: "complete" | "repaired" | "invalid";
   messages: AgentMessage[];

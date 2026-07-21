@@ -320,6 +320,34 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(rebuilt.some((message) => message.role === "custom" && message.customType === "acm:continuation")).toBe(false);
   });
 
+  test("keeps an older local fold archival while projecting the latest trusted continuation", () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    const firstSummary = `${ACM_CONTINUATION_MARKER}\nGoal: first\nState: first state\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: first action`;
+    sessionManager.branchWithSummary(
+      rootId,
+      firstSummary,
+      { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
+      true,
+    );
+    const continuedId = sessionManager.appendMessage({ role: "user", content: "continued work", timestamp: Date.now() });
+    const secondSummary = `${ACM_CONTINUATION_MARKER}\nGoal: second\nState: second state\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: second action`;
+    sessionManager.branchWithSummary(
+      continuedId,
+      secondSummary,
+      { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
+      true,
+    );
+
+    const rebuilt = acmMessages(sessionManager);
+    const first = rebuilt.find((message) => message.role === "branchSummary" && message.summary === firstSummary);
+    const latest = rebuilt.find((message) => message.role === "custom" && message.customType === "acm:continuation");
+
+    expect(first).toBeDefined();
+    expect(JSON.stringify(latest)).toContain("REQUIRED NEXT: second action");
+    expect(JSON.stringify(latest)).not.toContain("REQUIRED NEXT: first action");
+  });
+
   test("rejects malformed structured handoff fields before mutation", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });

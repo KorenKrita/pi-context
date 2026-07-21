@@ -6,7 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
-import type { ToolProtocolDefect } from "./tool-protocol.js";
+import { formatToolProtocolDefects } from "./tool-protocol.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -180,7 +180,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
       if (packet.protocol.status === "invalid") {
         return reportFailure(
-          `Refused persisted context packet with invalid tool protocol: ${formatProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}`,
+          `Refused persisted context packet with invalid tool protocol: ${formatToolProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}`,
         );
       }
 
@@ -274,14 +274,4 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     );
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
-}
-function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
-  return defects.map((defect) => {
-    if (defect.kind === "duplicate_tool_call_id") {
-      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
-    }
-    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
-    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
-      + (toolCallId ? ` (${toolCallId})` : "");
-  }).join("; ");
 }

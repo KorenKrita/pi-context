@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import type { ReadonlySessionManager } from "./host-bridge.js";
-import type { ToolProtocolDefect } from "./tool-protocol.js";
+import { formatToolProtocolDefects, type ToolProtocolDefect } from "./tool-protocol.js";
 
 const INSTALLATION_SYMBOL = Symbol.for("pi-context.live-agent-session-adapter.v1");
 
@@ -305,7 +305,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "invalid_protocol",
-          message: `Refused native context replacement for invalid tool protocol: ${formatProtocolDefects(packetResult.value.protocol.defects) || "no defect details were supplied"}`,
+          message: `Refused native context replacement for invalid tool protocol: ${formatToolProtocolDefects(packetResult.value.protocol.defects) || "no defect details were supplied"}`,
           defects: packetResult.value.protocol.defects,
         };
         state.outcomes.set(sessionManager, outcome);
@@ -343,14 +343,4 @@ export function createLiveAgentSessionAdapter(
       state.outcomes.delete(sessionManager);
     },
   };
-}
-function formatProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
-  return defects.map((defect) => {
-    if (defect.kind === "duplicate_tool_call_id") {
-      return `${defect.kind} at assistant ${defect.assistantIndex} (${defect.toolCallId})`;
-    }
-    const toolCallId = "toolCallId" in defect ? defect.toolCallId : undefined;
-    return `${defect.kind} at assistant ${defect.assistantIndex}, content ${defect.contentIndex}`
-      + (toolCallId ? ` (${toolCallId})` : "");
-  }).join("; ");
 }

@@ -73,7 +73,7 @@ describe("ACM context packet", () => {
     expect(packet.messages).toEqual(messages);
   });
 
-  test("keeps multiple provenance-valid continuations archival when their authority is ambiguous", () => {
+  test("keeps older continuations archival and projects only the latest active-path handoff", () => {
     const firstSummary = `${ACM_CONTINUATION_MARKER}\nGoal: first\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: first action`;
     const secondSummary = `${ACM_CONTINUATION_MARKER}\nGoal: second\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: second action`;
     const messages = [
@@ -103,9 +103,35 @@ describe("ACM context packet", () => {
 
     const packet = normalizeExistingAcmPacket(messages, activeEntries);
 
+    expect(packet.continuation).toEqual({ status: "projected", count: 1 });
+    expect(packet.messages[0]).toBe(messages[0]);
+    expect(packet.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
+    expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: second action");
+    expect(JSON.stringify(packet.messages[1])).not.toContain("REQUIRED NEXT: first action");
+  });
+
+  test("keeps the latest continuation archival when its persisted provenance owner is ambiguous", () => {
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: ambiguous\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: do not guess`;
+    const message = {
+      role: "branchSummary" as const,
+      summary,
+      fromId: "ambiguous-leaf",
+      timestamp: 30,
+    } as AgentMessage;
+    const duplicateOwners = ["owner-a", "owner-b"].map((id) => ({
+      type: "branch_summary" as const,
+      id,
+      parentId: "root",
+      timestamp: new Date(30).toISOString(),
+      fromId: "ambiguous-leaf",
+      summary,
+      details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
+    })) as SessionEntry[];
+
+    const packet = normalizeExistingAcmPacket([message], duplicateOwners);
+
     expect(packet.continuation).toEqual({ status: "ambiguous", candidates: 2 });
-    expect(packet.messages).toEqual(messages);
-    expect(packet.messages.some((message) => message.role === "custom" && message.customType === "acm:continuation")).toBe(false);
+    expect(packet.messages).toEqual([message]);
   });
 
   test("leaves native and legacy branch summaries in archival form", () => {

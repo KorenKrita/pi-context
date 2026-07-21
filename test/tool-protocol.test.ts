@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { analyzeToolProtocol, hasOpenUserTurnAtAssistant } from "../src/tool-protocol";
+import { analyzeToolProtocol, formatToolProtocolDefects, hasOpenUserTurnAtAssistant } from "../src/tool-protocol";
 
 describe("LLM tool protocol analysis", () => {
+  test("formats every protocol defect variant consistently", () => {
+    expect(formatToolProtocolDefects([
+      { kind: "invalid_tool_call_id", assistantIndex: 1, contentIndex: 2 },
+      { kind: "invalid_tool_name", assistantIndex: 3, contentIndex: 4, toolCallId: "call-4" },
+      { kind: "duplicate_tool_call_id", assistantIndex: 5, toolCallId: "duplicate" },
+    ])).toBe(
+      "invalid_tool_call_id at assistant 1, content 2; "
+      + "invalid_tool_name at assistant 3, content 4 (call-4); "
+      + "duplicate_tool_call_id at assistant 5 (duplicate)",
+    );
+  });
+
   test("detects a structurally open user turn at the travel tool batch", () => {
     const user = {
       type: "message",
