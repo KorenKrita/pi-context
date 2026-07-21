@@ -9,7 +9,7 @@
 - **Fold** — 把已经提炼完的过程折叠成可通过 cold start 检验的 handoff；
 - **Rebase** — 在 summary 堆叠或竞争时合并到更早的安全基底，重新获得浅层、低负载的 working set；
 - **Rehydrate / Fork** — travel 到归档分支取回精确细节再返回，或从 save point 分叉探索后折回；
-- 在 travel 后同步持久会话树、下一轮模型上下文与 live AgentSession；同步只发生在 `agent_settled`，不打断当前 run 的 tool-call 连续性。
+- 明确成功的 travel 会同步持久会话树、下一轮模型上下文与 live AgentSession；live 同步只发生在 `agent_settled`，不打断当前 run 的 tool-call 连续性。`indeterminate` mutation 仅重建并观察实际 active tree，不宣称同步成功。
 
 Guidance 采用道/术/度分层：always-on CORE 注入判断力与 cadence 偏好，工具描述和 result cue 携带机制，advanced Skill 只在复杂场景按需加载。没有强制 preflight、固定 transition 表或后缀状态机——agent 自主判断何时压缩。
 
@@ -72,7 +72,7 @@ root → summary A → summary B → summary C → current work
 
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
-Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，originating assistant run 及其 automatic retry/tool loop 保留当前 live messages，不替换 `AgentSession` 或其 context，因此刚发生的 tool-call/result 连续性保持完整。仅在 `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession；`agent_end`（尤其 provider error）不是 release/apply signal。persistent Context Packet rebuild 继续作为验证与 fallback 路径。失败或 indeterminate travel 不会开启 refresh/sync ticket，继续使用既有恢复路径。当队列里没有后来用户消息且 run 未 abort 时，matching `tool_result` 仍会通过一条隐藏的 post-travel `steer` 明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。有 pending later message 时跳过 transient steer，依赖原位 Context Packet，因此用户的新目标不会被旧 `NEXT` 排到后面覆盖。
+Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，originating assistant run 及其 automatic retry/tool loop 保留当前 live messages，不替换 `AgentSession` 或其 context，因此刚发生的 tool-call/result 连续性保持完整。仅在 `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession；`agent_end`（尤其 provider error）不是 release/apply signal。persistent Context Packet rebuild 继续作为验证与 fallback 路径。`indeterminate` mutation 因为 branch 可能已经落地，只登记 persistent observation refresh 以检查实际 active tree；它不创建 live-sync ticket、不触发 settled replacement、不宣称 travel 成功，也不重置 reminder cycle。明确失败或 `not_applied` mutation 两者都不登记 refresh/sync。当队列里没有后来用户消息且 run 未 abort 时，matching successful `tool_result` 仍会通过一条隐藏的 post-travel `steer` 明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。有 pending later message 时跳过 transient steer，依赖原位 Context Packet，因此用户的新目标不会被旧 `NEXT` 排到后面覆盖。
 
 如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority、tool receipt 与 steer 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
 
