@@ -65,6 +65,23 @@ function captureTimelineWithCommands(commandNames: string[]): ExecuteTool {
   return execute;
 }
 
+function captureTimelineWithSkillPath(path: string): ExecuteTool {
+  let execute: ExecuteTool | undefined;
+  registerTimelineTool({
+    registerTool(tool: { execute?: ExecuteTool }) {
+      execute = tool.execute;
+    },
+    getCommands() {
+      return [{
+        name: "skill:context-management",
+        sourceInfo: { path },
+      }] as never;
+    },
+  } as unknown as ExtensionAPI, new AcmSessionRuntime());
+  if (!execute) throw new Error("timeline execute handler was not registered");
+  return execute;
+}
+
 function checkpointContext() {
   const entry = userEntry("entry-1");
   const tree: SessionTreeNode[] = [{ entry, children: [] }];
@@ -458,6 +475,24 @@ describe("ACM tool execution contracts", () => {
     expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
     expect(available.content[0]?.text).toContain("`context-management` Skill");
     expect(available.content[0]?.text).toContain("`references/target-selection.md`");
+  });
+
+  test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
+    const path = "/tmp/ACM Skill/context management/SKILL.md";
+    const executeWithPath = captureTimelineWithSkillPath(path);
+
+    const result = await executeWithPath(
+      "timeline-with-router-path",
+      { view: "active" },
+      undefined,
+      undefined,
+      timelineContext(),
+    );
+
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
+    expect(text).toContain("relative to its directory");
+    expect(text).toContain("`references/target-selection.md`");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
