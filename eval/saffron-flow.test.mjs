@@ -137,6 +137,52 @@ test("Saffron user prompts remain de-primed", () => {
   }
 });
 
+test("Saffron P7 compaction skips only the exact already-compacted or too-small-session no-ops", async () => {
+  const flow = materializeSaffronFlow({
+    seed: TEST_SEED,
+    packetTokenTarget: 2_000,
+    earlyDigestTokenTarget: 1_500,
+    supplementTokenTarget: 1_500,
+  });
+  const p7 = flow.turns.find((turn) => turn.phase === "P7-当前控制面");
+  expect(p7?.after).toBeDefined();
+
+  let compactCalls = 0;
+  await expect(p7.after({
+    events: [{ type: "session_compact" }],
+    driver: { compact: async () => { compactCalls += 1; } },
+  })).resolves.toEqual({ kind: "native_compact", skipped: "already_compacted_during_p7" });
+  expect(compactCalls).toBe(0);
+
+  await expect(p7.after({
+    events: [],
+    driver: { compact: async () => { throw new Error("compact rejected: Nothing to compact (session too small)"); } },
+  })).resolves.toEqual({
+    kind: "native_compact",
+    skipped: "session_too_small",
+    reason: "Nothing to compact (session too small)",
+  });
+
+  await expect(p7.after({
+    events: [],
+    driver: { compact: async () => ({ error: "Nothing to compact (session too small)" }) },
+  })).resolves.toEqual({
+    kind: "native_compact",
+    skipped: "session_too_small",
+    reason: "Nothing to compact (session too small)",
+  });
+
+  await expect(p7.after({
+    events: [],
+    driver: { compact: async () => { throw new Error("compact rejected: transport lost"); } },
+  })).rejects.toThrow("compact rejected: transport lost");
+
+  await expect(p7.after({
+    events: [],
+    driver: { compact: async () => ({ error: "transport lost" }) },
+  })).rejects.toThrow("compact rejected: transport lost");
+});
+
 test("Saffron persists only hashes before stop and writes private oracle evidence afterward", () => {
   const runDir = temporaryDirectory("saffron-run-evidence");
   try {

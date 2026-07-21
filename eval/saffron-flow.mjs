@@ -8,7 +8,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.2";
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.3";
 // P4's early digest plus this packet place the pre-P7 active working set near
 // 260K–300K tokens after real Pi/system/tool overhead, leaving safety room in
 // a 400K host window for the model's current-turn work.
@@ -67,6 +67,29 @@ function checkedTokenTarget(value, label, upperBound) {
 
 function freshSeed() {
   return randomBytes(32).toString("hex");
+}
+
+const SAFFRON_NOTHING_TO_COMPACT = "Nothing to compact (session too small)";
+
+function compactErrorMessage(value) {
+  if (value instanceof Error) return value.message;
+  if (!value || typeof value !== "object" || !("error" in value)) return null;
+  const error = value.error;
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : null;
+}
+
+function isSaffronNothingToCompact(value) {
+  const message = typeof value === "string" ? value : compactErrorMessage(value);
+  return message === SAFFRON_NOTHING_TO_COMPACT || message === `compact rejected: ${SAFFRON_NOTHING_TO_COMPACT}`;
+}
+
+function saffronTooSmallCompactionSkip() {
+  return {
+    kind: "native_compact",
+    skipped: "session_too_small",
+    reason: SAFFRON_NOTHING_TO_COMPACT,
+  };
 }
 
 const SAFFRON_BASELINE_GIT_IDENTITY = Object.freeze({
@@ -496,7 +519,18 @@ export function materializeSaffronFlow({
           if (events.some((event) => event?.type === "session_compact")) {
             return { kind: "native_compact", skipped: "already_compacted_during_p7" };
           }
-          return { kind: "native_compact", result: await driver.compact() };
+          try {
+            const result = await driver.compact();
+            if (isSaffronNothingToCompact(result)) return saffronTooSmallCompactionSkip();
+            const error = compactErrorMessage(result);
+            if (error) {
+              throw result instanceof Error ? result : result.error instanceof Error ? result.error : new Error(`compact rejected: ${error}`);
+            }
+            return { kind: "native_compact", result };
+          } catch (error) {
+            if (isSaffronNothingToCompact(error)) return saffronTooSmallCompactionSkip();
+            throw error;
+          }
         },
       });
     }
