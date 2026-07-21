@@ -61,11 +61,11 @@ This spine already carries handoff layers; the next fold would stack another. Re
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->
-If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, load the `context-management` Skill and then `references/target-selection.md`.
+If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/target-selection.md` relative to the Skill directory.
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
 
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:START -->
-Load the `context-management` Skill and then `references/exceptional-recovery.md` before deciding whether or how to retry.
+Before deciding whether or how to retry, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/exceptional-recovery.md` relative to the Skill directory.
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->

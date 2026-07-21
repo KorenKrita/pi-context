@@ -93,6 +93,17 @@ describe("ACM guidance quality", () => {
     expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`references/exceptional-recovery.md`");
   });
 
+  test("locates advanced Skill references from the advertised Skill location", () => {
+    for (const pointer of [GUIDANCE_CUES.advancedTargetPointer, GUIDANCE_CUES.advancedExceptionalPointer]) {
+      expect(pointer).toContain("available Skills list");
+      expect(pointer).toContain("`location`");
+      expect(pointer).toContain("not a cwd-relative path");
+      expect(pointer).toContain("router first");
+      expect(pointer).toContain("relative to the Skill directory");
+      expect(pointer).not.toContain("/Users/");
+    }
+  });
+
   test("keeps target and recovery criteria factual and checkable", async () => {
     const target = await skillFile("references/target-selection.md");
     const archive = await skillFile("references/archive-recovery.md");
