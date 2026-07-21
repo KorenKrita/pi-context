@@ -6,9 +6,9 @@
     "verify": "bun install --frozen-lockfile && bun ./build-source.mjs && bun test ./version.test.ts ./prompt-injection-host.test.ts ./skills-system-prompt-host.test.ts ./tree-navigation-host.test.ts ./context-command-host.test.ts ./tool-protocol.test.ts ./agent-session-adapter.test.ts ./travel-deferred-refresh.test.ts ./deferred-refresh-failure-recovery.test.ts ./deferred-refresh-repeat-resume.test.ts ./deferred-refresh-isolation.test.ts ./deferred-refresh-host.test.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.80.7",
-    "@earendil-works/pi-ai": "0.80.7",
-    "@earendil-works/pi-coding-agent": "0.80.7",
-    "@earendil-works/pi-tui": "0.80.7"
+    "@earendil-works/pi-agent-core": "0.81.1",
+    "@earendil-works/pi-ai": "0.81.1",
+    "@earendil-works/pi-coding-agent": "0.81.1",
+    "@earendil-works/pi-tui": "0.81.1"
   }
 }

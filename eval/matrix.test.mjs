@@ -192,7 +192,7 @@ describe("matrix runner CLI", () => {
     expect(report.jobs.every((job) => job.reportPath === null)).toBe(true);
     expect(report.piProvenance).toMatchObject({
       cliPath: expect.any(String),
-      projectExactHostContract: "0.80.7",
+      projectExactHostContract: "0.81.1",
     });
     expect(typeof report.piProvenance.version === "string" || report.piProvenance.version === null).toBe(true);
     if (report.piProvenance.version === null) {

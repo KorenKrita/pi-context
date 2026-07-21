@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AuthStorage,
   discoverAndLoadExtensions,
   ExtensionRunner,
-  ModelRegistry,
   SessionManager,
   type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
+import { createModelRegistry } from "./model-registry.ts";
+
 
 test("/context registers and renders through the exact Pi host", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "pi-context-command-host-"));
@@ -23,7 +23,7 @@ test("/context registers and renders through the exact Pi host", async () => {
 
     const sessionManager = SessionManager.inMemory(join(tempDir, "session.jsonl"));
     sessionManager.appendMessage({ role: "user", content: "hello", timestamp: Date.now() });
-    const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+    const modelRegistry = await createModelRegistry(tempDir);
     const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
 
     runner.bindCore({

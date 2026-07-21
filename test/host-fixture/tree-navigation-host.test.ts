@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AuthStorage,
   discoverAndLoadExtensions,
   ExtensionRunner,
-  ModelRegistry,
   SessionManager,
   type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
+import { createModelRegistry } from "./model-registry.ts";
 import { TREE_SUMMARY_INSTRUCTIONS } from "../../src/generated-guidance.ts";
+
 
 async function createRunner(tempDir: string, sessionManager: SessionManager) {
   const loaded = await discoverAndLoadExtensions(
@@ -19,7 +19,7 @@ async function createRunner(tempDir: string, sessionManager: SessionManager) {
     join(tempDir, "empty-agent-dir"),
   );
   expect(loaded.errors).toEqual([]);
-  const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+  const modelRegistry = await createModelRegistry(tempDir);
   return new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
 }
 

@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  AuthStorage,
   discoverAndLoadExtensions,
   ExtensionRunner,
-  ModelRegistry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { createModelRegistry } from "./model-registry.ts";
 import * as generated from "../../src/generated-guidance.ts";
+
 
 test("ACM CORE injects once through the exact Pi before_agent_start hook", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "pi-context-prompt-host-"));
@@ -22,7 +22,7 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
     expect(loaded.errors).toEqual([]);
 
     const sessionManager = SessionManager.inMemory(join(tempDir, "session.jsonl"));
-    const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+    const modelRegistry = await createModelRegistry(tempDir);
     const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
     runner.bindCore({
       sendMessage: async () => {},
@@ -79,7 +79,7 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     expect(loaded.errors).toEqual([]);
 
     const sessionManager = SessionManager.inMemory(join(tempDir, "session.jsonl"));
-    const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+    const modelRegistry = await createModelRegistry(tempDir);
     const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
 
     const tools = new Map(runner.getAllRegisteredTools().map((tool) => [tool.definition.name, tool.definition]));
@@ -125,7 +125,7 @@ test("post-travel NEXT steer never queues behind a pending user message", async 
     expect(loaded.errors).toEqual([]);
 
     const sessionManager = SessionManager.inMemory(join(tempDir, "session.jsonl"));
-    const modelRegistry = ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json")));
+    const modelRegistry = await createModelRegistry(tempDir);
     const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, tempDir, sessionManager, modelRegistry);
     const sent: Array<{ message: unknown; options: unknown }> = [];
     let pending = true;
