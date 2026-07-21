@@ -25,7 +25,7 @@ import {
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 
-export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 6;
+export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 8;
 export const CONTROLLED_MAX_TOKENS = 16_000;
 export const CONTROLLED_WINDOWS = Object.freeze([400_000, 1_000_000]);
 export const DEFAULT_FLOW_ID = "saffron-cutover-long-flow-v1";
@@ -409,12 +409,41 @@ export function hashExternalCommandResourceTree(commands, fullEnvAudit) {
   return hashContentTree(externalCommandResourceRoots(commands, fullEnvAudit));
 }
 
-export function hashRepoLocalPiRuntimeTree() {
-  const nodeModules = join(repoRoot, "node_modules");
+export function hashRepoLocalPiRuntimeTree({ nodeModules = join(repoRoot, "node_modules") } = {}) {
   return hashContentTree([
-    { name: "@earendil-works", path: join(nodeModules, "@earendil-works"), boundaryPath: nodeModules },
+    // Pi resolves hoisted runtime packages such as openai, typebox, and yaml
+    // directly from this root, not only from @earendil-works subtrees.
+    { name: "node_modules", path: nodeModules, boundaryPath: nodeModules },
     { name: "pi-wrapper", path: join(nodeModules, ".bin", "pi"), boundaryPath: nodeModules },
   ]);
+}
+
+export function bunRuntimeProvenance({ executable = process.execPath } = {}) {
+  let realpath;
+  let version;
+  try {
+    realpath = realpathSync(executable);
+    version = execFileSync(realpath, ["--version"], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (error) {
+    throw treeError("Bun runtime", executable, error);
+  }
+  return {
+    realpath,
+    version,
+    binarySha256: fileHash(realpath),
+    binaryTree: hashContentTree([{
+      name: "bun-executable",
+      path: realpath,
+      boundaryPath: dirname(realpath),
+    }]),
+  };
+}
+
+function bunRuntimeMatches(expected, actual) {
+  return expected?.realpath === actual?.realpath
+    && expected?.version === actual?.version
+    && expected?.binarySha256 === actual?.binarySha256
+    && expected?.binaryTree?.sha256 === actual?.binaryTree?.sha256;
 }
 
 function captureContentTree(makeTree) {
@@ -430,13 +459,16 @@ export function verifyPinnedRuntimeTrees(pinnedProvenance) {
   const globalResources = captureContentTree(() => rehashContentTree(pinnedProvenance?.globalResourceTree));
   const externalCommandResources = captureContentTree(() => rehashContentTree(pinnedProvenance?.externalCommandResourceTree));
   const piRuntime = captureContentTree(() => rehashContentTree(pinnedProvenance?.piRuntimeTree));
+  const bunRuntime = captureContentTree(bunRuntimeProvenance);
   if (globalResources.error) reasons.push(`global_resource_tree_unavailable:${globalResources.error}`);
   else if (globalResources.tree.sha256 !== pinnedProvenance?.globalResourceTree?.sha256) reasons.push("global_resource_tree_mismatch");
   if (externalCommandResources.error) reasons.push(`external_command_resource_tree_unavailable:${externalCommandResources.error}`);
   else if (externalCommandResources.tree.sha256 !== pinnedProvenance?.externalCommandResourceTree?.sha256) reasons.push("external_command_resource_tree_mismatch");
   if (piRuntime.error) reasons.push(`pi_runtime_tree_unavailable:${piRuntime.error}`);
   else if (piRuntime.tree.sha256 !== pinnedProvenance?.piRuntimeTree?.sha256) reasons.push("pi_runtime_tree_mismatch");
-  return { valid: reasons.length === 0, reasons, globalResources, externalCommandResources, piRuntime };
+  if (bunRuntime.error) reasons.push(`bun_runtime_unavailable:${bunRuntime.error}`);
+  else if (!bunRuntimeMatches(pinnedProvenance?.bunRuntime, bunRuntime.tree)) reasons.push("bun_runtime_mismatch");
+  return { valid: reasons.length === 0, reasons, globalResources, externalCommandResources, piRuntime, bunRuntime };
 }
 
 export function assertCleanGitWorktree({ cwd = repoRoot, execFileSyncImpl = execFileSync } = {}) {
@@ -716,12 +748,22 @@ function preflightCell(manifest) {
   };
 }
 
-export async function runAuditPreflight({ manifest, secretSeed, piBinary, timeoutScale = 1, spawnImpl = spawn } = {}) {
+export async function runAuditPreflight({
+  manifest,
+  secretSeed,
+  piBinary,
+  timeoutScale = 1,
+  spawnImpl = spawn,
+  bunBinary,
+  collectPiRuntimeTree = hashRepoLocalPiRuntimeTree,
+  collectBunRuntime = bunRuntimeProvenance,
+} = {}) {
   const cell = preflightCell(manifest);
   const child = await runFlowChild({
     cell,
     options: { timeoutScale, doJudge: false, auditOnly: true, piBinary, secretSeed },
     spawnImpl,
+    bunBinary,
   });
   const reportPath = reportPathFromOutput(`${child.stdout}\n${child.stderr}`);
   if (!reportPath || !existsSync(reportPath)) {
@@ -741,7 +783,8 @@ export async function runAuditPreflight({ manifest, secretSeed, piBinary, timeou
     resources: report.resources ?? null,
     globalResourceTree: hashFullEnvLinkedResourceTree(fullEnvAudit),
     externalCommandResourceTree: hashExternalCommandResourceTree(commands, fullEnvAudit),
-    piRuntimeTree: hashRepoLocalPiRuntimeTree(),
+    piRuntimeTree: collectPiRuntimeTree(),
+    bunRuntime: collectBunRuntime(),
   };
 }
 
@@ -821,6 +864,7 @@ function runtimeCellProvenance(report, runDir) {
     ? { tree: null, error: "full-env audit missing" }
     : captureContentTree(() => hashExternalCommandResourceTree(report?.commands ?? [], audit));
   const piRuntimeTree = captureContentTree(hashRepoLocalPiRuntimeTree);
+  const bunRuntime = captureContentTree(bunRuntimeProvenance);
   return {
     productGitHead: report?.gitHead ?? null,
     flowId: report?.flowId ?? null,
@@ -840,6 +884,10 @@ function runtimeCellProvenance(report, runDir) {
       binarySha256: report?.piBinary?.realpath ? fileHash(report.piBinary.realpath) : null,
       runtimeTree: piRuntimeTree.tree,
       runtimeTreeError: piRuntimeTree.error,
+    },
+    bun: {
+      evidence: bunRuntime.tree,
+      error: bunRuntime.error,
     },
     fullEnv: audit ? {
       sanitizedSettingsSha256: audit.settings?.sanitizedSha256 ?? null,
@@ -883,6 +931,8 @@ export function validateCellProvenance(cell, runtime, pinned) {
   if (runtime?.pi?.version !== pinned?.pi?.version || runtime?.pi?.binarySha256 !== pinned?.pi?.binarySha256) reasons.push("pi_binary_mismatch");
   if (runtime?.pi?.runtimeTreeError) reasons.push("pi_runtime_tree_unavailable");
   if (runtime?.pi?.runtimeTree?.sha256 !== pinned?.piRuntimeTree?.sha256) reasons.push("pi_runtime_tree_mismatch");
+  if (runtime?.bun?.error) reasons.push("bun_runtime_unavailable");
+  if (!bunRuntimeMatches(pinned?.bunRuntime, runtime?.bun?.evidence)) reasons.push("bun_runtime_mismatch");
   if (runtime?.globalCommands?.sha256 !== pinned?.globalCommands?.sha256) reasons.push("global_command_inventory_mismatch");
   if (runtime?.fullEnv?.sanitizedSettingsSha256 !== arm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
   if (runtime?.fullEnv?.sanitizedPackagesSha256 !== arm?.sanitizedPackagesSha256) reasons.push("sanitized_packages_mismatch");
@@ -928,6 +978,7 @@ function compactMatrix(state) {
       globalResourceTreeSha256: preflight.globalResourceTree?.sha256 ?? null,
       externalCommandResourceTreeSha256: preflight.externalCommandResourceTree?.sha256 ?? null,
       piRuntimeTreeSha256: preflight.piRuntimeTree?.sha256 ?? null,
+      bunRuntimeSha256: preflight.bunRuntime?.binaryTree?.sha256 ?? null,
     })),
     manifest: state.manifest,
     classifications: Object.fromEntries(["pending", "running", "certifying_run", "occupancy_miss", "infrastructure_invalid", "run_error", "task_failure", "coverage_insufficient"].map((kind) => [kind, cells.filter((cell) => (cell.classification ?? cell.status) === kind).length])),
@@ -1048,7 +1099,7 @@ async function executeCell(cell, options, pinnedProvenance) {
       provenanceCheck: { valid: false, reasons: runtimeTreeCheck.reasons },
     };
   }
-  const child = await runFlowChild({ cell, options });
+  const child = await runFlowChild({ cell, options, bunBinary: options.bunBinary });
   const reportedPath = reportPathFromOutput(`${child.stdout}\n${child.stderr}`);
   const reportPath = reportedPath && existsSync(reportedPath) ? reportedPath : null;
   if (!reportPath) {
@@ -1124,7 +1175,7 @@ async function main() {
     if (resume) {
       if (!existsSync(statePath)) throw new Error(`no matrix state to resume: ${statePath}`);
       state = readJson(statePath);
-      if (!state.secretSeedSha256 || !state.matrixRunId || !state.pinnedProvenance?.globalResourceTree || !state.pinnedProvenance?.externalCommandResourceTree || !state.pinnedProvenance?.piRuntimeTree) {
+      if (!state.secretSeedSha256 || !state.matrixRunId || !state.pinnedProvenance?.globalResourceTree || !state.pinnedProvenance?.externalCommandResourceTree || !state.pinnedProvenance?.piRuntimeTree || !state.pinnedProvenance?.bunRuntime) {
         throw new Error("resume state lacks secretSeedSha256, matrixRunId, or pinned resource-tree provenance");
       }
       assertResumeSeed(state.secretSeedSha256, suppliedFlowSeed);
@@ -1148,12 +1199,14 @@ async function main() {
         globalResourceTree: runtimeTrees.globalResources.tree,
         externalCommandResourceTree: runtimeTrees.externalCommandResources.tree,
         piRuntimeTree: runtimeTrees.piRuntime.tree,
+        bunRuntime: runtimeTrees.bunRuntime.tree,
       };
       assertPinnedProvenance(state.pinnedProvenance, recomputedPinned);
       const resumePreflight = await runAuditPreflight({
         manifest,
         secretSeed,
         piBinary: baseProvenance.pi.path,
+        bunBinary: state.pinnedProvenance.bunRuntime.realpath,
         timeoutScale,
       });
       if (resumePreflight.commandInventory.sha256 !== state.pinnedProvenance.globalCommands.sha256) {
@@ -1167,6 +1220,9 @@ async function main() {
       }
       if (resumePreflight.piRuntimeTree.sha256 !== state.pinnedProvenance.piRuntimeTree.sha256) {
         throw new Error("resume Pi runtime tree mismatch");
+      }
+      if (!bunRuntimeMatches(state.pinnedProvenance.bunRuntime, resumePreflight.bunRuntime)) {
+        throw new Error("resume Bun runtime mismatch");
       }
       state.preflightRuns = [...(state.preflightRuns ?? []), resumePreflight];
       pinnedProvenance = state.pinnedProvenance;
@@ -1190,6 +1246,7 @@ async function main() {
         globalResourceTree: preflight.globalResourceTree,
         externalCommandResourceTree: preflight.externalCommandResourceTree,
         piRuntimeTree: preflight.piRuntimeTree,
+        bunRuntime: preflight.bunRuntime,
       };
       state = createInitialMatrixState({
         manifest,
@@ -1219,6 +1276,7 @@ async function main() {
       judgeModel: option("--judge-model"),
       judgeThinking: option("--judge-thinking"),
       piBinary: pinnedProvenance.pi.path,
+      bunBinary: pinnedProvenance.bunRuntime.realpath,
       secretSeed,
     };
     // Running arms sequentially avoids interleaving the comparative rounds while

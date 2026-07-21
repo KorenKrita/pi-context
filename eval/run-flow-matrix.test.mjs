@@ -17,12 +17,14 @@ import {
   assertResumeSeed,
   buildSaffronPin,
   buildRunFlowArgs,
+  bunRuntimeProvenance,
   createInitialMatrixState,
   createLongFlowMatrixManifest,
   finalMatrixStatus,
   hashContentTree,
   hashExternalCommandResourceTree,
   hashFullEnvLinkedResourceTree,
+  hashRepoLocalPiRuntimeTree,
   normalizeGlobalCommandInventory,
   rehashContentTree,
   rehashGlobalCommandInventory,
@@ -205,6 +207,13 @@ describe("real Pi long-flow matrix declaration", () => {
         secretSeed: "preflight-secret",
         piBinary: "/fake/pi",
         spawnImpl: fakeSpawn,
+        collectPiRuntimeTree: () => hashContentTree([{ name: "fake-pi-runtime", path: source, boundaryPath: output }]),
+        collectBunRuntime: () => ({
+          realpath: "/fake/bun",
+          version: "1.3.14",
+          binarySha256: "a".repeat(64),
+          binaryTree: hashContentTree([]),
+        }),
       });
       expect(preflight.reportPath).toBe(reportPath);
       expect(preflight.commandInventory.sources).toEqual(expect.arrayContaining([
@@ -216,6 +225,11 @@ describe("real Pi long-flow matrix declaration", () => {
       expect(preflight.externalCommandResourceTree.sha256).toHaveLength(64);
       expect(preflight.externalCommandResourceTree.roots).toHaveLength(1);
       expect(preflight.piRuntimeTree.sha256).toHaveLength(64);
+      expect(preflight.bunRuntime).toEqual(expect.objectContaining({
+        realpath: expect.any(String),
+        version: expect.any(String),
+        binarySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }));
       const originalHash = preflight.commandInventory.sha256;
       writeFileSync(source, "export default 'v2';\n");
       expect(rehashGlobalCommandInventory(preflight.commandInventory).sha256).not.toBe(originalHash);
@@ -245,6 +259,35 @@ describe("real Pi long-flow matrix declaration", () => {
     } finally {
       rmSync(output, { recursive: true, force: true });
     }
+  });
+
+  test("Pi runtime tree covers hoisted dependencies outside @earendil-works", () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-pi-runtime-tree-"));
+    try {
+      const nodeModules = join(output, "node_modules");
+      const piCli = join(nodeModules, "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+      const hoistedOpenAi = join(nodeModules, "openai", "index.mjs");
+      writeFixtureFile(piCli, "export const pi = 'v1';\n");
+      writeFixtureFile(hoistedOpenAi, "export const openai = 'v1';\n");
+      mkdirSync(join(nodeModules, ".bin"), { recursive: true });
+      symlinkSync("../@earendil-works/pi-coding-agent/dist/cli.js", join(nodeModules, ".bin", "pi"));
+      const pinned = hashRepoLocalPiRuntimeTree({ nodeModules });
+      expect(pinned.roots.map((root) => root.name)).toEqual(["node_modules", "pi-wrapper"]);
+      expect(rehashContentTree(pinned).sha256).toBe(pinned.sha256);
+
+      writeFixtureFile(hoistedOpenAi, "export const openai = 'v2';\n");
+      expect(rehashContentTree(pinned).sha256).not.toBe(pinned.sha256);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  test("records the executing Bun binary and version as runtime provenance", () => {
+    const bun = bunRuntimeProvenance();
+    expect(bun.realpath).toBeTruthy();
+    expect(bun.version).toBeTruthy();
+    expect(bun.binarySha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(bun.binaryTree.sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   test("external advertised .agents/skills roots cover references and extension package bases", () => {
