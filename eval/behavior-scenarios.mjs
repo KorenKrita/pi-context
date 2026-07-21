@@ -79,6 +79,17 @@ function containsCompletedResearchBrief(contents) {
     && text.includes("operating constraints");
 }
 
+function writesCompletedResearchBrief(call) {
+  if (!toolSucceeded(call)) return false;
+  if (writesPath(call, "research-brief.md")) {
+    return containsCompletedResearchBrief(call.args?.content);
+  }
+  if (shellWritesPath(call, "research-brief.md")) {
+    return containsCompletedResearchBrief(call.args?.command);
+  }
+  return false;
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -143,10 +154,9 @@ async function scorePivotRecoverability({ toolCalls, travel, travelIndex, handof
     };
   }
 
-  const briefWriteBeforeTravel = callsBeforeTravel.find((call) =>
-    toolSucceeded(call) && (writesPath(call, "research-brief.md") || shellWritesPath(call, "research-brief.md")));
+  const briefWriteBeforeTravel = callsBeforeTravel.find(writesCompletedResearchBrief);
   if (!briefWriteBeforeTravel) {
-    return { pass: false, detail: "Recover names research-brief.md, but no successful brief write occurred before travel" };
+    return { pass: false, detail: "Recover names research-brief.md, but no successful pre-travel write carried the complete brief sections" };
   }
 
   const brief = await readWorkspaceFile(workspace, "research-brief.md");

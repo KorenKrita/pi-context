@@ -32,20 +32,22 @@ const HANDOFF = {
 
 const RECOVERY_ROUTE_CHECK = "handoff Recover identifies a verified recovery route";
 
+const COMPLETED_RESEARCH_BRIEF = [
+  "# Research brief",
+  "## Market signals",
+  "Predictable launch windows matter.",
+  "## Interview conclusions",
+  "Access comes before the first support task.",
+  "## Operating constraints",
+  "Access settles within one business day.",
+].join("\n");
+
 function writeOutline(root) {
   writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
 }
 
 function writeCompletedResearchBrief(root) {
-  writeFileSync(join(root, "research-brief.md"), [
-    "# Research brief",
-    "## Market signals",
-    "Predictable launch windows matter.",
-    "## Interview conclusions",
-    "Access comes before the first support task.",
-    "## Operating constraints",
-    "Access settles within one business day.",
-  ].join("\n"));
+  writeFileSync(join(root, "research-brief.md"), COMPLETED_RESEARCH_BRIEF);
 }
 
 function scenario(id) {
@@ -215,7 +217,7 @@ describe("unprompted pivot behavior scenario", () => {
     writeOutline(root);
     writeCompletedResearchBrief(root);
     const calls = [
-      call("write", { path: "research-brief.md", content: "complete brief" }),
+      call("write", { path: "research-brief.md", content: COMPLETED_RESEARCH_BRIEF }),
       call("acm_travel", {
         target: "root",
         handoff: { ...HANDOFF, recover: "research-brief.md on disk is the durable accepted research artifact." },
@@ -234,7 +236,9 @@ describe("unprompted pivot behavior scenario", () => {
     writeOutline(root);
     writeCompletedResearchBrief(root);
     const calls = [
-      call("bash", { command: "cat draft-research-brief.md > research-brief.md" }),
+      call("bash", {
+        command: "printf '%s\\n' '## Market signals' '## Interview conclusions' '## Operating constraints' > research-brief.md",
+      }),
       call("acm_travel", {
         target: "root",
         handoff: { ...HANDOFF, recover: "research-brief.md durable artifact for the accepted research front." },
@@ -354,6 +358,26 @@ describe("unprompted pivot behavior scenario", () => {
         handoff: { ...HANDOFF, recover: "research-brief.md is the durable artifact." },
       }),
       call("write", { path: "research-brief.md", content: "too late" }),
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === RECOVERY_ROUTE_CHECK)?.pass).toBe(false);
+  });
+
+  test("rejects a pre-travel incomplete write even when a post-travel overwrite makes the final brief complete", async () => {
+    const root = workspace();
+    writeOutline(root);
+    writeCompletedResearchBrief(root);
+    const calls = [
+      call("write", { path: "research-brief.md", content: "## Market signals\nOnly one section existed before travel." }),
+      call("acm_travel", {
+        target: "root",
+        handoff: { ...HANDOFF, recover: "research-brief.md is the durable artifact." },
+      }),
+      call("write", { path: "research-brief.md", content: COMPLETED_RESEARCH_BRIEF }),
       call("write", { path: "onboarding-outline.md", content: "outline" }),
     ];
 
