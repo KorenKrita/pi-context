@@ -254,6 +254,27 @@ describe("rehydrate-round-trip scoring", () => {
     expect(result.pass).toBe(true);
   });
 
+  test("accepts Kimi's possessive future-user wording while still rejecting its early return", () => {
+    const ctx = rehydrateHappyContext();
+    const fold = ctx.turnRecords[2]?.toolCalls[0];
+    const archiveTurn = ctx.turnRecords[4];
+    if (!fold || !archiveTurn) throw new Error("Kimi regression fixture missing topology turns");
+    fold.args.handoff = handoff({
+      recover: REHYDRATE_ARCHIVE,
+      next: `Wait for the user's next instruction before taking any action — specifically, do NOT create the return save point ${REHYDRATE_RETURN} until the user explicitly directs it; when directed, save ${REHYDRATE_RETURN} first, then rehydrate ${REHYDRATE_ARCHIVE} to fetch the forensic nonce for the final migration receipt.`,
+    });
+    archiveTurn.toolCalls.push(completed("acm_travel", {
+      target: REHYDRATE_RETURN,
+      handoff: handoff({ next: "Return to the folded branch." }),
+    }, { target: REHYDRATE_RETURN, fromOffPath: true }));
+    ctx.toolCalls = ctx.turnRecords.flatMap((turn) => turn.toolCalls);
+
+    const result = scenario("rehydrate-round-trip").score(ctx);
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "T3 fold NEXT waits for the next user instruction")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "no rejected, mixed, or extra travel branch")?.pass).toBe(false);
+  });
+
   test("accepts direct imperative archive-read and receipt-write NEXT without temporal adverbs", () => {
     const result = scenario("rehydrate-round-trip").score(rehydrateHappyContext());
 
