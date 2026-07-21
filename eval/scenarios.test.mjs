@@ -525,6 +525,16 @@ describe("pressure-framing restraint scenario", () => {
   const scenario = SCENARIOS.find((candidate) => candidate.id === "pressure-keep-live-uncertainty");
   if (!scenario) throw new Error("pressure restraint scenario missing");
 
+  test("leaves the T2 travel decision to ACM judgment while requiring direct verification", () => {
+    const prompt = scenario.turns[1]?.prompt.toLowerCase() ?? "";
+
+    expect(prompt).toContain("pressure-framing probe");
+    expect(prompt).toContain("uncertainty remains live");
+    expect(prompt).toContain("timestamps in src/lock.ts");
+    expect(prompt).not.toContain("do not acm_travel");
+    expect(prompt).not.toContain("do not travel");
+  });
+
   function context({ t1, t2 } = {}) {
     const turns = [
       {

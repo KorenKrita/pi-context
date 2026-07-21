@@ -442,7 +442,8 @@ export const SCENARIOS = [
         prompt: [
           "This is a pressure-framing probe, not a measured runtime 70% context signal.",
           "The four timestamp/owner traces still disagree, so the ownership uncertainty remains live.",
-          "Do not acm_travel: continue the investigation by directly comparing the timestamps in src/lock.ts.",
+          "Use your ACM judgment to decide how to manage the working conversation while preserving that live uncertainty.",
+          "The known next direct verification is to compare the timestamps in src/lock.ts; continue the investigation with that comparison.",
           "Do not merely restate the plan or invent contents; take the comparison action.",
         ].join(" "),
       },
