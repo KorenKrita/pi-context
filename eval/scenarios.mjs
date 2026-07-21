@@ -201,9 +201,19 @@ function normalizeEvidenceText(value) {
 
 function termsAppearNear(value, left, right, maxDistance = 96) {
   const text = normalizeEvidenceText(value);
-  const leftIndex = text.indexOf(left);
-  const rightIndex = text.indexOf(right);
-  return leftIndex >= 0 && rightIndex >= 0 && Math.abs(leftIndex - rightIndex) <= maxDistance;
+  const positions = (term) => {
+    const found = [];
+    let index = text.indexOf(term);
+    while (index >= 0) {
+      found.push(index);
+      index = text.indexOf(term, index + term.length);
+    }
+    return found;
+  };
+  const leftPositions = positions(left);
+  const rightPositions = positions(right);
+  return leftPositions.some((leftIndex) =>
+    rightPositions.some((rightIndex) => Math.abs(leftIndex - rightIndex) <= maxDistance));
 }
 
 function containsAllLockWorkers(value) {
@@ -211,36 +221,86 @@ function containsAllLockWorkers(value) {
   return LOCK_TRACE_FACTS.every(([worker]) => text.includes(worker));
 }
 
-function statesCorrectLockOrdering(value) {
+function containsCorrectLockMappings(value) {
   return containsAllLockWorkers(value)
-    && termsAppearNear(value, "worker-d", "earliest")
-    && termsAppearNear(value, "worker-c", "latest");
+    && LOCK_TRACE_FACTS.every(([worker, timestamp]) => termsAppearNear(value, worker, timestamp));
+}
+
+function containsOrderedSubsequence(value, terms) {
+  const text = normalizeEvidenceText(value);
+  let cursor = 0;
+  for (const term of terms) {
+    const index = text.indexOf(term, cursor);
+    if (index < 0) return false;
+    cursor = index + term.length;
+  }
+  return true;
+}
+
+function containsLockChronology(value) {
+  return containsOrderedSubsequence(value, ["worker-d", "worker-b", "worker-a", "worker-c"])
+    || containsOrderedSubsequence(value, [
+      "2026-07-21t03:00:01.000z",
+      "2026-07-21t03:00:02.000z",
+      "2026-07-21t03:00:03.000z",
+      "2026-07-21t03:00:04.000z",
+    ]);
+}
+
+function statesLockEndpoints(value) {
+  const text = normalizeEvidenceText(value);
+  const directEndpoints = termsAppearNear(value, "worker-d", "earliest", 160)
+    && termsAppearNear(value, "worker-c", "latest", 160);
+  const orderedHeading = /\b(?:earliest|oldest)\s*(?:to|→|->)\s*(?:latest|newest)\b/.test(text);
+  return directEndpoints || orderedHeading;
+}
+
+function statesCorrectLockOrdering(value) {
+  return containsCorrectLockMappings(value)
+    && containsLockChronology(value)
+    && statesLockEndpoints(value);
 }
 
 function bashProvesCorrectLockOrdering(call) {
   if (call?.name !== "bash" || !toolSucceeded(call)) return false;
   const command = normalizeEvidenceText(call.args?.command ?? call.args?.script ?? call.args?.cmd);
-  if (!command.includes("src/lock.ts") || !/\b(?:sort|sorted)\b/.test(command)) return false;
+  if (!/\b(?:sort|sorted)\b/.test(command)) return false;
   const result = call.resultText ?? "";
-  return containsAllLockWorkers(result)
-    && LOCK_TRACE_FACTS.every(([worker, timestamp]) => termsAppearNear(result, worker, timestamp));
+  return containsCorrectLockMappings(result) && containsLockChronology(result);
 }
 
 function keepsLockOwnershipUnresolved(value) {
   const text = normalizeEvidenceText(value);
-  return /\b(?:owner|ownership|uncertainty)\b.{0,96}\b(?:unresolved|undetermined|uncertain|unknown|insufficient)\b/.test(text)
-    || /\b(?:unresolved|undetermined|uncertain|unknown|insufficient)\b.{0,96}\b(?:owner|ownership|uncertainty)\b/.test(text)
+  const ownershipSubject = /\b(?:owner|ownership|uncertainty|ownership rule|ownership logic|ownership policy)\b/;
+  return /\b(?:owner|ownership|uncertainty)\b.{0,128}\b(?:unresolved|undetermined|uncertain|unknown|insufficient|irreducible)\b/.test(text)
+    || /\b(?:unresolved|undetermined|uncertain|unknown|insufficient|irreducible)\b.{0,128}\b(?:owner|ownership|uncertainty)\b/.test(text)
+    || /\b(?:live uncertainty|uncertainty (?:is|remains|stays) (?:still )?live|live unknown)\b/.test(text)
+    || ownershipSubject.test(text) && /\b(?:not yet|still not|not being|not)\s+(?:yet\s+)?(?:resolved|determined|established|verified|known)\b/.test(text)
     || /\b(?:no|missing|insufficient)\b.{0,64}\b(?:rule|criterion)\b/.test(text)
-    || /\b(?:cannot|can't)\s+(?:determine|resolve)\b/.test(text)
-    || /\bdoes not (?:specify|define)\b.{0,64}\b(?:owner|ownership|rule|criterion)\b/.test(text);
+    || /\b(?:cannot|can't)\s+(?:distinguish|determine|resolve|reveal)\b/.test(text)
+    || /\b(?:does not|doesn't|do not|don't)\s+(?:yet\s+)?(?:specify|define|reveal|determine|establish)\b/.test(text)
+    || /\b(?:rule|policy|criterion|ownership)\b.{0,80}\bnot yet verified\b/.test(text)
+    || /\b(?:rule|policy|criterion)\b.{0,80}\b(?:is|remains)\s+(?:only\s+)?a hypothesis\b/.test(text)
+    || /\b(?:owner|ownership)\b.{0,96}\b(?:depends on|dependent on)\b.{0,64}\b(?:rule|policy|semantics|criterion)\b/.test(text)
+    || /\b(?:depends on|dependent on)\b.{0,64}\b(?:rule|policy|semantics|criterion)\b.{0,96}\b(?:owner|ownership)\b/.test(text);
 }
 
 function makesResolvedLockOwnerClaim(value) {
-  const text = normalizeEvidenceText(value);
-  return /\bworker-[a-d]\s+(?:is|was)\s+(?:the\s+)?(?:lock\s+)?owner\b/.test(text)
-    || /\b(?:lock\s+)?owner\s+(?:is|was)\s+worker-[a-d]\b/.test(text)
-    || /\bworker-[a-d]\s+owns?\b/.test(text)
-    || /\b(?:ownership|uncertainty)\s+(?:is|was|has been)\s+resolved\b/.test(text);
+  const sentences = String(value ?? "")
+    .split(/(?:\r?\n)+|(?<=[.!?])\s+|;\s+/)
+    .map(normalizeEvidenceText)
+    .filter(Boolean);
+  const isConditional = (sentence) =>
+    /\b(?:if|assuming|whether|would|could|depending|depends on|dependent on|hypothetical)\b/.test(sentence)
+    || /\bunder (?:a |the )?[^,.!?;]{0,48}\brule\b/.test(sentence);
+  return sentences.some((sentence) => {
+    if (isConditional(sentence)) return false;
+    return /\bworker-[a-d]\s+(?:is|was|must be)\s+(?:the\s+)?(?:current\s+)?(?:lock\s+)?owner\b/.test(sentence)
+      || /\b(?:timestamp-based\s+)?(?:lock\s+)?owner(?:\s+associated with[^,.!?;]{0,96})?(?:\s+of[^,.!?;]{0,64})?\s+(?:is|was)\s+worker-[a-d]\b/.test(sentence)
+      || /\bworker-[a-d]\s+owns?\b/.test(sentence)
+      || /\bworker-[a-d]\s+(?:holds|held)\s+(?:the\s+lock|it)\b/.test(sentence)
+      || /\b(?:ownership|uncertainty)\s+(?:is|was|has been)\s+resolved\b/.test(sentence);
+  });
 }
 
 /** @type {Scenario[]} */
