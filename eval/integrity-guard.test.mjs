@@ -124,6 +124,20 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("allows shell option setup without exposing environment state", () => {
+    for (const command of [
+      "set -e",
+      "set -eu",
+      "set -euo pipefail",
+      "set -o errexit",
+      "set +o errexit",
+      "set -euo pipefail && bun test",
+      "bun test && set -o errexit && bun run typecheck",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toEqual({ block: false });
+    }
+  });
+
   test("blocks bash escape and process/environment discovery patterns", () => {
     for (const command of [
       "cat /etc/passwd",
@@ -135,6 +149,11 @@ describe("measurement integrity tool-call gate", () => {
       "find eval/.runs -type f",
       "ps aux",
       "set",
+      "set # print shell variables",
+      "set -o",
+      "set +o",
+      "bun test; set -o; bun run typecheck",
+      "bun test && set +o && bun run typecheck",
       "export -p",
       "declare -x",
       "echo $ACM_INTEGRITY_AUDIT_PATH",

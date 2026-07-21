@@ -110,17 +110,25 @@ function resolvedToolPath(workspace, rawPath) {
   return canonicalExistingPath(isAbsolute(candidate) ? candidate : resolve(workspace, candidate));
 }
 
+function hasShellOptionOrEnvironmentDump(command) {
+  // `set` alone exposes shell variables; `set -o` and `set +o` expose option
+  // state. Named option changes (for example, `set -o errexit`) are normal
+  // shell setup and must remain available to evaluation flows.
+  return /(?:^|[;&|()\s])set(?:\s*(?=$|[;&|()\n#])|\s+[+-]o\s*(?=$|[;&|()\n#]))/.test(command);
+}
+
 function bashViolation(command) {
   const checks = [
     ["bash_absolute_path", /(^|[\s"'=;|&(])\/(?!\/)/],
     ["bash_parent_escape", /(^|[\/\s"'=])\.\.([\/\s"'=]|$)/],
     ["bash_home_or_pi_discovery", /(^|[\s"'=;|&(])(?:~(?:\/|$)|\$HOME\b|\$\{HOME\}|\.pi(?:\/|\b)|PI_CODING_AGENT_DIR\b|CODEX_HOME\b)/i],
     ["bash_eval_run_discovery", /(^|[\/\s"'=])eval\/\.runs(?:[\/\s"'=]|$)/i],
-    ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof|set)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
+    ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
   ];
   for (const [code, pattern] of checks) {
     if (pattern.test(command)) return code;
   }
+  if (hasShellOptionOrEnvironmentDump(command)) return "bash_process_or_env_discovery";
   return null;
 }
 
