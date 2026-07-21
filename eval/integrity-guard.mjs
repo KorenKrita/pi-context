@@ -46,6 +46,7 @@ const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_START_BOUNDARY})`;
 const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
 const BASH_TOKEN_END = `(?=$|${BASH_TOKEN_END_BOUNDARY})`;
 const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
+const BASH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_TOKEN_START_BOUNDARY);
 const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
 const BASH_SAFE_DEVICE_PATH_PATTERN = new RegExp(`(${BASH_PATH_START})/dev/null${BASH_TOKEN_END}`, "g");
@@ -151,22 +152,77 @@ function maskSafeDevicePaths(command) {
   return command.replace(BASH_SAFE_DEVICE_PATH_PATTERN, "$1__ACM_SAFE_DEVICE__");
 }
 
+// Quoted prose may contain shell-looking separators. Preserve only a quoted
+// word's leading path signal; neutralize its interior delimiters for checks.
+function quoteAwarePathCommands(command) {
+  let absolutePathCommand = "";
+  let pathCommand = "";
+  let quote = null;
+  let quoteAtWordStart = false;
+  let quoteHasContent = false;
+  let wordHasContent = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote === null) {
+      if (character === "\\" && (command[index + 1] === "'" || command[index + 1] === '"')) {
+        absolutePathCommand += "__";
+        pathCommand += "__";
+        wordHasContent = true;
+        index += 1;
+      } else if (character === "'" || character === '"') {
+        quote = character;
+        quoteAtWordStart = !wordHasContent;
+        quoteHasContent = false;
+        const rendered = quoteAtWordStart ? character : "_";
+        absolutePathCommand += rendered;
+        pathCommand += rendered;
+      } else {
+        absolutePathCommand += character;
+        pathCommand += character;
+        wordHasContent = !BASH_BOUNDARY_CHARACTER_PATTERN.test(character);
+      }
+      continue;
+    }
+
+    if (quote === '"' && character === "\\" && index + 1 < command.length) {
+      absolutePathCommand += "__";
+      pathCommand += "__";
+      quoteHasContent = true;
+      index += 1;
+    } else if (character === quote) {
+      pathCommand += character;
+      absolutePathCommand += quoteAtWordStart && !quoteHasContent && !wordHasContent ? character : "_";
+      wordHasContent ||= quoteHasContent;
+      quote = null;
+    } else {
+      quoteHasContent = true;
+      const rendered = BASH_BOUNDARY_CHARACTER_PATTERN.test(character) ? "_" : character;
+      absolutePathCommand += rendered;
+      pathCommand += rendered;
+    }
+  }
+
+  return { absolutePathCommand, pathCommand };
+}
+
 function bashViolation(command, workspace) {
   // Evaluation agents normally enter their isolated workspace by absolute path.
   // Mask only that exact root (and its realpath alias) before path-escape
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
-  const pathCheckedCommand = maskSafeDevicePaths(maskWorkspacePaths(command, workspace));
-  const pathChecks = [
-    ["bash_absolute_path", BASH_ABSOLUTE_PATH_PATTERN],
-    ["bash_parent_escape", BASH_PARENT_ESCAPE_PATTERN],
-  ];
-  for (const [code, pattern] of pathChecks) {
-    if (pattern.test(pathCheckedCommand)) return code;
-  }
-  const checks = [
+  const maskedPathCommand = maskSafeDevicePaths(maskWorkspacePaths(command, workspace));
+  const { absolutePathCommand, pathCommand } = quoteAwarePathCommands(maskedPathCommand);
+  if (BASH_ABSOLUTE_PATH_PATTERN.test(absolutePathCommand)) return "bash_absolute_path";
+  if (BASH_PARENT_ESCAPE_PATTERN.test(pathCommand)) return "bash_parent_escape";
+  const pathSensitiveChecks = [
     ["bash_home_or_pi_discovery", BASH_HOME_OR_PI_PATTERN],
     ["bash_eval_run_discovery", BASH_EVAL_RUN_PATTERN],
+  ];
+  for (const [code, pattern] of pathSensitiveChecks) {
+    if (pattern.test(pathCommand)) return code;
+  }
+  const checks = [
     ["bash_process_or_env_discovery", /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|process\.env\b|os\.environ\b|Deno\.env\b|getenv\s*\(|\bACM_INTEGRITY_[A-Z0-9_]+\b/i],
   ];
   for (const [code, pattern] of checks) {

@@ -144,6 +144,9 @@ describe("measurement integrity tool-call gate", () => {
       "ls /private/tmp/saffron-workspace>x",
       "ls /private/tmp/saffron-workspace<in",
       "echo https://example.com",
+      "git log -1 --pretty='author=%an <%ae> / committer=%cn <%ce> / %h'",
+      "git commit -m 'Control / Policy'",
+      'printf "author=\\"%an / %ae\\""',
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
@@ -213,6 +216,10 @@ describe("measurement integrity tool-call gate", () => {
       ["cd /private/tmp/saffron-workspace && cd ~user/path", "bash_home_or_pi_discovery"],
       ["cd /private/tmp/saffron-workspace && x=foo:/etc; cd ${x#*:}", "bash_absolute_path"],
       ["cd /private/tmp/saffron-workspace && x=:~korenkrita; cd ${x#:}", "bash_home_or_pi_discovery"],
+      ["cat '/etc/passwd'", "bash_absolute_path"],
+      [`cd "${policy.workspace}/.."`, "bash_parent_escape"],
+      ["cd '~korenkrita'", "bash_home_or_pi_discovery"],
+      ["find 'eval/.runs'", "bash_eval_run_discovery"],
     ]) {
       expect(evaluateToolCall({
         toolName: "bash",
