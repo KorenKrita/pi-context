@@ -353,6 +353,26 @@
         <td>Advance the exact Pi host contract from <code>0.80.7</code> to <code>0.81.1</code> and construct fixture registries through the canonical <code>ModelRuntime</code>.</td>
         <td>Pi <code>0.81.1</code> removes the exported <code>AuthStorage</code>/<code>ModelRegistry.create()</code> setup used by the old fixture. Tests now create an isolated <code>ModelRuntime</code> with a temporary auth path, no models file, and network catalog refresh disabled, then pass <code>new ModelRegistry(runtime)</code> to the exact <code>ExtensionRunner</code>. This keeps host-contract tests deterministic while validating the current compaction, branch-summary retry, settled lifecycle, and live-session capability shape.</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Judge pivot recovery by the best usable recovery route rather than requiring a checkpoint or raw backup ritual.</td>
+        <td>The pivot scorer now accepts a checkpoint/backup only when the handoff's primary Recover reference names it, and also accepts a complete durable <code>research-brief.md</code> that was written before travel and verified from the workspace. Evidence/External mentions, nonexistent aliases, source globs, post-travel writes, and incomplete artifacts do not substitute. This corrected two Sonnet false negatives without turning every completed-front pivot into a mandatory checkpoint→travel→backup sequence.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Do not ship the additive pivot/NEXT prompt prototypes from the post-merge optimization search.</td>
+        <td>Checkpoint-parking, pivot-backup, pivot-precommit, Recover-artifact, and both long/short NEXT-obligation treatments either failed to improve the target weak-model cohort, duplicated existing authority rails, or introduced cross-model regressions. The paired NEXT matrix kept aggregate NEXT correctness at 17/18 on both arms while moving one failure from DeepSeek to Gemini; the shorter treatment then produced three early Gemini stale-replay failures. The existing <code>currentUserTurnOpen</code> receipt/Context Packet contract remains the delivery floor without adding more global schema sediment.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Clarify rehydrate navigation at the two argument-formation seams without adding a runtime return state machine.</td>
+        <td><code>backupCurrentHeadAs</code> is now explicitly a brand-new alias on the exact protocol-complete origin path and never selects the destination; existing checkpoint/archive/return aliases belong in <code>target</code>. A successful off-path result tells bounded rehydration to execute NEXT, carry the extract through the handoff-named return pointer, and not substitute an older fold base. Same-time DeepSeek control versus candidate moved from 0/6 to 3/6 and removed every <code>backup_protocol_incomplete</code>, rejected-travel, and extra-retry branch; the remaining failures were only wrong-base choices. Runtime still never infers, stores, or silently rewrites a semantic return target.</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Accept semantically explicit deferred-wait wording in topology scoring.</td>
+        <td>A correct Sol round trip used “Wait explicitly for the next user instruction,” but the evaluator only accepted a contiguous “wait for” phrase. The trigger recognizer now allows the observed adverb while retaining the next-user requirement, so equivalent temporal gating is not mislabeled as a product failure.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

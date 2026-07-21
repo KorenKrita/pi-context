@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-21T17:18:32Z",
+  "title": "ACM post-merge pivot and rehydrate optimization evidence",
+  "scope": "Compact evidence index for the optimization round after PR #18 merged. Raw reports, sessions, event streams, and workspaces remain under eval/.runs or the named throwaway worktrees; this file records only decision-relevant outcomes and extrapolation limits.",
+  "product": {
+    "base": {
+      "commit": "eb0c8010e4fd2a8c759de858592451667ad08f57",
+      "subject": "Merge pull request #18 from KorenKrita/codex/acm-redesign-plan"
+    },
+    "candidateLine": [
+      {
+        "commit": "cc14926e60edc1f408333ac072c28f105ec95129",
+        "subject": "test: add post-merge pivot optimization matrix"
+      },
+      {
+        "commit": "9f0e5ce501b1898e1f7b240a524b5c26f7122693",
+        "subject": "test: align pivot recovery scoring with handoff"
+      },
+      {
+        "commit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+        "subject": "fix: clarify rehydrate recovery pointers"
+      },
+      {
+        "commit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
+        "subject": "test: accept explicit deferred wait wording"
+      }
+    ],
+    "runtimeVersions": {
+      "livePiCli": "0.80.10",
+      "pinnedHostFixture": "0.80.7",
+      "note": "Live stochastic behavior and exact deterministic host-contract verification use separate recorded versions."
+    }
+  },
+  "baselineAndCalibration": {
+    "postMergePivotMatrix": {
+      "path": "eval/.runs/matrix-2026-07-21T12-08-36-354Z-acm-pivot-restraint-post-merge-v1-p67174",
+      "raw": {
+        "passed": 80,
+        "total": 88,
+        "scenarioFailures": 8
+      },
+      "currentScorerPivotReclassification": {
+        "passed": 38,
+        "total": 44,
+        "previousPassed": 36
+      },
+      "reason": "Two Sonnet product runs named a complete pre-travel research-brief.md as the primary Recover route. The previous scorer incorrectly required a checkpoint or backup even when raw conversation had no independent recovery value."
+    },
+    "currentHeadPivotControl": {
+      "path": "eval/.runs/matrix-2026-07-21T15-39-01-257Z-pivot-current-head-control-v1-p47129",
+      "passed": 8,
+      "total": 14,
+      "meaning": "Fresh control after scorer calibration; remaining failures separated task/provider stochasticity, unusable Recover routes, and one post-travel reread."
+    },
+    "deferredWaitScorerCalibration": {
+      "commit": "8759f124463fb308eb8e0d3be947b677a40bd6bb",
+      "acceptedEquivalentForms": [
+        "Wait explicitly for the next user instruction",
+        "Wait for explicit next user instruction"
+      ],
+      "boundary": "The scorer still requires an explicit future user trigger and still rejects early checkpoint/travel execution."
+    }
+  },
+  "prototypeSearch": {
+    "pivotAndNext": [
+      {
+        "prototype": "pivot-backup-cue",
+        "commit": "e27d2e5e9340d8a2810c78f2a0c26c28a1a48f72",
+        "raw": "21/31",
+        "verdict": "reject",
+        "reason": "No reliable pivot uplift; global backup salience also reinforced the exact alias-role confusion seen in rehydrate."
+      },
+      {
+        "prototype": "pivot-precommit",
+        "commit": "18879e343f57fa6ccfbf22524c4b4f1fc67336b0",
+        "raw": "33/45",
+        "verdict": "reject",
+        "reason": "Broadened a signal into a pre-action seam without improving Haiku and risked a fixed pivot ritual."
+      },
+      {
+        "prototype": "checkpoint-parking",
+        "commit": "a7e7dbfd74019d77d5a41dd0afc99cf096492201",
+        "raw": "31/39",
+        "verdict": "reject",
+        "reason": "Did not improve the target Haiku cohort and duplicated existing CORE parking guidance."
+      },
+      {
+        "prototype": "recover-artifact",
+        "commit": "6a1da6476377e610eef92921df6c677e05b88669",
+        "raw": "28/39",
+        "verdict": "reject",
+        "reason": "Expanded Recover slot semantics globally without stable behavior gain; complete artifacts remain accepted by the calibrated scenario without changing the production schema."
+      },
+      {
+        "prototype": "next-obligation-long",
+        "commit": "e47239d0fd53adfb27259fac08413cc699814bde",
+        "paired": {
+          "control": {
+            "path": "eval/.runs/matrix-2026-07-21T16-09-50-471Z-next-obligation-paired-v1-p83443",
+            "overall": "16/18",
+            "nextCheck": "17/18"
+          },
+          "treatment": {
+            "path": "/private/tmp/pi-context-next-obligation-cue-prototype/eval/.runs/matrix-2026-07-21T16-09-50-471Z-next-obligation-paired-v1-p83444",
+            "overall": "15/18",
+            "nextCheck": "17/18"
+          }
+        },
+        "verdict": "reject",
+        "reason": "DeepSeek NEXT improved 5/6 to 6/6, but Gemini shifted 3/3 to 2/3 and aggregate NEXT correctness was unchanged."
+      },
+      {
+        "prototype": "next-obligation-short",
+        "commit": "9cb78938d8fec9deb040773e17948324b300e657",
+        "verdict": "reject",
+        "reason": "DeepSeek pivot was 6/6, but the first three Gemini runs all showed stale replay or wrong first continuation action; the run was stopped because the cue had no cross-model net benefit."
+      }
+    ],
+    "rehydrate": [
+      {
+        "prototype": "return-cue",
+        "commit": "297c3c23f465b01e1886cde09051c71f4309122a",
+        "raw": "7/19",
+        "verdict": "reject",
+        "reason": "Clarified the return destination but left backupCurrentHeadAs role confusion untouched."
+      },
+      {
+        "prototype": "travel-guideline",
+        "commit": "844c229dde99dbcec486dcc95ecb50a1d4f1d5c6",
+        "raw": "13/23",
+        "verdict": "superseded",
+        "reason": "Directional improvement, but copied advanced workflow into every travel prompt and weak models still reused existing aliases as backups."
+      },
+      {
+        "prototype": "verified-pointer-runtime",
+        "commit": "ba01261b21dc44d695dce3bde0789f3bb7a329d9",
+        "partial": {
+          "deepseekFlash": "1/6",
+          "gptMini": "1/6"
+        },
+        "verdict": "reject",
+        "reason": "A heuristic runtime alias inference added complexity and public details without behavior gain."
+      },
+      {
+        "prototype": "target-description",
+        "commit": "337db9f1e705ac69f803c778ed39ec6d524b7bd5",
+        "partial": {
+          "deepseekFlash": "4/6",
+          "gptMiniValid": "1/4",
+          "solValid": "1/2"
+        },
+        "verdict": "reject",
+        "reason": "No gain over the smaller candidate and one strong-model regression signal."
+      },
+      {
+        "prototype": "recover-ordering",
+        "commit": "0ed1695ab92c13c18571e90887ce351bcc57a877",
+        "partial": {
+          "gptMini": "0/5"
+        },
+        "verdict": "reject",
+        "reason": "The Recover ordering hint was not the tool-argument decision point and widened global schema text."
+      }
+    ]
+  },
+  "productionCandidate": {
+    "commit": "1640cce814ef13fa0e7a0dffb47a790e5861c063",
+    "changes": [
+      "backupCurrentHeadAs is defined as a brand-new alias on the exact protocol-complete origin path and never as destination selection.",
+      "Existing checkpoint/archive/return aliases belong in target; bounded off-path recovery executes NEXT and returns through the handoff-named pointer without substituting an older fold base.",
+      "No runtime return target is inferred, stored, or silently rewritten."
+    ],
+    "sameTimeDeepSeekPair": {
+      "control": {
+        "path": "eval/.runs/matrix-2026-07-21T16-35-25-136Z-rehydrate-final-ds-v1-p5195",
+        "passed": 0,
+        "total": 6
+      },
+      "candidate": {
+        "path": "/private/tmp/pi-context-rehydrate-pointer-prototype/eval/.runs/matrix-2026-07-21T16-35-06-282Z-rehydrate-final-ds-v1-p4999",
+        "passed": 3,
+        "total": 6
+      },
+      "structuralEffect": "The candidate removed every backup_protocol_incomplete, rejected travel, and extra retry branch. Its three failures were only older-base target choices."
+    },
+    "productionRehydrateMatrix": {
+      "path": "eval/.runs/matrix-2026-07-21T16-57-47-135Z-acm-rehydrate-pointer-production-v1-p20611",
+      "raw": {
+        "passed": 11,
+        "valid": 20,
+        "total": 21,
+        "providerFailures": 1,
+        "rawValidPassRate": 0.55
+      },
+      "calibrated": {
+        "passed": 12,
+        "valid": 20,
+        "validPassRate": 0.6
+      },
+      "byModelCalibrated": {
+        "deepseek-v4-flash": "2/6",
+        "gpt-5.4-mini": "2/5 valid; 1 provider failure",
+        "gpt-5.6-sol": "3/3",
+        "claude-opus-4-8": "3/3",
+        "claude-haiku-4-5": "2/3"
+      },
+      "calibration": "One Haiku handoff used semantically correct \"Wait for explicit next user instruction\" wording and is accepted by the final evaluator. The remaining Haiku failure reused the return alias as backup before retrying correctly."
+    },
+    "ordinaryBehaviorRegression": {
+      "path": "eval/.runs/matrix-2026-07-21T16-52-42-539Z-rehydrate-production-regression-v1-p17412",
+      "passed": 16,
+      "total": 16,
+      "scenarios": [
+        "unprompted-fold-on-pivot",
+        "restraint-clean-new-cycle"
+      ],
+      "models": [
+        "deepseek-v4-flash",
+        "gpt-5.4-mini",
+        "gpt-5.6-sol",
+        "claude-opus-4-8",
+        "claude-haiku-4-5",
+        "gemini-3.5-flash"
+      ]
+    }
+  },
+  "verification": {
+    "deterministicGate": {
+      "command": "bun run verify:acm",
+      "rootTests": 276,
+      "hostFixtureTests": 53,
+      "typecheck": "pass",
+      "generatedGuidance": "pass"
+    },
+    "focusedFinalScorer": {
+      "command": "bun test eval/topology-scenarios.test.mjs",
+      "passed": 20,
+      "failed": 0
+    },
+    "review": {
+      "reviewer": "independent reviewer sub-agent",
+      "result": "no P0-P2; one P3 test-name mismatch fixed before production commit"
+    }
+  },
+  "limits": [
+    "Behavior runs are stochastic samples, not model rankings or population estimates.",
+    "The same-time DeepSeek pair is the strongest causal evidence; broader matrices are regression and boundary evidence.",
+    "The production candidate improves the mechanical backup/target floor but does not make all weak-model return-target decisions correct.",
+    "GPT mini failures mix wrong target choice, malformed strict-object arguments, nested top-level parameters, retry branches, and one provider failure; no schema relaxation or runtime retargeting was adopted.",
+    "Raw reports under eval/.runs are local evidence artifacts and are not part of the published package."
+  ]
+}
