@@ -85,6 +85,17 @@ describe("ACM guidance quality", () => {
     expect(TOOL_DESCRIPTIONS.travel).toContain("The result is the only fact");
   });
 
+  test("keeps off-path recovery bounded around the handoff return pointer", () => {
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("Execute this handoff's NEXT directly");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("For a bounded rehydration lookup");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("return pointer named by the handoff");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("carry the extracted detail back");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("use that pointer as the next `target`, not `backupCurrentHeadAs`");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("do not substitute an older fold base");
+    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("intentionally becomes the new working set");
+    expect(RECOVERY_GUIDANCE.restoredHistory).not.toContain("verified return pointer");
+  });
+
   test("routes one advanced condition at a time and reroutes on state change", async () => {
     const skill = await skillFile("SKILL.md");
     expect(skill).toContain("CORE owns the normal path");

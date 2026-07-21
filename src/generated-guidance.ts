@@ -44,6 +44,6 @@ export const RECOVERY_GUIDANCE = {
   "branchRolledBack": "Branch creation failed before mutation; the new backup label was rolled back. Correct the reported host failure before retrying.",
   "rollbackSkipped": "Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer and inspect the active leaf before retrying.",
   "refreshPending": "Travel mutation landed, but rebuilt message evidence is pending. Use the reported summary entry as the fallback and inspect context sync state if the next rebuild fails.",
-  "restoredHistory": "Off-path travel restored raw history. Take the exact detail this rehydration came for, then travel back to the summary branch unless this branch intentionally becomes the new working set.",
+  "restoredHistory": "Off-path travel restored history. Execute this handoff's NEXT directly. For a bounded rehydration lookup, carry the extracted detail back through the return pointer named by the handoff; use that pointer as the next `target`, not `backupCurrentHeadAs`, and do not substitute an older fold base. Stay only when this branch intentionally becomes the new working set.",
   "refreshExhausted": "Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and resume only after the selected branch is authoritative."
 } as const;
