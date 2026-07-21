@@ -133,10 +133,12 @@ export const BEHAVIOR_SCENARIOS = [
       const allCalls = ctx.toolCalls;
       // The first attempted new-front write is the behavior boundary. A failed
       // write before the transition is still an attempted switch and must not
-      // be hidden by a later successful retry after travel.
+      // be hidden by a later successful retry after travel. When no such write
+      // exists, retain the last successful travel for diagnostic attribution.
       const outlineWriteIndex = allCalls.findIndex((call) => writesPath(call, "onboarding-outline.md"));
       const outlineWrite = outlineWriteIndex >= 0 ? allCalls[outlineWriteIndex] : undefined;
-      const transition = outlineWriteIndex >= 0 ? validTravelBefore(allCalls, outlineWriteIndex) : null;
+      const transitionBoundary = outlineWriteIndex >= 0 ? outlineWriteIndex : allCalls.length;
+      const transition = validTravelBefore(allCalls, transitionBoundary);
       const travel = transition?.call;
       const travelIndex = transition?.index ?? -1;
       const checkpoint = travelIndex >= 0
@@ -149,8 +151,8 @@ export const BEHAVIOR_SCENARIOS = [
       const handoff = scoreHandoff(travel?.args?.handoff);
       const firstPostTravel = travelIndex >= 0 ? allCalls[travelIndex + 1] : undefined;
       const directNewFrontAction = toolSucceeded(firstPostTravel) && writesPath(firstPostTravel, "onboarding-outline.md");
-      const postTravelBeforeOutline = travelIndex >= 0 && outlineWriteIndex >= 0
-        ? allCalls.slice(travelIndex + 1, outlineWriteIndex)
+      const postTravelBeforeOutline = travelIndex >= 0
+        ? allCalls.slice(travelIndex + 1, outlineWriteIndex >= 0 ? outlineWriteIndex : allCalls.length)
         : [];
       const rereadBeforeNewFront = postTravelBeforeOutline.some((call) =>
         readsAny(call, ["research/market.md", "research/interviews.md", "research/operations.md"]));
@@ -166,7 +168,11 @@ export const BEHAVIOR_SCENARIOS = [
               ? `travel backup=${backup}`
               : "no successful checkpoint or non-empty travel backup before the pivot"),
         check("successful transition before the new-front write", toolSucceeded(travel) && toolSucceeded(outlineWrite),
-          travel ? "travel succeeded before onboarding-outline.md" : "no successful travel before onboarding-outline.md"),
+          outlineWriteIndex < 0 && travel
+            ? "travel succeeded, but onboarding-outline.md was never attempted"
+            : travel
+              ? "travel succeeded before onboarding-outline.md"
+              : "no successful travel before onboarding-outline.md"),
         check("structured handoff", handoff.ok, handoff.detail),
         check("handoff NEXT names the new front", nextNamesOutline,
           nextNamesOutline ? "NEXT carries onboarding-outline.md" : "NEXT did not name onboarding-outline.md"),

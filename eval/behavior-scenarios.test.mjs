@@ -100,6 +100,46 @@ describe("unprompted pivot behavior scenario", () => {
     expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(false);
   });
 
+  test("attributes a missing outline to the actual stale-replay travel", async () => {
+    const root = workspace();
+    const staleHandoff = { ...HANDOFF, next: "none — research front is closed." };
+    const calls = [
+      call("acm_checkpoint", { name: "research-brief-complete" }),
+      call("acm_travel", {
+        target: "root",
+        handoff: staleHandoff,
+        backupCurrentHeadAs: "research-raw-process",
+      }),
+      call("read", { path: "research-brief.md" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "recoverable save point before the pivot")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "successful transition before the new-front write")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "structured handoff")?.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "handoff NEXT names the new front")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "first post-transition tool action writes the new front")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "onboarding outline exists with required content")?.pass).toBe(false);
+  });
+
+  test("does not let a travel after the first outline write repair ordering", async () => {
+    const root = workspace();
+    writeFileSync(join(root, "onboarding-outline.md"), "# First day\n## Access setup\n## First support task\n");
+    const calls = [
+      call("write", { path: "onboarding-outline.md", content: "outline" }),
+      call("acm_checkpoint", { name: "too-late" }),
+      call("acm_travel", { target: "root", handoff: HANDOFF, backupCurrentHeadAs: "too-late-raw" }),
+    ];
+
+    const result = await pivot.score({ events: [], toolCalls: calls, assistantTexts: [], workspace: root });
+
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "successful transition before the new-front write")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "structured handoff")?.pass).toBe(false);
+  });
+
   test("does not credit write arguments when the real workspace file is absent", async () => {
     const root = workspace();
     const calls = [
