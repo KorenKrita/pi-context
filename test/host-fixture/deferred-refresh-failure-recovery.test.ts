@@ -86,6 +86,21 @@ async function emit(
   return result;
 }
 
+function finalizedTravelResult(
+  toolCallId: string,
+  result: { content: any; details?: any },
+): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId,
+    toolName: "acm_travel",
+    content: result.content,
+    details: result.details,
+    isError: false,
+    timestamp: Date.now(),
+  };
+}
+
 function createSpyAdapter(): LiveAgentSessionAdapter & { scheduled: number; applied: number } {
   const initial: AgentSessionSyncOutcome = {
     status: "skipped",
@@ -134,8 +149,8 @@ describe("deferred live synchronization fallback", () => {
 
     const result = await travelTool.execute("unsupported", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
     expect(result.details).toMatchObject({
-      contextRefreshState: "pending_run_settle",
-      contextDeliveryPhase: "pending_run_settle",
+      contextRefreshState: "pending_tool_result",
+      contextDeliveryPhase: "pending_tool_result",
       // Even when native AgentSession replacement is unavailable, successful
       // tree mutation remains recoverable through the persisted packet.  The
       // raw outcome must be present on the initial receipt, not inferred from
@@ -151,7 +166,12 @@ describe("deferred live synchronization fallback", () => {
         reason: "unsupported_host_shape",
       },
     });
-    expect(await emit(handlers, "context", { messages: staleMessages }, context)).toBeUndefined();
+    const initialProvider = await emit(handlers, "context", {
+      messages: [...staleMessages, finalizedTravelResult("unsupported", result)],
+    }, context) as { messages?: AgentMessage[] };
+    const initialPacket = rebuildAcmContextPacket(sessionManager);
+    if (!initialPacket.ok) throw new Error(initialPacket.message);
+    expect(initialProvider.messages).toEqual(initialPacket.value.messages);
 
     await emit(handlers, "agent_settled", {}, context);
     const rebuiltResult = rebuildAcmContextPacket(sessionManager);
@@ -189,11 +209,15 @@ describe("deferred live synchronization fallback", () => {
       context,
     );
     expect(result.details).toMatchObject({
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
     });
     await emit(handlers, "tool_execution_end", { toolCallId: "replacement-failure", toolName: "acm_travel" }, context);
     expect(runtime.getLiveAgentSyncStatus(sessionManager)).toMatchObject({ status: "pending" });
     expect(notifications).toEqual([]);
+
+    await emit(handlers, "context", {
+      messages: [finalizedTravelResult("replacement-failure", result)],
+    }, context);
 
     await emit(handlers, "agent_settled", {}, context);
     expect(runtime.getLiveAgentSyncStatus(sessionManager)).toMatchObject({
@@ -213,7 +237,8 @@ describe("deferred live synchronization fallback", () => {
     const timeline = await timelineTool.execute("timeline", { view: "active" }, undefined, undefined, context);
     expect((timeline.content[0] as { text: string }).text).toContain("Context Delivery:");
     expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "active",
+      contextDeliveryPhase: "provider_active_native_failed",
+      providerDeliveryPhase: "active",
       nativeContextReplacement: { status: "failed", reason: "replace_messages_failed" },
     });
   });
@@ -224,9 +249,10 @@ describe("deferred live synchronization fallback", () => {
     const runtime = new AcmSessionRuntime(adapter);
     const { context, handlers, travelTool } = registerFixture(sessionManager, runtime);
 
-    await travelTool.execute("transient-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    const receipt = await travelTool.execute("transient-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    sessionManager.appendMessage(finalizedTravelResult("transient-rebuild", receipt));
     await emit(handlers, "agent_settled", {}, context);
-    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("ready");
 
     const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
     let failReads = 1;
@@ -239,16 +265,16 @@ describe("deferred live synchronization fallback", () => {
     });
     const retained = [{ role: "user", content: "retain live messages until rebuild succeeds" }] as AgentMessage[];
     const failed = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
-    expect(failed.messages).toBe(retained);
+    expect(failed.messages).toEqual(retained);
     expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
-    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("fallback");
 
     const recovered = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
     const rebuilt = rebuildAcmContextPacket(sessionManager);
     if (!rebuilt.ok) throw new Error(rebuilt.message);
     expect(recovered.messages).toEqual(rebuilt.value.messages);
     expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
-    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("active");
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("provider_active_native_unavailable");
   });
 
   test("an exact-host invalid persisted packet stays pending and leaves current delivery untouched", async () => {
@@ -265,6 +291,7 @@ describe("deferred live synchronization fallback", () => {
       context,
     );
     expect(receipt.details?.error).toBeUndefined();
+    sessionManager.appendMessage(finalizedTravelResult("invalid-persisted-packet", receipt));
     await emit(handlers, "agent_settled", {}, context);
 
     const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
@@ -293,9 +320,9 @@ describe("deferred live synchronization fallback", () => {
 
     const refused = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
 
-    expect(refused.messages).toBe(retained);
+    expect(refused.messages).toEqual(retained);
     expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
-    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("fallback");
     expect(notifications.at(-1)).toContain("invalid tool protocol");
     expect(notifications.at(-1)).toContain("invalid_tool_call_id");
 
@@ -315,7 +342,7 @@ describe("deferred live synchronization fallback", () => {
     const rebuilt = rebuildAcmContextPacket(sessionManager);
     if (!rebuilt.ok) throw new Error(rebuilt.message);
     expect(recovered.messages).toEqual(rebuilt.value.messages);
-    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("active");
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("provider_active_native_unavailable");
 
     await emit(handlers, "turn_end", {
       message: {
@@ -329,13 +356,81 @@ describe("deferred live synchronization fallback", () => {
     });
   });
 
+  test("cached exhaustion stops persistent reads but still records actual provider turn usage", async () => {
+    const { rootId, sessionManager } = createSession();
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
+    const runtime = new AcmSessionRuntime(adapter);
+    const { appendedEntries, context, handlers, travelTool } = registerFixture(sessionManager, runtime);
+    const staleMessages = sessionManager.buildSessionContext().messages as AgentMessage[];
+
+    const receipt = await travelTool.execute(
+      "cached-exhausted-usage",
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+    const finalizedReceipt = {
+      role: "toolResult" as const,
+      toolCallId: "cached-exhausted-usage",
+      toolName: "acm_travel",
+      content: receipt.content,
+      details: receipt.details,
+      isError: false,
+      timestamp: Date.now(),
+    };
+    const sourceMessages = [...staleMessages, finalizedReceipt];
+    await emit(handlers, "context", { messages: sourceMessages }, context);
+    expect(runtime.getProviderDeliveryStatus(sessionManager).phase).toBe("active");
+
+    const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
+    let failedReads = 0;
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: () => {
+        failedReads++;
+        throw new Error("persistent cache refresh failure");
+      },
+    });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await emit(handlers, "context", { messages: sourceMessages }, context);
+      expect(runtime.contextRefresh.getAttemptCount(sessionManager)).toBe(attempt);
+    }
+    expect(runtime.getProviderDeliveryStatus(sessionManager).phase).toBe("cached_exhausted");
+    expect(failedReads).toBe(3);
+
+    await emit(handlers, "context", { messages: sourceMessages }, context);
+    expect(failedReads).toBe(3);
+    await emit(handlers, "turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    }, context);
+    expect(runtime.getUsage(sessionManager)).toEqual({
+      tokens: 20_000,
+      contextWindow: 100_000,
+      percent: 20,
+    });
+    expect(appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
+    });
+
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: originalGetEntries,
+    });
+  });
+
   test("bounded rebuild exhaustion does not falsely report active delivery", async () => {
     const { rootId, sessionManager } = createSession();
     const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
     const runtime = new AcmSessionRuntime(adapter);
     const { context, handlers, notifications, travelTool } = registerFixture(sessionManager, runtime);
 
-    await travelTool.execute("exhausted-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    const receipt = await travelTool.execute("exhausted-rebuild", { target: rootId, handoff: HANDOFF }, undefined, undefined, context);
+    sessionManager.appendMessage(finalizedTravelResult("exhausted-rebuild", receipt));
     await emit(handlers, "agent_settled", {}, context);
     const originalGetEntries = sessionManager.getEntries.bind(sessionManager);
     Object.defineProperty(sessionManager, "getEntries", {
@@ -346,7 +441,7 @@ describe("deferred live synchronization fallback", () => {
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       const failed = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
-      expect(failed.messages).toBe(retained);
+      expect(failed.messages).toEqual(retained);
       expect(runtime.getContextDeliveryPhase(sessionManager)).not.toBe("active");
       expect(runtime.contextRefresh.getAttemptCount(sessionManager)).toBe(attempt);
       expect(runtime.contextRefresh.isPending(sessionManager)).toBe(attempt < 3);

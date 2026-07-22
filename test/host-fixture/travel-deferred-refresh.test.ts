@@ -732,8 +732,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       context,
     );
     expect(result.details).toMatchObject({
-      contextRefreshState: "pending_run_settle",
-      contextDeliveryPhase: "pending_run_settle",
+      contextRefreshState: "pending_tool_result",
+      contextDeliveryPhase: "pending_tool_result",
       activeSummaryDepthBefore: 0,
       activeSummaryDepthAfter: 1,
       activeSummaryDepthDelta: 1,
@@ -749,19 +749,22 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       toolCallId: TOOL_CALL_ID,
       toolName: "acm_travel",
       content: [{ type: "text", text: "Travel complete" }],
+      details: result.details,
       isError: false,
       timestamp: Date.now(),
     };
     const inFlightContext = [...staleMessages, toolResult];
     expect(hasToolCall(inFlightContext, TOOL_CALL_ID)).toBe(true);
-    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    const providerContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
+    expect(providerContext.messages).toEqual(acmMessages(sessionManager));
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     // Error may retry; only agent_settled permits replacement.
     await emit(handlers, "agent_end", {
       messages: [{ role: "assistant", content: [], stopReason: "error" }],
     }, context);
-    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    const retryProviderContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
+    expect(retryProviderContext.messages).toEqual(acmMessages(sessionManager));
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "agent_settled", {}, context);
@@ -789,7 +792,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(timeline.content[0]).toMatchObject({ type: "text" });
     expect((timeline.content[0] as { text: string }).text).toContain("Context Delivery:");
     expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "active",
+      contextDeliveryPhase: "provider_active_native_applied",
       nativeContextReplacement: { status: "applied" },
     });
   });

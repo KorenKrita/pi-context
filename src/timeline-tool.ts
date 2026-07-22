@@ -563,11 +563,20 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const refreshFailure = runtime.contextRefresh.getFailure(sessionManager);
       const refreshPending = runtime.contextRefresh.isPending(sessionManager);
       const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
+      const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
+      const providerEpoch = providerDelivery.persistentMutationApplied;
+      const providerTurnUsageAuthoritative = providerDelivery.usageObserved;
+      const authoritativePressure = providerTurnUsageAuthoritative
+        ? calculateContextUsagePressure(lastUsage?.tokens, lastUsage?.contextWindow, lastUsage?.percent)
+        : providerDelivery.persistentMutationApplied
+          ? null
+          : officialPressure;
       const hudParts = [
         "[Context Dashboard]",
-        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (official hard window)`,
-        `• ACM Pressure:     ${officialPressure ? formatContextUsagePressure(officialPressure) : "N/A"}`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (turn_end)`,
+        `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
+        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
+        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerEpoch ? "provider actual" : "native context"})`,
+        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerEpoch ? "provider actual turn_end" : "turn_end"})`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
@@ -586,16 +595,26 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)
           : "";
         hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
-      } else if (refreshPending) {
+      }
+      if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const pendingPhase = deliveryPhase === "pending_run_settle"
-          ? "same-run messages preserved; waiting for agent_settled"
-          : deliveryPhase === "next_context_rebuild"
-            ? "agent settled; rebuild starts on the next context event"
-            : `persistent rebuild active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
-        hudParts.push(`• Context Delivery: ${pendingPhase}${attempt > 0 ? ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})` : ""}`);
+        const pendingPhase = providerDelivery.phase === "pending_tool_result"
+          ? "waiting for matching persisted tool_result; current valid tool batch is preserved"
+          : providerDelivery.phase === "ready"
+            ? "matching receipt observed; provider Context Packet rebuild starts on this context event"
+            : providerDelivery.phase === "fallback"
+              ? "provider rebuild fallback is retrying from the latest persisted branch"
+              : `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
+        const retry = attempt === 0
+          ? ""
+          : providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null
+            ? ` (cached retry ${attempt})`
+            : ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
+        hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
+        hudParts.push(`• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`);
       } else {
-        hudParts.push(`• Context Delivery: ${deliveryPhase === "active" ? "active persisted context" : deliveryPhase}`);
+        hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
+        hudParts.push(`• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`);
       }
       const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
       const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
@@ -604,6 +623,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } else if (liveSyncRecovery) {
         const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
         hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
+      } else {
+        hudParts.push(`• Native Replacement: ${liveSync.status}`);
       }
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive
@@ -620,7 +641,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
           contextUsage: officialUsageRaw ? { percent: officialUsageRaw.percent, tokens: officialUsageRaw.tokens, contextWindow: officialUsageRaw.contextWindow } : null,
+          contextUsageAuthority: providerTurnUsageAuthoritative
+            ? "provider_turn_end"
+            : providerDelivery.persistentMutationApplied
+              ? "provider_pending"
+              : "native_context",
           contextPressure: officialPressure ?? null,
+          authoritativeContextPressure: authoritativePressure ?? null,
           leafId,
           nearestCheckpoint,
           stepsSinceCheckpoint,
@@ -655,6 +682,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           contextRefreshPending: refreshPending,
           contextRefreshFailure: refreshFailure ?? null,
           contextDeliveryPhase: deliveryPhase,
+          persistentMutationApplied: providerDelivery.persistentMutationApplied,
+          providerDeliveryPhase: providerDelivery.phase,
+          providerPacketMessageCount: providerDelivery.packetMessageCount,
+          providerPacketLeafId: providerDelivery.leafId,
+          providerPacketError: providerDelivery.error,
           nativeContextReplacement: liveSync,
           nativeContextReplacementRecovery: liveSyncRecovery,
         },

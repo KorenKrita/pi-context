@@ -5,7 +5,6 @@ import type {
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
-import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import {
   buildContextUsageNudgeMessage,
@@ -20,59 +19,70 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
-interface TravelToolResultLike {
-  toolName: string;
-  toolCallId: string;
-  input: Record<string, unknown>;
-  isError: boolean;
-  details?: unknown;
-}
-
-export function buildPostTravelContinuationSteer(event: TravelToolResultLike) {
-  if (event.toolName !== "acm_travel" || event.isError) return null;
-  const details = typeof event.details === "object" && event.details !== null
-    ? event.details as Record<string, unknown>
+function isAppliedTravelReceipt(message: AgentMessage, toolCallId: string): boolean {
+  if (
+    message.role !== "toolResult"
+    || message.toolCallId !== toolCallId
+    || message.toolName !== "acm_travel"
+    || message.isError
+  ) return false;
+  const details = typeof message.details === "object" && message.details !== null
+    ? message.details as Record<string, unknown>
     : undefined;
-  if (details?.error !== undefined || details?.handoffFormat !== "structured-v1" || typeof details.resultingLeafId !== "string") {
-    return null;
-  }
-  const handoff = buildCanonicalHandoff(event.input.handoff as HandoffWireInput);
-  if (!handoff.ok) return null;
-  const next = handoff.value.fields.next;
-  const currentUserTurnOpen = details.currentUserTurnOpen === true;
-  return {
-    customType: "acm:post-travel-continuation",
-    content: [
-      "[ACM POST-TRAVEL CONTINUATION]",
-      "Travel succeeded. This message is not a new objective; it makes the authoritative handoff's current instruction explicit after the transition.",
-      `REQUIRED NEXT: ${next}`,
-      ...(currentUserTurnOpen ? [
-        "CURRENT USER TURN IS STILL OPEN: deliver the result requested by the user who triggered travel. Ignore any NEXT that merely waits for another request; recording an answer in State is not user-visible delivery.",
-      ] : []),
-      "Earlier pre-travel requests are historical. Execute REQUIRED NEXT once now; do not reread folded material, recreate an old save point, or replay an earlier task unless REQUIRED NEXT explicitly requires it.",
-      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites; do not open them unless REQUIRED NEXT names them.",
-    ].join("\n"),
-    display: false,
-    details: {
-      kind: "post-travel-continuation",
-      version: 1,
-      toolCallId: event.toolCallId,
-      resultingLeafId: details.resultingLeafId,
-      next,
-      currentUserTurnOpen,
-    },
-  };
+  return details?.mutationStatus === "applied"
+    && details.handoffFormat === "structured-v1"
+    && typeof details.resultingLeafId === "string";
 }
 
-function mayQueuePostTravelContinuation(ctx: ExtensionContext): boolean {
-  if (ctx.signal?.aborted) return false;
-  try {
-    return typeof ctx.hasPendingMessages !== "function" || !ctx.hasPendingMessages();
-  } catch {
-    // If queue ordering cannot be observed, preserve the later-user-wins
-    // invariant by relying on the in-place Context Packet continuation only.
-    return false;
+type FinalTravelReceipt =
+  | { status: "success"; message: AgentMessage; index: number }
+  | { status: "rejected" }
+  | { status: "untrusted" }
+  | { status: "unavailable" }
+  | { status: "absent" };
+
+function findFinalTravelReceipt(
+  messages: readonly AgentMessage[],
+  toolCallId: string,
+): FinalTravelReceipt {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role === "toolResult" && message.toolCallId === toolCallId) {
+      if (isAppliedTravelReceipt(message, toolCallId)) return { status: "success", message, index };
+      return message.isError ? { status: "rejected" } : { status: "untrusted" };
+    }
   }
+  return { status: "absent" };
+}
+
+function findPersistedFinalTravelReceipt(
+  sessionManager: ExtensionContext["sessionManager"],
+  toolCallId: string,
+): FinalTravelReceipt {
+  try {
+    const entries = sessionManager.getBranch();
+    for (let index = entries.length - 1; index >= 0; index--) {
+      const entry = entries[index]!;
+      if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+      if (entry.message.toolCallId !== toolCallId) continue;
+      if (isAppliedTravelReceipt(entry.message, toolCallId)) {
+        return { status: "success", message: entry.message, index };
+      }
+      return entry.message.isError ? { status: "rejected" } : { status: "untrusted" };
+    }
+  } catch {
+    return { status: "unavailable" };
+  }
+  return { status: "absent" };
+}
+
+function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): AgentMessage[] | undefined {
+  const initial = analyzeToolProtocol(messages);
+  if (initial.status !== "invalid") return initial.messages.length > 0 ? initial.messages : undefined;
+  const rejectedAssistants = new Set(initial.defects.map((defect) => defect.assistantIndex));
+  const withoutMalformedAssistants = messages.filter((_message, index) => !rejectedAssistants.has(index));
+  const repaired = analyzeToolProtocol(withoutMalformedAssistants);
+  return repaired.status !== "invalid" && repaired.messages.length > 0 ? repaired.messages : undefined;
 }
 
 /**
@@ -95,11 +105,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  pi.on("tool_result", (event, ctx: ExtensionContext) => {
-    const continuation = buildPostTravelContinuationSteer(event);
-    if (continuation && mayQueuePostTravelContinuation(ctx)) {
-      pi.sendMessage(continuation, { deliverAs: "steer" });
-    }
+  pi.on("tool_result", (_event, ctx: ExtensionContext) => {
+    // tool_result handlers are chained and later extensions may still replace
+    // content/details/isError. Final travel authorization is therefore read
+    // only from the finalized toolResult message on the next context event.
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
     if (!nudge) return;
     pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
@@ -122,6 +131,22 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     } catch {
       return;
     }
+    const pendingTravelToolCallId = runtime.getPendingTravelToolCallId(ctx.sessionManager);
+    if (pendingTravelToolCallId) {
+      const receipt = findPersistedFinalTravelReceipt(ctx.sessionManager, pendingTravelToolCallId);
+      if (receipt.status === "success") {
+        runtime.markProviderCutoverReady(ctx.sessionManager, pendingTravelToolCallId);
+      } else if (receipt.status === "rejected" || receipt.status === "untrusted") {
+        runtime.rejectProviderCutover(ctx.sessionManager, pendingTravelToolCallId);
+        return;
+      } else if (receipt.status === "unavailable") {
+        ctx.ui.notify(
+          "The finalized travel receipt could not be inspected at agent settlement. Native context replacement remains pending until the receipt can be verified.",
+          "warning",
+        );
+        return;
+      }
+    }
     const outcome = runtime.settleDeferredRefresh(ctx.sessionManager);
     if (!outcome) return;
     const recovery = getLiveAgentSyncRecoveryGuidance(outcome);
@@ -136,12 +161,28 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("context", (event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
+    const pendingTravelToolCallId = runtime.getPendingTravelToolCallId(sessionManager);
+    if (pendingTravelToolCallId) {
+      const finalEventReceipt = findFinalTravelReceipt(event.messages as AgentMessage[], pendingTravelToolCallId);
+      const finalizedReceipt = finalEventReceipt.status === "absent"
+        ? findPersistedFinalTravelReceipt(sessionManager, pendingTravelToolCallId)
+        : finalEventReceipt;
+      if (finalizedReceipt.status === "success") {
+        runtime.markProviderCutoverReady(sessionManager, pendingTravelToolCallId);
+      } else if (finalizedReceipt.status === "rejected" || finalizedReceipt.status === "untrusted") {
+        runtime.rejectProviderCutover(sessionManager, pendingTravelToolCallId);
+      }
+    }
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     const pressure = calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
-    if (pressure) runtime.observeContextUsage(sessionManager, pressure);
+    if (pressure && runtime.shouldObserveNativeContextUsage(sessionManager)) {
+      runtime.observeContextUsage(sessionManager, pressure);
+    }
     // A same-run context event may occur after acm_travel while the model is
-    // deciding its next action. Preserve that run's host message sequence;
-    // agent_settled unlocks the first later context event for the persisted rebuild.
+    // deciding its next action. Preserve that valid tool batch only until its
+    // matching persisted receipt arrives; the receipt then unlocks immediate
+    // provider delivery from the latest persisted Context Packet. Native
+    // AgentSession messages still wait for agent_settled.
     //
     // branchWithSummary can leave a historical tool result behind when the
     // host appends it after the branch mutation. Do not rebuild persisted
@@ -166,7 +207,29 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         || sanitized.some((message, index) => message !== messages[index]);
       return changed ? { messages: sanitized as typeof event.messages } : undefined;
     }
-    if (!contextRefresh.isPending(sessionManager)) {
+    const providerStatus = runtime.getProviderDeliveryStatus(sessionManager);
+    if (providerStatus.phase === "cached_exhausted") {
+      const merged = runtime.mergeCachedProviderPacket(sessionManager, event.messages as AgentMessage[]);
+      if (merged) {
+        const protocol = analyzeToolProtocol(merged);
+        if (protocol.status !== "invalid" && protocol.messages.length > 0) {
+          runtime.cacheProviderFallbackPacket(sessionManager, protocol.messages, event.messages as AgentMessage[]);
+          return { messages: protocol.messages as typeof event.messages };
+        }
+      }
+      const safeCurrent = buildSafeCurrentProviderFallback(event.messages as AgentMessage[]);
+      runtime.recordProviderDeliveryFailure(
+        sessionManager,
+        "Cached provider cursor no longer matches current messages after refresh exhaustion",
+        "unsafe_fallback",
+      );
+      ctx.ui.notify(
+        "Cached provider delivery could not preserve the finalized post-cutover tail after refresh exhaustion. Falling back to the current protocol-valid provider messages; reload to rebuild persistent compact context.",
+        "warning",
+      );
+      return safeCurrent ? { messages: safeCurrent as typeof event.messages } : undefined;
+    }
+    if (!contextRefresh.isPending(sessionManager) && !runtime.shouldRebuildProviderContext(sessionManager)) {
       const original = event.messages as AgentMessage[];
       const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
@@ -174,15 +237,54 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
 
     const reportFailure = (message: string) => {
+      const cached = runtime.getCachedProviderPacket(sessionManager);
+      let cachedFallback = cached;
+      let tailStatus: "merged" | "unmatched" | "invalid" | undefined;
+      if (cached) {
+        const merged = runtime.mergeCachedProviderPacket(sessionManager, event.messages as AgentMessage[]);
+        if (merged) {
+          const protocol = analyzeToolProtocol(merged);
+          if (protocol.status !== "invalid") {
+            cachedFallback = protocol.messages;
+            runtime.cacheProviderFallbackPacket(sessionManager, protocol.messages, event.messages as AgentMessage[]);
+            tailStatus = "merged";
+          } else {
+            tailStatus = "invalid";
+          }
+        } else {
+          tailStatus = "unmatched";
+        }
+      }
       const willRetry = contextRefresh.recordFailedAttempt(sessionManager, message);
       const attempt = contextRefresh.getAttemptCount(sessionManager);
+      const safeCurrent = buildSafeCurrentProviderFallback(event.messages as AgentMessage[]);
+      const safeCachedTail = cached !== undefined && tailStatus === "merged";
+      runtime.recordProviderDeliveryFailure(
+        sessionManager,
+        message,
+        safeCachedTail
+          ? willRetry ? "retry" : "cached_exhausted"
+          : "unsafe_fallback",
+      );
+      const tailGuidance = tailStatus === "unmatched"
+        ? " The latest provider tail could not be correlated safely; current protocol-valid provider messages are used until persistence recovers."
+        : tailStatus === "invalid"
+          ? " The latest provider tail is protocol-invalid; current protocol-valid provider messages are used until persistence recovers."
+          : "";
       ctx.ui.notify(
         willRetry
-          ? `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Will retry on the next LLM turn.`
-          : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`,
+          ? cached
+            ? `Context refresh after travel failed (${attempt}): ${message}. Keeping the last valid compact provider packet and retrying on the next LLM turn.`
+            : `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Keeping current same-run messages and retrying on the next LLM turn.`
+          : cached && safeCachedTail
+            ? `Context refresh after travel failed after ${attempt} attempts: ${message}. The last protocol-valid compact packet remains active in cached_exhausted state; automatic rebuild is stopped until a new travel/lifecycle cycle. Reload to retry persistent reconstruction.`
+            : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`,
         "warning",
       );
-      return { messages: event.messages };
+      if (tailGuidance) ctx.ui.notify(tailGuidance.trim(), "warning");
+      return {
+        messages: (safeCachedTail ? cachedFallback : safeCurrent ?? event.messages) as typeof event.messages,
+      };
     };
 
     try {
@@ -208,10 +310,17 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
 
       contextRefresh.markRebuilt(sessionManager);
-      // Do not release the delivery gate merely because an attempt began. A
-      // failed or exhausted rebuild must stay visible as non-active context
-      // delivery until a complete persisted packet has actually been rebuilt.
-      runtime.consumeDeferredRefreshForNextContext(sessionManager);
+      let leafId: string | null = null;
+      try {
+        leafId = sessionManager.getLeafId();
+      } catch {
+        // The rebuilt packet is already valid. Leaf identity is diagnostics,
+        // not a reason to discard provider delivery.
+      }
+      // Keep a compact protocol-valid packet for all later provider retries.
+      // This state is separate from native replacement and may become active
+      // while the originating AgentSession still owns its old live array.
+      runtime.activateProviderPacket(sessionManager, messages, leafId, event.messages as AgentMessage[]);
       return { messages: messages as typeof event.messages };
     } catch (error) {
       return reportFailure(error instanceof Error ? error.message : String(error));
@@ -219,11 +328,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
-    // Usage is authoritative only after the traveled branch has been delivered.
-    // The origin run is stale before settlement, and a failed/invalid persisted
-    // rebuild remains stale afterward. Neither phase may consume the seeded
-    // baseline or create reminder state for a packet the provider did not use.
-    if (runtime.getContextDeliveryPhase(ctx.sessionManager) !== "active") return;
+    // Usage becomes authoritative at provider cutover, not native settlement.
+    // The origin run is stale until a compact persisted packet is actually
+    // delivered; a fallback with no valid provider packet remains stale.
+    if (!runtime.isProviderDeliveryActive(ctx.sessionManager)) return;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
     const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);
@@ -235,6 +343,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         contextWindow: pressure.contextWindow,
         percent: pressure.usagePercent,
       });
+      runtime.markProviderUsageObserved(ctx.sessionManager);
       const baseline = runtime.observeContextUsage(ctx.sessionManager, pressure, true);
       if (baseline) {
         try {

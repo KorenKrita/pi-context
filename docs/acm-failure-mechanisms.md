@@ -225,7 +225,7 @@ Pi 把 `branchSummary` 转成 user message，并加固定 archival prefix：`The
 用户已确认的目标性质是：post-travel context 让未来自己把 handoff 作为权威信息并直接继续，同时不得以实现机制破坏正在进行的工具连续性。Current marker + in-place projection 满足 deterministic packet contract；当 run settled 后，latest verified active leaf 才成为 native live-state replacement 的来源。Controlled A/B 中 Opus 从 0/3 到 3/3、Kimi 从 0/2 到 2/2；Sol 没有有效回归，DeepSeek 仅部分改善。单独调整 continuation wording 的 throwaway prototype 没有展示可归因收益，因此不进入 production。
 
 **当前解决方式**:
-Runtime 在 canonical handoff 中写入 versioned marker，并在 persisted summary details 中记录 `kind: acm_travel` 与 `handoffVersion`。所有 LLM-bound rebuild/normalization 路径只有在 marker、summary source、timestamp 与 persisted ACM travel provenance 同时匹配时，才在 actual message 位置把该 `branchSummary` 投影为 hidden `acm:continuation` custom message；matching success `tool_result` 仅在没有 pending later message 且 run 未 abort 时发送一次 hidden NEXT steer，明确 earlier requests 已历史化、Evidence/Recover pointers 非执行前置。明确成功时，live adapter 为同一 SessionManager 记录 ticket，但 matching `tool_execution_end` 只确认 pair：originating run 与 automatic retry 保持既有 native messages。只有 `agent_settled` 才从最新 verified active leaf rebuild 并替换 native AgentSession；`agent_end` error/aborted 不得提前 release。`indeterminate` mutation 因为 branch 可能已经落地，只 schedule persistent observation rebuild 来检查实际 active tree；它没有 live-adapter ticket、settled replacement、success receipt/steer 或 reminder-cycle reset。明确失败或 `not_applied` mutation 两者都不 schedule。adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 继续作为 verification/fallback。后续 user/native-summary/compaction message 保持原顺序并可 supersede 较早 authority。Legacy、native 与 foreign marker-like summaries 继续使用 Pi archival framing。
+Runtime 在 canonical handoff 中写入 versioned marker，并在 persisted summary details 中记录 `kind: acm_travel` 与 `handoffVersion`。所有 LLM-bound rebuild/normalization 路径只有在 marker、summary source、timestamp 与 persisted ACM travel provenance 同时匹配时，才在 actual message 位置把该 `branchSummary` 投影为 hidden `acm:continuation` custom message。`tool_result` interception 可被后置 extension 改写，因此不授权 provider cutover；下一次 `context` 只认 finalized matching non-error applied `toolResult`，随后直接以 Context Packet 作为唯一 NEXT authority，不再发送额外 NEXT steer。明确成功时，live adapter 为同一 SessionManager 记录 ticket，但 matching `tool_execution_end` 只确认 pair：originating run 与 automatic retry 保持既有 native messages。只有 `agent_settled` 才从最新 verified active leaf rebuild 并替换 native AgentSession；`agent_end` error/aborted 不得提前 release。`indeterminate` mutation 因为 branch 可能已经落地，只 schedule persistent observation rebuild 来检查实际 active tree；它没有 live-adapter ticket、settled replacement、success receipt 或 reminder-cycle reset。明确失败或 `not_applied` mutation两者都不 schedule。adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 继续作为 verification/fallback。后续 user/native-summary/compaction message 保持原顺序并可 supersede 较早 authority。Legacy、native 与 foreign marker-like summaries 继续使用 Pi archival framing。
 
 **证据**:
 
@@ -263,7 +263,7 @@ Handoff 结构不能可靠地语义判断“答案是否已经向用户交付”
 Trusted Handoff 必须区分内部已知状态与用户已收到的交付。未来自己信任 handoff，因此当前义务必须在 handoff 中被准确表示。
 
 **当前解决方式**:
-Runtime 在 travel 前按 session entries 计算 `currentUserTurnOpen`，把它持久化进 verified branch summary details，并在 Context Packet、matching tool receipt 与 queue-safe NEXT steer 中明确：当前 user turn 仍需 visible result，State 不是 delivery，等待下一请求的 NEXT 不足以完成本轮。该机制只陈述可观察结构事实，不猜测答案内容。
+Runtime 在 travel 前按 session entries 计算 `currentUserTurnOpen`，把它持久化进 verified branch summary details，并在 Context Packet 与 matching tool receipt 中明确：当前 user turn 仍需 visible result，State 不是 delivery，等待下一请求的 NEXT 不足以完成本轮。该机制只陈述可观察结构事实，不猜测答案内容。
 
 **证据**:
 

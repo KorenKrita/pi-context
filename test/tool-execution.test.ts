@@ -680,7 +680,7 @@ describe("ACM tool execution contracts", () => {
     );
 
     expect(result.details).toMatchObject({
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       nativeContextReplacementState: "pending",
       nativeContextReplacement: nativeOutcome,
       liveAgentSessionSyncState: "pending",
@@ -746,7 +746,7 @@ describe("ACM tool execution contracts", () => {
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
       contextRefreshPending: true,
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
     });
@@ -770,7 +770,7 @@ describe("ACM tool execution contracts", () => {
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
       contextRefreshPending: true,
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "invalid_protocol",
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],

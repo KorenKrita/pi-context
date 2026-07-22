@@ -44,6 +44,7 @@ function createFixture(sessionManager: SessionManager, registrations = 1) {
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]);
     },
+    sendMessage() {},
   } as unknown as ExtensionAPI;
   for (let index = 0; index < registrations; index++) registerAcmExtension(api);
   const context = {
@@ -111,10 +112,75 @@ async function travel(
     undefined,
     fixture.context,
   );
-  expect(result.details).toMatchObject({ contextDeliveryPhase: "pending_run_settle" });
+  expect(result.details).toMatchObject({ contextDeliveryPhase: "pending_tool_result" });
+  return result;
+}
+
+async function authorizeTravel(
+  fixture: ReturnType<typeof createFixture>,
+  toolCallId: string,
+  result: Awaited<ReturnType<typeof fixture.travelTool.execute>>,
+) {
+  const provider = await emit(fixture.handlers, "context", {
+    messages: [{
+      role: "toolResult",
+      toolCallId,
+      toolName: "acm_travel",
+      content: result.content,
+      details: result.details,
+      isError: false,
+      timestamp: Date.now(),
+    }],
+  }, fixture.context) as { messages?: AgentMessage[] };
+  expect(provider.messages).toEqual(acmMessages(fixture.context.sessionManager as SessionManager));
 }
 
 describe("deferred refresh isolation", () => {
+  test("a subagent receipt cuts over only its provider packet while the parent remains on its own in-flight messages", async () => {
+    installObservedHost();
+    const parent = createBranch("provider-parent");
+    const subagent = createBranch("provider-subagent");
+    const parentFixture = createFixture(parent.sessionManager);
+    const subagentFixture = createFixture(subagent.sessionManager);
+    const parentStale = parent.sessionManager.buildSessionContext().messages as AgentMessage[];
+    const subagentStale = subagent.sessionManager.buildSessionContext().messages as AgentMessage[];
+    const parentLiveSession = captureLiveSession(parent.sessionManager, parentStale);
+    const subagentLiveSession = captureLiveSession(subagent.sessionManager, subagentStale);
+
+    await travel(parentFixture, parent.rootId, "provider-parent-travel", "provider-parent");
+    const subagentReceipt = await travel(subagentFixture, subagent.rootId, "provider-subagent-travel", "provider-subagent");
+    await emit(subagentFixture.handlers, "tool_result", {
+      toolName: "acm_travel",
+      toolCallId: "provider-subagent-travel",
+      isError: false,
+      input: { handoff: handoff("provider-subagent") },
+      details: {
+        handoffFormat: "structured-v1",
+        resultingLeafId: subagent.sessionManager.getLeafId(),
+      },
+    }, subagentFixture.context);
+
+    const subagentProvider = await emit(
+      subagentFixture.handlers,
+      "context",
+      { messages: [...subagentStale, {
+        role: "toolResult",
+        toolCallId: "provider-subagent-travel",
+        toolName: "acm_travel",
+        content: subagentReceipt.content,
+        details: subagentReceipt.details,
+        isError: false,
+        timestamp: Date.now(),
+      }] },
+      subagentFixture.context,
+    ) as { messages?: AgentMessage[] };
+    expect(JSON.stringify(subagentProvider.messages)).toContain("provider-subagent travel completed");
+    expect(JSON.stringify(subagentProvider.messages)).not.toContain("provider-parent travel completed");
+    expect(subagentLiveSession.agent.state.messages).toBe(subagentStale);
+    expect(parentLiveSession.agent.state.messages).toBe(parentStale);
+    expect(await emit(parentFixture.handlers, "context", { messages: parentStale }, parentFixture.context)).toBeUndefined();
+  });
+
   test("settling a capability-compatible subagent replaces only its native array while the parent remains in-flight", async () => {
     installObservedHost();
     const parent = createBranch("parent");
@@ -127,9 +193,16 @@ describe("deferred refresh isolation", () => {
     const subagentLiveSession = captureLiveSession(subagent.sessionManager, subagentStale);
 
     await travel(parentFixture, parent.rootId, "parent-travel", "parent");
-    await travel(subagentFixture, subagent.rootId, "subagent-travel", "subagent");
+    const subagentReceipt = await travel(subagentFixture, subagent.rootId, "subagent-travel", "subagent");
+    await authorizeTravel(subagentFixture, "subagent-travel", subagentReceipt);
     expect(await emit(parentFixture.handlers, "context", { messages: parentStale }, parentFixture.context)).toBeUndefined();
-    expect(await emit(subagentFixture.handlers, "context", { messages: subagentStale }, subagentFixture.context)).toBeUndefined();
+    const subagentProvider = await emit(
+      subagentFixture.handlers,
+      "context",
+      { messages: subagentStale },
+      subagentFixture.context,
+    ) as { messages?: AgentMessage[] };
+    expect(subagentProvider.messages).toEqual(acmMessages(subagent.sessionManager));
 
     // Clearing the parent must not consume the subagent's deferred delivery.
     await emit(subagentFixture.handlers, "agent_settled", {}, subagentFixture.context);
@@ -167,7 +240,8 @@ describe("deferred refresh isolation", () => {
     const firstLiveSession = captureLiveSession(first.sessionManager, firstStale);
     const secondLiveSession = captureLiveSession(second.sessionManager, secondStale);
 
-    await travel(firstFixture, first.rootId, "first-only", "first-only");
+    const firstReceipt = await travel(firstFixture, first.rootId, "first-only", "first-only");
+    await authorizeTravel(firstFixture, "first-only", firstReceipt);
     await emit(firstFixture.handlers, "agent_settled", {}, firstFixture.context);
     expect(firstLiveSession.agent.state.messages).toEqual(acmMessages(first.sessionManager));
     expect(secondLiveSession.agent.state.messages).toBe(secondStale);
@@ -181,7 +255,8 @@ describe("deferred refresh isolation", () => {
     expect(JSON.stringify(firstContext.messages)).toContain("first-only travel completed");
     expect(await emit(secondFixture.handlers, "context", { messages: secondStale }, secondFixture.context)).toBeUndefined();
 
-    await travel(secondFixture, second.rootId, "second-only", "second-only");
+    const secondReceipt = await travel(secondFixture, second.rootId, "second-only", "second-only");
+    await authorizeTravel(secondFixture, "second-only", secondReceipt);
     await emit(secondFixture.handlers, "agent_settled", {}, secondFixture.context);
     expect(secondLiveSession.agent.state.messages).toEqual(acmMessages(second.sessionManager));
     expect(JSON.stringify(secondLiveSession.agent.state.messages)).not.toContain("first-only travel completed");
@@ -204,7 +279,8 @@ describe("deferred refresh isolation", () => {
     const liveSession = captureLiveSession(branch.sessionManager, staleMessages);
 
     await travel(fixture, branch.rootId, "duplicate-registration-first", "duplicate-registration-first");
-    await travel(fixture, branch.rootId, "duplicate-registration-second", "duplicate-registration-second");
+    const latestReceipt = await travel(fixture, branch.rootId, "duplicate-registration-second", "duplicate-registration-second");
+    await authorizeTravel(fixture, "duplicate-registration-second", latestReceipt);
     await emit(fixture.handlers, "tool_execution_end", {
       toolCallId: "duplicate-registration-first",
       toolName: "acm_travel",
@@ -213,7 +289,13 @@ describe("deferred refresh isolation", () => {
       toolCallId: "duplicate-registration-second",
       toolName: "acm_travel",
     }, fixture.context);
-    expect(await emit(fixture.handlers, "context", { messages: staleMessages }, fixture.context)).toBeUndefined();
+    const providerContext = await emit(
+      fixture.handlers,
+      "context",
+      { messages: staleMessages },
+      fixture.context,
+    ) as { messages?: AgentMessage[] };
+    expect(providerContext.messages).toEqual(acmMessages(branch.sessionManager));
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
