@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pi Context Eval"
+  short_description: "Run and audit formal Saffron context matrices"
+  default_prompt: "Run or inspect a provenance-safe pi-context Saffron matrix."

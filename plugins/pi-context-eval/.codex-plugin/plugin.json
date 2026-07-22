@@ -1,0 +1,35 @@
+{
+  "name": "pi-context-eval",
+  "version": "0.1.0",
+  "description": "Run and audit provenance-safe Saffron 400K versus 1M evaluations for pi-context.",
+  "author": {
+    "name": "KorenKrita",
+    "email": "KorenKrita@gmail.com",
+    "url": "https://github.com/KorenKrita"
+  },
+  "homepage": "https://github.com/KorenKrita/pi-context#%E9%AA%8C%E8%AF%81",
+  "repository": "https://github.com/KorenKrita/pi-context",
+  "license": "MIT",
+  "keywords": [
+    "pi-context",
+    "evaluation",
+    "saffron",
+    "context-window"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Pi Context Eval",
+    "shortDescription": "Run and audit formal Saffron context matrices.",
+    "longDescription": "Prepares immutable pi-context checkouts, runs or resumes fixed Saffron 400K/1M cells, distinguishes task outcomes from invalid infrastructure, and summarizes provenance-bearing evidence.",
+    "developerName": "KorenKrita",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Execute"
+    ],
+    "defaultPrompt": [
+      "Run a formal Saffron 400K versus 1M matrix.",
+      "Audit and summarize this Saffron matrix run."
+    ]
+  }
+}

@@ -20,6 +20,7 @@
     "test:host": "cd test/host-fixture && bun run verify",
     "typecheck": "tsc --noEmit",
     "eval:matrix": "bun eval/run-matrix.mjs",
+    "eval:saffron": "bun eval/run-flow-matrix.mjs",
     "verify:acm": "bun scripts/generate-guidance.mjs --check && bun run test && bun run typecheck && bun run test:host"
   },
   "keywords": [

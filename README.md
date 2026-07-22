@@ -215,13 +215,27 @@ bun eval/run-flow.mjs \
   --context-window 40000
 
 # 预览固定 agents-only Saffron 矩阵；不会发送模型任务
-bun eval/run-flow-matrix.mjs
+bun run eval:saffron
 
 bun eval/run.mjs \
   --env product-isolated \
   --id advanced-pointer-routing \
   --model local-openai/deepseek-v4-flash \
   --thinking high
+```
+
+仓库内的 [`pi-context-eval` Codex plugin](plugins/pi-context-eval/) 封装了正式矩阵的 immutable checkout、secret seed、续跑、失败分类与证据报告流程。仓库同时提供 local marketplace；安装后请开启新会话，以便 Codex 加载新 Skill：
+
+```bash
+codex plugin marketplace add "$(git rev-parse --show-toplevel)"
+codex plugin add pi-context-eval@personal
+```
+
+不安装 plugin 时也可直接读取 [`SKILL.md`](plugins/pi-context-eval/skills/pi-context-eval/SKILL.md) 执行。详细状态可以用附带的 helper 查看：
+
+```bash
+python3 plugins/pi-context-eval/skills/pi-context-eval/scripts/matrix_status.py \
+  eval/.runs/saffron-agents-matrix-<timestamp>-<sha>
 ```
 
 Controlled strong/weak matrices and their scope limits are recorded in [`eval/evidence/`](eval/evidence/)；这些是独立 outcome evidence，不会被塞进每次 deterministic CI。
