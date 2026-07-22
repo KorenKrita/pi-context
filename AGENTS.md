@@ -228,12 +228,13 @@ bun run verify:acm
 
 行为 eval 与 deterministic gate 分离：
 
-- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`full-env` 四种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；
+- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env` 五种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；agents-only 保留真实 global/project AGENTS，只加载 checkout product/Skill 与独立 measurement guard，Darwin formal evidence 还必须有 outer/tool Seatbelt、完成的 exclusive lock receipt 和 `formalEvidenceEligible=true`；
 - 每个 run 在首个模型 prompt 前通过 `get_commands` 验证 `skill:context-management` availability 与 current-checkout realpath provenance，失败标记 `infrastructure_invalid` 且不归因模型；
 - report 必须记录 model、thinking level、environment、product commit、experimental variable 与 Skill provenance；
 - 每个 flow turn 必须按 raw event 顺序交错保留 visible assistant segments 与 tools；terminal assistant `stopReason` 为 `error`/`aborted` 或不存在时标记 `run_error` 并跳过 outcome judge，不能把 provider transport failure 当 completed task，也不能把 travel 错排到先前已交付答案之前；
 - outcome 优先于调用率：首调、first useful action、reread/stale replay、任务连续性与结果先裁决，Skill read/token/summary depth 只作 diagnostics；
 - 随机模型运行不进入每次 CI；晋级用的 controlled evidence 以 compact artifact 存入 `eval/evidence/`，并注明样本与外推边界。
+- 固定 Saffron 400K/1M runner 使用 agents-only、同 seed、同 Pi/checkout/model/effort/cap，仅改变 hard context window；四个 model pair 顺序执行，任何 sandbox/lock/provenance mismatch 都是 `infrastructure_invalid`，不得进入 paired verdict。
 
 host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、successful shrinking travel、finalized receipt ordering（后置 handler 改 error 不 cutover、无重复 NEXT steer）、in-flight tool pair、originating-run 与 automatic-retry tool continuity、matching `tool_execution_end` 不 apply、provider-before-settled cutover、`agent_settled` 从 latest active leaf apply、`agent_end` error 不 release、persistent rebuild/cache cursor/fallback/cached exhaustion、provider actual usage authority、native compaction accounting、repeated travel、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

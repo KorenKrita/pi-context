@@ -388,7 +388,11 @@ if (evaluationLock?.acquired) {
 // Keep every model-visible workspace out of eval/.runs. Otherwise a flow can
 // traverse into persisted events/session artifacts from an earlier phase and
 // invalidate environment isolation. Retain the directory for post-run evidence.
-const workspace = createFlowWorkspace({ flowId: declaredFlow.id, environmentMode });
+const workspace = createFlowWorkspace({
+  flowId: declaredFlow.id,
+  environmentMode,
+  ...(agentsOnly ? { rootDir: join(privateEvalRoot, "workspaces") } : {}),
+});
 cpSync(declaredFlow.seedDir, workspace, { recursive: true });
 // Context discovery remains on in agents-only. Preserve the fixture/project
 // AGENTS.md as its task contract alongside the copied global AGENTS.md, then
@@ -798,7 +802,6 @@ try {
           maxTokensCap,
           environmentMode,
           turnRecords,
-          verificationSandboxProfilePath: sandboxProfiles?.tool.path ?? null,
         };
         await invokeHook(flow, "beforeRun", runContext);
         await runHostActions(flow.beforeHostActions, runContext);

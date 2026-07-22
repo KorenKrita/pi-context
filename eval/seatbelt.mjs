@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 function sha256(value) {
@@ -26,14 +26,6 @@ export function classifySeatbeltSupport({ agentsOnly, platform, executableExists
   };
 }
 
-function existingDirectory(path) {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 function aliases(path) {
   if (/[\x00-\x1f\x7f]/.test(String(path))) {
     throw new Error(`Seatbelt path contains control characters: ${JSON.stringify(path)}`);
@@ -52,15 +44,6 @@ function aliases(path) {
   return [...values];
 }
 
-function siblingDirectories(root, predicate, excludedPaths) {
-  if (!existingDirectory(root)) return [];
-  const excluded = new Set(excludedPaths.flatMap(aliases));
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && predicate(entry.name))
-    .map((entry) => join(root, entry.name))
-    .filter((path) => aliases(path).every((candidate) => !excluded.has(candidate)));
-}
-
 function seatbeltString(value) {
   if (/[\x00-\x1f\x7f]/.test(value)) {
     throw new Error(`Seatbelt profile value contains control characters: ${JSON.stringify(value)}`);
@@ -68,13 +51,20 @@ function seatbeltString(value) {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function profileFromDeniedRoots(deniedRoots, currentRoots) {
+function profileFromDeniedRoots(deniedRoots, currentRoots, allowedRoots) {
+  if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) {
+    throw new Error("Seatbelt allowedRoots must not be empty");
+  }
   const rules = deniedRoots.map((entry) => `  (${entry.kind} "${seatbeltString(entry.path)}")`);
+  const allowRules = allowedRoots.map((path) => `  (subpath "${seatbeltString(path)}")`);
   const profile = [
     "(version 1)",
     "(allow default)",
     "(deny file-read* file-write*",
     ...rules,
+    ")",
+    "(allow file-read* file-write*",
+    ...allowRules,
     ")",
     "",
   ].join("\n");
@@ -100,15 +90,9 @@ export function buildEvaluationSeatbeltProfiles({
     for (const alias of aliases(path)) outerDenied.push({ path: alias, kind: "literal", source });
   };
 
-  for (const path of siblingDirectories(tempRoot, (name) => name.startsWith("acm-"), [workspace])) {
-    addSubpath(path, "sibling_temp_workspace");
-  }
-  for (const path of siblingDirectories(runsRoot, () => true, [runDir])) {
-    addSubpath(path, "sibling_eval_run");
-  }
-  for (const path of siblingDirectories(harnessRoot, () => true, [agentDir])) {
-    addSubpath(path, "sibling_agent_harness");
-  }
+  addSubpath(tempRoot, "shared_workspace_root");
+  addSubpath(runsRoot, "shared_eval_runs_root");
+  addSubpath(harnessRoot, "shared_agent_harness_root");
   addSubpath(join(homeDir, ".pi"), "pi_private_state");
   addSubpath(join(homeDir, ".codex", "sessions"), "codex_sessions");
   addSubpath(join(homeDir, ".codex", "archived_sessions"), "codex_archived_sessions");
@@ -122,6 +106,7 @@ export function buildEvaluationSeatbeltProfiles({
     all.findIndex((candidate) => candidate.path === entry.path && candidate.kind === entry.kind) === index
   ));
   const outerRoots = dedupe(outerDenied);
+  const outerCurrentRoots = [...new Set([workspace, runDir, agentDir].flatMap(aliases))];
   const toolDenied = [...outerRoots];
   for (const [path, source] of [
     [agentDir, "current_agent_dir"],
@@ -130,9 +115,10 @@ export function buildEvaluationSeatbeltProfiles({
   ]) {
     for (const alias of aliases(path)) toolDenied.push({ path: alias, kind: "subpath", source });
   }
+  const toolCurrentRoots = [...new Set(aliases(workspace))];
   return {
-    outer: profileFromDeniedRoots(outerRoots, [...new Set([workspace, runDir, agentDir].flatMap(aliases))]),
-    tool: profileFromDeniedRoots(dedupe(toolDenied), [...new Set(aliases(workspace))]),
+    outer: profileFromDeniedRoots(outerRoots, outerCurrentRoots, outerCurrentRoots),
+    tool: profileFromDeniedRoots(dedupe(toolDenied), toolCurrentRoots, toolCurrentRoots),
   };
 }
 

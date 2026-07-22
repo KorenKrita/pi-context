@@ -591,12 +591,11 @@ export function materializeSaffronFlow({
       persistRunEvidence(actualRunDir);
       return baseline;
     },
-    verify: ({ workspace, turnRecords, verificationSandboxProfilePath }) => import("./saffron-verifier.mjs")
+    verify: ({ workspace, turnRecords }) => import("./saffron-verifier.mjs")
       .then(({ verifySaffronDelivery }) => verifySaffronDelivery({
         workspace,
         oracle,
         turnRecords,
-        sandboxProfilePath: verificationSandboxProfilePath,
       })),
     persistPrivateEvidence: ({ runDir: actualRunDir }) => persistSaffronPrivateEvidence({ runDir: actualRunDir, oracle, manifest }),
     afterStop: ({ runDir: actualRunDir }) => persistSaffronPrivateEvidence({ runDir: actualRunDir, oracle, manifest }),

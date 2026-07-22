@@ -198,7 +198,7 @@ bun run typecheck
 bun run test:host
 ```
 
-真实模型行为评估与 CI 分离。Runner 支持 `raw-control`、`core-only`、`product-isolated`、`full-env`；除 raw-control 外，相关模式在首个 prompt 前验证当前 checkout 的 Skill provenance：
+真实模型行为评估与 CI 分离。Runner 支持 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env`；除 raw-control 外，相关模式在首个 prompt 前验证当前 checkout 的 Skill provenance。固定 Saffron 400K/1M 矩阵使用 agents-only：保留真实 global/project AGENTS，只加载当前 checkout product/Skill 与 measurement guard，并要求 Darwin outer/tool Seatbelt、exclusive lock 和完整 runtime provenance：
 
 ```bash
 bun eval/run.mjs \
@@ -213,6 +213,9 @@ bun eval/run-flow.mjs \
   --model local-responses/gpt-5.6-sol \
   --thinking high \
   --context-window 40000
+
+# 预览固定 agents-only Saffron 矩阵；不会发送模型任务
+bun eval/run-flow-matrix.mjs
 
 bun eval/run.mjs \
   --env product-isolated \

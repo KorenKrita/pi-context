@@ -105,7 +105,7 @@ function claimIsExplicitlyRejected(text, claim) {
 const WORKSPACE_PROBE_PATH = join(dirname(fileURLToPath(import.meta.url)), "saffron-workspace-probe.mjs");
 const WORKSPACE_PROBE_PREFIX = "SAFFRON_WORKSPACE_PROBE=";
 
-function runWorkspaceProbe({ workspace, externalRevision, sandboxProfilePath }) {
+function runWorkspaceProbe({ workspace, externalRevision }) {
   const canonicalWorkspace = realpathSync(workspace);
   const canonicalProbePath = realpathSync(WORKSPACE_PROBE_PATH);
   const nodeArgs = [
@@ -116,10 +116,7 @@ function runWorkspaceProbe({ workspace, externalRevision, sandboxProfilePath }) 
     canonicalWorkspace,
     externalRevision,
   ];
-  const useSeatbelt = process.platform === "darwin" && sandboxProfilePath && existsSync(sandboxProfilePath);
-  const binary = useSeatbelt ? "/usr/bin/sandbox-exec" : "node";
-  const args = useSeatbelt ? ["-f", sandboxProfilePath, "node", ...nodeArgs] : nodeArgs;
-  const result = spawnSync(binary, args, {
+  const result = spawnSync("node", nodeArgs, {
     cwd: canonicalWorkspace,
     encoding: "utf8",
     timeout: 10_000,
@@ -145,7 +142,7 @@ function runWorkspaceProbe({ workspace, externalRevision, sandboxProfilePath }) 
  * the exact legal phrase and R2 incident nonce deliberately remain outside the
  * model workspace. This module is executed by the eval runner only.
  */
-export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [], sandboxProfilePath = null }) {
+export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [] }) {
   if (typeof workspace !== "string" || !workspace || !isAbsolute(workspace)) {
     throw new Error("an absolute workspace is required for Saffron delivery verification");
   }
@@ -153,7 +150,7 @@ export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [
   const checks = [];
   let probe;
   try {
-    probe = runWorkspaceProbe({ workspace, externalRevision: oracle.externalRevision, sandboxProfilePath });
+    probe = runWorkspaceProbe({ workspace, externalRevision: oracle.externalRevision });
   } catch (error) {
     checks.push(check("load repaired source modules", false, error instanceof Error ? error.message : String(error)));
     return Object.freeze({ pass: false, checks });

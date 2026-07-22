@@ -18,7 +18,6 @@ import {
   materializeSaffronFlow,
 } from "./saffron-flow.mjs";
 import { verifySaffronDelivery } from "./saffron-verifier.mjs";
-import { writeEvaluationSeatbeltProfiles } from "./seatbelt.mjs";
 
 const TEST_SEED = "saffron-test-seed-2026-07-22";
 
@@ -341,7 +340,6 @@ export function acceptEvents(events) { return events; }
 
 test("Saffron verifier accepts a correct delivery and rejects an altered legal phrase", async () => {
   const workspace = temporaryDirectory("saffron-verifier");
-  const sandboxRoot = temporaryDirectory("saffron-verifier-sandbox");
   const oracle = getSaffronOracle(TEST_SEED);
   try {
     cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
@@ -352,20 +350,10 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     expect(hostHook.expectedBeforeSha256).toBe(SAFFRON_EXPECTED_R1_SHA256);
     expect(hostHook.beforeError).toBeNull();
     writeReferenceDelivery(workspace, oracle);
-    const sandboxProfilePath = process.platform === "darwin"
-      ? writeEvaluationSeatbeltProfiles({
-          workspace,
-          runDir: join(sandboxRoot, "run"),
-          agentDir: join(sandboxRoot, "harness", "agent"),
-          homeDir: join(sandboxRoot, "home"),
-          evalRoot: join(import.meta.dir),
-        }).tool.path
-      : null;
     const good = await verifySaffronDelivery({
       workspace,
       oracle,
       turnRecords: saffronTurnRecords(oracle, { p6AfterTurnHook: hostHook }),
-      sandboxProfilePath,
     });
     expect(good.pass).toBe(true);
 
@@ -375,7 +363,6 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     expect(bad.checks.find((item) => item.name === "legal exception preserves exact high-entropy phrase")?.pass).toBe(false);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
-    rmSync(sandboxRoot, { recursive: true, force: true });
   }
 });
 
