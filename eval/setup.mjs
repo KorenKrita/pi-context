@@ -22,6 +22,27 @@ export const INTEGRITY_GUARD_PATH = join(EVAL_ROOT, "integrity-guard.mjs");
 export const FULL_ENV_AUDIT_FILE = "full-env-audit.json";
 export const AGENTS_ONLY_AUDIT_FILE = "agents-only-audit.json";
 
+export function buildEvaluationExtensionPlan({
+  environmentMode,
+  coreExtensionPath = EXTENSION_PATH,
+  contextExtensionPath = CONTEXT_EXTENSION_PATH,
+  integrityGuardPath = INTEGRITY_GUARD_PATH,
+}) {
+  const productExtensionPaths = environmentMode === "raw-control"
+    ? []
+    : environmentMode === "core-only"
+      ? [coreExtensionPath]
+      : [coreExtensionPath, contextExtensionPath];
+  const measurementExtensionPaths = environmentMode === "full-env" || environmentMode === "agents-only"
+    ? [integrityGuardPath]
+    : [];
+  return {
+    productExtensionPaths,
+    measurementExtensionPaths,
+    extensionPaths: [...productExtensionPaths, ...measurementExtensionPaths],
+  };
+}
+
 const INSTALLED_PI_CONTEXT_IDENTITIES = new Set([
   "github.com/korenkrita/pi-context",
   "npm:pi-context",
@@ -164,17 +185,20 @@ export function assertFullEnvCheckoutExtensions({
 }
 
 /**
- * agents-only admits the checked-out ACM pair and Skill, but no ambient
- * product resource. Keep the explicit CLI paths tied to this checkout so the
- * report's resource hashes and runtime provenance describe the same product.
+ * agents-only admits the checked-out ACM pair and Skill plus one measurement
+ * guard, but no ambient product resource. Keep every explicit CLI path tied to
+ * this checkout so report hashes and runtime provenance describe one product
+ * and one separately identified measurement boundary.
  */
 export function assertAgentsOnlyCheckoutResources({
   environmentMode,
   coreExtensionPath,
   contextExtensionPath,
+  measurementGuardPath,
   skillPath,
   expectedCoreExtensionPath,
   expectedContextExtensionPath,
+  expectedMeasurementGuardPath,
   expectedSkillPath,
   realpath = realpathSync,
 }) {
@@ -196,6 +220,11 @@ export function assertAgentsOnlyCheckoutResources({
   if (actualContext !== expectedContext) {
     throw new Error(`agents-only context extension must be ${expectedContext}, got ${actualContext}`);
   }
+  const actualMeasurementGuard = resolveRequired(measurementGuardPath, "agents-only measurement guard");
+  const expectedMeasurementGuard = resolveRequired(expectedMeasurementGuardPath, "expected measurement guard");
+  if (actualMeasurementGuard !== expectedMeasurementGuard) {
+    throw new Error(`agents-only measurement guard must be ${expectedMeasurementGuard}, got ${actualMeasurementGuard}`);
+  }
   const actualSkill = resolveRequired(skillPath, "agents-only Skill");
   const expectedSkill = resolveRequired(expectedSkillPath, "expected Skill");
   if (actualSkill !== expectedSkill) {
@@ -206,6 +235,7 @@ export function assertAgentsOnlyCheckoutResources({
     status: "canonical_checkout_resources",
     coreExtensionPath: actualCore,
     contextExtensionPath: actualContext,
+    measurementGuardPath: actualMeasurementGuard,
     skillPath: actualSkill,
   };
 }
@@ -472,10 +502,10 @@ export function buildFullEnvAgentDir({
 }
 
 /** Create a fresh run directory: workspace + sessions + logs. */
-export function createRunDir(label) {
+export function createRunDir(label, { runsDir = RUNS_DIR } = {}) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   // Append pid so parallel jobs launched in the same millisecond never collide.
-  const runDir = join(RUNS_DIR, `${stamp}-${label}-p${process.pid}`);
+  const runDir = join(runsDir, `${stamp}-${label}-p${process.pid}`);
   mkdirSync(join(runDir, "workspace"), { recursive: true });
   mkdirSync(join(runDir, "sessions"), { recursive: true });
   return runDir;

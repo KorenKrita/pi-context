@@ -17,6 +17,7 @@ const ALLOWED_ACM_CHILD_ENV = new Set([
   "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
   "ACM_INTEGRITY_AUDIT_PATH",
   "ACM_INTEGRITY_REQUIRED_MARKERS",
+  "ACM_INTEGRITY_TOOL_SANDBOX_PROFILE",
   "ACM_INTEGRITY_WORKSPACE",
 ]);
 
@@ -82,6 +83,16 @@ export function buildPiRpcArgs(options) {
   );
   if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
   return args;
+}
+
+export function buildPiRpcSpawnCommand({ piBinary, args, sandboxProfilePath }) {
+  return sandboxProfilePath
+    ? {
+        binary: "/usr/bin/sandbox-exec",
+        args: ["-f", sandboxProfilePath, piBinary, ...args],
+        sandboxed: true,
+      }
+    : { binary: piBinary, args, sandboxed: false };
 }
 
 function commandProvenance(command) {
@@ -231,6 +242,7 @@ export class PiRpcDriver {
    *   modelId: string,
    *   thinkingLevel?: string,
    *   piBinary?: string,
+   *   sandboxProfilePath?: string,
    *   eventLogPath?: string,
    *   env?: Record<string, string>,
    * }} options
@@ -250,12 +262,17 @@ export class PiRpcDriver {
   start() {
     const args = buildPiRpcArgs(this.options);
     const piBinary = this.options.piBinary ?? process.env.ACM_PI_BINARY ?? "pi";
+    const spawnCommand = buildPiRpcSpawnCommand({
+      piBinary,
+      args,
+      sandboxProfilePath: this.options.sandboxProfilePath,
+    });
     const childEnvironment = {
       ...sanitizePiChildEnvironment(process.env),
       ...sanitizePiChildEnvironment(this.options.env),
       PI_CODING_AGENT_DIR: this.options.agentDir,
     };
-    this.child = spawn(piBinary, args, {
+    this.child = spawn(spawnCommand.binary, spawnCommand.args, {
       cwd: this.options.cwd,
       env: childEnvironment,
       stdio: ["pipe", "pipe", "pipe"],

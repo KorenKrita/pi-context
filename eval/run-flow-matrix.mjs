@@ -726,9 +726,12 @@ export function buildRunFlowArgs(cell, {
   secretSeed,
   auditOnly = false,
 } = {}) {
+  const environmentArgs = cell.environmentMode === "agents-only"
+    ? ["--environment-mode", "agents-only"]
+    : ["--full-env"];
   const args = [
     "eval/run-flow.mjs",
-    "--full-env",
+    ...environmentArgs,
     "--flow", cell.flowId,
     "--model", `${cell.model.provider}/${cell.model.modelId}`,
     "--thinking", cell.thinking,
@@ -824,6 +827,17 @@ export async function runAuditPreflight({
     throw new Error(`audit preflight produced no readable report: ${child.error ?? child.stderr ?? "unknown"}`);
   }
   const report = readJson(reportPath);
+  if (report.agentsOnly && report.sandbox?.formalEvidenceEligible !== true) {
+    report.status = "infrastructure_invalid";
+    report.infrastructureInvalid = {
+      status: "agents_only_sandbox_ineligible",
+      reason: "agents-only report lacks kernel-enforced Seatbelt evidence",
+      failures: [{
+        status: "agents_only_sandbox_ineligible",
+        reason: "agents-only report lacks kernel-enforced Seatbelt evidence",
+      }],
+    };
+  }
   if (report.status !== "completed" || report.infrastructureInvalid) {
     throw new Error(`audit preflight failed: ${report.infrastructureInvalid?.reason ?? report.status}`);
   }
@@ -1125,6 +1139,10 @@ async function runWithConcurrency(items, concurrency, worker) {
   }));
 }
 
+export function effectiveRunFlowConcurrency(cells, requestedConcurrency) {
+  return cells.some((cell) => cell.environmentMode === "agents-only") ? 1 : requestedConcurrency;
+}
+
 async function executeCell(cell, options, pinnedProvenance) {
   // The preflight itself is gated in main. Recheck the complete checkout
   // contract immediately before and after each provider child so late-loaded
@@ -1376,8 +1394,9 @@ async function main() {
         .map((cell) => state.cells[cell.id])
         .filter((cell) => flag("--retry-all") || !shouldSkipMatrixCell(cell));
       if (armCells.length === 0) continue;
-      console.log(`arm=${contextWindow} launching=${armCells.length} concurrency=${concurrency}`);
-      await runWithConcurrency(armCells, concurrency, async (cell) => {
+      const armConcurrency = effectiveRunFlowConcurrency(armCells, concurrency);
+      console.log(`arm=${contextWindow} launching=${armCells.length} concurrency=${armConcurrency}`);
+      await runWithConcurrency(armCells, armConcurrency, async (cell) => {
         cell.status = "running";
         cell.attempts += 1;
         cell.startedAt = new Date().toISOString();

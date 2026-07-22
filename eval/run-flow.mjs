@@ -8,6 +8,7 @@
 //                         [--judge-model provider/id] [--judge-agent-label label]
 //                         [--judge-thinking level] [--no-judge] [--extension path]
 //                         [--skill path] [--environment-mode core-only|product-isolated|agents-only|full-env]
+//                         [--source-agent-dir path] [--harness-dir path] [--runs-dir path]
 //                         [--audit-only]
 //
 // Two comparison axes both come from this one command:
@@ -21,10 +22,12 @@
 import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
   buildAgentDir,
   buildAgentsOnlyAgentDir,
+  buildEvaluationExtensionPlan,
   buildFullEnvAgentDir,
   assertAgentsOnlyCheckoutResources,
   assertFullEnvCheckoutExtensions,
@@ -32,6 +35,7 @@ import {
   CONTEXT_MANAGEMENT_SKILL_PATH,
   captureProjectAgentsEvidence,
   createRunDir,
+  EVAL_ROOT,
   EXTENSION_PATH,
   INTEGRITY_GUARD_PATH,
   readAgentsOnlyHarnessAudit,
@@ -49,7 +53,9 @@ import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments
 import { createFlowWorkspace } from "./scenario-workspace.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION, writeJsonAtomically } from "./judge.mjs";
-import { ACM_CORE_MARKER, readIntegrityAudit, REQUIRED_ACM_TOOLS } from "./integrity-guard.mjs";
+import { ACM_CORE_MARKER, integrityAuditFailures, readIntegrityAudit, workspaceTempDirectory } from "./integrity-guard.mjs";
+import { classifySeatbeltSupport, writeEvaluationSeatbeltProfiles } from "./seatbelt.mjs";
+import { acquireExclusiveEvaluationLock } from "./exclusive-lock.mjs";
 
 function option(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -230,13 +236,12 @@ const requestedJudgeAgentLabel = option("--judge-agent-label") ?? process.env.AC
 const doJudge = !flag("--no-judge");
 const extensionPath = option("--extension") ?? EXTENSION_PATH;
 const skillPath = option("--skill") ?? CONTEXT_MANAGEMENT_SKILL_PATH;
-const extensionPaths = environmentMode === "raw-control"
-  ? []
-  : environmentMode === "core-only"
-    ? [extensionPath]
-    : fullEnv
-      ? [extensionPath, CONTEXT_EXTENSION_PATH, INTEGRITY_GUARD_PATH]
-      : [extensionPath, CONTEXT_EXTENSION_PATH];
+const { productExtensionPaths, measurementExtensionPaths, extensionPaths } = buildEvaluationExtensionPlan({
+  environmentMode,
+  coreExtensionPath: extensionPath,
+  contextExtensionPath: CONTEXT_EXTENSION_PATH,
+  integrityGuardPath: INTEGRITY_GUARD_PATH,
+});
 const checkoutExtensionConstraint = assertFullEnvCheckoutExtensions({
   environmentMode,
   coreExtensionPath: extensionPath,
@@ -248,9 +253,11 @@ const agentsOnlyCheckoutConstraint = assertAgentsOnlyCheckoutResources({
   environmentMode,
   coreExtensionPath: extensionPath,
   contextExtensionPath: CONTEXT_EXTENSION_PATH,
+  measurementGuardPath: INTEGRITY_GUARD_PATH,
   skillPath,
   expectedCoreExtensionPath: EXTENSION_PATH,
   expectedContextExtensionPath: CONTEXT_EXTENSION_PATH,
+  expectedMeasurementGuardPath: INTEGRITY_GUARD_PATH,
   expectedSkillPath: CONTEXT_MANAGEMENT_SKILL_PATH,
 });
 const skillPaths = environmentMode === "core-only" || environmentMode === "raw-control" ? [] : [skillPath];
@@ -275,16 +282,93 @@ try {
 } catch { /* not a git checkout */ }
 
 const requestedAgentLabel = option("--agent-label") ?? process.env.ACM_AGENT_LABEL;
+const sourceAgentDir = option("--source-agent-dir");
+const harnessDir = option("--harness-dir");
+const runsDir = option("--runs-dir");
+const agentsLockTimeoutMs = Number(option("--agents-lock-timeout-ms") ?? 5000);
 const agentLabel = requestedAgentLabel
   ?? `flow-${declaredFlow.id}-${modelSpec.modelId.replace(/[^a-z0-9]+/gi, "-")}-cw${contextWindow}-p${process.pid}`;
 const judgeAgentLabel = `${requestedJudgeAgentLabel ?? `${agentLabel}-judge`}-p${process.pid}`;
 const agentDir = fullEnv
   ? buildFullEnvAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel })
   : agentsOnly
-    ? buildAgentsOnlyAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel })
+    ? buildAgentsOnlyAgentDir({
+        contextWindow,
+        maxTokensCap,
+        shrink,
+        label: agentLabel,
+        ...(sourceAgentDir ? { sourceAgentDir } : {}),
+        ...(harnessDir ? { harnessDir } : {}),
+      })
     : buildAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel });
-const runDir = createRunDir(`flow-${modelSpec.modelId}`);
-const integrityAuditPath = fullEnv ? join(runDir, "integrity-audit.jsonl") : null;
+const runDir = createRunDir(`flow-${modelSpec.modelId}`, runsDir ? { runsDir } : undefined);
+const integrityAuditPath = fullEnv || agentsOnly ? join(runDir, "integrity-audit.jsonl") : null;
+const privateEvalRoot = join(homedir(), ".codex", "private", "pi-context-eval");
+const evaluationLock = agentsOnly
+  ? await acquireExclusiveEvaluationLock({
+      path: join(privateEvalRoot, "agents-only-formal.lock"),
+      owner: { agentLabel, flowId: declaredFlow.id, matrixId, runDir },
+      timeoutMs: Number.isFinite(agentsLockTimeoutMs) && agentsLockTimeoutMs >= 0 ? agentsLockTimeoutMs : 5000,
+    })
+  : null;
+const lockEvidence = () => evaluationLock ? {
+  acquired: evaluationLock.acquired,
+  path: evaluationLock.path,
+  owner: evaluationLock.owner,
+  currentOwner: evaluationLock.currentOwner ?? null,
+  recovered: evaluationLock.recovered ?? false,
+  recoveredOwners: evaluationLock.recoveredOwners ?? [],
+  released: evaluationLock.released,
+  releasedAt: evaluationLock.releasedAt,
+} : null;
+if (agentsOnly && !evaluationLock.acquired) {
+  const reason = `agents-only formal lock is held by ${evaluationLock.currentOwner?.agentLabel ?? evaluationLock.currentOwner?.pid ?? "another cell"}`;
+  const earlyReport = {
+    status: "infrastructure_invalid",
+    flowId: declaredFlow.id,
+    matrixId,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    model: modelSpec,
+    thinkingLevel,
+    variant,
+    environmentMode,
+    agentsOnly: true,
+    agentLabel,
+    lock: lockEvidence(),
+    workspace: null,
+    turns: [],
+    infrastructureInvalid: {
+      status: "agents_only_lock_unavailable",
+      reason,
+      failures: [{ status: "agents_only_lock_unavailable", reason }],
+    },
+    runError: null,
+    judge: { skipped: true, reason: "infrastructure_invalid" },
+  };
+  writeJsonAtomically(join(runDir, "report.json"), earlyReport);
+  writeFileSync(join(runDir, "transcript.txt"), "");
+  console.log(`\n=== infrastructure invalid: agents_only_lock_unavailable ===`);
+  console.log(`  ${reason}`);
+  console.log(`\nreport: ${join(runDir, "report.json")}`);
+  console.log(`transcript: ${join(runDir, "transcript.txt")}`);
+  process.exit(1);
+}
+const releaseEvaluationLock = () => evaluationLock?.release();
+const releaseOnSignal = (signal) => {
+  releaseEvaluationLock();
+  process.off(signal, signalHandlers[signal]);
+  process.kill(process.pid, signal);
+};
+const signalHandlers = {
+  SIGINT: () => releaseOnSignal("SIGINT"),
+  SIGTERM: () => releaseOnSignal("SIGTERM"),
+};
+if (evaluationLock?.acquired) {
+  process.once("exit", releaseEvaluationLock);
+  process.once("SIGINT", signalHandlers.SIGINT);
+  process.once("SIGTERM", signalHandlers.SIGTERM);
+}
 // Keep every model-visible workspace out of eval/.runs. Otherwise a flow can
 // traverse into persisted events/session artifacts from an earlier phase and
 // invalidate environment isolation. Retain the directory for post-run evidence.
@@ -314,9 +398,59 @@ const flow = materializedFlow && typeof materializedFlow === "object"
 if (!Array.isArray(flow.turns) || flow.turns.length === 0) {
   throw new Error(`materialized flow ${flow.id} must provide a non-empty turns array`);
 }
+const sandboxRequired = agentsOnly;
+const sandboxSupported = process.platform === "darwin";
+const sandboxExecutable = "/usr/bin/sandbox-exec";
+const sandboxExecutableExists = existsSync(sandboxExecutable);
+const sandboxProfiles = sandboxRequired && sandboxSupported
+  ? writeEvaluationSeatbeltProfiles({
+      workspace,
+      runDir,
+      agentDir,
+      harnessRoot: dirname(agentDir),
+      runsRoot: dirname(runDir),
+      tempRoot: dirname(workspace),
+      homeDir: homedir(),
+      evalRoot: EVAL_ROOT,
+      privateEvalRoot,
+    })
+  : null;
+const sandboxSupport = classifySeatbeltSupport({
+  agentsOnly,
+  platform: process.platform,
+  executableExists: sandboxExecutableExists,
+  profilesExist: sandboxProfiles?.outer.exists === true && sandboxProfiles?.tool.exists === true,
+});
+const sandboxEvidence = agentsOnly
+  ? {
+      ...sandboxSupport,
+      executable: sandboxExecutable,
+      executableExists: sandboxExecutableExists,
+      profilePath: sandboxProfiles?.outer.path ?? null,
+      profileSha256: sandboxProfiles?.outer.profileSha256 ?? null,
+      deniedRoots: sandboxProfiles?.outer.deniedRoots ?? [],
+      currentRoots: sandboxProfiles?.outer.currentRoots ?? [],
+      outerProfile: sandboxProfiles ? {
+        path: sandboxProfiles.outer.path,
+        sha256: sandboxProfiles.outer.profileSha256,
+        deniedRoots: sandboxProfiles.outer.deniedRoots,
+        currentRoots: sandboxProfiles.outer.currentRoots,
+      } : null,
+      toolProfile: sandboxProfiles ? {
+        path: sandboxProfiles.tool.path,
+        sha256: sandboxProfiles.tool.profileSha256,
+        deniedRoots: sandboxProfiles.tool.deniedRoots,
+        currentRoots: sandboxProfiles.tool.currentRoots,
+      } : null,
+      privateEvalRoot,
+      scope: "evaluation-sensitive filesystem roots present before this sequential run",
+    }
+  : null;
+const workspaceTmpDir = agentsOnly ? workspaceTempDirectory(workspace) : null;
+if (workspaceTmpDir) mkdirSync(workspaceTmpDir, { recursive: true });
 const fullEnvHarnessAudit = fullEnv ? readFullEnvHarnessAudit(agentDir) : null;
 const agentsOnlyHarnessAudit = agentsOnly ? readAgentsOnlyHarnessAudit(agentDir) : null;
-const integrityRequiredMarkers = fullEnv
+const integrityRequiredMarkers = fullEnv || agentsOnly
   ? [
       { id: "acm_core_marker", value: ACM_CORE_MARKER, exact: 1 },
       ...(
@@ -333,6 +467,10 @@ const integrityRequiredMarkers = fullEnv
   : [];
 const resourceEvidence = {
   extensions: extensionPaths.map(fileEvidence),
+  productExtensions: productExtensionPaths.map(fileEvidence),
+  measurementExtensions: measurementExtensionPaths.map(fileEvidence),
+  measurementGuard: measurementExtensionPaths.length === 1 ? fileEvidence(measurementExtensionPaths[0]) : null,
+  sandbox: sandboxEvidence,
   skill: skillPaths.map(fileEvidence),
   fullEnvHarness: fullEnvHarnessAudit,
   checkoutExtensionConstraint,
@@ -379,13 +517,16 @@ const driver = new PiRpcDriver({
   modelId: modelSpec.modelId,
   thinkingLevel,
   piBinary,
+  sandboxProfilePath: sandboxEvidence?.enabled ? sandboxEvidence.profilePath : undefined,
   eventLogPath: join(runDir, "events.jsonl"),
-  env: fullEnv
+  env: fullEnv || agentsOnly
     ? {
         ACM_INTEGRITY_AUDIT_PATH: integrityAuditPath,
         ACM_INTEGRITY_REQUIRED_MARKERS: JSON.stringify(integrityRequiredMarkers),
+        ...(sandboxEvidence?.toolProfile?.path ? { ACM_INTEGRITY_TOOL_SANDBOX_PROFILE: sandboxEvidence.toolProfile.path } : {}),
         ACM_INTEGRITY_WORKSPACE: workspace,
         ACM_INTEGRITY_APPROVED_SKILL_ROOTS: JSON.stringify(skillPaths.map((path) => dirname(path))),
+        ...(workspaceTmpDir ? { TMPDIR: workspaceTmpDir } : {}),
       }
     : undefined,
 });
@@ -404,6 +545,16 @@ const started = Date.now();
 
 function appendConstraintFailure(failures, condition, status, reason) {
   if (!condition) failures.push({ status, reason });
+}
+
+function mergeInfrastructureFailures(current, failures) {
+  if (failures.length === 0) return current;
+  const existingFailures = current?.failures ?? (current ? [{ status: current.status, reason: current.reason }] : []);
+  const combined = [...existingFailures, ...failures].filter((failure, index, all) => (
+    all.findIndex((candidate) => candidate.status === failure.status && candidate.reason === failure.reason) === index
+  ));
+  const primary = current ?? failures[0];
+  return { status: primary.status, reason: primary.reason, failures: combined };
 }
 
 function staticAuditFailures() {
@@ -435,7 +586,16 @@ function staticAuditFailures() {
       appendConstraintFailure(failures, driverArgs.includes(guard), "agents_only_discovery_guard_missing", `agents-only must pass ${guard}`);
     }
     appendConstraintFailure(failures, !driverArgs.includes("--no-context-files"), "agents_only_context_files_disabled", "agents-only must retain context-file discovery for global AGENTS.md");
-    appendConstraintFailure(failures, !driverArgs.includes(INTEGRITY_GUARD_PATH), "agents_only_integrity_guard_loaded", "agents-only must not load the integrity-guard extension");
+    const measurementGuardCount = extensionPaths.filter((path) => path === INTEGRITY_GUARD_PATH).length;
+    const measurementGuardArgCount = driverArgs.filter((arg) => arg === INTEGRITY_GUARD_PATH).length;
+    appendConstraintFailure(failures, measurementGuardCount === 1, "agents_only_integrity_guard_load_mismatch", `agents-only must configure exactly one measurement guard, found ${measurementGuardCount}`);
+    appendConstraintFailure(failures, measurementGuardArgCount === 1, "agents_only_integrity_guard_arg_mismatch", `agents-only must pass exactly one measurement guard CLI path, found ${measurementGuardArgCount}`);
+    if (!sandboxSupported) {
+      appendConstraintFailure(failures, false, "agents_only_sandbox_unsupported", `agents-only formal evidence requires macOS Seatbelt; platform is ${process.platform}`);
+    } else if (sandboxRequired) {
+      appendConstraintFailure(failures, sandboxExecutableExists, "agents_only_sandbox_executable_missing", `${sandboxExecutable} is required for agents-only on Darwin`);
+      appendConstraintFailure(failures, sandboxEvidence?.enabled === true, "agents_only_sandbox_profile_missing", "agents-only requires an enabled Seatbelt profile on Darwin");
+    }
     return failures;
   }
   if (!fullEnv) return failures;
@@ -479,33 +639,6 @@ function commandInventoryFrom(commands) {
     .filter((command) => command?.source === "skill" && command.sourceInfo?.scope !== "temporary")
     .map((command) => ({ name: command.name, sourceInfo: command.sourceInfo }));
   return { globalExtensions, globalSkills };
-}
-
-function integrityFailures(records, { requirePromptAudit = false } = {}) {
-  if (!fullEnv) return [];
-  const failures = [];
-  const loaded = records.filter((record) => record.type === "extension_loaded");
-  const starts = records.filter((record) => record.type === "session_start");
-  const prompts = records.filter((record) => record.type === "before_agent_start");
-  const blocked = records.filter((record) => record.type === "tool_blocked");
-  appendConstraintFailure(failures, loaded.length === 1, "integrity_guard_load_mismatch", `expected one integrity guard load record, found ${loaded.length}`);
-  appendConstraintFailure(failures, starts.length >= 1, "integrity_guard_session_missing", "integrity guard did not observe session_start");
-  for (const start of starts) {
-    for (const name of REQUIRED_ACM_TOOLS) {
-      const count = (start.activeTools ?? []).filter((candidate) => candidate === name).length;
-      appendConstraintFailure(failures, count === 1, "integrity_guard_acm_tool_mismatch", `expected one active ${name} at session_start, found ${count}`);
-    }
-    const forbidden = FULL_ENV_DENIED_TOOLS.filter((name) => (start.activeTools ?? []).includes(name));
-    appendConstraintFailure(failures, forbidden.length === 0, "integrity_guard_recall_tool_active", `forbidden recall tools active: ${forbidden.join(", ")}`);
-  }
-  if (requirePromptAudit) {
-    appendConstraintFailure(failures, prompts.length >= 1, "integrity_guard_prompt_missing", "integrity guard did not observe before_agent_start");
-  }
-  for (const prompt of prompts) {
-    appendConstraintFailure(failures, prompt.valid === true, "integrity_guard_prompt_invalid", (prompt.violations ?? []).join("; ") || "prompt integrity failed");
-  }
-  appendConstraintFailure(failures, blocked.length === 0, "integrity_guard_tool_blocked", `integrity guard blocked ${blocked.length} tool call(s)`);
-  return failures;
 }
 
 function effectiveRuntimeFailures(state, availableModels, availableThinkingLevels, configuredModel, commandInventory) {
@@ -571,7 +704,7 @@ function effectiveRuntimeFailures(state, availableModels, availableThinkingLevel
   return failures;
 }
 
-driver.start();
+let driverStarted = false;
 try {
   const staticFailures = staticAuditFailures();
   if (staticFailures.length > 0) {
@@ -583,6 +716,8 @@ try {
     console.log(`\n=== infrastructure invalid: ${infrastructureInvalid.status} ===`);
     console.log(`  ${infrastructureInvalid.reason}`);
   } else {
+    driver.start();
+    driverStarted = true;
     try {
       commands = await driver.getCommands();
       skillAvailability = classifySkillAvailability({
@@ -630,7 +765,7 @@ try {
       };
       const runtimeFailures = [
         ...effectiveRuntimeFailures(state, availableModels, availableThinkingLevels, configuredModel, commandInventory),
-        ...integrityFailures(integrityAudit),
+        ...integrityAuditFailures(integrityAudit, { enabled: fullEnv || agentsOnly }),
       ];
       if (runtimeFailures.length > 0) {
         infrastructureInvalid = {
@@ -678,7 +813,7 @@ try {
           console.log(`  tools: ${toolCalls.map((c) => c.name).join(", ") || "(none)"}`);
           if (acm.length) console.log(`  ACM: ${acm.map((c) => `${c.name}${c.isError ? "✗" : ""}`).join(", ")}`);
           integrityAudit = integrityAuditPath ? readIntegrityAudit(integrityAuditPath) : [];
-          const turnIntegrityFailures = integrityFailures(integrityAudit, { requirePromptAudit: true });
+          const turnIntegrityFailures = integrityAuditFailures(integrityAudit, { enabled: fullEnv || agentsOnly, requirePromptAudit: true });
           if (turnIntegrityFailures.length > 0) {
             infrastructureInvalid = {
               status: turnIntegrityFailures[0].status,
@@ -706,10 +841,12 @@ try {
   runError = error instanceof Error ? error.message : String(error);
   console.log(`  run error: ${runError}`);
 } finally {
-  try {
-    await driver.stop();
-  } catch (error) {
-    runError ??= `Pi stop failed: ${error instanceof Error ? error.message : String(error)}`;
+  if (driverStarted) {
+    try {
+      await driver.stop();
+    } catch (error) {
+      runError ??= `Pi stop failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
   try {
     afterStopResult = await invokeHook(flow, "afterStop", {
@@ -729,6 +866,12 @@ try {
     runError ??= `afterStop hook failed: ${error instanceof Error ? error.message : String(error)}`;
   }
   integrityAudit = integrityAuditPath ? readIntegrityAudit(integrityAuditPath) : [];
+  const finalIntegrityFailures = integrityAuditFailures(integrityAudit, { enabled: driverStarted && (fullEnv || agentsOnly) });
+  infrastructureInvalid = mergeInfrastructureFailures(infrastructureInvalid, finalIntegrityFailures);
+  releaseEvaluationLock();
+  process.off("exit", releaseEvaluationLock);
+  process.off("SIGINT", signalHandlers.SIGINT);
+  process.off("SIGTERM", signalHandlers.SIGTERM);
 }
 
 const verificationFailed = deterministicVerification?.passed === false;
@@ -764,6 +907,8 @@ const report = {
   piBinary: binaryEvidence,
   driverArgs,
   extensionPaths,
+  productExtensionPaths,
+  measurementExtensionPaths,
   skillPaths,
   expectedSkillPath,
   resources: resourceEvidence,
@@ -773,8 +918,11 @@ const report = {
   extensionAvailability,
   integrity: {
     auditPath: integrityAuditPath,
+    measurementGuard: resourceEvidence.measurementGuard,
     records: integrityAudit,
   },
+  sandbox: sandboxEvidence,
+  lock: lockEvidence(),
   infrastructureInvalid,
   runError,
   deterministicVerification,

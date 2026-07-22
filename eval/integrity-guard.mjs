@@ -1,4 +1,4 @@
-// Measurement-only guard for real-Pi full-environment evaluations.
+// Measurement-only guard for protected real-Pi evaluation environments.
 // It registers no tools or commands and never modifies the system prompt.
 
 import { createHash } from "node:crypto";
@@ -43,13 +43,20 @@ const BASH_PATH_START_BOUNDARY = String.raw`[\/\s"'=;|&()<>:]`;
 const BASH_TOKEN_END_BOUNDARY = String.raw`[\s"'=;|&()<>]`;
 const BASH_PATH_END_BOUNDARY = String.raw`[\/\s"'=;|&()<>]`;
 const BASH_TOKEN_START = `(?:^|${BASH_TOKEN_START_BOUNDARY})`;
+const BASH_CODE_TOKEN_START = String.raw`(?:^|[\s"'=;&()<>:])`;
 const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
 const BASH_TOKEN_END = `(?=$|${BASH_TOKEN_END_BOUNDARY})`;
 const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
 const BASH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_TOKEN_START_BOUNDARY);
 const BASH_PATH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_PATH_END_BOUNDARY);
 const HEREDOC_DELIMITER_TERMINATOR_PATTERN = /[\s;|&()<>]/;
-const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
+const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(String.raw`${BASH_CODE_TOKEN_START}/{1,}(?![/\s"'=;|&()<>:^])`);
+const BASH_SHELL_ABSOLUTE_PATH_PATTERN = new RegExp(String.raw`${BASH_TOKEN_START}/{1,}(?![/\s"'=;|&()<>:^])`);
+const BASH_ROOT_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/{1,}${BASH_TOKEN_END}`);
+const BASH_FILE_URI_PATTERN = new RegExp(`${BASH_TOKEN_START}file:/{1,}`, "i");
+const BASH_ANSI_C_ROOT_PATTERN = /\$'\/{1,}'/;
+const BASH_ESCAPED_ABSOLUTE_PATH_PATTERN = /\\\/{1,}(?![\/\s"'=;|&()<>:^])/;
+const BASH_PARAMETER_ABSOLUTE_PATH_PATTERN = /\$\{[^}\r\n]*:?(?:-|=|\+)\/{1,}/;
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
 const BASH_SAFE_DEVICE_PATH_PATTERN = new RegExp(`(${BASH_PATH_START})/dev/null${BASH_TOKEN_END}`, "g");
 const BASH_NATIVE_TEMP_PATH_PATTERN = /(^|[\s"'=;|&()<>:])(\/private\/tmp|\/tmp)(?=$|[\/\s"'=;|&()<>])/g;
@@ -403,9 +410,18 @@ function bashViolation(command, workspace) {
   // Mask only that exact root (and its realpath alias) before path-escape
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
-  const quotedHeredocMaskedCommand = maskQuotedHeredocBodies(command);
+  const uriMaskedCommand = maskHttpUris(command);
+  const quotedHeredocMaskedCommand = maskQuotedHeredocBodies(uriMaskedCommand);
+  if (BASH_FILE_URI_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_file_uri";
+  if (BASH_ESCAPED_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";
+  if (BASH_PARAMETER_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";
   const maskedPathCommand = maskSafeDevicePaths(maskWorkspacePaths(quotedHeredocMaskedCommand, workspace));
   const { absolutePathCommand, pathCommand } = quoteAwarePathCommands(maskedPathCommand);
+  const shellHeaderCommand = maskSafeDevicePaths(maskWorkspacePaths(maskAllHeredocBodies(uriMaskedCommand), workspace));
+  if (BASH_ANSI_C_ROOT_PATTERN.test(shellHeaderCommand)) return "bash_absolute_path";
+  const shellHeaderView = quoteAwarePathCommands(shellHeaderCommand).pathCommand;
+  if (BASH_ROOT_PATH_PATTERN.test(shellHeaderView)) return "bash_absolute_path";
+  if (BASH_SHELL_ABSOLUTE_PATH_PATTERN.test(shellHeaderView)) return "bash_absolute_path";
   if (BASH_ABSOLUTE_PATH_PATTERN.test(absolutePathCommand)) return "bash_absolute_path";
   if (BASH_PARENT_ESCAPE_PATTERN.test(pathCommand)) return "bash_parent_escape";
   const pathSensitiveChecks = [
@@ -497,6 +513,10 @@ function appendAudit(path, record) {
   appendFileSync(path, `${JSON.stringify({ timestamp: new Date().toISOString(), ...record })}\n`);
 }
 
+function shellQuote(value) {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 export function readIntegrityAudit(path) {
   if (!path || !existsSync(path)) return [];
   return readFileSync(path, "utf8")
@@ -511,17 +531,50 @@ export function readIntegrityAudit(path) {
     });
 }
 
+function appendIntegrityFailure(failures, condition, status, reason) {
+  if (!condition) failures.push({ status, reason });
+}
+
+export function integrityAuditFailures(records, { enabled = false, requirePromptAudit = false } = {}) {
+  if (!enabled) return [];
+  const failures = [];
+  const loaded = records.filter((record) => record.type === "extension_loaded");
+  const starts = records.filter((record) => record.type === "session_start");
+  const prompts = records.filter((record) => record.type === "before_agent_start");
+  const blocked = records.filter((record) => record.type === "tool_blocked");
+  appendIntegrityFailure(failures, loaded.length === 1, "integrity_guard_load_mismatch", `expected one integrity guard load record, found ${loaded.length}`);
+  appendIntegrityFailure(failures, starts.length >= 1, "integrity_guard_session_missing", "integrity guard did not observe session_start");
+  for (const start of starts) {
+    for (const name of REQUIRED_ACM_TOOLS) {
+      const count = (start.activeTools ?? []).filter((candidate) => candidate === name).length;
+      appendIntegrityFailure(failures, count === 1, "integrity_guard_acm_tool_mismatch", `expected one active ${name} at session_start, found ${count}`);
+    }
+    const forbidden = FULL_ENV_DENIED_TOOLS.filter((name) => (start.activeTools ?? []).includes(name));
+    appendIntegrityFailure(failures, forbidden.length === 0, "integrity_guard_recall_tool_active", `forbidden recall tools active: ${forbidden.join(", ")}`);
+  }
+  if (requirePromptAudit) {
+    appendIntegrityFailure(failures, prompts.length >= 1, "integrity_guard_prompt_missing", "integrity guard did not observe before_agent_start");
+  }
+  for (const prompt of prompts) {
+    appendIntegrityFailure(failures, prompt.valid === true, "integrity_guard_prompt_invalid", (prompt.violations ?? []).join("; ") || "prompt integrity failed");
+  }
+  appendIntegrityFailure(failures, blocked.length === 0, "integrity_guard_tool_blocked", `integrity guard blocked ${blocked.length} tool call(s)`);
+  return failures;
+}
+
 export default function integrityGuard(pi) {
   const integrityEnvironmentNames = [
     "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
     "ACM_INTEGRITY_AUDIT_PATH",
     "ACM_INTEGRITY_REQUIRED_MARKERS",
+    "ACM_INTEGRITY_TOOL_SANDBOX_PROFILE",
     "ACM_INTEGRITY_WORKSPACE",
   ];
   const integrityEnvironment = Object.fromEntries(integrityEnvironmentNames.map((name) => [name, process.env[name]]));
   for (const name of integrityEnvironmentNames) delete process.env[name];
   const auditPath = integrityEnvironment.ACM_INTEGRITY_AUDIT_PATH;
   const workspace = integrityEnvironment.ACM_INTEGRITY_WORKSPACE;
+  const toolSandboxProfile = integrityEnvironment.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE;
   if (!auditPath || !workspace) {
     throw new Error("ACM integrity guard requires ACM_INTEGRITY_AUDIT_PATH and ACM_INTEGRITY_WORKSPACE");
   }
@@ -569,13 +622,13 @@ export default function integrityGuard(pi) {
   });
 
   pi.on("tool_call", (event) => {
+    let rewrittenCommand = null;
     if (event.toolName === "bash" && typeof event.input.command === "string") {
       const originalCommand = event.input.command;
-      const rewrittenCommand = rewriteWorkspaceTempPaths(originalCommand, workspace);
+      rewrittenCommand = rewriteWorkspaceTempPaths(originalCommand, workspace);
       if (rewrittenCommand !== originalCommand) {
         const tempDirectory = workspaceTempDirectory(workspace);
         mkdirSync(tempDirectory, { recursive: true });
-        event.input.command = rewrittenCommand;
         appendAudit(auditPath, {
           type: "bash_temp_rewritten",
           toolCallId: event.toolCallId,
@@ -587,11 +640,26 @@ export default function integrityGuard(pi) {
     }
     const decision = evaluateToolCall({
       toolName: event.toolName,
-      input: event.input,
+      input: rewrittenCommand === null ? event.input : { ...event.input, command: rewrittenCommand },
       workspace,
       approvedSkillRoots: [...approvedSkillRoots],
     });
-    if (!decision.block) return undefined;
+    if (!decision.block) {
+      if (event.toolName === "bash" && rewrittenCommand !== null) {
+        event.input.command = toolSandboxProfile
+          ? `/usr/bin/sandbox-exec -f ${shellQuote(toolSandboxProfile)} /bin/zsh -c ${shellQuote(rewrittenCommand)}`
+          : rewrittenCommand;
+        if (toolSandboxProfile) {
+          appendAudit(auditPath, {
+            type: "bash_sandbox_wrapped",
+            toolCallId: event.toolCallId,
+            commandSha256: sha256(rewrittenCommand),
+            profileSha256: sha256(readFileSync(toolSandboxProfile, "utf8")),
+          });
+        }
+      }
+      return undefined;
+    }
     appendAudit(auditPath, {
       type: "tool_blocked",
       toolName: event.toolName,

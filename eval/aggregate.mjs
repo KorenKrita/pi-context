@@ -31,6 +31,9 @@ function expectedPhases(report) {
 }
 
 function persistedJudge(report) {
+  if (report.agentsOnly && report.sandbox?.formalEvidenceEligible !== true) {
+    return { verdict: undefined, rubricVersion: report.judge?.verdict?.rubricVersion, error: "SANDBOX-ERR" };
+  }
   const verdict = report.judge?.verdict;
   if (verdict === undefined) {
     return { verdict: undefined, error: report.judge?.error ? "JUDGE-ERR" : undefined };

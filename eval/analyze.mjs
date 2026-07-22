@@ -43,6 +43,10 @@ for (const d of readdirSync(RUNS_DIR)) {
   if (!existsSync(rp)) continue;
   let r; try { r = JSON.parse(readFileSync(rp, "utf8")); } catch { continue; }
   if (!VARIANTS.includes(r.variant)) continue;
+  if (r.agentsOnly && r.sandbox?.formalEvidenceEligible !== true) {
+    rejectedJudgeReports.push({ dir: d, model: r.model?.modelId ?? "unknown", status: "SANDBOX-ERR" });
+    continue;
+  }
   const v = r.judge?.verdict;
   const validation = v === undefined ? undefined : validatePersistedVerdict(v, { expectedPhases: expectedPhases(r) });
   if (validation && !validation.ok) {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildPiRpcArgs,
+  buildPiRpcSpawnCommand,
   classifySkillAvailability,
   CONTEXT_MANAGEMENT_COMMAND,
   assertTurnCompleted,
@@ -24,6 +25,7 @@ const BASE = {
 
 const EXPECTED_SKILL = "/checkout/skills/context-management/SKILL.md";
 const OTHER_SKILL = "/another/skills/context-management/SKILL.md";
+const INTEGRITY_GUARD = "/checkout/eval/integrity-guard.mjs";
 const realpath = (path) => path;
 const LOCAL_PI_081 = join(process.cwd(), "node_modules", ".bin", "pi");
 const expectedCommand = (path = EXPECTED_SKILL) => ({
@@ -33,6 +35,23 @@ const expectedCommand = (path = EXPECTED_SKILL) => ({
 });
 
 describe("Pi RPC eval environment composition", () => {
+  test("wraps Pi with sandbox-exec only when a Seatbelt profile is supplied", () => {
+    expect(buildPiRpcSpawnCommand({ piBinary: "/bin/pi", args: ["--mode", "rpc"] })).toEqual({
+      binary: "/bin/pi",
+      args: ["--mode", "rpc"],
+      sandboxed: false,
+    });
+    expect(buildPiRpcSpawnCommand({
+      piBinary: "/bin/pi",
+      args: ["--mode", "rpc"],
+      sandboxProfilePath: "/tmp/eval.sb",
+    })).toEqual({
+      binary: "/usr/bin/sandbox-exec",
+      args: ["-f", "/tmp/eval.sb", "/bin/pi", "--mode", "rpc"],
+      sandboxed: true,
+    });
+  });
+
   test("raw-control disables discovery and injects no product resources", () => {
     expect(buildPiRpcArgs({ ...BASE, environmentMode: "raw-control", extensionPaths: [], skillPaths: [] }))
       .toEqual([
@@ -75,17 +94,19 @@ describe("Pi RPC eval environment composition", () => {
     expect(buildPiRpcArgs({
       ...BASE,
       environmentMode: "agents-only",
-      extensionPaths: ["/checkout/src/index.ts", "/checkout/src/context.ts"],
+      extensionPaths: ["/checkout/src/index.ts", "/checkout/src/context.ts", INTEGRITY_GUARD],
       skillPaths: [EXPECTED_SKILL],
     })).toEqual(expect.arrayContaining([
       "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
       "-e", "/checkout/src/index.ts",
       "-e", "/checkout/src/context.ts",
+      "-e", INTEGRITY_GUARD,
       "--skill", EXPECTED_SKILL,
     ]));
     const args = buildPiRpcArgs({ ...BASE, environmentMode: "agents-only" });
     expect(args).not.toContain("--no-context-files");
     expect(args).not.toContain("--exclude-tools");
+    expect(args.filter((arg) => arg === INTEGRITY_GUARD)).toHaveLength(0);
   });
 
   test("full-env omits discovery guards and accepts legacy fullEnv as an alias", () => {

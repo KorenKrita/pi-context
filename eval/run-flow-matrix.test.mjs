@@ -20,6 +20,7 @@ import {
   bunRuntimeProvenance,
   createInitialMatrixState,
   createLongFlowMatrixManifest,
+  effectiveRunFlowConcurrency,
   finalMatrixStatus,
   hashContentTree,
   hashExternalCommandResourceTree,
@@ -37,6 +38,11 @@ import {
 } from "./run-flow-matrix.mjs";
 
 const LINKED_RESOURCE_ROOTS = ["git", "npm", "extensions", "skills", "themes", "agents", "bin"];
+
+test("agents-only matrix cells force sequential execution", () => {
+  expect(effectiveRunFlowConcurrency([{ environmentMode: "agents-only" }, { environmentMode: "agents-only" }], 4)).toBe(1);
+  expect(effectiveRunFlowConcurrency([{ environmentMode: "full-env" }], 4)).toBe(4);
+});
 
 function writeFixtureFile(path, content) {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -124,6 +130,9 @@ describe("real Pi long-flow matrix declaration", () => {
       "--judge-thinking", "high",
       "--flow-seed", "secret-seed-for-child",
     ]));
+    const agentsArgs = buildRunFlowArgs({ ...cell, environmentMode: "agents-only" }, { piBinary: "/checkout/node_modules/.bin/pi" });
+    expect(agentsArgs).toEqual(expect.arrayContaining(["--environment-mode", "agents-only"]));
+    expect(agentsArgs).not.toContain("--full-env");
 
     const fakeSpawn = (_binary, childArgs, spawnOptions) => {
       const child = new EventEmitter();

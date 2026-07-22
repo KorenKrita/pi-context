@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +8,7 @@ import integrityGuard, {
   evaluateToolCall,
   FULL_ENV_DENIED_TOOLS,
   inspectPromptIntegrity,
+  integrityAuditFailures,
   readIntegrityAudit,
   rewriteWorkspaceTempPaths,
   workspaceTempDirectory,
@@ -15,6 +16,7 @@ import integrityGuard, {
 
 const CORE = `${ACM_CORE_MARKER}\n## Agentic Context Management CORE`;
 const ACM_TOOLS = ["acm_checkpoint", "acm_timeline", "acm_travel"];
+const REPLAY_FIXTURE = JSON.parse(readFileSync(new URL("./fixtures/integrity-replay-cases.json", import.meta.url), "utf8"));
 const OBSERVED_FULL_ENV_ACTIVE_TOOLS = [
   "read", "bash", "edit", "write", ...ACM_TOOLS, "grep", "find",
   "Agent", "StopAgent", "AgentStatus", "ask_user_question", "todo", "replace", "undo_last_replace",
@@ -74,16 +76,148 @@ describe("measurement integrity prompt gate", () => {
   });
 });
 
+describe("measurement integrity final audit", () => {
+  const validPrefix = [
+    { type: "extension_loaded" },
+    { type: "session_start", activeTools: ["read", ...ACM_TOOLS] },
+  ];
+
+  test("retains an invalid prompt as infrastructure evidence after the prompt path exits", () => {
+    const failures = integrityAuditFailures([
+      ...validPrefix,
+      { type: "before_agent_start", valid: false, violations: ["missing project AGENTS heading"] },
+    ], { enabled: true });
+    expect(failures).toContainEqual({
+      status: "integrity_guard_prompt_invalid",
+      reason: "missing project AGENTS heading",
+    });
+  });
+
+  test("retains a blocked cross-workspace tool call as infrastructure evidence after a run error", () => {
+    const failures = integrityAuditFailures([
+      ...validPrefix,
+      { type: "before_agent_start", valid: true },
+      { type: "tool_blocked", code: "path_outside_allowed_roots" },
+    ], { enabled: true });
+    expect(failures).toContainEqual({
+      status: "integrity_guard_tool_blocked",
+      reason: "integrity guard blocked 1 tool call(s)",
+    });
+  });
+});
+
 describe("measurement integrity tool-call gate", () => {
   const policy = {
     workspace: "/private/tmp/saffron-workspace",
     approvedSkillRoots: ["/opt/pi-skills/context-management", "/opt/pi-skills/research"],
   };
 
+  test("replays tracked, redacted formal-cell tool calls with their recorded decisions", () => {
+    for (const replayCase of REPLAY_FIXTURE.cases) {
+      expect(replayCase.sourceRun).toMatch(/^2026-07-22T.+-flow-/);
+      expect(replayCase.sourceInputSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(replayCase.sanitization.length).toBeGreaterThan(0);
+      const decision = evaluateToolCall({
+        toolName: replayCase.toolName,
+        input: replayCase.input,
+        workspace: REPLAY_FIXTURE.workspace,
+        approvedSkillRoots: REPLAY_FIXTURE.approvedSkillRoots,
+      });
+      expect(decision).toMatchObject(replayCase.expected);
+    }
+  });
+
   test("allows workspace file operations and read-only Skill access", () => {
     expect(evaluateToolCall({ toolName: "write", input: { path: "artifacts/result.json" }, ...policy })).toMatchObject({ block: false });
     expect(evaluateToolCall({ toolName: "read", input: { path: "/opt/pi-skills/context-management/SKILL.md" }, ...policy })).toMatchObject({ block: false });
     expect(evaluateToolCall({ toolName: "grep", input: { path: "/opt/pi-skills/research", pattern: "source" }, ...policy })).toMatchObject({ block: false });
+  });
+
+  test("allows Terra's workspace-local quoted Node heredocs while blocking cross-arm and host-state reads", () => {
+    const ledgerGenerator = [
+      "node <<'NODE'",
+      "import { writeFileSync } from 'node:fs';",
+      "const owner = 'Saffron Release Council / Control Policy D2159139';",
+      "const rowPattern = /^\\| E\\d{4} \\|/;",
+      "writeFileSync('docs/evidence-ledger.md', `${owner}\\n${rowPattern.source}\\n`, 'utf8');",
+      "NODE",
+    ].join("\n");
+    const ledgerVerifier = [
+      "node <<'NODE'",
+      "import { readFileSync } from 'node:fs';",
+      "const text = readFileSync('docs/evidence-ledger.md', 'utf8');",
+      "const rows = text.split('\\n').filter((line) => /^\\| E\\d{4} \\|/.test(line));",
+      "if (rows.length !== 1195) throw new Error(`expected 1195 rows, got ${rows.length}`);",
+      "NODE",
+    ].join("\n");
+
+    for (const command of [ledgerGenerator, ledgerVerifier]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toEqual({ block: false });
+    }
+
+    expect(evaluateToolCall({
+      toolName: "read",
+      input: { path: "/private/var/folders/T/prior-arm/release/legal-exceptions.md" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "path_outside_allowed_roots" });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "find ~/.pi -maxdepth 4 -type f" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_home_or_pi_discovery" });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "rg token /private/var/folders/T/prior-arm /Users/korenkrita/.pi" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_absolute_path" });
+    for (const command of ["ls /", "find / -maxdepth 1", "cat /etc/passwd"]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_absolute_path" });
+    }
+  });
+
+  test("blocks executable regex path construction and every shell absolute-root spelling", () => {
+    const regexPathBypass = [
+      "node <<'NODE'",
+      "const path = /etc\\/passwd/.source;",
+      "console.log(path);",
+      "NODE",
+    ].join("\n");
+    expect(evaluateToolCall({ toolName: "bash", input: { command: regexPathBypass }, ...policy }))
+      .toMatchObject({ block: true, code: "bash_absolute_path" });
+
+    for (const command of [
+      "ls /",
+      "ls //",
+      "ls ///",
+      "cat //etc/passwd",
+      "cat ///etc/passwd",
+      "cat '/'",
+      "cat \"//etc/passwd\"",
+      "cat file:///etc/passwd",
+      "cat </etc/passwd",
+      "printf x >/etc/output",
+      "cat $'/'etc/passwd",
+      "cat \\/etc/passwd",
+      "cat ${x:-/etc/passwd}",
+      "cat ${x:=/etc/passwd}",
+      "cat ${x:+/etc/passwd}",
+      "cat ${x-/etc/passwd}",
+      "cat ${x+/etc/passwd}",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy })).toMatchObject({ block: true });
+    }
+
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "cat >> docs/note.md <<'EOF'\nfile:///etc/passwd is documentation prose\nEOF" },
+      ...policy,
+    })).toEqual({ block: false });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "node <<'NODE'\nconsole.log('file:///etc/passwd')\nNODE" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_file_uri" });
   });
 
   test("blocks writes to Skill roots and every file operation outside the workspace", () => {
@@ -548,6 +682,59 @@ test("extension rewrites native temp paths in the bash execution input", async (
     else process.env.ACM_INTEGRITY_REQUIRED_MARKERS = previous.markers;
     if (previous.workspace === undefined) delete process.env.ACM_INTEGRITY_WORKSPACE;
     else process.env.ACM_INTEGRITY_WORKSPACE = previous.workspace;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension evaluates bash before wrapping allowed commands in the nested tool sandbox", async () => {
+  const root = mkdtempSync(join(tmpdir(), "acm-integrity-tool-sandbox-"));
+  const workspace = join(root, "workspace");
+  const auditPath = join(root, "audit.jsonl");
+  const toolProfile = join(root, "tool.sb");
+  const handlers = new Map();
+  mkdirSync(workspace, { recursive: true });
+  writeFileSync(toolProfile, "(version 1)\n(allow default)\n");
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    getActiveTools() { return ["read", "bash", ...ACM_TOOLS]; },
+    getAllTools() { return this.getActiveTools().map((name) => ({ name })); },
+  };
+  const previous = {
+    audit: process.env.ACM_INTEGRITY_AUDIT_PATH,
+    roots: process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS,
+    markers: process.env.ACM_INTEGRITY_REQUIRED_MARKERS,
+    toolProfile: process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE,
+    workspace: process.env.ACM_INTEGRITY_WORKSPACE,
+  };
+  process.env.ACM_INTEGRITY_AUDIT_PATH = auditPath;
+  process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS = "[]";
+  process.env.ACM_INTEGRITY_REQUIRED_MARKERS = "[]";
+  process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE = toolProfile;
+  process.env.ACM_INTEGRITY_WORKSPACE = workspace;
+  try {
+    integrityGuard(pi);
+    expect(process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE).toBeUndefined();
+    const allowed = { toolName: "bash", toolCallId: "ok", input: { command: "cat docs/result.md" } };
+    expect(await handlers.get("tool_call")(allowed, {})).toBeUndefined();
+    expect(allowed.input.command).toContain("/usr/bin/sandbox-exec");
+    expect(allowed.input.command).toContain(toolProfile);
+    expect(allowed.input.command).toContain("cat docs/result.md");
+
+    const denied = { toolName: "bash", toolCallId: "bad", input: { command: "cat /etc/passwd" } };
+    expect(await handlers.get("tool_call")(denied, {})).toMatchObject({ block: true });
+    expect(denied.input.command).toBe("cat /etc/passwd");
+  } finally {
+    for (const [name, value] of Object.entries(previous)) {
+      const environmentName = {
+        audit: "ACM_INTEGRITY_AUDIT_PATH",
+        roots: "ACM_INTEGRITY_APPROVED_SKILL_ROOTS",
+        markers: "ACM_INTEGRITY_REQUIRED_MARKERS",
+        toolProfile: "ACM_INTEGRITY_TOOL_SANDBOX_PROFILE",
+        workspace: "ACM_INTEGRITY_WORKSPACE",
+      }[name];
+      if (value === undefined) delete process.env[environmentName];
+      else process.env[environmentName] = value;
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });

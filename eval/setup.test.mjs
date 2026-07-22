@@ -6,6 +6,7 @@ import {
   assertFullEnvCheckoutExtensions,
   assertAgentsOnlyCheckoutResources,
   buildAgentsOnlyAgentDir,
+  buildEvaluationExtensionPlan,
   buildFullEnvAgentDir,
   captureProjectAgentsEvidence,
   forbiddenFullEnvPackageIdentity,
@@ -13,6 +14,30 @@ import {
   readFullEnvHarnessAudit,
   sanitizeFullEnvSettings,
 } from "./setup.mjs";
+
+test("agents-only adds exactly one measurement guard without changing the checkout product pair", () => {
+  const plan = buildEvaluationExtensionPlan({
+    environmentMode: "agents-only",
+    coreExtensionPath: "/checkout/src/index.ts",
+    contextExtensionPath: "/checkout/src/context.ts",
+    integrityGuardPath: "/checkout/eval/integrity-guard.mjs",
+  });
+  expect(plan).toEqual({
+    productExtensionPaths: ["/checkout/src/index.ts", "/checkout/src/context.ts"],
+    measurementExtensionPaths: ["/checkout/eval/integrity-guard.mjs"],
+    extensionPaths: [
+      "/checkout/src/index.ts",
+      "/checkout/src/context.ts",
+      "/checkout/eval/integrity-guard.mjs",
+    ],
+  });
+  expect(buildEvaluationExtensionPlan({
+    environmentMode: "product-isolated",
+    coreExtensionPath: "/checkout/src/index.ts",
+    contextExtensionPath: "/checkout/src/context.ts",
+    integrityGuardPath: "/checkout/eval/integrity-guard.mjs",
+  }).measurementExtensionPaths).toEqual([]);
+});
 
 describe("full-env package sanitization", () => {
   test("accepts only the canonical checkout core and context extension realpaths", () => {
@@ -129,9 +154,11 @@ describe("agents-only checkout resources", () => {
       environmentMode: "agents-only",
       coreExtensionPath: "/checkout/src/index.ts",
       contextExtensionPath: "/checkout/src/context.ts",
+      measurementGuardPath: "/checkout/eval/integrity-guard.mjs",
       skillPath: "/checkout/skills/context-management/SKILL.md",
       expectedCoreExtensionPath: "/checkout/src/index.ts",
       expectedContextExtensionPath: "/checkout/src/context.ts",
+      expectedMeasurementGuardPath: "/checkout/eval/integrity-guard.mjs",
       expectedSkillPath: "/checkout/skills/context-management/SKILL.md",
       realpath: (path) => path,
     };
@@ -140,6 +167,8 @@ describe("agents-only checkout resources", () => {
       .toThrow("agents-only core extension");
     expect(() => assertAgentsOnlyCheckoutResources({ ...canonical, contextExtensionPath: "/other/src/context.ts" }))
       .toThrow("agents-only context extension");
+    expect(() => assertAgentsOnlyCheckoutResources({ ...canonical, measurementGuardPath: "/other/integrity-guard.mjs" }))
+      .toThrow("agents-only measurement guard");
     expect(() => assertAgentsOnlyCheckoutResources({ ...canonical, skillPath: "/other/SKILL.md" }))
       .toThrow("agents-only Skill");
   });
