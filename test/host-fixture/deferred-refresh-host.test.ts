@@ -41,6 +41,7 @@ function createFixture(
   } = {},
 ) {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
+  const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let travelTool: ToolDefinition | undefined;
   let timelineTool: ToolDefinition | undefined;
   const api = {
@@ -50,6 +51,10 @@ function createFixture(
     },
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+    },
+    appendEntry(customType: string, data: unknown) {
+      appendedEntries.push({ customType, data });
+      sessionManager.appendCustomEntry(customType, data);
     },
   } as unknown as ExtensionAPI;
   // Extensions are invoked in registration order.  Allow this fixture to
@@ -64,7 +69,7 @@ function createFixture(
     ui: { notify() {} },
   } as unknown as ExtensionContext;
   if (!travelTool || !timelineTool) throw new Error("ACM tools were not registered");
-  return { context, handlers, timelineTool, travelTool };
+  return { appendedEntries, context, handlers, timelineTool, travelTool };
 }
 
 async function emit(
@@ -127,6 +132,44 @@ function pendingTravelCall(toolCallId: string): AgentMessage {
 }
 
 describe("deferred post-travel delivery on exact Pi host", () => {
+  test("does not let origin-run turn usage consume the seeded travel baseline", async () => {
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 1_000, contextWindow: 100_000, percent: 1 };
+    };
+    const branch = createBranch("origin-turn-usage");
+    const fixture = createFixture(branch.sessionManager);
+    captureLiveSession(branch.sessionManager, branch.sessionManager.buildSessionContext().messages as AgentMessage[]);
+
+    await fixture.travelTool.execute(
+      "origin-turn-travel",
+      { target: branch.rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    await emit(fixture.handlers, "turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 70_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    }, fixture.context);
+    expect(fixture.appendedEntries).toEqual([]);
+
+    await emit(fixture.handlers, "agent_settled", {}, fixture.context);
+    await emit(fixture.handlers, "context", { messages: [] }, fixture.context);
+    await emit(fixture.handlers, "turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    }, fixture.context);
+
+    expect(fixture.appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
+    });
+  });
+
   test("repairs a branchWithSummary orphan in the outgoing same-run packet without settling", async () => {
     AgentSession.prototype.getContextUsage = function () {
       return { tokens: 1_000, contextWindow: 100_000, percent: 1 };

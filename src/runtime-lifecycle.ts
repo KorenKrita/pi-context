@@ -219,6 +219,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
+    // Usage is authoritative only after the traveled branch has been delivered.
+    // The origin run is stale before settlement, and a failed/invalid persisted
+    // rebuild remains stale afterward. Neither phase may consume the seeded
+    // baseline or create reminder state for a packet the provider did not use.
+    if (runtime.getContextDeliveryPhase(ctx.sessionManager) !== "active") return;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
     const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);

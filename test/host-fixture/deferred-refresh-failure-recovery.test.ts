@@ -46,6 +46,7 @@ function createSession() {
 
 function registerFixture(sessionManager: SessionManager, runtime: AcmSessionRuntime) {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
+  const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let travelTool: ToolDefinition | undefined;
   let timelineTool: ToolDefinition | undefined;
   const api = {
@@ -55,6 +56,10 @@ function registerFixture(sessionManager: SessionManager, runtime: AcmSessionRunt
     },
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+    },
+    appendEntry(customType: string, data: unknown) {
+      appendedEntries.push({ customType, data });
+      sessionManager.appendCustomEntry(customType, data);
     },
   } as unknown as ExtensionAPI;
   registerTravelTool(api, runtime);
@@ -67,7 +72,7 @@ function registerFixture(sessionManager: SessionManager, runtime: AcmSessionRunt
     ui: { notify(message: string) { notifications.push(message); } },
   } as unknown as ExtensionContext;
   if (!travelTool || !timelineTool) throw new Error("ACM tools were not registered");
-  return { context, handlers, notifications, timelineTool, travelTool };
+  return { appendedEntries, context, handlers, notifications, timelineTool, travelTool };
 }
 
 async function emit(
@@ -250,7 +255,7 @@ describe("deferred live synchronization fallback", () => {
     const { rootId, sessionManager } = createSession();
     const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: { prototype: {} } as AgentSessionHostClass });
     const runtime = new AcmSessionRuntime(adapter);
-    const { context, handlers, notifications, travelTool } = registerFixture(sessionManager, runtime);
+    const { appendedEntries, context, handlers, notifications, travelTool } = registerFixture(sessionManager, runtime);
 
     const receipt = await travelTool.execute(
       "invalid-persisted-packet",
@@ -293,6 +298,35 @@ describe("deferred live synchronization fallback", () => {
     expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("next_context_rebuild");
     expect(notifications.at(-1)).toContain("invalid tool protocol");
     expect(notifications.at(-1)).toContain("invalid_tool_call_id");
+
+    await emit(handlers, "turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 70_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    }, context);
+    expect(appendedEntries).toEqual([]);
+
+    Object.defineProperty(sessionManager, "getEntries", {
+      configurable: true,
+      value: originalGetEntries,
+    });
+    const recovered = await emit(handlers, "context", { messages: retained }, context) as { messages?: AgentMessage[] };
+    const rebuilt = rebuildAcmContextPacket(sessionManager);
+    if (!rebuilt.ok) throw new Error(rebuilt.message);
+    expect(recovered.messages).toEqual(rebuilt.value.messages);
+    expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("active");
+
+    await emit(handlers, "turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    }, context);
+    expect(appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
+    });
   });
 
   test("bounded rebuild exhaustion does not falsely report active delivery", async () => {

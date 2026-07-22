@@ -80,9 +80,14 @@ function createProtocolInvalidSession(id: string) {
   };
 }
 
-function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: object) {
+function createLifecycleFixture(
+  runtime: AcmSessionRuntime,
+  sessionManager: object,
+  contextUsage?: { tokens: number; contextWindow: number; percent: number },
+) {
   const handlers = new Map<string, Handler[]>();
   const notifications: string[] = [];
+  const appendedEntries: Array<{ customType: string; data: unknown }> = [];
   let idle: boolean | "throw" = true;
   const pi = {
     on(name: string, handler: Handler) {
@@ -91,12 +96,14 @@ function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: obje
       handlers.set(name, current);
     },
     sendMessage() {},
-    appendEntry() {},
+    appendEntry(customType: string, data: unknown) {
+      appendedEntries.push({ customType, data });
+    },
   } as unknown as ExtensionAPI;
   registerAcmLifecycle(pi, runtime);
   const context = {
     sessionManager,
-    getContextUsage: () => undefined,
+    getContextUsage: () => contextUsage,
     hasPendingMessages: () => false,
     isIdle() {
       if (idle === "throw") throw new Error("idle state unavailable");
@@ -105,6 +112,7 @@ function createLifecycleFixture(runtime: AcmSessionRuntime, sessionManager: obje
     ui: { notify(message: string) { notifications.push(message); } },
   } as unknown as ExtensionContext;
   return {
+    appendedEntries,
     notifications,
     setIdle(value: boolean | "throw") { idle = value; },
     async emit(event: string, data: object = {}) {
@@ -276,8 +284,14 @@ describe("deferred post-travel context delivery", () => {
       },
       getBranch: () => [entry],
     };
-    const fixture = createLifecycleFixture(runtime, session);
+    const fixture = createLifecycleFixture(runtime, session, {
+      tokens: 1_000,
+      contextWindow: 100_000,
+      percent: 1,
+    });
 
+    runtime.resetContextUsageNudgeCycle(session);
+    runtime.seedContextUsageNudgeBaseline(session, 30);
     runtime.deferPostTravelRefresh(session, "rebuild-retry-call", "traveled-leaf");
     await fixture.emit("agent_settled");
     expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
@@ -286,12 +300,33 @@ describe("deferred post-travel context delivery", () => {
     expect(failed).toEqual({ messages: [{ role: "user", content: "retain live message" }] });
     expect(runtime.contextRefresh.isPending(session)).toBe(true);
     expect(runtime.getContextDeliveryPhase(session)).toBe("next_context_rebuild");
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 55_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(fixture.appendedEntries).toEqual([]);
 
     failRebuild = false;
     const rebuilt = await fixture.emit("context", { messages: [] }) as { messages: Array<{ role: string; content?: unknown }> };
     expect(JSON.stringify(rebuilt.messages)).toContain("persisted after retry");
     expect(runtime.contextRefresh.isPending(session)).toBe(true);
     expect(runtime.getContextDeliveryPhase(session)).toBe("active");
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(fixture.appendedEntries).toContainEqual({
+      customType: "acm:context-usage-state",
+      data: expect.objectContaining({
+        kind: "context-usage-baseline",
+        highestReachedLevel: 30,
+        tokens: 20_000,
+      }),
+    });
   });
 
   test("refuses an invalid persisted packet without consuming the settled delivery retry", async () => {

@@ -487,6 +487,9 @@ describe("ACM context usage reminders", () => {
     );
     expect(travelResult.details?.error).toBeUndefined();
 
+    await fixture.emit("agent_settled");
+    await fixture.emit("context", { messages: [] });
+
     fixture.setUsagePercent(75);
     await fixture.emit("context", { messages: [] });
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
@@ -515,7 +518,7 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 50 });
   });
 
-  test("a travel-seeded baseline keeps tiers above the landing point armed despite same-turn regrowth", async () => {
+  test("a travel-seeded baseline ignores origin-run prompt usage and keeps tiers above the landing point armed", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
     sessionManager.appendMessage({ role: "user", content: "work to archive", timestamp: Date.now() });
@@ -548,9 +551,20 @@ describe("ACM context usage reminders", () => {
     );
     expect(travelResult.details?.error).toBeUndefined();
 
-    // Same-turn regrowth: the first real post-transition sample already sits at
-    // 52%, but the landing estimate (~45%) seeded tier 30 — the baseline must
-    // record 30, not the sampled 50.
+    // The origin run was prompted before travel. Its terminal usage can be far
+    // above the new landing point, but must not establish the new baseline.
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 52_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(fixture.appendedEntries).toEqual([]);
+
+    // Only once the run settles and the following context event rebuilds from
+    // the traveled branch may a later assistant prompt establish the baseline.
+    await fixture.emit("agent_settled");
+    await fixture.emit("context", { messages: [] });
     await fixture.emit("turn_end", {
       message: {
         role: "assistant",

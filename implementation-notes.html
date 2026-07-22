@@ -403,6 +403,11 @@
         <td>在任何 backup label 或 branch mutation 前拒绝 protocol-invalid 的 current active packet。</td>
         <td>Travel target 可以合法，但 target 之后的当前路径仍可能含空或重复 tool-call ID。若允许 mutation，same-run provider packet 将无法安全修复。<code>acm_travel</code> 因此在 current Context Packet rebuild 成功后立即检查 protocol status，返回 <code>current_protocol_invalid</code> 与 defects/target/origin evidence，并保持 label、branch、refresh ticket、deferred delivery 和 reminder cycle 全部未变。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>仅在 context delivery phase 为 <code>active</code> 时处理 <code>turn_end</code> prompt usage 并持久化 landing baseline。</td>
+        <td>Originating run 的 usage 包含 travel 前 context；而 <code>agent_settled</code> 后若 persisted rebuild 失败或 packet invalid，provider 仍在使用旧 live messages。任何非 active phase 写入 usage 都会过早消耗落点 seed 并形成陈旧 reminder 状态。因此 <code>pending_run_settle</code> 与 <code>next_context_rebuild</code> 均跳过，只有成功 rebuild 释放 delivery gate 后的真实 assistant prompt 才建立 baseline。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
