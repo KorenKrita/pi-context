@@ -109,7 +109,77 @@ function completedTravelResult(toolCallId: string): ToolResultMessage {
   };
 }
 
+function pendingTravelCall(toolCallId: string): AgentMessage {
+  return {
+    role: "assistant",
+    content: [{
+      type: "toolCall",
+      id: toolCallId,
+      name: "acm_travel",
+      arguments: { target: "root", handoff: HANDOFF },
+    }],
+    api: "test",
+    provider: "test",
+    model: "test",
+    stopReason: "toolUse",
+    timestamp: Date.now(),
+  };
+}
+
 describe("deferred post-travel delivery on exact Pi host", () => {
+  test("repairs a branchWithSummary orphan in the outgoing same-run packet without settling", async () => {
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 1_000, contextWindow: 100_000, percent: 1 };
+    };
+    const branch = createBranch("orphaned-same-run");
+    const fixture = createFixture(branch.sessionManager);
+
+    await fixture.travelTool.execute(
+      "current-travel",
+      { target: branch.rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    // Exact Pi's SessionManager keeps this result on the new summary branch
+    // even though the same-ID historical call was folded away. The live run
+    // then contributes a valid call/result pair with that same ID.
+    branch.sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "current-travel",
+      toolName: "acm_travel",
+      content: [{ type: "text", text: "late persisted historical result for the same call id" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const persistedWithOrphan = branch.sessionManager.buildSessionContext().messages as AgentMessage[];
+    expect(persistedWithOrphan.some((message) => message.role === "toolResult" && message.toolCallId === "current-travel")).toBe(true);
+    const outgoing = [
+      ...persistedWithOrphan,
+      pendingTravelCall("current-travel"),
+      completedTravelResult("current-travel"),
+    ];
+
+    const result = await emit(fixture.handlers, "context", { messages: outgoing }, fixture.context) as { messages: AgentMessage[] };
+
+    const callIndex = result.messages.findIndex((message) => message.role === "assistant"
+      && message.content.some((part) => part.type === "toolCall" && part.id === "current-travel"));
+    const resultIndexes = result.messages.flatMap((message, index) =>
+      message.role === "toolResult" && message.toolCallId === "current-travel" ? [index] : []);
+    expect(callIndex).toBeGreaterThanOrEqual(0);
+    expect(resultIndexes).toEqual([callIndex + 1]);
+    expect(result.messages[resultIndexes[0]!]).toMatchObject({
+      role: "toolResult",
+      toolCallId: "current-travel",
+      toolName: "acm_travel",
+      isError: false,
+      content: [{ type: "text", text: "Travel complete" }],
+    });
+    expect(outgoing.filter((message) => message.role === "toolResult" && message.toolCallId === "current-travel")).toHaveLength(2);
+    const timeline = await fixture.timelineTool.execute("same-run-orphan-timeline", { view: "active" }, undefined, undefined, fixture.context);
+    expect(timeline.details).toMatchObject({ contextDeliveryPhase: "pending_run_settle" });
+  });
+
   test("preserves same-run messages and tool pair through retry; agent_settled replaces native context and later provider contexts stay current", async () => {
     AgentSession.prototype.getContextUsage = function () {
       return { tokens: 1_000, contextWindow: 100_000, percent: 1 };
@@ -136,7 +206,11 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       liveAgentSessionSyncState: "pending",
       liveAgentSessionSync: { status: "pending" },
     });
-    const inFlightMessages = [...staleMessages, completedTravelResult("normal-travel")];
+    const inFlightMessages = [
+      ...staleMessages,
+      pendingTravelCall("normal-travel"),
+      completedTravelResult("normal-travel"),
+    ];
 
     // Neither an unrelated nor matching tool end may replace messages while the
     // originating run may still continue or retry.

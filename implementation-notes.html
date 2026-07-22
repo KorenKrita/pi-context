@@ -393,6 +393,16 @@
         <td>对 agents-only 长 dossier pair 采用 outcome-first 解释：判定以 verifier 和有序交付结果为主，调用次数、压缩率和峰值 telemetry 只作诊断。</td>
         <td>两臂均成功执行 <code>acm_travel</code>，因此 “调用了多少 ACM” 或一次 token 降幅都不构成优劣结论。2026-07-22 的 Opus 4.6 MVP 显示 400K 仍有 applied travel，但最终遗漏 R1/R2 perturbation 时序和 README contract；1M 完成 14/14 并得到 strong outcome judge。该解释只声称此 flow 的 material divergence / 1M candidate superiority，明确保留 n=1、顺序执行和跨模型/任务不可外推的边界。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>在 <code>pending_run_settle</code> 阶段只清洗 provider-bound outgoing context clone 中的历史孤儿 tool result。</td>
+        <td>评估暴露 <code>branchWithSummary()</code> 后宿主再追加 tool result 时，已折叠调用可能不在同一 provider packet 中。该阶段直接对 outgoing clone 使用 tool-protocol repair：保留结构完整的当前 <code>acm_travel</code> call/result，若只有 result 而没有 call 则同样按 orphan 去除；不重建 persisted Context Packet、不提前替换 native AgentSession messages，并保持 settled delivery gate 未释放。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>在任何 backup label 或 branch mutation 前拒绝 protocol-invalid 的 current active packet。</td>
+        <td>Travel target 可以合法，但 target 之后的当前路径仍可能含空或重复 tool-call ID。若允许 mutation，same-run provider packet 将无法安全修复。<code>acm_travel</code> 因此在 current Context Packet rebuild 成功后立即检查 protocol status，返回 <code>current_protocol_invalid</code> 与 defects/target/origin evidence，并保持 label、branch、refresh ticket、deferred delivery 和 reminder cycle 全部未变。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

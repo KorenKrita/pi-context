@@ -154,6 +154,92 @@ describe("deferred post-travel context delivery", () => {
     expect(fixture.notifications).toEqual([]);
   });
 
+  test("repairs only a historical orphan from the same-run outgoing clone", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const session = createSession("orphaned-pre-settlement-leaf");
+    const fixture = createLifecycleFixture(runtime, session);
+    const outgoing = [
+      { role: "user" as const, content: "request before fold", timestamp: 1 },
+      { role: "branchSummary" as const, summary: "persisted fold", fromId: "root", timestamp: 2 },
+      {
+        role: "toolResult" as const,
+        toolCallId: "historical-read",
+        toolName: "read",
+        content: [{ type: "text" as const, text: "late persisted result" }],
+        isError: false,
+        timestamp: 3,
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "current-travel", name: "acm_travel", arguments: {} }],
+        stopReason: "toolUse" as const,
+        timestamp: 4,
+      },
+      {
+        role: "toolResult" as const,
+        toolCallId: "current-travel",
+        toolName: "acm_travel",
+        content: [{ type: "text" as const, text: "Travel complete" }],
+        isError: false,
+        timestamp: 5,
+      },
+    ];
+
+    runtime.deferPostTravelRefresh(session, "current-travel", "traveled-leaf");
+    const result = await fixture.emit("context", { messages: outgoing }) as { messages: typeof outgoing };
+
+    expect(result.messages).toEqual([
+      outgoing[0],
+      outgoing[1],
+      outgoing[3],
+      outgoing[4],
+    ]);
+    expect(outgoing).toHaveLength(5);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+    expect(adapter.applied).toEqual([]);
+    expect(runtime.contextRefresh.isPending(session)).toBe(true);
+
+    const resultWithoutCall = await fixture.emit("context", {
+      messages: [outgoing[4]],
+    }) as { messages: typeof outgoing };
+    expect(resultWithoutCall.messages).toEqual([]);
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+
+    const misordered = [outgoing[0], outgoing[4], outgoing[3]];
+    const repairedMisordered = await fixture.emit("context", {
+      messages: misordered,
+    }) as { messages: typeof outgoing };
+    expect(repairedMisordered.messages).toEqual([
+      outgoing[0],
+      outgoing[3],
+      expect.objectContaining({
+        role: "toolResult",
+        toolCallId: "current-travel",
+        toolName: "acm_travel",
+        isError: true,
+      }),
+    ]);
+    expect(JSON.stringify(repairedMisordered.messages)).toContain("Interrupted by context travel");
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+
+    const invalidSameRun = await fixture.emit("context", {
+      messages: [{
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "duplicate-current", name: "read", arguments: {} },
+          { type: "toolCall", id: "duplicate-current", name: "read", arguments: {} },
+        ],
+        stopReason: "toolUse",
+        timestamp: 6,
+      }],
+    });
+    expect(invalidSameRun).toBeUndefined();
+    expect(fixture.notifications.at(-1)).toContain("Unexpected invalid same-run tool protocol");
+    expect(fixture.notifications.at(-1)).toContain("duplicate_tool_call_id");
+    expect(runtime.getContextDeliveryPhase(session)).toBe("pending_run_settle");
+  });
+
   test("keeps the travel ticket pending until agent_settled can prove the session is idle", async () => {
     const adapter = createAdapter();
     const runtime = new AcmSessionRuntime(adapter);

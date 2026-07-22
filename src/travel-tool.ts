@@ -286,7 +286,27 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           details: { error: "build_messages_failed", message: currentPacketResult.message, target: params.target, targetId },
         };
       }
-      const currentMessages = currentPacketResult.value.messages;
+      const currentPacket = currentPacketResult.value;
+      if (currentPacket.protocol.status === "invalid") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: current active session has invalid tool-call identity and cannot be traveled safely: ${formatToolProtocolDefects(currentPacket.protocol.defects) || "no defect details were supplied"}. Repair the current session protocol before retrying; nothing was mutated.`,
+          }],
+          details: {
+            error: "current_protocol_invalid",
+            target: params.target,
+            targetId,
+            originId,
+            currentProtocolStatus: "invalid",
+            defects: currentPacket.protocol.defects,
+            contextRefreshPending: false,
+            contextRefreshState: "not_scheduled",
+            contextDeliveryPhase: "active",
+          },
+        };
+      }
+      const currentMessages = currentPacket.messages;
       const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
       if (!targetPacketResult.ok) {
         return {

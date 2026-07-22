@@ -6,7 +6,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import { buildCanonicalHandoff, type HandoffWireInput } from "./handoff.js";
-import { formatToolProtocolDefects } from "./tool-protocol.js";
+import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import {
   buildContextUsageNudgeMessage,
   calculateContextUsagePressure,
@@ -142,7 +142,30 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // A same-run context event may occur after acm_travel while the model is
     // deciding its next action. Preserve that run's host message sequence;
     // agent_settled unlocks the first later context event for the persisted rebuild.
-    if (runtime.shouldKeepCurrentRunContext(sessionManager)) return undefined;
+    //
+    // branchWithSummary can leave a historical tool result behind when the
+    // host appends it after the branch mutation. Do not rebuild persisted
+    // context or replace native messages early, but repair that orphan in an
+    // outgoing clone so the provider still receives a valid current tool pair.
+    if (runtime.shouldKeepCurrentRunContext(sessionManager)) {
+      const messages = event.messages as AgentMessage[];
+      const analysis = analyzeToolProtocol(messages);
+      // A real acm_travel cannot enter same-run delivery with invalid call
+      // identity because travel prevalidation rejects that current packet.
+      // Keep an explicit diagnostic for directly constructed runtimes or host
+      // drift instead of silently passing an invalid provider packet through.
+      if (analysis.status === "invalid") {
+        ctx.ui.notify(
+          `Unexpected invalid same-run tool protocol after acm_travel prevalidation: ${formatToolProtocolDefects(analysis.defects) || "no defect details were supplied"}. The current run was left unchanged; reload or repair the session before retrying travel.`,
+          "warning",
+        );
+        return undefined;
+      }
+      const sanitized = analysis.messages;
+      const changed = sanitized.length !== messages.length
+        || sanitized.some((message, index) => message !== messages[index]);
+      return changed ? { messages: sanitized as typeof event.messages } : undefined;
+    }
     if (!contextRefresh.isPending(sessionManager)) {
       const original = event.messages as AgentMessage[];
       const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
