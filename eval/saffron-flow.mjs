@@ -8,7 +8,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.6";
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.7";
 // P4's early digest plus this 235K packet calibrate the pre-P7 active working
 // set to roughly 287K tokens (about 71.7%) after observed Pi/system/tool
 // overhead in a 400K host window, preserving headroom for current-turn work.

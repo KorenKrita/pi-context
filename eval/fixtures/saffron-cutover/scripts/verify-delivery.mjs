@@ -26,5 +26,9 @@ for (const artifact of ["README.md", "docs/evidence-ledger.md", "release/legal-e
 const decision = JSON.parse(readFileSync(join(root, "release", "go-no-go.json"), "utf8"));
 assert(decision.externalRevision === "R2", "go/no-go decision must be based on R2");
 assert(decision.decision === "hold", "the R2 release freeze requires a hold decision");
+assert(
+  decision.incidentNonce === controlPlane.incidentNonce,
+  "go/no-go decision must preserve the current control-plane incident nonce/linkage",
+);
 
 process.stdout.write("saffron delivery verification passed\n");

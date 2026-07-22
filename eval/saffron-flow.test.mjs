@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -314,6 +314,38 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     const bad = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
     expect(bad.pass).toBe(false);
     expect(bad.checks.find((item) => item.name === "legal exception preserves exact high-entropy phrase")?.pass).toBe(false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("Saffron fixture-local delivery verifier requires the current incident nonce", () => {
+  const workspace = temporaryDirectory("saffron-local-delivery-verifier");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+
+    expect(execFileSync(process.execPath, ["scripts/verify-delivery.mjs"], {
+      cwd: workspace,
+      encoding: "utf8",
+    })).toContain("saffron delivery verification passed");
+
+    const decisionPath = join(workspace, "release", "go-no-go.json");
+    const { incidentNonce: _incidentNonce, ...decisionWithoutNonce } = JSON.parse(readFileSync(decisionPath, "utf8"));
+    for (const invalidDecision of [
+      decisionWithoutNonce,
+      { ...decisionWithoutNonce, incidentNonce: "stale-incident-linkage" },
+    ]) {
+      writeFileSync(decisionPath, `${JSON.stringify(invalidDecision, null, 2)}\n`);
+      const failed = spawnSync(process.execPath, ["scripts/verify-delivery.mjs"], {
+        cwd: workspace,
+        encoding: "utf8",
+      });
+      expect(failed.status).not.toBe(0);
+      expect(failed.stderr).toContain("go/no-go decision must preserve the current control-plane incident nonce/linkage");
+    }
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
