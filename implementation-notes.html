@@ -373,6 +373,26 @@
         <td>Accept semantically explicit deferred-wait wording in topology scoring.</td>
         <td>A correct Sol round trip used “Wait explicitly for the next user instruction,” but the evaluator only accepted a contiguous “wait for” phrase. The trigger recognizer now allows the observed adverb while retaining the next-user requirement, so equivalent temporal gating is not mislabeled as a product failure.</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>把真实 global 与 project <code>AGENTS.md</code> 保留在 agents-only 评估中，但只允许当前 <code>pi-context</code> checkout 的 extension 与 Skill 进入候选运行。</td>
+        <td>该隔离要保留实际的全局/项目行为约束，而不把环境退化成无 instructions 的 synthetic control。harness 只复制 auth 与 global <code>AGENTS.md</code>，fixture 保留 project <code>AGENTS.md</code>；packages、global extensions/skills、ambient extensions/skills、MCP、prompt templates 和 session-recall 均排除，且运行时审计必须证明它们不存在。</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>以顺序 MVP 后扩展的方式评估 context-window 分歧：先完成同模型的 400K/1M agents-only pair，再按 Opus 4.8 → Terra → Sol 扩展。</td>
+        <td>每个 pair 固定 seed、fixture、prompt、model、thinking、Pi 与 checkout resources，只改变 context window；先得到能复核的 outcome，再增加模型或重复次数。full-env 尝试承担 calibration，不得混入此 MVP 的 pair verdict。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>把 fixture 内 deterministic verifier 与外层 ordered-transcript outcome judge 对齐为同一证据链，而不以 travel receipt 代替任务完成。</td>
+        <td>内层 verifier 决定 flow 是否有资格被当作完整交付；只有其通过后才执行 Opus 4.8 的 <code>acm-outcome-v3</code> judge。travel receipt 仍单独记录 mutation、backup、handoff 和 context delta，用于证明 mechanics。这样 400K 的 12/14 保留为机制/回归证据但不伪造 comparable judge，而 1M 的 14/14 与 overall 3/3 可共同支撑候选结论。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>对 agents-only 长 dossier pair 采用 outcome-first 解释：判定以 verifier 和有序交付结果为主，调用次数、压缩率和峰值 telemetry 只作诊断。</td>
+        <td>两臂均成功执行 <code>acm_travel</code>，因此 “调用了多少 ACM” 或一次 token 降幅都不构成优劣结论。2026-07-22 的 Opus 4.6 MVP 显示 400K 仍有 applied travel，但最终遗漏 R1/R2 perturbation 时序和 README contract；1M 完成 14/14 并得到 strong outcome judge。该解释只声称此 flow 的 material divergence / 1M candidate superiority，明确保留 n=1、顺序执行和跨模型/任务不可外推的边界。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
