@@ -79,8 +79,20 @@ function createFixture(sessionManager: object = {}) {
   };
 }
 
+function finalizedTravelResult(toolCallId: string, result: { content: unknown; details?: unknown }) {
+  return {
+    role: "toolResult" as const,
+    toolCallId,
+    toolName: "acm_travel",
+    content: result.content,
+    details: result.details,
+    isError: false,
+    timestamp: Date.now(),
+  };
+}
+
 describe("ACM context usage reminders", () => {
-  test("steers a successful travel directly into the handoff NEXT", async () => {
+  test("does not queue a duplicate NEXT from the interceptable tool_result seam", async () => {
     const fixture = createFixture();
     const handoff = {
       goal: "continue the latency investigation",
@@ -105,25 +117,7 @@ describe("ACM context usage reminders", () => {
       },
     });
 
-    expect(fixture.sentMessages).toHaveLength(1);
-    expect(fixture.sentMessages[0]).toMatchObject({
-      message: {
-        customType: "acm:post-travel-continuation",
-        display: false,
-        details: {
-          kind: "post-travel-continuation",
-          toolCallId: "travel-success",
-          resultingLeafId: "summary-1",
-          next: handoff.next,
-          currentUserTurnOpen: true,
-        },
-      },
-      options: { deliverAs: "steer" },
-    });
-    expect(fixture.sentMessages[0]?.message.content).toContain(`REQUIRED NEXT: ${handoff.next}`);
-    expect(fixture.sentMessages[0]?.message.content).toContain("Earlier pre-travel requests are historical");
-    expect(fixture.sentMessages[0]?.message.content).toContain("Evidence and Recover are optional receipts");
-    expect(fixture.sentMessages[0]?.message.content).toContain("CURRENT USER TURN IS STILL OPEN");
+    expect(fixture.sentMessages).toHaveLength(0);
   });
 
   test("does not steer failed or domain-rejected travel results", async () => {
@@ -161,7 +155,7 @@ describe("ACM context usage reminders", () => {
     expect(fixture.sentMessages).toHaveLength(0);
   });
 
-  test("still steers an applied travel when post-mutation packet evidence needs persistent recovery", async () => {
+  test("does not queue NEXT from a non-final applied travel interception result", async () => {
     const fixture = createFixture();
     const handoff = {
       goal: "complete the already-open request",
@@ -189,19 +183,7 @@ describe("ACM context usage reminders", () => {
       },
     });
 
-    expect(fixture.sentMessages).toHaveLength(1);
-    expect(fixture.sentMessages[0]).toMatchObject({
-      message: {
-        customType: "acm:post-travel-continuation",
-        details: {
-          toolCallId: "travel-applied-evidence-pending",
-          resultingLeafId: "summary-evidence-pending",
-          next: handoff.next,
-          currentUserTurnOpen: true,
-        },
-      },
-      options: { deliverAs: "steer" },
-    });
+    expect(fixture.sentMessages).toHaveLength(0);
   });
 
   test("does not append an old NEXT behind a pending user message or aborted run", async () => {
@@ -487,6 +469,9 @@ describe("ACM context usage reminders", () => {
     );
     expect(travelResult.details?.error).toBeUndefined();
 
+    await fixture.emit("context", { messages: [finalizedTravelResult("travel-1", travelResult)] });
+    await fixture.emit("agent_settled");
+
     fixture.setUsagePercent(75);
     await fixture.emit("context", { messages: [] });
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
@@ -510,12 +495,15 @@ describe("ACM context usage reminders", () => {
 
     fixture.setUsagePercent(55);
     await fixture.emit("context", { messages: [] });
+    await fixture.emit("turn_end", {
+      message: { role: "assistant", usage: { input: 55_000, cacheRead: 0, cacheWrite: 0 } },
+    });
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-4", content: [], isError: false });
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 50 });
   });
 
-  test("a travel-seeded baseline keeps tiers above the landing point armed despite same-turn regrowth", async () => {
+  test("a travel-seeded baseline ignores origin-run prompt usage and keeps tiers above the landing point armed", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
     sessionManager.appendMessage({ role: "user", content: "work to archive", timestamp: Date.now() });
@@ -548,9 +536,19 @@ describe("ACM context usage reminders", () => {
     );
     expect(travelResult.details?.error).toBeUndefined();
 
-    // Same-turn regrowth: the first real post-transition sample already sits at
-    // 52%, but the landing estimate (~45%) seeded tier 30 — the baseline must
-    // record 30, not the sampled 50.
+    // The origin run was prompted before travel. Its terminal usage can be far
+    // above the new landing point, but must not establish the new baseline.
+    await fixture.emit("turn_end", {
+      message: {
+        role: "assistant",
+        usage: { input: 52_000, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(fixture.appendedEntries).toEqual([]);
+
+    await fixture.emit("context", { messages: [finalizedTravelResult("travel-1", travelResult)] });
+    // Provider delivery is now authoritative even before native settlement.
+    await fixture.emit("agent_settled");
     await fixture.emit("turn_end", {
       message: {
         role: "assistant",
@@ -565,9 +563,89 @@ describe("ACM context usage reminders", () => {
     // The 50% tier was never reminded in this cycle, so crossing it fires.
     fixture.setUsagePercent(55);
     await fixture.emit("context", { messages: [] });
+    await fixture.emit("turn_end", {
+      message: { role: "assistant", usage: { input: 55_000, cacheRead: 0, cacheWrite: 0 } },
+    });
     await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-2", content: [], isError: false });
     expect(fixture.sentMessages).toHaveLength(2);
     expect(fixture.sentMessages[1]?.message.details).toMatchObject({ level: 50 });
+  });
+
+  test("provider-active native-pending contexts ignore stale native usage until provider turn_end supplies actual usage", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "large raw history", timestamp: Date.now() });
+    const fixture = createFixture(sessionManager);
+    await fixture.emit("turn_end", {
+      message: { role: "assistant", usage: { input: 60_000, cacheRead: 0, cacheWrite: 0 } },
+    });
+    const travelTool = fixture.tools.get("acm_travel");
+    const travelResult = await travelTool.execute(
+      "provider-usage-travel",
+      {
+        target: rootId,
+        handoff: {
+          goal: "continue with compact provider context",
+          state: "travel applied",
+          evidence: "usage authority test",
+          external: "none",
+          exclusions: "old native usage",
+          recover: "root",
+          next: "continue once from the handoff",
+        },
+      },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    const finalResult = {
+      role: "toolResult" as const,
+      toolCallId: "provider-usage-travel",
+      toolName: "acm_travel",
+      content: travelResult.content,
+      details: travelResult.details,
+      isError: false,
+      timestamp: Date.now(),
+    };
+
+    fixture.setUsagePercent(70);
+    await fixture.emit("context", { messages: [finalResult] });
+    await fixture.emit("context", { messages: [finalResult] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-after-cutover", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
+
+    const timeline = await fixture.tools.get("acm_timeline").execute(
+      "provider-usage-timeline",
+      { view: "active" },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(timeline.content[0]?.text).toContain("70.0% (70.0K/100.0K) (native AgentSession estimate)");
+    expect(timeline.content[0]?.text).toContain("ACM Pressure:     N/A (provider actual)");
+    expect(timeline.details).toMatchObject({
+      contextUsageAuthority: "provider_pending",
+      authoritativeContextPressure: null,
+      contextDeliveryPhase: "provider_active_native_skipped",
+    });
+
+    await fixture.emit("turn_end", {
+      message: { role: "assistant", usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 } },
+    });
+    const afterProviderUsage = await fixture.tools.get("acm_timeline").execute(
+      "provider-usage-after-turn",
+      { view: "active" },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(afterProviderUsage.details).toMatchObject({
+      contextUsageAuthority: "provider_turn_end",
+      authoritativeContextPressure: expect.objectContaining({ tokens: 20_000 }),
+    });
+    await fixture.emit("context", { messages: [finalResult] });
+    await fixture.emit("tool_result", { toolName: "read", toolCallId: "read-after-provider-usage", content: [], isError: false });
+    expect(fixture.sentMessages).toHaveLength(0);
   });
 
   test("a native tree-navigation summary is a cycle boundary on restore", async () => {

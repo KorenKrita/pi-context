@@ -8,6 +8,7 @@
 // is version-pinned so every comparison uses the same ruler.
 
 import { PiRpcDriver } from "./driver.mjs";
+import { renameSync, unlinkSync, writeFileSync } from "node:fs";
 
 export const JUDGE_MODEL = { provider: "local-claude", modelId: "claude-opus-4-8" };
 // v3 is outcome-first. v2 treated any fold during an unfinished turn as a
@@ -16,8 +17,35 @@ export const JUDGE_MODEL = { provider: "local-claude", modelId: "claude-opus-4-8
 // therefore not directly comparable with v3 scores.
 export const RUBRIC_VERSION = "acm-outcome-v3";
 export const RUBRIC_COMPARABILITY_NOTE = "v3 judges outcome rather than an unfinished-turn prohibition; v1/v2 scores are not directly comparable.";
+export const HISTORICAL_RUBRIC_VERSIONS = Object.freeze(["acm-activation-v1", "acm-activation-v2"]);
+export const KNOWN_RUBRIC_VERSIONS = Object.freeze([...HISTORICAL_RUBRIC_VERSIONS, RUBRIC_VERSION]);
+
+export const JUDGE_DIMENSIONS = Object.freeze([
+  "activation",
+  "timing_and_measure",
+  "handoff_quality",
+  "recoverability",
+  "ceiling",
+  "task_completion",
+]);
+export const ATTRIBUTIONS = Object.freeze([
+  "healthy",
+  "never-activated",
+  "event-driven-overfold",
+  "negation-suppressed-inaction",
+  "bad-handoff",
+  "lost-recoverability",
+  "anchor-gravity-wrong-target",
+  "thrash",
+  "task-degraded",
+]);
+export const MODEL_TIERS = Object.freeze(["weak", "mid", "strong"]);
 
 const ACM_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
+const REQUIRED_VERDICT_KEYS = ["rubricVersion", "perPhase", "dimensions", "overall", "topAttributions"];
+const REQUIRED_PHASE_KEYS = ["phase", "opportunityTaken", "action", "quality", "note"];
+const REQUIRED_DIMENSION_KEYS = ["score", "attribution", "note"];
+const REQUIRED_OVERALL_KEYS = ["score", "modelTier", "summary"];
 
 /** Compact one-line summary of a non-ACM tool call's args. */
 function summarizeArgs(name, args) {
@@ -138,7 +166,9 @@ healthy / never-activated / event-driven-overfold / negation-suppressed-inaction
 lost-recoverability / anchor-gravity-wrong-target / thrash / task-degraded
 
 ## 输出
-**只输出一个 JSON 代码块,不要调用任何工具,不要有多余文字。** 结构:
+**只输出一个 JSON 代码块,不要调用任何工具,不要有多余文字。** 所有 <code>quality</code>、六个维度的
+<code>score</code> 和 <code>overall.score</code> 都必须是 <strong>0、1、2、3 中的一个整数</strong>；
+<code>overall.score</code> 不是六个维度的总和。键名必须与下列结构完全一致。结构:
 \`\`\`json
 {
   "rubricVersion": "${RUBRIC_VERSION}",
@@ -163,34 +193,267 @@ ${transcript}
 `;
 }
 
-/** Pull the last JSON object out of the judge's reply. */
-export function parseVerdict(text) {
-  if (typeof text !== "string" || !text.trim()) {
-    return { ok: false, error: "empty judge reply" };
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function addUnexpectedAndMissingKeyErrors(value, expectedKeys, path, errors) {
+  for (const key of expectedKeys) {
+    if (!Object.hasOwn(value, key)) errors.push(`${path}.${key}: missing required key`);
   }
-  const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)];
-  const candidates = fences.length
-    ? fences.map((m) => m[1])
-    : [text];
-  // Also try the widest brace span as a fallback.
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1));
-  for (const candidate of candidates.reverse()) {
-    try {
-      return { ok: true, verdict: JSON.parse(candidate.trim()) };
-    } catch {
-      // try next candidate
+  for (const key of Object.keys(value)) {
+    if (!expectedKeys.includes(key)) errors.push(`${path}.${key}: unexpected key`);
+  }
+}
+
+function requireNonEmptyString(value, path, errors) {
+  if (typeof value !== "string") {
+    errors.push(`${path}: expected a string`);
+  } else if (!value.trim()) {
+    errors.push(`${path}: expected a non-empty string`);
+  }
+}
+
+function requireScore(value, path, errors) {
+  if (!Number.isInteger(value) || value < 0 || value > 3) {
+    errors.push(`${path}: expected an integer from 0 through 3`);
+  }
+}
+
+/**
+ * Validate the shared structural contract for every known judge rubric without
+ * coercing or repairing it. Current production output adds an exact-v3 gate in
+ * validateVerdict(); historical consumers use this function through
+ * validatePersistedVerdict().
+ */
+export function validateVerdictStructure(verdict, { expectedPhases } = {}) {
+  const errors = [];
+  if (!isPlainObject(verdict)) {
+    return { ok: false, errors: ["$: expected a plain object"], error: "$: expected a plain object" };
+  }
+
+  addUnexpectedAndMissingKeyErrors(verdict, REQUIRED_VERDICT_KEYS, "$", errors);
+  if (!KNOWN_RUBRIC_VERSIONS.includes(verdict.rubricVersion)) {
+    errors.push(`$.rubricVersion: unsupported rubric ${JSON.stringify(verdict.rubricVersion)}`);
+  }
+
+  if (!Array.isArray(verdict.perPhase)) {
+    errors.push("$.perPhase: expected an array");
+  } else {
+    if (verdict.perPhase.length === 0) errors.push("$.perPhase: expected at least one phase record");
+    const seenPhases = new Set();
+    verdict.perPhase.forEach((phase, index) => {
+      const path = `$.perPhase[${index}]`;
+      if (!isPlainObject(phase)) {
+        errors.push(`${path}: expected a plain object`);
+        return;
+      }
+      addUnexpectedAndMissingKeyErrors(phase, REQUIRED_PHASE_KEYS, path, errors);
+      requireNonEmptyString(phase.phase, `${path}.phase`, errors);
+      if (typeof phase.opportunityTaken !== "boolean") {
+        errors.push(`${path}.opportunityTaken: expected a boolean`);
+      }
+      requireNonEmptyString(phase.action, `${path}.action`, errors);
+      requireScore(phase.quality, `${path}.quality`, errors);
+      requireNonEmptyString(phase.note, `${path}.note`, errors);
+      if (typeof phase.phase === "string") {
+        if (seenPhases.has(phase.phase)) errors.push(`${path}.phase: duplicate phase ${JSON.stringify(phase.phase)}`);
+        seenPhases.add(phase.phase);
+      }
+    });
+    if (expectedPhases !== undefined) {
+      if (!Array.isArray(expectedPhases)) {
+        errors.push("$.perPhase: expectedPhases must be an array when supplied");
+      } else {
+        if (verdict.perPhase.length !== expectedPhases.length) {
+          errors.push(`$.perPhase: expected ${expectedPhases.length} phase records, received ${verdict.perPhase.length}`);
+        }
+        expectedPhases.forEach((expectedPhase, index) => {
+          const actualPhase = verdict.perPhase[index]?.phase;
+          if (actualPhase !== expectedPhase) {
+            errors.push(`$.perPhase[${index}].phase: expected exactly ${JSON.stringify(expectedPhase)}, received ${JSON.stringify(actualPhase)}`);
+          }
+        });
+      }
     }
   }
-  return { ok: false, error: "no parseable JSON in judge reply", raw: text.slice(0, 500) };
+
+  if (!isPlainObject(verdict.dimensions)) {
+    errors.push("$.dimensions: expected a plain object");
+  } else {
+    addUnexpectedAndMissingKeyErrors(verdict.dimensions, JUDGE_DIMENSIONS, "$.dimensions", errors);
+    for (const dimension of JUDGE_DIMENSIONS) {
+      const path = `$.dimensions.${dimension}`;
+      const score = verdict.dimensions[dimension];
+      if (!isPlainObject(score)) {
+        errors.push(`${path}: expected a plain object`);
+        continue;
+      }
+      addUnexpectedAndMissingKeyErrors(score, REQUIRED_DIMENSION_KEYS, path, errors);
+      requireScore(score.score, `${path}.score`, errors);
+      if (!ATTRIBUTIONS.includes(score.attribution)) {
+        errors.push(`${path}.attribution: expected one of ${ATTRIBUTIONS.join(", ")}`);
+      }
+      requireNonEmptyString(score.note, `${path}.note`, errors);
+    }
+  }
+
+  if (!isPlainObject(verdict.overall)) {
+    errors.push("$.overall: expected a plain object");
+  } else {
+    addUnexpectedAndMissingKeyErrors(verdict.overall, REQUIRED_OVERALL_KEYS, "$.overall", errors);
+    requireScore(verdict.overall.score, "$.overall.score", errors);
+    if (!MODEL_TIERS.includes(verdict.overall.modelTier)) {
+      errors.push(`$.overall.modelTier: expected one of ${MODEL_TIERS.join(", ")}`);
+    }
+    requireNonEmptyString(verdict.overall.summary, "$.overall.summary", errors);
+  }
+
+  if (!Array.isArray(verdict.topAttributions)) {
+    errors.push("$.topAttributions: expected an array");
+  } else {
+    if (verdict.topAttributions.length < 1 || verdict.topAttributions.length > 3) {
+      errors.push("$.topAttributions: expected between 1 and 3 entries");
+    }
+    const seen = new Set();
+    verdict.topAttributions.forEach((attribution, index) => {
+      const path = `$.topAttributions[${index}]`;
+      if (!ATTRIBUTIONS.includes(attribution)) {
+        errors.push(`${path}: expected one of ${ATTRIBUTIONS.join(", ")}`);
+      }
+      if (seen.has(attribution)) errors.push(`${path}: duplicate attribution`);
+      seen.add(attribution);
+    });
+  }
+
+  return errors.length === 0
+    ? { ok: true }
+    : { ok: false, errors, error: errors.join("; ") };
+}
+
+/** Validate a new producer verdict against the current, exact v3 rubric. */
+export function validateVerdict(verdict, options = {}) {
+  const structural = validateVerdictStructure(verdict, options);
+  if (!isPlainObject(verdict) || verdict.rubricVersion === RUBRIC_VERSION) return structural;
+  const error = `$.rubricVersion: expected exactly ${JSON.stringify(RUBRIC_VERSION)}`;
+  if (structural.ok) return { ok: false, errors: [error], error };
+  return { ok: false, errors: [...structural.errors, error], error: [...structural.errors, error].join("; ") };
+}
+
+/** Validate a persisted artifact against the schema for its declared known rubric. */
+export function validatePersistedVerdict(verdict, options = {}) {
+  return validateVerdictStructure(verdict, options);
+}
+
+function judgeReplyTexts(events) {
+  return events
+    .filter((event) => event.type === "message_end" && event.message?.role === "assistant")
+    .map((event) => (event.message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join(""))
+    .filter(Boolean);
+}
+
+function extractJsonCandidates(text) {
+  const candidates = [];
+  const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  for (const match of fences) {
+    candidates.push({ text: match[1], start: match.index ?? 0 });
+  }
+  if (fences.length === 0) candidates.push({ text, start: 0 });
+
+  // Preserve the old brace-span compatibility fallback for prose replies.
+  // When fenced candidates exist, a span across multiple fences is not a
+  // candidate at all and must not hide a useful schema error from the latest
+  // actual JSON block.
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (fences.length === 0 && first >= 0 && last > first) {
+    candidates.push({ text: text.slice(first, last + 1), start: first });
+  }
+  return candidates.sort((a, b) => a.start - b.start);
+}
+
+/** Pull the last syntactically and schema-valid JSON verdict out of a judge reply. */
+export function parseVerdict(text, options = {}) {
+  if (typeof text !== "string" || !text.trim()) {
+    return { ok: false, error: "$: empty judge reply", errors: ["$: empty judge reply"] };
+  }
+  let mostRecentFailure;
+  const validate = options.acceptHistorical ? validatePersistedVerdict : validateVerdict;
+  for (const candidate of extractJsonCandidates(text).reverse()) {
+    try {
+      const verdict = JSON.parse(candidate.text.trim());
+      const validation = validate(verdict, { expectedPhases: options.expectedPhases });
+      if (validation.ok) return { ok: true, verdict };
+      mostRecentFailure ??= validation;
+    } catch (error) {
+      mostRecentFailure ??= {
+        ok: false,
+        error: `$: invalid JSON (${error instanceof Error ? error.message : String(error)})`,
+        errors: [`$: invalid JSON (${error instanceof Error ? error.message : String(error)})`],
+      };
+    }
+  }
+  return {
+    ok: false,
+    error: mostRecentFailure?.error ?? "$: no JSON candidate in judge reply",
+    errors: mostRecentFailure?.errors ?? ["$: no JSON candidate in judge reply"],
+    raw: text.slice(0, 500),
+  };
+}
+
+export function buildJudgeRepairPrompt(errors) {
+  const listedErrors = Array.isArray(errors) && errors.length
+    ? errors.map((error) => `- ${error}`).join("\n")
+    : "- $: output was not valid JSON";
+  return `你的上一轮裁决输出未通过机器校验。请只修复并重新输出完整裁决 JSON；不要重发 transcript、不要解释、不要调用工具。
+
+校验错误：
+${listedErrors}
+
+必须输出一个完整 JSON 代码块，且键名完全匹配原结构。rubricVersion 必须是 ${JSON.stringify(RUBRIC_VERSION)}；
+每个 perPhase.quality、六个 dimensions.*.score 和 overall.score 都必须是整数 0、1、2、3 中的一项（overall.score 不是总和）；
+dimensions 必须含 activation、timing_and_measure、handoff_quality、recoverability、ceiling、task_completion；
+attribution 必须使用原提示给出的标签，modelTier 必须是 weak、mid、strong 之一，topAttributions 必须是 1-3 个不重复的有效标签。`;
+}
+
+/** Write a replacement artifact via same-directory rename, never in place. */
+export function writeJsonAtomically(path, value) {
+  const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(temporaryPath, JSON.stringify(value, null, 2));
+  try {
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    try { unlinkSync(temporaryPath); } catch { /* preserve the original rename failure */ }
+    throw error;
+  }
+}
+
+function judgeFailure({ transcript, raw, attempts, judgeModel, error, errors }) {
+  return {
+    transcript,
+    raw,
+    ok: false,
+    error: `judge invalid after ${attempts.length} attempts: ${error}`,
+    errors,
+    rubricVersion: RUBRIC_VERSION,
+    attempts,
+    judgeModel,
+  };
+}
+
+function errorDetails(error, stage) {
+  const detail = error instanceof Error ? error.message : String(error);
+  const pathError = `$: judge ${stage} failure (${detail})`;
+  return { error: pathError, errors: [pathError] };
 }
 
 /**
  * Judge a completed run.
  *
  * @param {{
- *   turnRecords: Array<{ phase, prompt, toolCalls, assistantText }>,
+ *   transcript: string,
  *   opportunities: Array<{ phase, intent }>,
  *   judgeAgentDir: string,
  *   sessionDir: string,
@@ -198,14 +461,22 @@ export function parseVerdict(text) {
  *   model?: { provider: string, modelId: string },
  *   thinkingLevel?: string,
  *   timeoutMs?: number,
+ *   now?: () => number,
+ *   driverFactory?: (options: object) => { start(): void, prompt(message: string, options: object): Promise<any[]>, stop(): Promise<void> },
  * }} options
  */
-export async function judgeRun(options) {
+export async function judgeTranscript(options) {
   const model = options.model ?? JUDGE_MODEL;
-  const transcript = buildTranscript(options.turnRecords);
+  const transcript = options.transcript;
   const prompt = buildJudgePrompt({ opportunities: options.opportunities, transcript, taskCompletionDesc: options.taskCompletionDesc });
+  const expectedPhases = Array.isArray(options.opportunities)
+    ? options.opportunities.map((opportunity) => opportunity?.phase)
+    : undefined;
+  const now = options.now ?? (() => Date.now());
+  const totalTimeoutMs = options.timeoutMs ?? 300000;
+  const deadline = now() + totalTimeoutMs;
 
-  const driver = new PiRpcDriver({
+  const driverOptions = {
     cwd: options.cwd,
     agentDir: options.judgeAgentDir,
     sessionDir: options.sessionDir,
@@ -213,19 +484,96 @@ export async function judgeRun(options) {
     provider: model.provider,
     modelId: model.modelId,
     thinkingLevel: options.thinkingLevel ?? "high",
-  });
-
-  driver.start();
+  };
+  const attempts = [];
+  let latestRaw = "";
+  let latestParsed;
+  let driver;
+  let outcome;
   try {
-    const events = await driver.prompt(prompt, { timeoutMs: options.timeoutMs ?? 300000 });
-    const texts = events
-      .filter((e) => e.type === "message_end" && e.message?.role === "assistant")
-      .map((e) => (e.message.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join(""))
-      .filter(Boolean);
-    const raw = texts.at(-1) ?? "";
-    const parsed = parseVerdict(raw);
-    return { transcript, raw, ...parsed, judgeModel: model };
+    driver = options.driverFactory ? options.driverFactory(driverOptions) : new PiRpcDriver(driverOptions);
+    driver.start();
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const kind = attempt === 1 ? "initial" : "repair";
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        const error = `$.judge.${kind}: total deadline exhausted before prompt`;
+        attempts.push({ attempt, kind, raw: "", ok: false, error, errors: [error] });
+        outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, error, errors: [error] });
+        break;
+      }
+      const attemptPrompt = attempt === 1 ? prompt : buildJudgeRepairPrompt(latestParsed?.errors);
+      let events;
+      try {
+        events = await driver.prompt(attemptPrompt, { timeoutMs: remainingMs });
+      } catch (error) {
+        const failure = errorDetails(error, kind);
+        attempts.push({ attempt, kind, raw: "", ok: false, ...failure });
+        outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, ...failure });
+        break;
+      }
+      latestRaw = judgeReplyTexts(events).at(-1) ?? "";
+      latestParsed = parseVerdict(latestRaw, { expectedPhases });
+      if (now() > deadline) {
+        const error = `$.judge.${kind}: total deadline exhausted after prompt`;
+        const errors = [...(latestParsed.ok ? [] : latestParsed.errors ?? []), error];
+        attempts.push({ attempt, kind, raw: latestRaw, ok: false, error, errors });
+        outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, error, errors });
+        break;
+      }
+      attempts.push({
+        attempt,
+        kind,
+        raw: latestRaw,
+        ok: latestParsed.ok,
+        ...(latestParsed.ok ? {} : { error: latestParsed.error, errors: latestParsed.errors ?? [] }),
+      });
+      if (latestParsed.ok) {
+        outcome = {
+          transcript,
+          raw: latestRaw,
+          ok: true,
+          verdict: latestParsed.verdict,
+          rubricVersion: RUBRIC_VERSION,
+          attempts,
+          judgeModel: model,
+        };
+        break;
+      }
+    }
+    outcome ??= judgeFailure({
+      transcript,
+      raw: latestRaw,
+      attempts,
+      judgeModel: model,
+      error: latestParsed?.error ?? "$: no verdict",
+      errors: latestParsed?.errors ?? ["$: no verdict"],
+    });
+  } catch (error) {
+    const failure = errorDetails(error, "startup");
+    attempts.push({ attempt: attempts.length + 1, kind: "startup", raw: "", ok: false, ...failure });
+    outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, ...failure });
   } finally {
-    await driver.stop();
+    if (driver) {
+      try {
+        await driver.stop();
+      } catch (error) {
+        const failure = errorDetails(error, "shutdown");
+        attempts.push({ attempt: attempts.length + 1, kind: "shutdown", raw: latestRaw, ok: false, ...failure });
+        // A judge process that cannot shut down cleanly is not certifying
+        // evidence even when it emitted schema-valid JSON: terminal state and
+        // artifact integrity are part of the judge contract.
+        outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, ...failure });
+      }
+    }
   }
+  return outcome;
+}
+
+/** Judge a completed run after rendering its source turn records once. */
+export async function judgeRun(options) {
+  return judgeTranscript({
+    ...options,
+    transcript: buildTranscript(options.turnRecords),
+  });
 }

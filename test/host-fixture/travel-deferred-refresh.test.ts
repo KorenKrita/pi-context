@@ -387,7 +387,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
 
   test("rejects an invalid target packet before any mutation", async () => {
     const sessionManager = SessionManager.inMemory();
-    sessionManager.appendMessage({ role: "user", content: "old request", timestamp: Date.now() });
+    const rootId = sessionManager.appendMessage({ role: "user", content: "old request", timestamp: Date.now() });
     const targetId = sessionManager.appendMessage({
       ...travelToolCall(),
       content: [
@@ -395,9 +395,11 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
         { type: "toolCall", id: "duplicate-target", name: "read", arguments: { path: "b.md" } },
       ],
     });
+    sessionManager.branchWithSummary(rootId, "safe active branch", { kind: "test-fixture" }, true);
     sessionManager.appendMessage({ role: "user", content: "new continuation", timestamp: Date.now() });
     const headId = sessionManager.appendMessage(travelToolCall());
     const entriesBefore = sessionManager.getEntries();
+    const summaryCountBefore = entriesBefore.filter((entry) => entry.type === "branch_summary").length;
     const { context, travelTool } = createExtensionFixture(sessionManager);
 
     const result = await travelTool.execute(
@@ -417,7 +419,54 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     });
     expect(sessionManager.getLeafId()).toBe(headId);
     expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getEntries().filter((entry) => entry.type === "branch_summary")).toHaveLength(summaryCountBefore);
+  });
+
+  test("rejects an invalid current packet before backup, branch, or refresh scheduling", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const targetId = sessionManager.appendMessage({ role: "user", content: "valid target", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      ...travelToolCall(),
+      content: [
+        { type: "toolCall", id: "duplicate-current", name: "read", arguments: { path: "a.md" } },
+        { type: "toolCall", id: "duplicate-current", name: "read", arguments: { path: "b.md" } },
+      ],
+    });
+    const headId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, timelineTool, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: targetId, handoff: HANDOFF, backupCurrentHeadAs: "must-not-create-current-backup" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "current_protocol_invalid",
+      target: targetId,
+      targetId,
+      originId: headId,
+      currentProtocolStatus: "invalid",
+      defects: [expect.objectContaining({
+        kind: "duplicate_tool_call_id",
+        toolCallId: "duplicate-current",
+      })],
+      contextRefreshPending: false,
+      contextRefreshState: "not_scheduled",
+      contextDeliveryPhase: "active",
+    });
+    expect(sessionManager.getLeafId()).toBe(headId);
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getEntries().some((entry) => entry.type === "label")).toBe(false);
     expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+    const timeline = await timelineTool.execute("current-invalid-timeline", { view: "active" }, undefined, undefined, context);
+    expect(timeline.details).toMatchObject({
+      contextDeliveryPhase: "active",
+      contextRefreshPending: false,
+    });
   });
 
   test("allows a repaired target with explicit structural warnings", async () => {
@@ -491,7 +540,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
   });
 
-  test("rejects a raw backup with duplicate tool-call ids", async () => {
+  test("rejects duplicate tool-call ids in the current packet before raw backup resolution", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "inspect two files", timestamp: Date.now() });
     sessionManager.appendMessage({
@@ -527,7 +576,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     );
 
     expect(result.details).toMatchObject({
-      error: "backup_protocol_invalid",
+      error: "current_protocol_invalid",
       defects: [expect.objectContaining({
         kind: "duplicate_tool_call_id",
         toolCallId: "duplicate-read",
@@ -683,8 +732,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       context,
     );
     expect(result.details).toMatchObject({
-      contextRefreshState: "pending_run_settle",
-      contextDeliveryPhase: "pending_run_settle",
+      contextRefreshState: "pending_tool_result",
+      contextDeliveryPhase: "pending_tool_result",
       activeSummaryDepthBefore: 0,
       activeSummaryDepthAfter: 1,
       activeSummaryDepthDelta: 1,
@@ -700,19 +749,22 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       toolCallId: TOOL_CALL_ID,
       toolName: "acm_travel",
       content: [{ type: "text", text: "Travel complete" }],
+      details: result.details,
       isError: false,
       timestamp: Date.now(),
     };
     const inFlightContext = [...staleMessages, toolResult];
     expect(hasToolCall(inFlightContext, TOOL_CALL_ID)).toBe(true);
-    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    const providerContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
+    expect(providerContext.messages).toEqual(acmMessages(sessionManager));
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     // Error may retry; only agent_settled permits replacement.
     await emit(handlers, "agent_end", {
       messages: [{ role: "assistant", content: [], stopReason: "error" }],
     }, context);
-    expect(await emit(handlers, "context", { messages: inFlightContext }, context)).toBeUndefined();
+    const retryProviderContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
+    expect(retryProviderContext.messages).toEqual(acmMessages(sessionManager));
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "agent_settled", {}, context);
@@ -740,7 +792,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(timeline.content[0]).toMatchObject({ type: "text" });
     expect((timeline.content[0] as { text: string }).text).toContain("Context Delivery:");
     expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "active",
+      contextDeliveryPhase: "provider_active_native_applied",
       nativeContextReplacement: { status: "applied" },
     });
   });

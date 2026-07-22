@@ -311,6 +311,81 @@ function successfulTravelContext(failPostMutationRebuild = false, invalidatePost
   };
 }
 
+function currentProtocolInvalidTravelContext(toolCallId: string) {
+  const root = userEntry("current-protocol-root");
+  const invalidAssistant = {
+    type: "message",
+    id: "current-protocol-invalid",
+    parentId: root.id,
+    timestamp: "2026-01-01T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "duplicate-current", name: "read", arguments: { path: "a.md" } },
+        { type: "toolCall", id: "duplicate-current", name: "read", arguments: { path: "b.md" } },
+      ],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 1,
+    },
+  } as SessionEntry;
+  const currentTravel = {
+    type: "message",
+    id: "current-protocol-travel",
+    parentId: invalidAssistant.id,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "acm_travel", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 2,
+    },
+  } as SessionEntry;
+  const entries = [root, invalidAssistant, currentTravel];
+  let appendCalls = 0;
+  let branchCalls = 0;
+  const sessionManager = {
+    getTree: () => [{
+      entry: root,
+      children: [{
+        entry: invalidAssistant,
+        children: [{ entry: currentTravel, children: [] }],
+      }],
+    }],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => fromId === root.id
+      ? [root]
+      : fromId === invalidAssistant.id
+        ? [root, invalidAssistant]
+        : entries,
+    getLeafId: () => currentTravel.id,
+    getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    appendLabelChange: () => {
+      appendCalls++;
+      return "must-not-append-label";
+    },
+    branchWithSummary: () => {
+      branchCalls++;
+      return "must-not-branch";
+    },
+  };
+  return {
+    context: {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    },
+    sessionManager,
+    getAppendCalls: () => appendCalls,
+    getBranchCalls: () => branchCalls,
+  };
+}
+
 const executeCheckpoint = captureExecute(registerCheckpointTool);
 const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
@@ -605,12 +680,54 @@ describe("ACM tool execution contracts", () => {
     );
 
     expect(result.details).toMatchObject({
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       nativeContextReplacementState: "pending",
       nativeContextReplacement: nativeOutcome,
       liveAgentSessionSyncState: "pending",
       liveAgentSessionSync: nativeOutcome,
     });
+  });
+
+  test("rejects an invalid current packet before labels, branch mutation, or deferred refresh", async () => {
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTravelTool(pi, runtime));
+    const toolCallId = "current-protocol-travel-call";
+    const fixture = currentProtocolInvalidTravelContext(toolCallId);
+    const entriesBefore = [...fixture.sessionManager.getEntries()];
+
+    const result = await executeWithRuntime(
+      toolCallId,
+      {
+        target: "current-protocol-root",
+        handoff: HANDOFF,
+        backupCurrentHeadAs: "must-not-create-current-protocol-backup",
+      },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "current_protocol_invalid",
+      target: "current-protocol-root",
+      targetId: "current-protocol-root",
+      originId: "current-protocol-travel",
+      currentProtocolStatus: "invalid",
+      defects: [expect.objectContaining({
+        kind: "duplicate_tool_call_id",
+        toolCallId: "duplicate-current",
+      })],
+      contextRefreshPending: false,
+      contextRefreshState: "not_scheduled",
+      contextDeliveryPhase: "active",
+    });
+    expect(result.content[0]?.text).toContain("nothing was mutated");
+    expect(fixture.sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(fixture.sessionManager.getLeafId()).toBe("current-protocol-travel");
+    expect(fixture.getAppendCalls()).toBe(0);
+    expect(fixture.getBranchCalls()).toBe(0);
+    expect(runtime.contextRefresh.isPending(fixture.sessionManager)).toBe(false);
+    expect(runtime.getContextDeliveryPhase(fixture.sessionManager)).toBe("active");
   });
 
   test("keeps an applied travel receipt and post-travel steer data when post-mutation evidence cannot rebuild", async () => {
@@ -629,7 +746,7 @@ describe("ACM tool execution contracts", () => {
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
       contextRefreshPending: true,
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
     });
@@ -653,7 +770,7 @@ describe("ACM tool execution contracts", () => {
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
       contextRefreshPending: true,
-      contextDeliveryPhase: "pending_run_settle",
+      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "invalid_protocol",
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],

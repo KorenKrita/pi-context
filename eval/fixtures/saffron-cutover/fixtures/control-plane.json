@@ -1,0 +1,7 @@
+{
+  "revision": "R1",
+  "freeze": false,
+  "approvedProviders": ["atlas", "lumen"],
+  "incidentNonce": "R1-PENDING-REPLACEMENT",
+  "updatedBy": "initial-fixture"
+}

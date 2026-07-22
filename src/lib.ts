@@ -93,9 +93,13 @@ export class ContextRefreshRegistry {
   return this.failures.get(sm);
  }
 
- /** Record a failed refresh attempt. Returns true if another retry is allowed. */
+ /**
+  * Record a failed refresh attempt. Every refresh cycle has the same bounded
+  * budget; a valid cached packet may remain deliverable after exhaustion, but
+  * persistence reads are not retried again until a new lifecycle cycle.
+  */
  recordFailedAttempt(sm: object, message: string): boolean {
-  const next = (this.attempts.get(sm) ?? 0) + 1;
+  const next = Math.min((this.attempts.get(sm) ?? 0) + 1, ContextRefreshRegistry.MAX_ATTEMPTS);
   this.attempts.set(sm, next);
   this.setFailure(sm, message);
   if (next >= ContextRefreshRegistry.MAX_ATTEMPTS) {

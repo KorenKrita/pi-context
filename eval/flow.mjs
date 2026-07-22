@@ -12,6 +12,7 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SAFFRON_FLOW } from "./saffron-flow.mjs";
 
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -334,7 +335,7 @@ export const XL_FLOW = {
   ],
 };
 
-export const FLOWS = [LONG_FLOW, RESEARCH_FLOW, XL_FLOW];
+export const FLOWS = [LONG_FLOW, RESEARCH_FLOW, XL_FLOW, SAFFRON_FLOW];
 
 export function listFlows() {
   return FLOWS;

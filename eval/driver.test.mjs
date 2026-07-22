@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildPiRpcArgs,
+  buildPiRpcSpawnCommand,
   classifySkillAvailability,
   CONTEXT_MANAGEMENT_COMMAND,
   assertTurnCompleted,
   finalAssistantOutcome,
+  FULL_ENV_DENIED_TOOLS,
   PiRpcDriver,
+  sanitizePiChildEnvironment,
+  SESSION_RECALL_TOOLS,
 } from "./driver.mjs";
 
 const BASE = {
@@ -18,7 +25,9 @@ const BASE = {
 
 const EXPECTED_SKILL = "/checkout/skills/context-management/SKILL.md";
 const OTHER_SKILL = "/another/skills/context-management/SKILL.md";
+const INTEGRITY_GUARD = "/checkout/eval/integrity-guard.mjs";
 const realpath = (path) => path;
+const LOCAL_PI_081 = join(process.cwd(), "node_modules", ".bin", "pi");
 const expectedCommand = (path = EXPECTED_SKILL) => ({
   name: CONTEXT_MANAGEMENT_COMMAND,
   source: "skill",
@@ -26,6 +35,23 @@ const expectedCommand = (path = EXPECTED_SKILL) => ({
 });
 
 describe("Pi RPC eval environment composition", () => {
+  test("wraps Pi with sandbox-exec only when a Seatbelt profile is supplied", () => {
+    expect(buildPiRpcSpawnCommand({ piBinary: "/bin/pi", args: ["--mode", "rpc"] })).toEqual({
+      binary: "/bin/pi",
+      args: ["--mode", "rpc"],
+      sandboxed: false,
+    });
+    expect(buildPiRpcSpawnCommand({
+      piBinary: "/bin/pi",
+      args: ["--mode", "rpc"],
+      sandboxProfilePath: "/tmp/eval.sb",
+    })).toEqual({
+      binary: "/usr/bin/sandbox-exec",
+      args: ["-f", "/tmp/eval.sb", "/bin/pi", "--mode", "rpc"],
+      sandboxed: true,
+    });
+  });
+
   test("raw-control disables discovery and injects no product resources", () => {
     expect(buildPiRpcArgs({ ...BASE, environmentMode: "raw-control", extensionPaths: [], skillPaths: [] }))
       .toEqual([
@@ -64,6 +90,25 @@ describe("Pi RPC eval environment composition", () => {
     ]));
   });
 
+  test("agents-only disables every ambient discovery source except context files", () => {
+    expect(buildPiRpcArgs({
+      ...BASE,
+      environmentMode: "agents-only",
+      extensionPaths: ["/checkout/src/index.ts", "/checkout/src/context.ts", INTEGRITY_GUARD],
+      skillPaths: [EXPECTED_SKILL],
+    })).toEqual(expect.arrayContaining([
+      "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+      "-e", "/checkout/src/index.ts",
+      "-e", "/checkout/src/context.ts",
+      "-e", INTEGRITY_GUARD,
+      "--skill", EXPECTED_SKILL,
+    ]));
+    const args = buildPiRpcArgs({ ...BASE, environmentMode: "agents-only" });
+    expect(args).not.toContain("--no-context-files");
+    expect(args).not.toContain("--exclude-tools");
+    expect(args.filter((arg) => arg === INTEGRITY_GUARD)).toHaveLength(0);
+  });
+
   test("full-env omits discovery guards and accepts legacy fullEnv as an alias", () => {
     const args = buildPiRpcArgs({
       ...BASE,
@@ -74,8 +119,36 @@ describe("Pi RPC eval environment composition", () => {
 
     expect(args).not.toContain("--no-extensions");
     expect(args).not.toContain("--no-skills");
+    expect(args).toEqual(expect.arrayContaining(["--exclude-tools", FULL_ENV_DENIED_TOOLS.join(",")]));
+    expect(FULL_ENV_DENIED_TOOLS).toEqual(expect.arrayContaining(SESSION_RECALL_TOOLS));
     expect(args).toEqual(expect.arrayContaining(["-e", "/checkout/src/index.ts", "--skill", EXPECTED_SKILL]));
   });
+});
+
+test("Pi child environment removes secrets and private flow seed while retaining runtime essentials", () => {
+  const sanitized = sanitizePiChildEnvironment({
+    PATH: "/usr/bin",
+    HOME: "/Users/fixture",
+    LANG: "en_US.UTF-8",
+    OPENAI_API_KEY: "secret",
+    GITHUB_TOKEN: "secret",
+    AWS_SECRET_ACCESS_KEY: "secret",
+    ACM_FLOW_SEED: "oracle-seed",
+    ACM_MATRIX_ID: "matrix-1",
+    ACM_INTEGRITY_AUDIT_PATH: "/outside/audit.jsonl",
+  });
+
+  expect(sanitized).toMatchObject({
+    PATH: "/usr/bin",
+    HOME: "/Users/fixture",
+    LANG: "en_US.UTF-8",
+    ACM_INTEGRITY_AUDIT_PATH: "/outside/audit.jsonl",
+  });
+  expect(sanitized.OPENAI_API_KEY).toBeUndefined();
+  expect(sanitized.GITHUB_TOKEN).toBeUndefined();
+  expect(sanitized.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+  expect(sanitized.ACM_FLOW_SEED).toBeUndefined();
+  expect(sanitized.ACM_MATRIX_ID).toBeUndefined();
 });
 
 describe("context-management Skill availability gate", () => {
@@ -115,9 +188,9 @@ describe("context-management Skill availability gate", () => {
       .toMatchObject({ valid: false, status: "path_mismatch", expectedSkillPath: EXPECTED_SKILL, discoveredSkillPath: OTHER_SKILL });
   });
 
-  test("accepts exactly one checked-out Skill and preserves its provenance", () => {
+  test.each(["product-isolated", "agents-only", "full-env"])("%s accepts exactly one checked-out Skill and preserves its provenance", (environmentMode) => {
     expect(classifySkillAvailability({
-      environmentMode: "full-env",
+      environmentMode,
       expectedSkillPath: EXPECTED_SKILL,
       commands: [expectedCommand()],
       realpath,
@@ -145,6 +218,207 @@ test("getCommands propagates a rejected RPC response without running a prompt", 
   driver.request = async () => ({ success: false, error: "unavailable" });
   await expect(driver.getCommands()).rejects.toThrow("get_commands rejected: unavailable");
 });
+
+test("public RPC telemetry and host-perturbation helpers use their exact command names", async () => {
+  const driver = new PiRpcDriver(BASE);
+  const received = [];
+  driver.request = async (command) => {
+    received.push(command);
+    switch (command.type) {
+      case "get_state": return { success: true, data: { model: { id: "fixture" } } };
+      case "get_available_models": return { success: true, data: { models: [{ id: "fixture" }] } };
+      case "get_available_thinking_levels": return { success: true, data: { levels: ["medium", "high"] } };
+      case "compact": return { success: true, data: { summary: "folded" } };
+      case "get_entries": return { success: true, data: { entries: [], leafId: null } };
+      case "get_messages": return { success: true, data: { messages: [] } };
+      case "get_session_stats": return { success: true, data: { entries: 0 } };
+      default: return { success: false, error: "unexpected" };
+    }
+  };
+
+  await expect(driver.getState()).resolves.toEqual({ model: { id: "fixture" } });
+  await expect(driver.getAvailableModels()).resolves.toEqual([{ id: "fixture" }]);
+  await expect(driver.getThinkingLevels()).resolves.toEqual(["medium", "high"]);
+  await expect(driver.compact("keep facts")).resolves.toEqual({ summary: "folded" });
+  await expect(driver.getEntries("entry-1")).resolves.toEqual({ entries: [], leafId: null });
+  await expect(driver.getMessages()).resolves.toEqual([]);
+  await expect(driver.getSessionStats()).resolves.toEqual({ entries: 0 });
+  expect(received).toEqual([
+    { type: "get_state" },
+    { type: "get_available_models" },
+    { type: "get_available_thinking_levels" },
+    { type: "compact", customInstructions: "keep facts" },
+    { type: "get_entries", since: "entry-1" },
+    { type: "get_messages" },
+    { type: "get_session_stats" },
+  ]);
+});
+
+test("prompt bounds a delayed acknowledgement by the shared timeout without leaking an early settled rejection", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-timeout-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  const fakePi = join(root, "fake-pi.mjs");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(fakePi, `#!/usr/bin/env node
+import readline from "node:readline";
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const command = JSON.parse(line);
+  if (command.type !== "prompt") return;
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ type: "response", id: command.id, success: true }) + "\\n");
+  }, 300);
+});
+input.on("close", () => process.exit(0));
+`);
+  chmodSync(fakePi, 0o755);
+
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    provider: "fixture",
+    modelId: "fixture",
+    piBinary: fakePi,
+  });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  const startedAt = performance.now();
+  try {
+    driver.start();
+    await expect(driver.prompt("short budget", { timeoutMs: 50 })).rejects.toThrow(/50ms/);
+    const elapsedMs = performance.now() - startedAt;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(elapsedMs).toBeLessThan(180);
+    expect(driver.eventWaiters).toHaveLength(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 12000);
+
+test("prompt cancels its settled waiter when the RPC acknowledgement rejects the prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-rejected-prompt-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  const fakePi = join(root, "fake-pi.mjs");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(fakePi, `#!/usr/bin/env node
+import readline from "node:readline";
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const command = JSON.parse(line);
+  const response = command.type === "prompt"
+    ? { type: "response", id: command.id, success: false, error: "fixture rejection" }
+    : { type: "response", id: command.id, success: true };
+  process.stdout.write(JSON.stringify(response) + "\\n");
+});
+input.on("close", () => process.exit(0));
+`);
+  chmodSync(fakePi, 0o755);
+
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    provider: "fixture",
+    modelId: "fixture",
+    piBinary: fakePi,
+  });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    driver.start();
+    await driver.request({ type: "ready" }, { timeoutMs: 1000 });
+    const startedAt = performance.now();
+    await expect(driver.prompt("reject promptly", { timeoutMs: 1000 })).rejects.toThrow("prompt rejected: fixture rejection");
+    const elapsedMs = performance.now() - startedAt;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(elapsedMs).toBeLessThan(200);
+    expect(driver.eventWaiters).toHaveLength(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 12000);
+
+test("runs public audit RPC helpers through the explicitly selected local Pi 0.81.1 binary", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-081-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
+    packages: [],
+    quietStartup: true,
+    defaultProjectTrust: "always",
+  }));
+  writeFileSync(join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      fixture: {
+        baseUrl: "http://127.0.0.1:1",
+        api: "openai-completions",
+        models: [{
+          id: "fixture",
+          name: "Fixture",
+          contextWindow: 400000,
+          maxTokens: 16000,
+          reasoning: true,
+          thinkingLevelMap: { off: "off", minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: "max" },
+        }],
+      },
+    },
+  }));
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    environmentMode: "core-only",
+    extensionPaths: [],
+    skillPaths: [],
+    provider: "fixture",
+    modelId: "fixture",
+    thinkingLevel: "high",
+    piBinary: LOCAL_PI_081,
+  });
+
+  driver.start();
+  try {
+    const [state, levels, stats] = await Promise.all([
+      driver.getState(),
+      driver.getThinkingLevels(),
+      driver.getSessionStats(),
+    ]);
+    expect(state.model.contextWindow).toBe(400000);
+    expect(state.model.maxTokens).toBe(16000);
+    expect(state.thinkingLevel).toBe("high");
+    expect(levels).toContain("high");
+    expect(stats.contextUsage.contextWindow).toBe(400000);
+    await expect(driver.getEntries()).resolves.toMatchObject({
+      entries: expect.any(Array),
+      leafId: expect.any(String),
+    });
+    await expect(driver.getMessages()).resolves.toEqual([]);
+  } finally {
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
 
 describe("assistant turn completion", () => {
   test("accepts a terminal successful assistant message", () => {

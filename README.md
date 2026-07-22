@@ -9,7 +9,7 @@
 - **Fold** — 把已经提炼完的过程折叠成可通过 cold start 检验的 handoff；
 - **Rebase** — 在 summary 堆叠或竞争时合并到更早的安全基底，重新获得浅层、低负载的 working set；
 - **Rehydrate / Fork** — travel 到归档分支取回精确细节再返回，或从 save point 分叉探索后折回；
-- 明确成功的 travel 会同步持久会话树、下一轮模型上下文与 live AgentSession；live 同步只发生在 `agent_settled`，不打断当前 run 的 tool-call 连续性。`indeterminate` mutation 仅重建并观察实际 active tree，不宣称同步成功。
+- 明确成功的 travel 会同步持久会话树、下一轮模型上下文与 live AgentSession：下一次 `context` 验证 finalized persisted `toolResult` 后，立即把最新可信 Context Packet 交给 provider；native `AgentSession` 仍只在 `agent_settled` 同步，不打断当前 run 的 tool-call 连续性。`indeterminate` mutation 仅重建并观察实际 active tree，不宣称同步成功。
 
 Guidance 采用道/术/度分层：always-on CORE 注入判断力与 cadence 偏好，工具描述和 result cue 携带机制，advanced Skill 只在复杂场景按需加载。没有强制 preflight、固定 transition 表或后缀状态机——agent 自主判断何时压缩。
 
@@ -72,9 +72,9 @@ root → summary A → summary B → summary C → current work
 
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
-Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，originating assistant run 及其 automatic retry/tool loop 保留当前 live messages，不替换 `AgentSession` 或其 context，因此刚发生的 tool-call/result 连续性保持完整。仅在 `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession；`agent_end`（尤其 provider error）不是 release/apply signal。persistent Context Packet rebuild 继续作为验证与 fallback 路径。`indeterminate` mutation 因为 branch 可能已经落地，只登记 persistent observation refresh 以检查实际 active tree；它不创建 live-sync ticket、不触发 settled replacement、不宣称 travel 成功，也不重置 reminder cycle。明确失败或 `not_applied` mutation 两者都不登记 refresh/sync。当队列里没有后来用户消息且 run 未 abort 时，matching successful `tool_result` 仍会通过一条隐藏的 post-travel `steer` 明确一次 `next`。这条消息不是新目标，也不重新验证 handoff；它只防止较弱模型把 pre-travel 的旧请求当成当前任务重放。有 pending later message 时跳过 transient steer，依赖原位 Context Packet，因此用户的新目标不会被旧 `NEXT` 排到后面覆盖。
+Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，绝不切换 provider 或 native context。`tool_result` 是可被后置 extension 改写的 interception seam，因此也不授权切换；下一次 `context` 只在 event messages 或 persisted branch 中找到 matching、non-error、`mutationStatus: applied` 的 finalized `toolResult` 后，才把 provider phase 从 `pending_tool_result` 置为 `ready`，从最新 active leaf 重建 protocol-valid Context Packet 并立即交给 provider；finalized error 或缺少可信 applied evidence 的 receipt 会进入 `receipt_rejected`，同时取消 persistent cutover 和尚未应用的 native replacement ticket。若 finalized receipt 缺失或 `agent_settled` 暂时无法读取它，provider 与 native ticket 都保持 pending，不得把“不可观察”当成成功。可信 handoff 投影、`currentUserTurnOpen`、later-user priority 与后续 tool work 都来自这次 packet；正常 cutover 不再额外发送 NEXT steer，避免重复 authority、额外 run 或改变 idle 状态。成功包会缓存稳定 source cursor；后续 rebuild 失败时，仅在 source/cached prefix 可验证时合并 post-cutover tail 并重新校验 protocol。prefix drift 或 invalid tail 会把 delivery 降为显式 `fallback` 并使用当前 protocol-valid provider messages，绝不继续把旧 cache 标为 active。persistent rebuild 最多尝试三次；有安全 cache 时进入 `cached_exhausted`，停止自动读取和 warning，等待新 travel、lifecycle reset 或 reload 重新建立周期；该状态继续交付已验证 cache，因此后续真实 provider `turn_end` usage 仍是 reminder/HUD 的权威样本。originating assistant run 及其 automatic retry/tool loop 仍保留当前 native live messages；仅在 idle `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession。每次 travel 会先清除上一 provider epoch 的 usage；provider-active 阶段的 reminder pressure 只采用最近一次实际 provider `turn_end` usage，`ctx.getContextUsage()` 仅作为 native AgentSession estimate 展示，不驱动 nudge。native unavailable/failed 不回滚已验证 tree 或 provider packet。`indeterminate` mutation 只登记 persistent observation refresh，不创建 live-sync ticket、settled replacement、成功 receipt 或新的 reminder cycle；明确失败或 `not_applied` 两者都不登记 refresh/sync。
 
-如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority、tool receipt 与 steer 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
+如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority 与 tool receipt 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
 
 ## Semantic rebase
 

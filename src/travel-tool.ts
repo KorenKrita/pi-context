@@ -286,7 +286,27 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           details: { error: "build_messages_failed", message: currentPacketResult.message, target: params.target, targetId },
         };
       }
-      const currentMessages = currentPacketResult.value.messages;
+      const currentPacket = currentPacketResult.value;
+      if (currentPacket.protocol.status === "invalid") {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Error: current active session has invalid tool-call identity and cannot be traveled safely: ${formatToolProtocolDefects(currentPacket.protocol.defects) || "no defect details were supplied"}. Repair the current session protocol before retrying; nothing was mutated.`,
+          }],
+          details: {
+            error: "current_protocol_invalid",
+            target: params.target,
+            targetId,
+            originId,
+            currentProtocolStatus: "invalid",
+            defects: currentPacket.protocol.defects,
+            contextRefreshPending: false,
+            contextRefreshState: "not_scheduled",
+            contextDeliveryPhase: "active",
+          },
+        };
+      }
+      const currentMessages = currentPacket.messages;
       const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
       if (!targetPacketResult.ok) {
         return {
@@ -535,6 +555,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         toolCallId,
         resultingLeafId,
       );
+      const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
       const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
       const afterPacketResult = rebuildAcmContextPacket(sessionManager);
       const postMutationEvidence = !afterPacketResult.ok
@@ -554,7 +575,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
               `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
               "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
               `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
@@ -567,6 +588,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           }],
           details: {
             mutationStatus: "applied",
+            persistentMutationApplied: true,
             target: params.target,
             targetId,
             originId,
@@ -576,9 +598,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             activeSummaryDepthAfter,
             activeSummaryDepthDelta,
             contextRefreshPending: true,
-            contextRefreshState: "pending_run_settle",
-            contextDeliveryPhase: "pending_run_settle",
-            sameRunContext: "preserved",
+            contextRefreshState: "pending_tool_result",
+            contextDeliveryPhase: "pending_tool_result",
+            providerDeliveryPhase: providerDelivery.phase,
+            providerPacketMessageCount: providerDelivery.packetMessageCount,
+            providerPacketLeafId: providerDelivery.leafId,
+            providerPacketError: providerDelivery.error,
             // Keep the raw adapter outcome available to callers that need to
             // distinguish native replacement capability from delivery phase.
             nativeContextReplacementState: liveAgentSessionSync.status,
@@ -644,7 +669,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); contextDelivery=pending_run_settle (same-run preserved); contextRefresh=pending_run_settle.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -698,9 +723,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           summaryEntryId,
           resultingLeafId,
           contextRefreshPending: true,
-          contextRefreshState: "pending_run_settle",
-          contextDeliveryPhase: "pending_run_settle",
-          sameRunContext: "preserved",
+          contextRefreshState: "pending_tool_result",
+          contextDeliveryPhase: "pending_tool_result",
+          providerDeliveryPhase: providerDelivery.phase,
+          providerPacketMessageCount: providerDelivery.packetMessageCount,
+          providerPacketLeafId: providerDelivery.leafId,
+          providerPacketError: providerDelivery.error,
           // Native replacement is scheduled independently from when the
           // persisted Context Packet becomes deliverable to the model.
           nativeContextReplacementState: liveAgentSessionSync.status,
@@ -709,6 +737,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           mutationStatus: "applied",
+          persistentMutationApplied: true,
           postMutationEvidenceStatus: "verified",
           postMutationProtocolStatus: afterPacket.protocol.status,
           postMutationProtocolRepairs: afterPacket.protocol.repairs,

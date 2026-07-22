@@ -100,9 +100,29 @@ async function travel(
     fixture.context,
   );
   expect(result.details).toMatchObject({
-    contextRefreshState: "pending_run_settle",
-    contextDeliveryPhase: "pending_run_settle",
+    contextRefreshState: "pending_tool_result",
+    contextDeliveryPhase: "pending_tool_result",
   });
+  return result;
+}
+
+async function authorizeTravel(
+  fixture: ReturnType<typeof createFixture>,
+  toolCallId: string,
+  result: Awaited<ReturnType<typeof fixture.travelTool.execute>>,
+) {
+  const provider = await emit(fixture.handlers, "context", {
+    messages: [{
+      role: "toolResult",
+      toolCallId,
+      toolName: "acm_travel",
+      content: result.content,
+      details: result.details,
+      isError: false,
+      timestamp: Date.now(),
+    }],
+  }, fixture.context) as { messages?: AgentMessage[] };
+  expect(provider.messages).toEqual(acmMessages(fixture.context.sessionManager as SessionManager));
 }
 
 function installObservedHost() {
@@ -123,9 +143,10 @@ describe("repeated travel, restoration, and resume with deferred delivery", () =
 
     await travel(fixture, rootId, "travel-1", "first travel");
     const firstLeaf = sessionManager.getLeafId();
-    await travel(fixture, rootId, "travel-2", "second travel");
+    const latestReceipt = await travel(fixture, rootId, "travel-2", "second travel");
     const latestLeaf = sessionManager.getLeafId();
     expect(latestLeaf).not.toBe(firstLeaf);
+    await authorizeTravel(fixture, "travel-2", latestReceipt);
 
     await emit(fixture.handlers, "tool_execution_end", { toolCallId: "travel-1", toolName: "acm_travel" }, fixture.context);
     await emit(fixture.handlers, "tool_execution_end", { toolCallId: "travel-2", toolName: "acm_travel" }, fixture.context);
@@ -148,7 +169,7 @@ describe("repeated travel, restoration, and resume with deferred delivery", () =
     expect(firstLaterContext.messages).toEqual(acmMessages(sessionManager));
     const timeline = await fixture.timelineTool.execute("timeline", { view: "active" }, undefined, undefined, fixture.context);
     expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "active",
+      contextDeliveryPhase: "provider_active_native_applied",
       nativeContextReplacement: { leafId: latestLeaf },
     });
   });
@@ -165,12 +186,14 @@ describe("repeated travel, restoration, and resume with deferred delivery", () =
       sessionManager.buildSessionContext().messages as AgentMessage[],
     );
 
-    await travel(fixture, rootId, "shrink", "shrunk");
+    const shrinkReceipt = await travel(fixture, rootId, "shrink", "shrunk");
+    await authorizeTravel(fixture, "shrink", shrinkReceipt);
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
     expect(JSON.stringify(liveSession.agent.state.messages)).not.toContain("archived detail");
 
     const beforeRestore = liveSession.agent.state.messages;
-    await travel(fixture, "archived-path", "restore", "restored");
+    const restoreReceipt = await travel(fixture, "archived-path", "restore", "restored");
+    await authorizeTravel(fixture, "restore", restoreReceipt);
     await emit(fixture.handlers, "tool_execution_end", { toolCallId: "restore", toolName: "acm_travel" }, fixture.context);
     expect(liveSession.agent.state.messages).toBe(beforeRestore);
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
@@ -221,7 +244,8 @@ describe("repeated travel, restoration, and resume with deferred delivery", () =
     const fixture = createFixture(sessionManager);
     captureLiveSession(sessionManager, sessionManager.buildSessionContext().messages as AgentMessage[]);
 
-    await travel(fixture, rootId, "persist", "persisted travel");
+    const persistedReceipt = await travel(fixture, rootId, "persist", "persisted travel");
+    await authorizeTravel(fixture, "persist", persistedReceipt);
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
     const expectedMessages = acmMessages(sessionManager);
     const sessionFile = sessionManager.getSessionFile();
@@ -236,7 +260,8 @@ describe("repeated travel, restoration, and resume with deferred delivery", () =
 
     const restoreTarget = resumedManager.getBranch()[0]?.id;
     if (!restoreTarget) throw new Error("Expected a resumed branch root");
-    await travel(resumedFixture, restoreTarget, "resume-travel", "resumed travel");
+    const resumedReceipt = await travel(resumedFixture, restoreTarget, "resume-travel", "resumed travel");
+    await authorizeTravel(resumedFixture, "resume-travel", resumedReceipt);
     await emit(resumedFixture.handlers, "agent_settled", {}, resumedFixture.context);
     expect(resumedSession.agent.state.messages).toEqual(acmMessages(resumedManager));
     expect(JSON.stringify(resumedSession.agent.state.messages)).not.toContain("stale resumed state");

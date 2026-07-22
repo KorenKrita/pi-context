@@ -61,7 +61,7 @@ function makeContext(entries: SessionEntry[], tree: SessionTreeNode[], branch: S
   };
 }
 
-function captureTimelineTool() {
+function captureTimelineTool(overrides: Record<string, unknown> = {}) {
   let timeline: any;
   const pi = {
     registerTool(tool: any) {
@@ -77,7 +77,16 @@ function captureTimelineTool() {
       hasRebuilt: () => false,
     },
     getContextDeliveryPhase: () => "active",
+    getProviderDeliveryStatus: () => ({
+      persistentMutationApplied: false,
+      phase: "active",
+      packetMessageCount: null,
+      leafId: null,
+      error: null,
+      usageObserved: false,
+    }),
     getLiveAgentSyncStatus: () => ({ status: "idle" }),
+    ...overrides,
   };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);
   if (!timeline) throw new Error("acm_timeline was not registered");
@@ -146,5 +155,43 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
     expect(result.content[0].text).toContain("summary depth 1 → 1 projected");
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
+  });
+
+  test("HUD exposes cached_exhausted and stops presenting persistence refresh as pending", async () => {
+    const root = message("root", null, "root");
+    const tool = captureTimelineTool({
+      contextRefresh: {
+        getFailure: () => "persistent read failed",
+        isPending: () => false,
+        getAttemptCount: () => 3,
+        hasRebuilt: () => true,
+      },
+      getContextDeliveryPhase: () => "cached_exhausted",
+      getProviderDeliveryStatus: () => ({
+        persistentMutationApplied: true,
+        phase: "cached_exhausted",
+        packetMessageCount: 2,
+        leafId: "summary-1",
+        error: "persistent read failed",
+        usageObserved: true,
+      }),
+      getLiveAgentSyncStatus: () => ({ status: "pending" }),
+    });
+
+    const result = await tool.execute(
+      "timeline-cached-exhausted",
+      { view: "active" },
+      undefined,
+      undefined,
+      makeContext([root], [node(root)], [root]),
+    );
+
+    expect(result.content[0].text).toContain("Context Delivery: cached_exhausted");
+    expect(result.content[0].text).toContain("Provider Packet: cached_exhausted; 2 message(s) at summary-1");
+    expect(result.details).toMatchObject({
+      contextRefreshPending: false,
+      contextDeliveryPhase: "cached_exhausted",
+      providerDeliveryPhase: "cached_exhausted",
+    });
   });
 });

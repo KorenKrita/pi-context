@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-22T04:33:20Z",
+  "title": "agents-only Claude Opus 4.6 长 dossier 400K / 1M 顺序 MVP",
+  "scope": "同一长 dossier flow 的顺序双臂 MVP。此索引保留决策所需 provenance、telemetry、travel receipt 和 outcome；逐事件记录、session、transcript、fixture manifest、oracle 和 judge session 保留在 raw run 目录。",
+  "mvpVerdict": {
+    "verdict": "strong evidence of material divergence and 1M candidate superiority for this long-dossier flow, not global causal proof",
+    "chinese": "这对顺序样本为该 long-dossier flow 提供了上下文窗口导致实质性分歧、且 1M 候选优于 400K 的强证据；它不是跨模型、跨任务或总体因果证明。",
+    "why": [
+      "400K deterministic verifier 为 12/14，P6 在外部 fixture 已经是 R2 时仍按 R1 perturbation 前提继续，且 README 未包含要求的最终 operating-contract phrase。",
+      "1M deterministic verifier 为 14/14；其 completion 没有以少调用换取漏交付，反而在 travel 后保持 fresh R2/freeze、HOLD、法律短语和最终 README contract。",
+      "两个臂都在 P6 观察到已 applied 的 structured-v1 travel，因此 400K 仍是 mechanics 证据，不应被误读为 ACM 完全失效。"
+    ],
+    "causalLimit": "n=1 per arm，且为顺序而非随机并行复测。即使 seed、fixture、prompt、model、thinking、Pi、checkout resources 和 agents-only isolation 对齐，也不能把结果外推为所有任务、上下文长度、模型或环境的普遍排序。"
+  },
+  "provenance": {
+    "orchestrationRun": "eval/.runs/agents-only-opus46-mvp-2026-07-22T03-50-25Z-f5318958",
+    "flowId": "saffron-cutover-long-flow-v1",
+    "matrixId": "agents-only-opus46-20260722T035025Z",
+    "gitHead": "f5318958",
+    "flowSeedSha256": "733a9b979d49c386890f36b7a3af27a777476d44fe5bd12547ea4926069e47c6",
+    "fixture": {
+      "version": "2026-07-22.7",
+      "sha256": "4ea31b49e843d9c1d063dd2b660d108ffad6e742239e5c66a0b24bb4c93d98c8",
+      "oracleSha256": "b10f018fc81a3f74153bd72b0fc855ac0254e838de81448a1e7fd0fcfe653f0c",
+      "promptHashesEqual": true,
+      "manifestEqualityCheck": "saffron-manifest.json 在删除 requestedContextWindow 后完全相同。"
+    },
+    "model": {
+      "provider": "local-claude",
+      "modelId": "claude-opus-4-6",
+      "thinkingLevel": "max",
+      "maxTokensCap": 16000
+    },
+    "runtime": {
+      "piVersion": "0.81.1",
+      "piRealpath": "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+      "environmentMode": "agents-only",
+      "onlyCheckoutResources": [
+        "src/index.ts",
+        "src/context.ts",
+        "skills/context-management/SKILL.md"
+      ],
+      "globalAgents": {
+        "source": "/Users/korenkrita/.pi/agent/AGENTS.md",
+        "sha256": "cc2b6fce645180cdd401636b291f39991320c8fb0702bdc6621666533608429f",
+        "copiedIntoHarness": true
+      },
+      "projectAgents": {
+        "fixtureLocal": "AGENTS.md",
+        "sha256": "d31789d492283f8c1902cef2f6047a5262235a016cf8fa11f1a94272ac98fb66",
+        "present": true
+      },
+      "ambientExclusions": [
+        "packages",
+        "global extensions",
+        "global skills",
+        "extensions",
+        "skills",
+        "themes",
+        "agents",
+        "mcp.json",
+        "mcp-cache.json",
+        "session-recall.json",
+        "prompt-templates"
+      ],
+      "observed": {
+        "harnessPackages": [],
+        "globalExtensions": [],
+        "globalSkills": [],
+        "sessionRecallPackagePresent": false,
+        "sessionRecallConfigPresent": false,
+        "checkoutConstraint": "canonical_checkout_resources"
+      }
+    },
+    "controlledDifference": {
+      "onlyExperimentalVariable": "contextWindow",
+      "400K": 400000,
+      "1M": 1000000,
+      "sharedWorkingBudgetTokens": 400000,
+      "nonExperimentalRunMetadata": [
+        "each arm has its own timestamp, run directory, session directory, agent label and workspace",
+        "1M completed an outcome judge after its deterministic verifier passed; the failed 400K verifier correctly prevented a comparable completed-flow judge verdict"
+      ]
+    }
+  },
+  "arms": [
+    {
+      "name": "400K",
+      "rawRun": "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617",
+      "variant": "opus-4-6-max-400000",
+      "contextWindow": 400000,
+      "startedAt": "2026-07-22T03:50:27.273Z",
+      "finishedAt": "2026-07-22T04:05:30.256Z",
+      "durationMs": 902983,
+      "outcome": {
+        "reportStatus": "verification_failed",
+        "deterministicChecks": {
+          "passed": 12,
+          "total": 14,
+          "failures": [
+            {
+              "check": "P6 host perturbation starts from exact R1",
+              "interpretation": "premature R2：P6 perturbation 前的 host fixture 已是 R2，而该检查要求精确从 R1 起步。"
+            },
+            {
+              "check": "README records final operating contract",
+              "interpretation": "README 缺少 verifier 要求的最终 operating-contract phrase。"
+            }
+          ]
+        },
+        "judge": null
+      },
+      "telemetry": {
+        "hardContextWindow": 400000,
+        "workingBudgetTokens": 400000,
+        "totalToolCalls": 78,
+        "acm": {
+          "checkpointCalls": 1,
+          "travelCalls": 1,
+          "travelMutationStatus": "applied"
+        },
+        "peak": {
+          "activeTokens": 274348,
+          "hardUsagePercent": 68.587,
+          "pressurePercent": 68.587,
+          "phase": "P6-晚到证据"
+        },
+        "postTravelP7Peak": {
+          "activeTokens": 29723,
+          "hardUsagePercent": 7.43075,
+          "pressurePercent": 7.43075
+        },
+        "coverage": {
+          "expectedTurns": 10,
+          "observedTurns": 11,
+          "allExpectedTurnsSettled": true,
+          "crossedLevels": [30, 50],
+          "reminderLevels": [50, 70],
+          "successfulTravelObserved": true,
+          "summaryDepthObserved": true,
+          "currentUserTurnOpenReceiptObserved": true
+        }
+      },
+      "travel": {
+        "phase": "P6-晚到证据",
+        "target": "saffron-initial-audit-complete",
+        "resolvedBy": "checkpoint",
+        "targetIsStructuralRoot": false,
+        "backupCurrentHeadAs": "evidence-ledger-classified",
+        "backupOutcome": "created",
+        "mutationStatus": "applied",
+        "postMutationEvidenceStatus": "verified",
+        "postMutationProtocolStatus": "repaired",
+        "handoffFormat": "structured-v1",
+        "canonicalHandoffLength": 3188,
+        "usageBeforeTokens": 269779,
+        "usageBeforePercent": 67.44475,
+        "estimatedUsageAfterTokens": 7384,
+        "estimatedUsageAfterPercent": 1.846,
+        "tokenDelta": -262395,
+        "percentagePointDelta": -65.59875,
+        "messagesBefore": 89,
+        "messagesAfter": 28,
+        "messageDelta": -61,
+        "activeSummaryDepthBefore": 0,
+        "activeSummaryDepthAfter": 1,
+        "summaryDepthDelta": 1,
+        "sameRunContext": "preserved",
+        "contextDeliveryPhase": "pending_run_settle",
+        "contextRefreshState": "pending_run_settle"
+      }
+    },
+    {
+      "name": "1M",
+      "rawRun": "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099",
+      "variant": "opus-4-6-max-1000000",
+      "contextWindow": 1000000,
+      "startedAt": "2026-07-22T04:05:31.534Z",
+      "finishedAt": "2026-07-22T04:17:54.973Z",
+      "durationMs": 743439,
+      "outcome": {
+        "reportStatus": "completed",
+        "deterministicChecks": {
+          "passed": 14,
+          "total": 14,
+          "failures": []
+        },
+        "judge": {
+          "provider": "local-claude",
+          "modelId": "claude-opus-4-8",
+          "thinkingLevel": "high",
+          "rubricVersion": "acm-outcome-v3",
+          "overall": 3,
+          "modelTier": "strong",
+          "dimensions": {
+            "activation": 3,
+            "timing_and_measure": 3,
+            "handoff_quality": 3,
+            "recoverability": 2,
+            "ceiling": 3,
+            "task_completion": 3
+          },
+          "materialCaveat": "P3 风险门禁前没有显式 fork/baseline；judge 判为 recoverability 的唯一小缺口，未改变实际交付。"
+        }
+      },
+      "telemetry": {
+        "hardContextWindow": 1000000,
+        "workingBudgetTokens": 400000,
+        "totalToolCalls": 70,
+        "acm": {
+          "checkpointCalls": 3,
+          "travelCalls": 1,
+          "travelMutationStatus": "applied"
+        },
+        "peak": {
+          "activeTokens": 270304,
+          "hardUsagePercent": 27.0304,
+          "pressurePercent": 67.576,
+          "phase": "P6-晚到证据"
+        },
+        "postTravelP7Peak": {
+          "activeTokens": 13855,
+          "hardUsagePercent": 1.3855,
+          "pressurePercent": 3.46375
+        },
+        "coverage": {
+          "expectedTurns": 10,
+          "observedTurns": 11,
+          "allExpectedTurnsSettled": true,
+          "crossedLevels": [30, 50],
+          "reminderLevels": [50, 70],
+          "successfulTravelObserved": true,
+          "summaryDepthObserved": true,
+          "currentUserTurnOpenReceiptObserved": true
+        }
+      },
+      "travel": {
+        "phase": "P6-晚到证据",
+        "target": "root",
+        "resolvedBy": "root",
+        "targetIsStructuralRoot": true,
+        "backupCurrentHeadAs": "evidence-packet-raw-processed",
+        "backupOutcome": "created",
+        "mutationStatus": "applied",
+        "postMutationEvidenceStatus": "verified",
+        "postMutationProtocolStatus": "complete",
+        "handoffFormat": "structured-v1",
+        "canonicalHandoffLength": 2490,
+        "usageBeforeTokens": 268755,
+        "usageBeforePercent": 26.8755,
+        "estimatedUsageAfterTokens": 956,
+        "estimatedUsageAfterPercent": 0.0956,
+        "tokenDelta": -267799,
+        "percentagePointDelta": -26.7799,
+        "messagesBefore": 85,
+        "messagesAfter": 1,
+        "messageDelta": -84,
+        "activeSummaryDepthBefore": 0,
+        "activeSummaryDepthAfter": 1,
+        "summaryDepthDelta": 1,
+        "sameRunContext": "preserved",
+        "contextDeliveryPhase": "pending_run_settle",
+        "contextRefreshState": "pending_run_settle"
+      }
+    }
+  ],
+  "interpretation": {
+    "outcomeFirst": "结论优先使用最终 verifier 和 ordered outcome judge，而非把 checkpoint/travel 次数或 travel token delta 当作成功替代品。两个臂都展示 travel mechanics；只有 1M 把该机制带到 14/14 完整任务交付。",
+    "mechanicsRetainedAt400K": "400K 仍在 P6 成功 applied travel：269,779→7,384 estimated tokens，89→28 messages，summary depth 0→1。因此它是保留的机制/回归证据，而不是被删除或归零的失败样本。",
+    "whyNotUseFullEnv": "已有 full-env attempts 混入环境校准变量，属于 calibration-only；它们不是本 MVP 的比较证据，也不进入 400K/1M verdict。",
+    "sequentialExpansion": [
+      "先以 Claude Opus 4.8 在相同 agents-only、same-seed、same fixture/prompt、400K/1M pair 做独立复测。",
+      "再按相同契约运行 GPT-5.6 Terra。",
+      "最后按相同契约运行 GPT-5.6 Sol。",
+      "每个模型先完成本 MVP 的顺序双臂，再扩大 repeats；持续记录 verifier、ordered judge、travel receipt、provider/run errors 与任何环境漂移。"
+    ]
+  },
+  "rawArtifacts": {
+    "orchestration": [
+      "eval/.runs/agents-only-opus46-mvp-2026-07-22T03-50-25Z-f5318958/400000.log",
+      "eval/.runs/agents-only-opus46-mvp-2026-07-22T03-50-25Z-f5318958/1000000.log"
+    ],
+    "400K": [
+      "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617/report.json",
+      "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617/telemetry.json",
+      "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617/events.jsonl",
+      "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617/saffron-manifest.json",
+      "eval/.runs/2026-07-22T03-50-26-359Z-flow-claude-opus-4-6-p50617/transcript.txt"
+    ],
+    "1M": [
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/report.json",
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/telemetry.json",
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/events.jsonl",
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/saffron-manifest.json",
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/verdict.json",
+      "eval/.runs/2026-07-22T04-05-30-547Z-flow-claude-opus-4-6-p63099/transcript.txt"
+    ]
+  }
+}

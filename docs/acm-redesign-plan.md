@@ -478,7 +478,7 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 4. **Checkpoint catalog grouping**；
 5. **Structured handoff candidate** — nested object + canonical durable text 已实现；flat/parser 作为 outcome fallback/control；
 6. **Context Packet adapters** — session rebuild 与 existing packet normalization，保留 extension composition；
-7. **Authority continuation candidate** — versioned marker + provenance-bound 原位 Context Packet projection + queue-safe matching success NEXT steer 已实现；live replacement 从 matching `tool_execution_end` 延后到 `agent_settled`，以保留 originating run/automatic retry 的 tool continuity。有 pending later message/abort 时跳过 steer。明确成功才创建 live ticket；`indeterminate` mutation 只做 persistent active-tree observation，不创建 settled replacement、成功 receipt 或新的 reminder cycle；明确失败或 `not_applied` 不调度。Controlled strong/weak matrix 在 clean boundary 上 4/4 首项 useful action 直接执行 NEXT，且 REQUIRED NEXT 之前没有额外 inspection。
+7. **Authority continuation candidate** — versioned marker + provenance-bound 原位 Context Packet projection 已实现；可被后置 extension 改写的 `tool_result` 不授权 cutover，下一次 `context` 只认 finalized successful applied `toolResult`。Context Packet 是唯一 NEXT authority，不再另发 one-shot steer。live replacement 从 matching `tool_execution_end` 延后到 `agent_settled`，以保留 originating run/automatic retry 的 tool continuity。明确成功才创建 live ticket；`indeterminate` mutation 只做 persistent active-tree observation，不创建 settled replacement、成功 receipt 或新的 reminder cycle；明确失败或 `not_applied` 不调度。Controlled strong/weak matrix 在 clean boundary 上 4/4 首项 useful action 直接执行 NEXT，且 REQUIRED NEXT 之前没有额外 inspection。
 
 每一项独立测试、独立 commit；不把多项机制合并成一次不可归因的改动。
 
@@ -494,7 +494,7 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 ### Phase 3 — Production transition mechanics
 
 1. 选择并接入胜出的 handoff interface（nested object + exact JSON-encoded object fallback 已接入；自由文本不恢复）；
-2. 选择并接入胜出的 authority representation（provenance-bound in-place continuation + one-shot NEXT steer 已接入；明确成功的 live adapter 仅在 `agent_settled` 从 latest verified active leaf apply，`indeterminate` mutation 仅 persistent observation，production rate 继续观察）；
+2. 选择并接入胜出的 authority representation（provenance-bound in-place continuation 是唯一 NEXT authority；finalized receipt 在下一次 `context` 验证，one-shot NEXT steer 已移除；明确成功的 live adapter 仅在 `agent_settled` 从 latest verified active leaf apply，`indeterminate` mutation 仅 persistent observation，production rate 继续观察）；
 3. Target facts 与 staged policy 已接入：invalid hard reject，其他 hazard warning-only、禁止 silent retarget；未来只在 controlled causal evidence 支持时按 repair subtype / hazard 升级 reject；
 4. 只有 clean-base 有真实 agent-facing consumer 时，贯穿完整 transaction interface 实施；
 5. 关闭旧 shallow seams：`buildSessionMessages()`、`fixOrphanedToolUse()` 的公开调用与旧测试迁移到 Context Packet interface。
