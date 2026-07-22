@@ -54,10 +54,10 @@ const PINNED_SOURCE_FILES = Object.freeze([
 ]);
 
 const MODEL_SPECS = Object.freeze([
-  { id: "sol-medium", provider: "local-responses", modelId: "gpt-5.6-sol", thinking: "medium" },
-  { id: "terra-high", provider: "local-responses", modelId: "gpt-5.6-terra", thinking: "high" },
   { id: "opus-4-6-max", provider: "local-claude", modelId: "claude-opus-4-6", thinking: "max" },
   { id: "opus-4-8-high", provider: "local-claude", modelId: "claude-opus-4-8", thinking: "high" },
+  { id: "terra-high", provider: "local-responses", modelId: "gpt-5.6-terra", thinking: "high" },
+  { id: "sol-medium", provider: "local-responses", modelId: "gpt-5.6-sol", thinking: "medium" },
 ]);
 
 function timestampLabel() {
@@ -1468,17 +1468,18 @@ async function main() {
       bunBinary: pinnedProvenance.bunRuntime.realpath,
       secretSeed,
     };
-    // Running arms sequentially avoids interleaving the comparative rounds while
-    // retaining up to four independent model cells per arm.
-    for (const contextWindow of CONTROLLED_WINDOWS) {
-      const armCells = selected
-        .filter((cell) => cell.contextWindow === contextWindow)
+    // Keep each same-model pair adjacent and deterministic: constrained 400K
+    // first, then native 1M, before advancing to the next model.
+    for (const model of MODEL_SPECS) {
+      const pairCells = selected
+        .filter((cell) => cell.pairKey === model.id)
+        .sort((left, right) => left.contextWindow - right.contextWindow)
         .map((cell) => state.cells[cell.id])
         .filter((cell) => flag("--retry-all") || !shouldSkipMatrixCell(cell));
-      if (armCells.length === 0) continue;
-      const armConcurrency = effectiveRunFlowConcurrency(armCells, concurrency);
-      console.log(`arm=${contextWindow} launching=${armCells.length} concurrency=${armConcurrency}`);
-      await runWithConcurrency(armCells, armConcurrency, async (cell) => {
+      if (pairCells.length === 0) continue;
+      const pairConcurrency = effectiveRunFlowConcurrency(pairCells, concurrency);
+      console.log(`pair=${model.id} launching=${pairCells.length} concurrency=${pairConcurrency}`);
+      await runWithConcurrency(pairCells, pairConcurrency, async (cell) => {
         cell.status = "running";
         cell.attempts += 1;
         cell.startedAt = new Date().toISOString();
