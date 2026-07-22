@@ -349,6 +349,22 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("does not mask quoted heredoc bodies chained into later execution", () => {
+    for (const command of [
+      "cat > script.sh <<'SH' && sh script.sh\ncat /etc/passwd\nSH",
+      "cat > script.sh <<'SH'; sh script.sh\ncat /etc/passwd\nSH",
+      "tee verifier.py <<'PY' && python3 verifier.py\nopen('/etc/passwd')\nPY",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true });
+    }
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: `cd ${policy.workspace} && cat >> docs/file.md <<'EOF'\n| vendor / digest |\nEOF` },
+      ...policy,
+    })).toEqual({ block: false });
+  });
+
   test("allows explicit non-sensitive environment-key reads", () => {
     for (const command of [
       "node -e 'const QUERIED_AT=process.env.QUERIED_AT; console.log(QUERIED_AT)'",

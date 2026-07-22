@@ -245,7 +245,7 @@ function heredocSpecs(line) {
           delimiter += line[delimiterIndex + 1];
           delimiterIndex += 1;
         } else if (delimiterCharacter === delimiterQuote) {
-          specs.push({ delimiter, quoted: true, stripTabs });
+          specs.push({ delimiter, end: delimiterIndex + 1, quoted: true, stripTabs });
           index = delimiterIndex;
           break;
         } else {
@@ -266,6 +266,7 @@ function heredocSpecs(line) {
     if (delimiterIndex > delimiterStart) {
       specs.push({
         delimiter: line.slice(delimiterStart, delimiterIndex),
+        end: delimiterIndex,
         quoted: false,
         stripTabs,
       });
@@ -296,19 +297,20 @@ function maskHeredocBodies(command, shouldNeutralize) {
   return maskedLines.join("\n");
 }
 
-function isDataOnlyHeredocSink(header) {
+function isDataOnlyHeredocSink(header, spec) {
   if (header.includes("|")) return false;
   const heredocIndex = header.indexOf("<<");
   const commandPrefix = (heredocIndex >= 0 ? header.slice(0, heredocIndex) : header).trim();
   const receivingSegment = commandPrefix.split(/&&|;/).at(-1)?.trim() ?? "";
   const command = receivingSegment.split(/\s+/, 1)[0];
-  return command === "cat" || command === "tee";
+  const suffix = header.slice(spec.end);
+  return (command === "cat" || command === "tee") && !/&&|\|\||;|\||&|\$\(|`|[<>]\(/.test(suffix);
 }
 
 function maskQuotedHeredocBodies(command) {
   // Quoted bodies are executable for interpreter/stdin consumers. Only data
   // sinks used by the evaluation flow may hide literal prose from path checks.
-  return maskHeredocBodies(command, (spec, header) => spec.quoted && isDataOnlyHeredocSink(header));
+  return maskHeredocBodies(command, (spec, header) => spec.quoted && isDataOnlyHeredocSink(header, spec));
 }
 
 function maskAllHeredocBodies(command) {
