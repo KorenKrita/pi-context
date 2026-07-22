@@ -187,6 +187,16 @@ describe("measurement integrity tool-call gate", () => {
     expect(evaluateToolCall({ toolName: "bash", input: { command: regexPathBypass }, ...policy }))
       .toMatchObject({ block: true, code: "bash_absolute_path" });
 
+    const benignRegexVerification = [
+      "node <<'NODE'",
+      "const ledger = 'Evidence 0114 supplies value';",
+      "const match = ledger.match(/Evidence 0114[^\\n]*Supplies `([^`]+)`/);",
+      "if (match) console.log(match[1]);",
+      "NODE",
+    ].join("\n");
+    expect(evaluateToolCall({ toolName: "bash", input: { command: benignRegexVerification }, ...policy }))
+      .toEqual({ block: false });
+
     for (const command of [
       "ls /",
       "ls //",

@@ -324,6 +324,43 @@ function maskAllHeredocBodies(command) {
   return maskHeredocBodies(command, () => true);
 }
 
+function maskJavaScriptRegexLiterals(line) {
+  const pattern = /(^|[=(:,;!&|?{}[\]\s])\/(?:\\.|[^/\\\r\n])+\/[dgimsuvy]*/g;
+  return line.replace(pattern, (match, prefix, offset, source) => {
+    const suffix = source.slice(offset + match.length);
+    if (/^\s*\.source\b/.test(suffix)) return match;
+    return `${prefix}${"_".repeat(match.length - prefix.length)}`;
+  });
+}
+
+/**
+ * JavaScript regex literals inside executable Node/Bun heredocs are patterns,
+ * not filesystem paths. Keep `.source` constructions visible because they can
+ * synthesize a denied absolute path; the kernel tool sandbox remains the
+ * authoritative boundary for every executed command.
+ */
+function maskExecutableJavaScriptRegexLiterals(command) {
+  const lines = command.split("\n");
+  const masked = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index];
+    masked.push(header);
+    for (const spec of heredocSpecs(header)) {
+      const javascriptConsumer = /(?:^|[;&|()\s])(?:node|bun)(?=$|[;&|()\s])/.test(header);
+      index += 1;
+      while (index < lines.length) {
+        const line = lines[index];
+        const comparison = (spec.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
+        const terminator = comparison === spec.delimiter;
+        masked.push(javascriptConsumer && !terminator ? maskJavaScriptRegexLiterals(line) : line);
+        if (terminator) break;
+        index += 1;
+      }
+    }
+  }
+  return masked.join("\n");
+}
+
 function maskHttpUris(command) {
   let masked = "";
   for (let index = 0; index < command.length;) {
@@ -411,7 +448,7 @@ function bashViolation(command, workspace) {
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
   const uriMaskedCommand = maskHttpUris(command);
-  const quotedHeredocMaskedCommand = maskQuotedHeredocBodies(uriMaskedCommand);
+  const quotedHeredocMaskedCommand = maskExecutableJavaScriptRegexLiterals(maskQuotedHeredocBodies(uriMaskedCommand));
   if (BASH_FILE_URI_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_file_uri";
   if (BASH_ESCAPED_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";
   if (BASH_PARAMETER_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";
