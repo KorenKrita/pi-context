@@ -48,10 +48,17 @@ def judge_summary(report: dict[str, Any]) -> tuple[int | None, str | None]:
         return None, None
     score = overall.get("score")
     tier = overall.get("modelTier")
-    return score if isinstance(score, int) else None, tier if isinstance(tier, str) else None
+    # The versioned judge artifact accepts only integer 0-3 scores. Do not
+    # normalize invalid floats or booleans into apparently valid evidence.
+    valid_score = (
+        score
+        if isinstance(score, int) and not isinstance(score, bool) and 0 <= score <= 3
+        else None
+    )
+    return valid_score, tier if isinstance(tier, str) else None
 
 
-def normalize_cell(cell: dict[str, Any]) -> dict[str, Any]:
+def normalize_cell(cell_id: str, cell: dict[str, Any]) -> dict[str, Any]:
     report = cell.get("report") if isinstance(cell.get("report"), dict) else {}
     sandbox = report.get("sandbox") if isinstance(report.get("sandbox"), dict) else {}
     lock = report.get("lock") if isinstance(report.get("lock"), dict) else {}
@@ -63,7 +70,7 @@ def normalize_cell(cell: dict[str, Any]) -> dict[str, Any]:
     if isinstance(run_error, dict):
         run_error = run_error.get("message") or json.dumps(run_error, sort_keys=True)
     return {
-        "id": cell.get("id"),
+        "id": cell.get("id") or cell_id,
         "state": cell.get("status"),
         "attempts": cell.get("attempts", 0),
         "classification": cell.get("classification"),
@@ -82,7 +89,7 @@ def normalize_cell(cell: dict[str, Any]) -> dict[str, Any]:
 def main() -> None:
     args = parse_args()
     path, state = load_state(args.matrix)
-    cells = [normalize_cell(cell) for cell in state["cells"].values()]
+    cells = [normalize_cell(cell_id, cell) for cell_id, cell in state["cells"].items()]
     provenance = state.get("pinnedProvenance")
     head_sha = provenance.get("headSha") if isinstance(provenance, dict) else None
     summary = {

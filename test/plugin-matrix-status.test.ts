@@ -28,7 +28,6 @@ describe("pi-context-eval matrix status helper", () => {
         pinnedProvenance: { headSha: "abc123" },
         cells: {
           "model-400k": {
-            id: "model-400k",
             status: "completed",
             attempts: 2,
             classification: "certifying_run",
@@ -91,5 +90,37 @@ describe("pi-context-eval matrix status helper", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("unsupported matrix cell shape");
     expect(result.stderr.toString()).toContain("broken-400k");
+  });
+
+  test("does not promote invalid float or boolean judge scores", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "pi-context-matrix-status-"));
+    temporaryDirectories.push(directory);
+    await writeFile(
+      resolve(directory, "matrix-state.json"),
+      JSON.stringify({
+        cells: {
+          "float-score": {
+            report: { judge: { verdict: { overall: { score: 2.5, modelTier: "strong" } } } },
+          },
+          "boolean-score": {
+            report: { judge: { verdict: { overall: { score: true, modelTier: "strong" } } } },
+          },
+          "out-of-range-score": {
+            report: { judge: { verdict: { overall: { score: 9, modelTier: "strong" } } } },
+          },
+        },
+      }),
+    );
+
+    const result = Bun.spawnSync(["python3", script, "--json", directory]);
+    expect(result.exitCode).toBe(0);
+    const output = JSON.parse(result.stdout.toString()) as {
+      cells: Array<{ id: string; judgeScore: number | null }>;
+    };
+    expect(output.cells).toEqual([
+      expect.objectContaining({ id: "float-score", judgeScore: null }),
+      expect.objectContaining({ id: "boolean-score", judgeScore: null }),
+      expect.objectContaining({ id: "out-of-range-score", judgeScore: null }),
+    ]);
   });
 });
