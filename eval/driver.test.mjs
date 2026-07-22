@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -232,6 +232,107 @@ test("public RPC telemetry and host-perturbation helpers use their exact command
     { type: "get_session_stats" },
   ]);
 });
+
+test("prompt bounds a delayed acknowledgement by the shared timeout without leaking an early settled rejection", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-timeout-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  const fakePi = join(root, "fake-pi.mjs");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(fakePi, `#!/usr/bin/env node
+import readline from "node:readline";
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const command = JSON.parse(line);
+  if (command.type !== "prompt") return;
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ type: "response", id: command.id, success: true }) + "\\n");
+  }, 300);
+});
+input.on("close", () => process.exit(0));
+`);
+  chmodSync(fakePi, 0o755);
+
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    provider: "fixture",
+    modelId: "fixture",
+    piBinary: fakePi,
+  });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  driver.start();
+  const startedAt = performance.now();
+  try {
+    await expect(driver.prompt("short budget", { timeoutMs: 50 })).rejects.toThrow(/50ms/);
+    const elapsedMs = performance.now() - startedAt;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(elapsedMs).toBeLessThan(180);
+    expect(driver.eventWaiters).toHaveLength(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 12000);
+
+test("prompt cancels its settled waiter when the RPC acknowledgement rejects the prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-context-driver-rejected-prompt-"));
+  const agentDir = join(root, "agent");
+  const cwd = join(root, "workspace");
+  const sessionDir = join(root, "sessions");
+  const fakePi = join(root, "fake-pi.mjs");
+  mkdirSync(agentDir, { recursive: true });
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sessionDir, { recursive: true });
+  writeFileSync(fakePi, `#!/usr/bin/env node
+import readline from "node:readline";
+const input = readline.createInterface({ input: process.stdin });
+input.on("line", (line) => {
+  const command = JSON.parse(line);
+  const response = command.type === "prompt"
+    ? { type: "response", id: command.id, success: false, error: "fixture rejection" }
+    : { type: "response", id: command.id, success: true };
+  process.stdout.write(JSON.stringify(response) + "\\n");
+});
+input.on("close", () => process.exit(0));
+`);
+  chmodSync(fakePi, 0o755);
+
+  const driver = new PiRpcDriver({
+    cwd,
+    agentDir,
+    sessionDir,
+    provider: "fixture",
+    modelId: "fixture",
+    piBinary: fakePi,
+  });
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  driver.start();
+  try {
+    await driver.request({ type: "ready" }, { timeoutMs: 1000 });
+    const startedAt = performance.now();
+    await expect(driver.prompt("reject promptly", { timeoutMs: 1000 })).rejects.toThrow("prompt rejected: fixture rejection");
+    const elapsedMs = performance.now() - startedAt;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(elapsedMs).toBeLessThan(200);
+    expect(driver.eventWaiters).toHaveLength(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+    await driver.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 12000);
 
 test("runs public audit RPC helpers through the explicitly selected local Pi 0.81.1 binary", async () => {
   const root = mkdtempSync(join(tmpdir(), "pi-context-driver-081-"));

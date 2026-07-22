@@ -328,18 +328,40 @@ export class PiRpcDriver {
   }
 
   /** Wait for the next event matching a predicate. */
-  waitForEvent(predicate, { timeoutMs = 30000, description = "event" } = {}) {
+  waitForEvent(predicate, { timeoutMs = 30000, description = "event", signal } = {}) {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const index = this.eventWaiters.findIndex((w) => w.resolve === wrappedResolve);
+      let finished = false;
+      let timer;
+      const removeWaiter = () => {
+        const index = this.eventWaiters.findIndex((waiter) => waiter.resolve === wrappedResolve);
         if (index >= 0) this.eventWaiters.splice(index, 1);
-        reject(new Error(`Timed out after ${timeoutMs}ms waiting for ${description}`));
-      }, timeoutMs);
-      const wrappedResolve = (event) => {
-        clearTimeout(timer);
-        resolve(event);
       };
+      const cleanup = () => {
+        clearTimeout(timer);
+        removeWaiter();
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const finish = (settle, value) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        settle(value);
+      };
+      const wrappedResolve = (event) => {
+        finish(resolve, event);
+      };
+      const onAbort = () => {
+        const reason = signal?.reason instanceof Error
+          ? signal.reason
+          : new Error(`Canceled while waiting for ${description}`);
+        finish(reject, reason);
+      };
+      timer = setTimeout(() => {
+        finish(reject, new Error(`Timed out after ${timeoutMs}ms waiting for ${description}`));
+      }, timeoutMs);
       this.eventWaiters.push({ predicate, resolve: wrappedResolve });
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -348,19 +370,41 @@ export class PiRpcDriver {
    * Returns the slice of events that belong to this turn.
    */
   async prompt(message, { timeoutMs = 600000 } = {}) {
-    const startIndex = this.events.length;
-    const settled = this.waitForEvent(
-      (event) => event.type === "agent_settled",
-      { timeoutMs, description: `agent_settled after prompt` },
-    );
-    const response = await this.request({ type: "prompt", message }, { timeoutMs: 60000 });
-    if (!response.success) {
-      throw new Error(`prompt rejected: ${response.error ?? "unknown error"}`);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error(`prompt timeout budget must be a positive finite number, received ${String(timeoutMs)}`);
     }
-    await settled;
-    const turnEvents = this.events.slice(startIndex);
-    assertTurnCompleted(turnEvents);
-    return turnEvents;
+    const budgetMs = Math.max(1, Math.floor(timeoutMs));
+    const deadline = Date.now() + budgetMs;
+    const startIndex = this.events.length;
+    const settledController = new AbortController();
+    try {
+      const settled = this.waitForEvent(
+        (event) => event.type === "agent_settled",
+        { timeoutMs: budgetMs, description: `agent_settled after prompt`, signal: settledController.signal },
+      );
+      // Attach both fulfillment and rejection handlers before awaiting the RPC
+      // acknowledgement. A short overall deadline can reject `settled` first;
+      // leaving it bare during the ack wait would surface an unhandled rejection.
+      const settledOutcome = settled.then(
+        () => ({ ok: true }),
+        (error) => ({ ok: false, error }),
+      );
+      const acknowledgementBudgetMs = Math.max(1, Math.min(60000, budgetMs));
+      const response = await this.request({ type: "prompt", message }, { timeoutMs: acknowledgementBudgetMs });
+      if (!response.success) {
+        throw new Error(`prompt rejected: ${response.error ?? "unknown error"}`);
+      }
+      if (deadline - Date.now() <= 0) {
+        throw new Error(`Timed out after ${budgetMs}ms waiting for agent_settled after prompt`);
+      }
+      const outcome = await settledOutcome;
+      if (!outcome.ok) throw outcome.error;
+      const turnEvents = this.events.slice(startIndex);
+      assertTurnCompleted(turnEvents);
+      return turnEvents;
+    } finally {
+      settledController.abort(new Error("prompt exited before agent_settled completed"));
+    }
   }
 
   async getState() {

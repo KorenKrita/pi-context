@@ -48,7 +48,7 @@ import {
 import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments } from "./scenarios.mjs";
 import { createFlowWorkspace } from "./scenario-workspace.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
-import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION } from "./judge.mjs";
+import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION, writeJsonAtomically } from "./judge.mjs";
 import { ACM_CORE_MARKER, readIntegrityAudit, REQUIRED_ACM_TOOLS } from "./integrity-guard.mjs";
 
 function option(name, fallback) {
@@ -825,10 +825,26 @@ if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && 
       model: judgeModel,
       thinkingLevel: judgeThinking,
     });
-    writeFileSync(join(runDir, "verdict.json"), JSON.stringify(result, null, 2));
+    writeJsonAtomically(join(runDir, "verdict.json"), result);
     report.judge = result.ok
-      ? { model: judgeModel, piBinary: binaryEvidence, agentLabel: judgeAgentLabel, verdict: result.verdict }
-      : { model: judgeModel, piBinary: binaryEvidence, agentLabel: judgeAgentLabel, error: result.error, raw: result.raw };
+      ? {
+        model: judgeModel,
+        piBinary: binaryEvidence,
+        agentLabel: judgeAgentLabel,
+        rubricVersion: result.rubricVersion,
+        attempts: result.attempts,
+        verdict: result.verdict,
+      }
+      : {
+        model: judgeModel,
+        piBinary: binaryEvidence,
+        agentLabel: judgeAgentLabel,
+        rubricVersion: result.rubricVersion,
+        attempts: result.attempts,
+        error: result.error,
+        errors: result.errors,
+        raw: result.raw,
+      };
     if (result.ok) {
       const v = result.verdict;
       console.log(`\n=== verdict (${RUBRIC_VERSION}) ===`);
@@ -839,7 +855,7 @@ if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && 
       console.log(`  topAttributions: ${(v.topAttributions ?? []).join(", ")}`);
       console.log(`  summary: ${v.overall?.summary ?? ""}`);
     } else {
-      console.log(`  judge parse failed: ${result.error}`);
+      console.log(`  judge invalid after ${result.attempts.length} attempts: ${result.error}`);
     }
   } catch (error) {
     report.judge = { model: judgeModel, piBinary: binaryEvidence, agentLabel: judgeAgentLabel, error: error instanceof Error ? error.message : String(error) };
@@ -860,7 +876,7 @@ if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && 
         : { skipped: true };
 }
 
-writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
+writeJsonAtomically(join(runDir, "report.json"), report);
 console.log(`\nreport: ${join(runDir, "report.json")}`);
 console.log(`transcript: ${join(runDir, "transcript.txt")}`);
 process.exit(runError || infrastructureInvalid || verificationFailed ? 1 : 0);
