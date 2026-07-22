@@ -147,7 +147,7 @@ function hasShellOptionOrEnvironmentDump(command) {
   // option state. Named option changes (for example, `set -o errexit`) and
   // interpreter-language calls such as `set(sup)` remain valid evaluation code.
   const tokenStart = String.raw`(?:^|[;&|()\s])set`;
-  const commandEnd = String.raw`(?=$|[;|&)]|\s+(?=$|[#;|&)]))`;
+  const commandEnd = String.raw`(?=$|[;|&)]|[ \t]*(?:\r\n?|\n)|[ \t]+(?=$|[#;|&)]))`;
   return new RegExp(`${tokenStart}${commandEnd}`).test(command)
     || new RegExp(`${tokenStart}\\s+[+-]o${commandEnd}`).test(command);
 }
