@@ -7,7 +7,7 @@
 //                         [--agent-label label] [--flow-seed seed] [--matrix-id id]
 //                         [--judge-model provider/id] [--judge-agent-label label]
 //                         [--judge-thinking level] [--no-judge] [--extension path]
-//                         [--skill path] [--environment-mode core-only|product-isolated|full-env]
+//                         [--skill path] [--environment-mode core-only|product-isolated|agents-only|full-env]
 //                         [--audit-only]
 //
 // Two comparison axes both come from this one command:
@@ -20,17 +20,20 @@
 
 import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import {
   buildAgentDir,
+  buildAgentsOnlyAgentDir,
   buildFullEnvAgentDir,
+  assertAgentsOnlyCheckoutResources,
   assertFullEnvCheckoutExtensions,
   CONTEXT_EXTENSION_PATH,
   CONTEXT_MANAGEMENT_SKILL_PATH,
   createRunDir,
   EXTENSION_PATH,
   INTEGRITY_GUARD_PATH,
+  readAgentsOnlyHarnessAudit,
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 import {
@@ -219,6 +222,7 @@ const environmentMode = normalizeEnvironmentMode({
   environmentMode: requestedEnvironmentMode ?? (fullEnvAlias ? "full-env" : undefined),
 });
 const fullEnv = environmentMode === "full-env";
+const agentsOnly = environmentMode === "agents-only";
 const judgeModel = parseModel(option("--judge-model"), JUDGE_MODEL);
 const judgeThinking = option("--judge-thinking") ?? "high";
 const requestedJudgeAgentLabel = option("--judge-agent-label") ?? process.env.ACM_JUDGE_LABEL;
@@ -238,6 +242,15 @@ const checkoutExtensionConstraint = assertFullEnvCheckoutExtensions({
   contextExtensionPath: CONTEXT_EXTENSION_PATH,
   expectedCoreExtensionPath: EXTENSION_PATH,
   expectedContextExtensionPath: CONTEXT_EXTENSION_PATH,
+});
+const agentsOnlyCheckoutConstraint = assertAgentsOnlyCheckoutResources({
+  environmentMode,
+  coreExtensionPath: extensionPath,
+  contextExtensionPath: CONTEXT_EXTENSION_PATH,
+  skillPath,
+  expectedCoreExtensionPath: EXTENSION_PATH,
+  expectedContextExtensionPath: CONTEXT_EXTENSION_PATH,
+  expectedSkillPath: CONTEXT_MANAGEMENT_SKILL_PATH,
 });
 const skillPaths = environmentMode === "core-only" || environmentMode === "raw-control" ? [] : [skillPath];
 const expectedSkillPath = (() => {
@@ -266,7 +279,9 @@ const agentLabel = requestedAgentLabel
 const judgeAgentLabel = `${requestedJudgeAgentLabel ?? `${agentLabel}-judge`}-p${process.pid}`;
 const agentDir = fullEnv
   ? buildFullEnvAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel })
-  : buildAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel });
+  : agentsOnly
+    ? buildAgentsOnlyAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel })
+    : buildAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`);
 const integrityAuditPath = fullEnv ? join(runDir, "integrity-audit.jsonl") : null;
 // Keep every model-visible workspace out of eval/.runs. Otherwise a flow can
@@ -274,6 +289,17 @@ const integrityAuditPath = fullEnv ? join(runDir, "integrity-audit.jsonl") : nul
 // invalidate environment isolation. Retain the directory for post-run evidence.
 const workspace = createFlowWorkspace({ flowId: declaredFlow.id, environmentMode });
 cpSync(declaredFlow.seedDir, workspace, { recursive: true });
+// Context discovery remains on in agents-only. The model-visible fixture must
+// therefore not contribute its own project AGENTS.md: only the copied real
+// global AGENTS.md is ambient context in this environment.
+const removedWorkspaceContextFiles = [];
+if (agentsOnly) {
+  const workspaceAgents = join(workspace, "AGENTS.md");
+  if (existsSync(workspaceAgents)) {
+    removedWorkspaceContextFiles.push(fileEvidence(workspaceAgents));
+    rmSync(workspaceAgents, { force: true });
+  }
+}
 const materializedFlow = await invokeHook(declaredFlow, "materialize", {
   flow: declaredFlow,
   seed: flowSeed,
@@ -295,6 +321,7 @@ if (!Array.isArray(flow.turns) || flow.turns.length === 0) {
   throw new Error(`materialized flow ${flow.id} must provide a non-empty turns array`);
 }
 const fullEnvHarnessAudit = fullEnv ? readFullEnvHarnessAudit(agentDir) : null;
+const agentsOnlyHarnessAudit = agentsOnly ? readAgentsOnlyHarnessAudit(agentDir) : null;
 const integrityRequiredMarkers = fullEnv
   ? [
       { id: "acm_core_marker", value: ACM_CORE_MARKER, exact: 1 },
@@ -321,6 +348,13 @@ const resourceEvidence = {
     min: marker.min,
     sha256: sha256(marker.value),
   })),
+  ...(agentsOnly
+    ? {
+        agentsOnlyHarness: agentsOnlyHarnessAudit,
+        agentsOnlyWorkspaceContextFilesRemoved: removedWorkspaceContextFiles,
+        agentsOnlyCheckoutConstraint,
+      }
+    : {}),
 };
 const binaryEvidence = piBinaryEvidence(piBinary);
 const driverArgs = buildPiRpcArgs({
@@ -386,6 +420,29 @@ function staticAuditFailures() {
   }
   for (const skill of resourceEvidence.skill) {
     appendConstraintFailure(failures, skill.exists, "skill_missing", `checkout Skill missing: ${skill.path ?? "unknown"}`);
+  }
+  if (agentsOnly) {
+    const audit = agentsOnlyHarnessAudit;
+    appendConstraintFailure(failures, audit !== null, "agents_only_audit_missing", "agents-only harness did not record its resource audit");
+    if (!audit) return failures;
+    appendConstraintFailure(failures, audit.environmentMode === "agents-only", "agents_only_audit_mode_mismatch", "agents-only harness audit recorded the wrong mode");
+    appendConstraintFailure(failures, audit.globalAgents?.source?.exists === true && audit.globalAgents?.harness?.exists === true, "agents_only_global_agents_missing", "agents-only requires a copied global AGENTS.md");
+    appendConstraintFailure(failures, audit.globalAgents?.source?.sha256 === audit.globalAgents?.harness?.sha256, "agents_only_global_agents_hash_mismatch", "agents-only harness AGENTS.md does not match its global source");
+    appendConstraintFailure(failures, audit.auth?.source?.exists === true && audit.auth?.harness?.exists === true, "agents_only_auth_missing", "agents-only requires copied real authentication");
+    appendConstraintFailure(failures, audit.auth?.source?.sha256 === audit.auth?.harness?.sha256, "agents_only_auth_hash_mismatch", "agents-only harness auth does not match its global source");
+    appendConstraintFailure(failures, Array.isArray(audit.settings?.packages) && audit.settings.packages.length === 0, "agents_only_packages_present", "agents-only settings must contain no packages");
+    appendConstraintFailure(failures, audit.sessionRecall?.packagePresent === false && audit.sessionRecall?.configPresent === false, "agents_only_session_recall_present", "agents-only must exclude session recall by construction");
+    appendConstraintFailure(failures, !existsSync(join(agentDir, "session-recall.json")), "agents_only_session_recall_config_present", "agents-only harness contains session-recall.json");
+    for (const ambientResource of ["extensions", "skills", "themes", "agents", "git", "npm", "bin", "mcp.json", "mcp-cache.json", "pi.env"]) {
+      appendConstraintFailure(failures, !existsSync(join(agentDir, ambientResource)), "agents_only_ambient_resource_present", `agents-only harness contains ambient resource ${ambientResource}`);
+    }
+    const expectedGuards = ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes"];
+    for (const guard of expectedGuards) {
+      appendConstraintFailure(failures, driverArgs.includes(guard), "agents_only_discovery_guard_missing", `agents-only must pass ${guard}`);
+    }
+    appendConstraintFailure(failures, !driverArgs.includes("--no-context-files"), "agents_only_context_files_disabled", "agents-only must retain context-file discovery for global AGENTS.md");
+    appendConstraintFailure(failures, !driverArgs.includes(INTEGRITY_GUARD_PATH), "agents_only_integrity_guard_loaded", "agents-only must not load the integrity-guard extension");
+    return failures;
   }
   if (!fullEnv) return failures;
 
@@ -512,6 +569,10 @@ function effectiveRuntimeFailures(state, availableModels, availableThinkingLevel
   if (fullEnv) {
     appendConstraintFailure(failures, commandInventory.globalExtensions.length > 0, "global_extensions_missing", "full-env discovered no global extension commands");
     appendConstraintFailure(failures, commandInventory.globalSkills.length > 0, "global_skills_missing", "full-env discovered no global Skill commands");
+  }
+  if (agentsOnly) {
+    appendConstraintFailure(failures, commandInventory.globalExtensions.length === 0, "agents_only_global_extensions_present", "agents-only discovered an ambient extension command");
+    appendConstraintFailure(failures, commandInventory.globalSkills.length === 0, "agents_only_global_skills_present", "agents-only discovered an ambient Skill command");
   }
   return failures;
 }
@@ -702,6 +763,7 @@ const report = {
   auditOnly,
   fullEnv,
   fullEnvMinusMcp: fullEnv,
+  ...(agentsOnly ? { agentsOnly: true } : {}),
   environmentMode,
   agentLabel,
   judgeAgentLabel,

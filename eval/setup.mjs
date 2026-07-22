@@ -20,6 +20,7 @@ export const CONTEXT_EXTENSION_PATH = join(EVAL_ROOT, "..", "src", "context.ts")
 export const CONTEXT_MANAGEMENT_SKILL_PATH = join(EVAL_ROOT, "..", "skills", "context-management", "SKILL.md");
 export const INTEGRITY_GUARD_PATH = join(EVAL_ROOT, "integrity-guard.mjs");
 export const FULL_ENV_AUDIT_FILE = "full-env-audit.json";
+export const AGENTS_ONLY_AUDIT_FILE = "agents-only-audit.json";
 
 const INSTALLED_PI_CONTEXT_IDENTITIES = new Set([
   "github.com/korenkrita/pi-context",
@@ -118,6 +119,10 @@ export function readFullEnvHarnessAudit(agentDir) {
   return JSON.parse(readFileSync(join(agentDir, FULL_ENV_AUDIT_FILE), "utf8"));
 }
 
+export function readAgentsOnlyHarnessAudit(agentDir) {
+  return JSON.parse(readFileSync(join(agentDir, AGENTS_ONLY_AUDIT_FILE), "utf8"));
+}
+
 /** Enforce that full-env always measures this checkout's exact ACM extensions. */
 export function assertFullEnvCheckoutExtensions({
   environmentMode,
@@ -150,6 +155,53 @@ export function assertFullEnvCheckoutExtensions({
     status: "canonical_checkout_extensions",
     coreExtensionPath: actualCore,
     contextExtensionPath: actualContext,
+  };
+}
+
+/**
+ * agents-only admits the checked-out ACM pair and Skill, but no ambient
+ * product resource. Keep the explicit CLI paths tied to this checkout so the
+ * report's resource hashes and runtime provenance describe the same product.
+ */
+export function assertAgentsOnlyCheckoutResources({
+  environmentMode,
+  coreExtensionPath,
+  contextExtensionPath,
+  skillPath,
+  expectedCoreExtensionPath,
+  expectedContextExtensionPath,
+  expectedSkillPath,
+  realpath = realpathSync,
+}) {
+  if (environmentMode !== "agents-only") return { valid: true, status: "not_agents_only" };
+  const resolveRequired = (path, label) => {
+    try {
+      return realpath(path);
+    } catch (error) {
+      throw new Error(`${label} realpath unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  const actualCore = resolveRequired(coreExtensionPath, "agents-only core extension");
+  const expectedCore = resolveRequired(expectedCoreExtensionPath, "expected core extension");
+  if (actualCore !== expectedCore) {
+    throw new Error(`agents-only core extension must be ${expectedCore}, got ${actualCore}`);
+  }
+  const actualContext = resolveRequired(contextExtensionPath, "agents-only context extension");
+  const expectedContext = resolveRequired(expectedContextExtensionPath, "expected context extension");
+  if (actualContext !== expectedContext) {
+    throw new Error(`agents-only context extension must be ${expectedContext}, got ${actualContext}`);
+  }
+  const actualSkill = resolveRequired(skillPath, "agents-only Skill");
+  const expectedSkill = resolveRequired(expectedSkillPath, "expected Skill");
+  if (actualSkill !== expectedSkill) {
+    throw new Error(`agents-only Skill must be ${expectedSkill}, got ${actualSkill}`);
+  }
+  return {
+    valid: true,
+    status: "canonical_checkout_resources",
+    coreExtensionPath: actualCore,
+    contextExtensionPath: actualContext,
+    skillPath: actualSkill,
   };
 }
 
@@ -201,6 +253,110 @@ export function buildAgentDir({ contextWindow = 80000, maxTokensCap = 16000, shr
   if (existsSync(sourceAuthPath)) {
     cpSync(sourceAuthPath, join(agentDir, "auth.json"));
   }
+  return agentDir;
+}
+
+/**
+ * Build a deliberately sparse harness that preserves only the user's global
+ * AGENTS.md as ambient context. Models and authentication are copied so the
+ * selected real provider still works; all global extension, Skill, package,
+ * prompt-template, theme, and auxiliary configuration resources are absent.
+ *
+ * Pi context-file discovery remains enabled by the driver for this mode, so
+ * the copied AGENTS.md is intentionally loaded as ambient instruction text.
+ *
+ * @param {{ contextWindow?: number, maxTokensCap?: number, shrink?: boolean, label?: string, sourceAgentDir?: string, harnessDir?: string }} options
+ * @returns {string} path to the agent dir
+ */
+export function buildAgentsOnlyAgentDir({
+  contextWindow = 100000,
+  maxTokensCap = 16000,
+  shrink = true,
+  label,
+  sourceAgentDir = join(homedir(), ".pi", "agent"),
+  harnessDir = HARNESS_DIR,
+} = {}) {
+  const realDir = sourceAgentDir;
+  const agentDir = join(harnessDir, label ?? (shrink ? `agent-agents-only-cw${contextWindow}` : "agent-agents-only-native"));
+
+  // Rebuilding a named sparse harness must not retain ambient resources from
+  // an earlier full-env or ordinary isolated run.
+  rmSync(agentDir, { recursive: true, force: true });
+  mkdirSync(agentDir, { recursive: true });
+
+  const sourceModelsPath = join(realDir, "models.json");
+  const models = JSON.parse(readFileSync(sourceModelsPath, "utf8"));
+  if (shrink) {
+    for (const provider of Object.values(models.providers)) {
+      for (const model of provider.models ?? []) {
+        model.contextWindow = Math.min(model.contextWindow ?? contextWindow, contextWindow);
+        model.maxTokens = Math.min(model.maxTokens ?? maxTokensCap, maxTokensCap);
+      }
+    }
+  }
+  writeFileSync(join(agentDir, "models.json"), JSON.stringify(models, null, 2));
+
+  const settings = {
+    quietStartup: true,
+    defaultProjectTrust: "always",
+    enableInstallTelemetry: false,
+    enableAnalytics: false,
+    compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 8000 },
+    retry: { enabled: true, maxRetries: 2, baseDelayMs: 2000 },
+    packages: [],
+  };
+  writeFileSync(join(agentDir, "settings.json"), JSON.stringify(settings, null, 2));
+
+  const sourceAuthPath = join(realDir, "auth.json");
+  if (existsSync(sourceAuthPath)) cpSync(sourceAuthPath, join(agentDir, "auth.json"));
+
+  const sourceAgentsPath = join(realDir, "AGENTS.md");
+  if (existsSync(sourceAgentsPath)) cpSync(sourceAgentsPath, join(agentDir, "AGENTS.md"));
+
+  const audit = {
+    schemaVersion: 1,
+    environmentMode: "agents-only",
+    sourceAgentDir: realDir,
+    harnessAgentDir: agentDir,
+    sourceCopiedFiles: [...(existsSync(sourceAuthPath) ? ["auth.json"] : []), ...(existsSync(sourceAgentsPath) ? ["AGENTS.md"] : [])],
+    generatedFiles: ["models.json", "settings.json"],
+    globalAgents: {
+      source: fileSnapshot(sourceAgentsPath),
+      harness: fileSnapshot(join(agentDir, "AGENTS.md")),
+      expectedIncluded: true,
+    },
+    models: {
+      source: fileSnapshot(sourceModelsPath),
+      harness: fileSnapshot(join(agentDir, "models.json")),
+    },
+    auth: {
+      source: fileSnapshot(sourceAuthPath),
+      harness: fileSnapshot(join(agentDir, "auth.json")),
+    },
+    settings: {
+      harness: fileSnapshot(join(agentDir, "settings.json")),
+      packages: settings.packages,
+    },
+    excludedAmbientResources: [
+      "extensions",
+      "skills",
+      "themes",
+      "agents",
+      "git",
+      "npm",
+      "bin",
+      "mcp.json",
+      "mcp-cache.json",
+      "session-recall.json",
+      "pi.env",
+      "prompt-templates",
+    ],
+    sessionRecall: {
+      packagePresent: false,
+      configPresent: existsSync(join(agentDir, "session-recall.json")),
+    },
+  };
+  writeFileSync(join(agentDir, AGENTS_ONLY_AUDIT_FILE), JSON.stringify(audit, null, 2));
   return agentDir;
 }
 

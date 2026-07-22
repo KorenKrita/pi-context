@@ -9,7 +9,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { FULL_ENV_DENIED_TOOLS } from "./integrity-guard.mjs";
 
-export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "full-env"]);
+export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "agents-only", "full-env"]);
 export const CONTEXT_MANAGEMENT_COMMAND = "skill:context-management";
 export const SESSION_RECALL_TOOLS = Object.freeze(["session_search", "session_query"]);
 export { FULL_ENV_DENIED_TOOLS };
@@ -63,8 +63,10 @@ export function buildPiRpcArgs(options) {
       "--no-skills",
       "--no-prompt-templates",
       "--no-themes",
-      "--no-context-files",
     );
+    // agents-only intentionally preserves Pi context-file discovery so the
+    // copied global AGENTS.md is the sole ambient instruction source.
+    if (mode !== "agents-only") args.push("--no-context-files");
   }
   args.push("--approve");
   // Defense in depth for full-env: the sanitized settings exclude the package
@@ -223,7 +225,7 @@ export class PiRpcDriver {
    *   extensionPaths?: string[],
    *   skillPath?: string,
    *   skillPaths?: string[],
-   *   environmentMode?: "raw-control" | "core-only" | "product-isolated" | "full-env",
+   *   environmentMode?: "raw-control" | "core-only" | "product-isolated" | "agents-only" | "full-env",
    *   fullEnv?: boolean,
    *   provider: string,
    *   modelId: string,

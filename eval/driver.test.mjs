@@ -71,6 +71,23 @@ describe("Pi RPC eval environment composition", () => {
     ]));
   });
 
+  test("agents-only disables every ambient discovery source except context files", () => {
+    expect(buildPiRpcArgs({
+      ...BASE,
+      environmentMode: "agents-only",
+      extensionPaths: ["/checkout/src/index.ts", "/checkout/src/context.ts"],
+      skillPaths: [EXPECTED_SKILL],
+    })).toEqual(expect.arrayContaining([
+      "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+      "-e", "/checkout/src/index.ts",
+      "-e", "/checkout/src/context.ts",
+      "--skill", EXPECTED_SKILL,
+    ]));
+    const args = buildPiRpcArgs({ ...BASE, environmentMode: "agents-only" });
+    expect(args).not.toContain("--no-context-files");
+    expect(args).not.toContain("--exclude-tools");
+  });
+
   test("full-env omits discovery guards and accepts legacy fullEnv as an alias", () => {
     const args = buildPiRpcArgs({
       ...BASE,
@@ -150,9 +167,9 @@ describe("context-management Skill availability gate", () => {
       .toMatchObject({ valid: false, status: "path_mismatch", expectedSkillPath: EXPECTED_SKILL, discoveredSkillPath: OTHER_SKILL });
   });
 
-  test("accepts exactly one checked-out Skill and preserves its provenance", () => {
+  test.each(["product-isolated", "agents-only", "full-env"])("%s accepts exactly one checked-out Skill and preserves its provenance", (environmentMode) => {
     expect(classifySkillAvailability({
-      environmentMode: "full-env",
+      environmentMode,
       expectedSkillPath: EXPECTED_SKILL,
       commands: [expectedCommand()],
       realpath,
