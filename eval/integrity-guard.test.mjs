@@ -312,6 +312,32 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("ignores quoted heredoc verifier code while retaining shell discovery checks", () => {
+    const quotedLedgerVerifier = [
+      "python3 - <<'PY'",
+      "sup = {'ledger'}",
+      "assert set(sup) == {'ledger'}",
+      "print('process.env is verifier prose')",
+      "PY",
+    ].join("\n");
+    expect(evaluateToolCall({ toolName: "bash", input: { command: quotedLedgerVerifier }, ...policy })).toEqual({ block: false });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: `${quotedLedgerVerifier}\nset` },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "cat <<EOF\n$(env)\nEOF" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "cat <<EOF\n$(node -e 'console.log(process.env.HOME)')\nEOF" },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+  });
+
   test("allows explicit non-sensitive environment-key reads", () => {
     for (const command of [
       "node -e 'const QUERIED_AT=process.env.QUERIED_AT; console.log(QUERIED_AT)'",

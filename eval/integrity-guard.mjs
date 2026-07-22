@@ -69,7 +69,7 @@ const BASH_SENSITIVE_ENVIRONMENT_KEY_PATTERN = new RegExp([
   String.raw`(?:^|[^\w.])getenv\s*\(\s*${SENSITIVE_ENVIRONMENT_QUOTED_KEY_PATTERN}`,
 ].join("|"), "i");
 const BASH_WHOLE_ENVIRONMENT_PATTERN = /(?:process\.env|os\.environ|Deno\.env)(?=\s*(?:[),;}:]|$))|(?:process\.env|os\.environ|Deno\.env)\s*\.\s*(?:keys|values|items|entries|copy|toObject)\s*\(/i;
-const BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN = /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?:\s|$)|(?:^|[;&|()\s])export\s+-p(?:\s|$)|(?:^|[;&|()\s])declare\s+-x(?:\s|$)|\bACM_INTEGRITY_[A-Z0-9_]+\b/i;
+const BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN = /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?=$|[;&|()\s])|(?:^|[;&|()\s])export\s+-p(?=$|[;&|()\s])|(?:^|[;&|()\s])declare\s+-x(?=$|[;&|()\s])|\bACM_INTEGRITY_[A-Z0-9_]+\b/i;
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -404,9 +404,9 @@ function bashViolation(command, workspace) {
     ["bash_process_or_env_discovery", BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN],
   ];
   for (const [code, pattern] of checks) {
-    if (pattern.test(command)) return code;
+    if (pattern.test(quotedHeredocMaskedCommand)) return code;
   }
-  if (hasShellOptionOrEnvironmentDump(command)) return "bash_process_or_env_discovery";
+  if (hasShellOptionOrEnvironmentDump(quotedHeredocMaskedCommand)) return "bash_process_or_env_discovery";
   return null;
 }
 
