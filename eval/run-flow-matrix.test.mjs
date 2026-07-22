@@ -473,7 +473,13 @@ describe("real Pi long-flow matrix declaration", () => {
       bun: { evidence: { realpath: "/bun", version: "1", binarySha256: "bun", binaryTree: emptyTree }, error: null },
       agentsOnly: structuredClone(arm),
       fullEnv: null,
-      sandbox: { formalEvidenceEligible: true, enforcement: "kernel_enforced" },
+      sandbox: {
+        formalEvidenceEligible: true,
+        enforcement: "kernel_enforced",
+        hostProcessSandboxed: false,
+        toolSubprocessSandboxed: true,
+        toolProfile: { applied: true },
+      },
       lock: { acquired: true, released: true },
       runtime: { contextWindow: cell.contextWindow, maxTokens: cell.maxTokensCap, model: cell.model, thinkingLevel: cell.thinking },
     };
@@ -504,6 +510,14 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(validateCellProvenance(cell, runtime, pinned)).toEqual({ valid: true, reasons: [] });
     expect(validateCellProvenance(cell, { ...runtime, sandbox: { formalEvidenceEligible: false, enforcement: "unsupported" } }, pinned).reasons)
       .toContain("agents_only_sandbox_ineligible");
+    for (const sandbox of [
+      { ...runtime.sandbox, hostProcessSandboxed: true },
+      { ...runtime.sandbox, toolSubprocessSandboxed: false },
+      { ...runtime.sandbox, toolProfile: { applied: false } },
+    ]) {
+      expect(validateCellProvenance(cell, { ...runtime, sandbox }, pinned).reasons)
+        .toContain("agents_only_sandbox_ineligible");
+    }
     expect(validateCellProvenance(cell, { ...runtime, lock: { acquired: true, released: false } }, pinned).reasons)
       .toContain("agents_only_lock_incomplete");
     expect(validateCellProvenance(cell, {

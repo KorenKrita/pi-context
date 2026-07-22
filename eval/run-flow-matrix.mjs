@@ -1080,7 +1080,13 @@ export function validateCellProvenance(cell, runtime, pinned) {
     }
     if (JSON.stringify(runtime?.agentsOnly?.excludedAmbientResources) !== JSON.stringify(agentsOnlyArm?.excludedAmbientResources)) reasons.push("agents_only_excluded_resources_mismatch");
     if (JSON.stringify(runtime?.agentsOnly?.sessionRecall) !== JSON.stringify(agentsOnlyArm?.sessionRecall)) reasons.push("agents_only_session_recall_mismatch");
-    if (runtime?.sandbox?.formalEvidenceEligible !== true || runtime?.sandbox?.enforcement !== "kernel_enforced") reasons.push("agents_only_sandbox_ineligible");
+    if (runtime?.sandbox?.formalEvidenceEligible !== true
+      || runtime?.sandbox?.enforcement !== "kernel_enforced"
+      || runtime?.sandbox?.hostProcessSandboxed !== false
+      || runtime?.sandbox?.toolSubprocessSandboxed !== true
+      || runtime?.sandbox?.toolProfile?.applied !== true) {
+      reasons.push("agents_only_sandbox_ineligible");
+    }
     if (runtime?.lock?.acquired !== true || runtime?.lock?.released !== true) reasons.push("agents_only_lock_incomplete");
   } else {
     if (runtime?.fullEnv?.sanitizedSettingsSha256 !== fullEnvArm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
