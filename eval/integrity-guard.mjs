@@ -143,10 +143,13 @@ function resolvedToolPath(workspace, rawPath) {
 }
 
 function hasShellOptionOrEnvironmentDump(command) {
-  // `set` alone exposes shell variables; `set -o` and `set +o` expose option
-  // state. Named option changes (for example, `set -o errexit`) are normal
-  // shell setup and must remain available to evaluation flows.
-  return /(?:^|[;&|()\s])set(?:\s*(?=$|[;&|()\n#])|\s+[+-]o\s*(?=$|[;&|()\n#]))/.test(command);
+  // `set` alone exposes shell variables; bare `set -o` and `set +o` expose
+  // option state. Named option changes (for example, `set -o errexit`) and
+  // interpreter-language calls such as `set(sup)` remain valid evaluation code.
+  const tokenStart = String.raw`(?:^|[;&|()\s])set`;
+  const commandEnd = String.raw`(?=$|[;|&)]|\s+(?=$|[#;|&)]))`;
+  return new RegExp(`${tokenStart}${commandEnd}`).test(command)
+    || new RegExp(`${tokenStart}\\s+[+-]o${commandEnd}`).test(command);
 }
 
 function escapeRegExp(value) {
@@ -404,9 +407,9 @@ function bashViolation(command, workspace) {
     ["bash_process_or_env_discovery", BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN],
   ];
   for (const [code, pattern] of checks) {
-    if (pattern.test(quotedHeredocMaskedCommand)) return code;
+    if (pattern.test(command)) return code;
   }
-  if (hasShellOptionOrEnvironmentDump(quotedHeredocMaskedCommand)) return "bash_process_or_env_discovery";
+  if (hasShellOptionOrEnvironmentDump(command)) return "bash_process_or_env_discovery";
   return null;
 }
 

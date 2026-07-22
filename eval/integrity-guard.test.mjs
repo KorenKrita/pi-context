@@ -317,7 +317,6 @@ describe("measurement integrity tool-call gate", () => {
       "python3 - <<'PY'",
       "sup = {'ledger'}",
       "assert set(sup) == {'ledger'}",
-      "print('process.env is verifier prose')",
       "PY",
     ].join("\n");
     expect(evaluateToolCall({ toolName: "bash", input: { command: quotedLedgerVerifier }, ...policy })).toEqual({ block: false });
@@ -336,6 +335,14 @@ describe("measurement integrity tool-call gate", () => {
       input: { command: "cat <<EOF\n$(node -e 'console.log(process.env.HOME)')\nEOF" },
       ...policy,
     })).toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    for (const command of [
+      "python3 - <<'PY'\nimport os\nprint(os.environ[\"HOME\"])\nPY",
+      "node - <<'NODE'\nconsole.log(process.env.PI_CODING_AGENT_DIR)\nNODE",
+      "sh <<'SH'\nenv\nSH",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    }
   });
 
   test("allows explicit non-sensitive environment-key reads", () => {
