@@ -30,6 +30,9 @@ def load_state(raw_path: Path) -> tuple[Path, dict[str, Any]]:
         raise SystemExit(f"invalid matrix state JSON: {path}: {error}") from error
     if not isinstance(value, dict) or not isinstance(value.get("cells"), dict):
         raise SystemExit(f"unsupported matrix state shape: {path}")
+    for cell_id, cell in value["cells"].items():
+        if not isinstance(cell, dict):
+            raise SystemExit(f"unsupported matrix cell shape: {path}: {cell_id}")
     return path, value
 
 

@@ -78,4 +78,18 @@ describe("pi-context-eval matrix status helper", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("matrix state not found");
   });
+
+  test("fails clearly when a persisted cell has the wrong shape", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "pi-context-matrix-status-"));
+    temporaryDirectories.push(directory);
+    await writeFile(
+      resolve(directory, "matrix-state.json"),
+      JSON.stringify({ cells: { "broken-400k": null } }),
+    );
+
+    const result = Bun.spawnSync(["python3", script, directory]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("unsupported matrix cell shape");
+    expect(result.stderr.toString()).toContain("broken-400k");
+  });
 });
