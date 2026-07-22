@@ -8,7 +8,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.4";
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.5";
 // P4's early digest plus this 235K packet calibrate the pre-P7 active working
 // set to roughly 287K tokens (about 71.7%) after observed Pi/system/tool
 // overhead in a 400K host window, preserving headroom for current-turn work.
@@ -403,13 +403,44 @@ function makeTurns({ packet, earlyDigest, supplement }) {
   return Object.freeze(turns);
 }
 
+function controlPlanePreconditionEvidence(controlPlanePath) {
+  let beforeText;
+  let beforeSha256 = null;
+  try {
+    beforeText = readFileSync(controlPlanePath, "utf8");
+    beforeSha256 = sha256(beforeText);
+  } catch (error) {
+    const beforeError = error instanceof Error ? error.message : String(error);
+    return {
+      precondition: error && typeof error === "object" && error.code === "ENOENT" ? "missing" : "read_error",
+      beforeRevision: null,
+      beforeSha256,
+      beforeError,
+    };
+  }
+  try {
+    const before = JSON.parse(beforeText);
+    const beforeRevision = before?.revision ?? null;
+    return {
+      precondition: beforeRevision === "R1" ? "expected_r1" : "unexpected_revision",
+      beforeRevision,
+      beforeSha256,
+      beforeError: null,
+    };
+  } catch (error) {
+    return {
+      precondition: "invalid_json",
+      beforeRevision: null,
+      beforeSha256,
+      beforeError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export function applySaffronControlPlaneR2({ workspace, oracle }) {
   if (!workspace) throw new Error("workspace is required to apply the Saffron external perturbation");
   const controlPlanePath = join(workspace, "fixtures", "control-plane.json");
-  const before = JSON.parse(readFileSync(controlPlanePath, "utf8"));
-  if (before.revision !== "R1") {
-    throw new Error(`expected R1 before external perturbation, found ${String(before.revision)}`);
-  }
+  const preconditionEvidence = controlPlanePreconditionEvidence(controlPlanePath);
   const next = {
     revision: oracle.externalRevision,
     freeze: oracle.expectedFreeze,
@@ -424,7 +455,7 @@ export function applySaffronControlPlaneR2({ workspace, oracle }) {
   return Object.freeze({
     kind: "control_plane_r1_to_r2",
     path: controlPlanePath,
-    beforeSha256: sha256(JSON.stringify(before)),
+    ...preconditionEvidence,
     afterSha256: sha256(encoded),
     revision: next.revision,
     incidentNonce: next.incidentNonce,

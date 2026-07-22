@@ -76,6 +76,23 @@ function p7ProbeCheck(turnRecords, oracle) {
   );
 }
 
+function p6PrestateCheck(turnRecords) {
+  const p6 = turnRecords?.find((turn) => turn?.phase === "P6-晚到证据");
+  const evidence = p6?.hooks?.afterTurnHook;
+  if (!evidence) return check("P6 host perturbation starts from exact R1", false, "P6 afterTurnHook evidence missing");
+  const pass = evidence.kind === "control_plane_r1_to_r2"
+    && evidence.precondition === "expected_r1"
+    && evidence.beforeRevision === "R1"
+    && typeof evidence.beforeSha256 === "string"
+    && evidence.beforeSha256.length === 64
+    && evidence.beforeError === null;
+  return check(
+    "P6 host perturbation starts from exact R1",
+    pass,
+    `precondition=${String(evidence.precondition)}; beforeRevision=${String(evidence.beforeRevision)}; beforeSha256=${String(evidence.beforeSha256)}; beforeError=${String(evidence.beforeError)}`,
+  );
+}
+
 function claimIsExplicitlyRejected(text, claim) {
   const index = text.indexOf(claim);
   if (index < 0) return false;
@@ -156,6 +173,7 @@ export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [
       && externalState?.incidentNonce === oracle.incidentNonce,
     controlPlane.ok ? controlPlane.text.slice(0, 500) : controlPlane.error,
   ));
+  checks.push(p6PrestateCheck(turnRecords));
   checks.push(p7ProbeCheck(turnRecords, oracle));
 
   const evidence = readText(join(workspace, "docs", "evidence-ledger.md"));
