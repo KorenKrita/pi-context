@@ -233,6 +233,17 @@ describe("measurement integrity tool-call gate", () => {
         .toBe(`cd ${policy.workspace} && find .`);
       expect(rewriteWorkspaceTempPaths("cat <<'EOF'\n/tmp/prose\nEOF\nprintf %s /tmp/live", workspace))
         .toBe(`cat <<'EOF'\n/tmp/prose\nEOF\nprintf %s ${workspaceTemp}/live`);
+      expect(rewriteWorkspaceTempPaths("cat <<EOF\n/tmp/prose\nEOF", workspace))
+        .toBe("cat <<EOF\n/tmp/prose\nEOF");
+      expect(rewriteWorkspaceTempPaths("curl https://example.com?path=/tmp/foo#fragment=/tmp/bar", workspace))
+        .toBe("curl https://example.com?path=/tmp/foo#fragment=/tmp/bar");
+      expect(rewriteWorkspaceTempPaths("curl file:///tmp/live", workspace)).toBe("curl file:///tmp/live");
+      expect(evaluateToolCall({
+        toolName: "bash",
+        input: { command: "cat <<EOF\n$(cat /etc/passwd)\nEOF" },
+        workspace,
+        approvedSkillRoots: [],
+      })).toMatchObject({ block: true, code: "bash_absolute_path" });
       expect(evaluateToolCall({ toolName: "bash", input: { command: rewritten }, workspace, approvedSkillRoots: [] }))
         .toEqual({ block: false });
     } finally {

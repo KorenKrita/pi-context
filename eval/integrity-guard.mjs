@@ -182,7 +182,8 @@ export function workspaceTempDirectory(workspace) {
 
 export function rewriteWorkspaceTempPaths(command, workspace) {
   if (typeof command !== "string" || typeof workspace !== "string" || workspace.length === 0) return command;
-  const policyCommand = quoteAwarePathCommands(maskQuotedHeredocBodies(command)).absolutePathCommand;
+  const rewriteView = maskHttpUris(maskAllHeredocBodies(command));
+  const policyCommand = quoteAwarePathCommands(rewriteView).absolutePathCommand;
   const replacements = [];
   for (const match of policyCommand.matchAll(BASH_NATIVE_TEMP_PATH_PATTERN)) {
     const boundaryLength = match[1].length;
@@ -271,7 +272,7 @@ function heredocSpecs(line) {
   return specs;
 }
 
-function maskQuotedHeredocBodies(command) {
+function maskHeredocBodies(command, shouldNeutralize) {
   const lines = command.split("\n");
   const maskedLines = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -282,13 +283,25 @@ function maskQuotedHeredocBodies(command) {
         const line = lines[index];
         const comparison = (spec.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
         const terminator = comparison === spec.delimiter;
-        maskedLines.push(spec.quoted || terminator ? neutralizeHeredocLine(line) : line);
+        maskedLines.push(shouldNeutralize(spec) || terminator ? neutralizeHeredocLine(line) : line);
         if (terminator) break;
         index += 1;
       }
     }
   }
   return maskedLines.join("\n");
+}
+
+function maskQuotedHeredocBodies(command) {
+  return maskHeredocBodies(command, (spec) => spec.quoted);
+}
+
+function maskAllHeredocBodies(command) {
+  return maskHeredocBodies(command, () => true);
+}
+
+function maskHttpUris(command) {
+  return command.replace(/https?:\/\/[^\s"'<>;|()]*/gi, (uri) => "_".repeat(uri.length));
 }
 
 // Quoted prose may contain shell-looking separators. Preserve only a quoted
