@@ -133,6 +133,10 @@ darwinTest("kernel sandbox blocks dynamic and alias reads while allowing the cur
     expect(`${toolSiblingAuth.stdout}${toolSiblingAuth.stderr}`).toMatch(/Operation not permitted|EPERM/);
     const toolWorkspace = spawnSync("/usr/bin/sandbox-exec", ["-f", evidence.tool.path, "/bin/cat", join(workspace, "allowed.txt")], { encoding: "utf8" });
     expect(toolWorkspace.status).toBe(0);
+    const hostWorkspaceScript = `const fs=require('node:fs');const p=${JSON.stringify(join(workspace, "allowed.txt"))};fs.realpathSync(p);fs.writeFileSync(${JSON.stringify(join(workspace, "written.txt"))},'written\\n')`;
+    const hostWorkspace = spawnSync("/usr/bin/sandbox-exec", ["-f", evidence.outer.path, nodeBinary, "-e", hostWorkspaceScript], { encoding: "utf8" });
+    expect(hostWorkspace.status).toBe(0);
+    expect(readFileSync(join(workspace, "written.txt"), "utf8")).toBe("written\n");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

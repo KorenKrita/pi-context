@@ -51,12 +51,16 @@ function seatbeltString(value) {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function profileFromDeniedRoots(deniedRoots, currentRoots, allowedRoots) {
+function profileFromDeniedRoots(deniedRoots, currentRoots, allowedRoots, metadataRoots) {
   if (!Array.isArray(allowedRoots) || allowedRoots.length === 0) {
     throw new Error("Seatbelt allowedRoots must not be empty");
   }
+  if (!Array.isArray(metadataRoots) || metadataRoots.length === 0) {
+    throw new Error("Seatbelt metadataRoots must not be empty");
+  }
   const rules = deniedRoots.map((entry) => `  (${entry.kind} "${seatbeltString(entry.path)}")`);
   const allowRules = allowedRoots.map((path) => `  (subpath "${seatbeltString(path)}")`);
+  const metadataRules = metadataRoots.map((path) => `  (subpath "${seatbeltString(path)}")`);
   const profile = [
     "(version 1)",
     "(allow default)",
@@ -65,6 +69,9 @@ function profileFromDeniedRoots(deniedRoots, currentRoots, allowedRoots) {
     ")",
     "(allow file-read* file-write*",
     ...allowRules,
+    ")",
+    "(allow file-read-metadata",
+    ...metadataRules,
     ")",
     "",
   ].join("\n");
@@ -107,6 +114,7 @@ export function buildEvaluationSeatbeltProfiles({
   ));
   const outerRoots = dedupe(outerDenied);
   const outerCurrentRoots = [...new Set([workspace, runDir, agentDir].flatMap(aliases))];
+  const metadataRoots = [...new Set([tempRoot, runsRoot, harnessRoot, privateEvalRoot].flatMap(aliases))];
   const toolDenied = [...outerRoots];
   for (const [path, source] of [
     [agentDir, "current_agent_dir"],
@@ -117,8 +125,8 @@ export function buildEvaluationSeatbeltProfiles({
   }
   const toolCurrentRoots = [...new Set(aliases(workspace))];
   return {
-    outer: profileFromDeniedRoots(outerRoots, outerCurrentRoots, outerCurrentRoots),
-    tool: profileFromDeniedRoots(dedupe(toolDenied), toolCurrentRoots, toolCurrentRoots),
+    outer: profileFromDeniedRoots(outerRoots, outerCurrentRoots, outerCurrentRoots, metadataRoots),
+    tool: profileFromDeniedRoots(dedupe(toolDenied), toolCurrentRoots, toolCurrentRoots, metadataRoots),
   };
 }
 

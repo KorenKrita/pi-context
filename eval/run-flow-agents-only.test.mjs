@@ -9,7 +9,7 @@ const REPO_ROOT = join(import.meta.dir, "..");
 function writeFakePi(root) {
   const path = join(root, "fake-pi.mjs");
   writeFileSync(path, `#!/usr/bin/env node
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import readline from "node:readline";
 if (process.argv.includes("--version")) {
@@ -30,12 +30,12 @@ const append = (path, value) => {
   mkdirSync(dirname(path), { recursive: true });
   appendFileSync(path, JSON.stringify(value) + "\\n");
 };
-try {
-  readFileSync(process.env.FAKE_PI_DENIED_PROBE);
-  append(commandLog, { type: "sandbox_probe", denied: false, tmpdir: process.env.TMPDIR, toolProfile: process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE });
-} catch (error) {
-  append(commandLog, { type: "sandbox_probe", denied: error?.code === "EPERM", code: error?.code ?? null, tmpdir: process.env.TMPDIR, toolProfile: process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE });
-}
+append(commandLog, {
+  type: "sandbox_config",
+  tmpdir: process.env.TMPDIR,
+  toolProfile: process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE,
+  toolProfileExists: existsSync(process.env.ACM_INTEGRITY_TOOL_SANDBOX_PROFILE),
+});
 append(auditPath, { type: "extension_loaded", workspaceSha256: "fixture" });
 append(auditPath, {
   type: "session_start",
@@ -122,7 +122,6 @@ function runAuditOnly(mode) {
       ...process.env,
       FAKE_PI_AUDIT_MODE: mode,
       FAKE_PI_COMMAND_LOG: commandLog,
-      FAKE_PI_DENIED_PROBE: join(REPO_ROOT, "eval", "fixtures", "exprlang", "package.json"),
     },
     encoding: "utf8",
     timeout: 15000,
@@ -167,21 +166,21 @@ describe("agents-only audit-only integration", () => {
       expect(execution.report.resources.agentsOnlyHarness.sessionRecall).toEqual({ packagePresent: false, configPresent: false });
       expect(execution.report.sandbox).toMatchObject({ required: true, enabled: true, profileSha256: expect.any(String) });
       expect(execution.report.sandbox).toMatchObject({ formalEvidenceEligible: true, enforcement: "kernel_enforced" });
-      expect(execution.report.sandbox.outerProfile).toMatchObject({ path: expect.any(String), sha256: expect.any(String) });
-      expect(execution.report.sandbox.toolProfile).toMatchObject({ path: expect.any(String), sha256: expect.any(String) });
+      expect(execution.report.sandbox).toMatchObject({ hostProcessSandboxed: false, toolSubprocessSandboxed: true });
+      expect(execution.report.sandbox.outerProfile).toMatchObject({ path: expect.any(String), sha256: expect.any(String), applied: false });
+      expect(execution.report.sandbox.toolProfile).toMatchObject({ path: expect.any(String), sha256: expect.any(String), applied: true });
       expect(execution.report.sandbox.deniedRoots.some((entry) => entry.source === "private_eval_root")).toBe(true);
       expect(execution.report.sandbox.deniedRoots.some((entry) => entry.source === "task_fixture_source")).toBe(true);
       expect(execution.report.sandbox.currentRoots).toContain(execution.report.workspace);
       expect(execution.report.sandbox.allowedRoots).toBeUndefined();
       expect(execution.report.lock).toMatchObject({ acquired: true, released: true, path: expect.any(String) });
       expect(execution.commands).toContainEqual({
-        type: "sandbox_probe",
-        denied: true,
-        code: "EPERM",
+        type: "sandbox_config",
         tmpdir: expect.any(String),
         toolProfile: execution.report.sandbox.toolProfile.path,
+        toolProfileExists: true,
       });
-      expect(execution.commands.find((command) => command.type === "sandbox_probe").tmpdir.startsWith(execution.report.workspace)).toBe(true);
+      expect(execution.commands.find((command) => command.type === "sandbox_config").tmpdir.startsWith(execution.report.workspace)).toBe(true);
       expect(execution.commands.some((command) => command.type === "prompt")).toBe(false);
       expect(execution.report.judge).toEqual({ skipped: true, reason: "audit_only" });
     } finally {

@@ -228,7 +228,7 @@ bun run verify:acm
 
 行为 eval 与 deterministic gate 分离：
 
-- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env` 五种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；agents-only 保留真实 global/project AGENTS，只加载 checkout product/Skill 与独立 measurement guard，Darwin formal evidence 还必须有 outer/tool Seatbelt、完成的 exclusive lock receipt 和 `formalEvidenceEligible=true`；
+- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env` 五种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；agents-only 保留真实 global/project AGENTS，只加载 checkout product/Skill 与独立 measurement guard，Darwin formal evidence 还必须让模型控制的 Bash 子进程进入 tool Seatbelt、让内建 file tools 通过 canonical path gate，并保留完成的 exclusive lock receipt 和 `formalEvidenceEligible=true`；
 - 每个 run 在首个模型 prompt 前通过 `get_commands` 验证 `skill:context-management` availability 与 current-checkout realpath provenance，失败标记 `infrastructure_invalid` 且不归因模型；
 - report 必须记录 model、thinking level、environment、product commit、experimental variable 与 Skill provenance；
 - 每个 flow turn 必须按 raw event 顺序交错保留 visible assistant segments 与 tools；terminal assistant `stopReason` 为 `error`/`aborted` 或不存在时标记 `run_error` 并跳过 outcome judge，不能把 provider transport failure 当 completed task，也不能把 travel 错排到先前已交付答案之前；

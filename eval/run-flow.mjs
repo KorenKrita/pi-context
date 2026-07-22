@@ -446,21 +446,25 @@ const sandboxEvidence = agentsOnly
       ...sandboxSupport,
       executable: sandboxExecutable,
       executableExists: sandboxExecutableExists,
-      profilePath: sandboxProfiles?.outer.path ?? null,
-      profileSha256: sandboxProfiles?.outer.profileSha256 ?? null,
-      deniedRoots: sandboxProfiles?.outer.deniedRoots ?? [],
-      currentRoots: sandboxProfiles?.outer.currentRoots ?? [],
+      profilePath: sandboxProfiles?.tool.path ?? null,
+      profileSha256: sandboxProfiles?.tool.profileSha256 ?? null,
+      deniedRoots: sandboxProfiles?.tool.deniedRoots ?? [],
+      currentRoots: sandboxProfiles?.tool.currentRoots ?? [],
+      hostProcessSandboxed: false,
+      toolSubprocessSandboxed: sandboxSupport.enabled,
       outerProfile: sandboxProfiles ? {
         path: sandboxProfiles.outer.path,
         sha256: sandboxProfiles.outer.profileSha256,
         deniedRoots: sandboxProfiles.outer.deniedRoots,
         currentRoots: sandboxProfiles.outer.currentRoots,
+        applied: false,
       } : null,
       toolProfile: sandboxProfiles ? {
         path: sandboxProfiles.tool.path,
         sha256: sandboxProfiles.tool.profileSha256,
         deniedRoots: sandboxProfiles.tool.deniedRoots,
         currentRoots: sandboxProfiles.tool.currentRoots,
+        applied: sandboxSupport.enabled,
       } : null,
       privateEvalRoot,
       scope: "evaluation-sensitive filesystem roots present before this sequential run",
@@ -531,7 +535,11 @@ driver = new PiRpcDriver({
   modelId: modelSpec.modelId,
   thinkingLevel,
   piBinary,
-  sandboxProfilePath: sandboxEvidence?.enabled ? sandboxEvidence.profilePath : undefined,
+  // Pi is the trusted host and must read its sparse harness/auth plus write
+  // session artifacts. Model-controlled Bash commands are sandboxed separately
+  // by the measurement guard with the stricter tool profile; built-in file
+  // tools remain behind canonical path validation.
+  sandboxProfilePath: undefined,
   eventLogPath: join(runDir, "events.jsonl"),
   env: fullEnv || agentsOnly
     ? {
