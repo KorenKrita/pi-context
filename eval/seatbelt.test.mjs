@@ -37,13 +37,13 @@ test("profile denies existing sibling workspaces, sibling runs, private state, a
   try {
     const result = buildEvaluationSeatbeltProfiles({ workspace, runDir, agentDir, harnessRoot, runsRoot, tempRoot, homeDir, evalRoot, privateEvalRoot });
     const denied = new Set(result.outer.deniedRoots.map((entry) => entry.path));
-    expect(denied.has(priorAlias)).toBe(true);
-    expect(denied.has(realpathSync(priorAlias))).toBe(true);
+    expect(denied.has(tempRoot)).toBe(true);
+    expect(denied.has(realpathSync(tempRoot))).toBe(true);
     expect(denied.has(workspace)).toBe(false);
     expect(denied.has(realpathSync(workspace))).toBe(false);
-    expect(denied.has(priorRun)).toBe(true);
+    expect(denied.has(runsRoot)).toBe(true);
     expect(denied.has(runDir)).toBe(false);
-    expect(denied.has(siblingAgentDir)).toBe(true);
+    expect(denied.has(harnessRoot)).toBe(true);
     expect(denied.has(agentDir)).toBe(false);
     expect(denied.has(join(homeDir, ".pi"))).toBe(true);
     expect(denied.has("/private/etc/passwd")).toBe(true);
@@ -53,10 +53,12 @@ test("profile denies existing sibling workspaces, sibling runs, private state, a
     expect(result.outer.deniedRoots.find((entry) => entry.path === privateEvalRoot)?.source).toBe("private_eval_root");
     expect(result.outer.deniedRoots.find((entry) => entry.path === join(evalRoot, "fixtures"))?.source).toBe("task_fixture_source");
     expect(result.outer.currentRoots).toEqual(expect.arrayContaining([workspace, realpathSync(workspace), runDir, agentDir]));
-    expect(result.tool.deniedRoots.some((entry) => entry.path === harnessRoot && entry.source === "current_harness_root")).toBe(true);
-    expect(result.tool.deniedRoots.some((entry) => entry.path === runDir && entry.source === "current_run_dir")).toBe(true);
+    expect(result.tool.deniedRoots.some((entry) => entry.path === harnessRoot)).toBe(true);
+    expect(result.tool.deniedRoots.some((entry) => entry.path === runsRoot)).toBe(true);
     expect(result.outer.profileSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(result.tool.profileSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(Buffer.byteLength(result.outer.profile)).toBeLessThan(65_535);
+    expect(Buffer.byteLength(result.tool.profile)).toBeLessThan(65_535);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

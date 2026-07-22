@@ -21,14 +21,17 @@ import {
   CONTEXT_MANAGEMENT_SKILL_PATH,
   EXTENSION_PATH,
   RUNS_DIR,
+  buildAgentsOnlyAgentDir,
   buildFullEnvAgentDir,
+  readAgentsOnlyHarnessAudit,
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 
-export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 8;
+export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 9;
 export const CONTROLLED_MAX_TOKENS = 16_000;
 export const CONTROLLED_WINDOWS = Object.freeze([400_000, 1_000_000]);
 export const DEFAULT_FLOW_ID = "saffron-cutover-long-flow-v1";
+export const CONTROLLED_ENVIRONMENT_MODE = "agents-only";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -97,7 +100,7 @@ function usage() {
     "usage: bun eval/run-flow-matrix.mjs [--execute] [--concurrency 4] [--output DIR] [--resume DIR] [--flow-seed SECRET] [--recover-stale-lock] [--arm 400k|1m] [--cell ID] [--no-judge] [--timeout-scale N]",
     "",
     "Fixed matrix: Sol medium, Terra high, Opus 4.6 max, Opus 4.8 high × 400K/1M hard windows.",
-    "Cells run through eval/run-flow.mjs using full-env, Saffron materialization, local Pi, and maxTokensCap=16000.",
+    "Cells run through eval/run-flow.mjs using agents-only kernel isolation, Saffron materialization, local Pi, and maxTokensCap=16000.",
   ].join("\n");
 }
 
@@ -110,7 +113,7 @@ export function createLongFlowMatrixManifest({ flowId = DEFAULT_FLOW_ID, matrixR
     thinking: model.thinking,
     contextWindow,
     maxTokensCap: CONTROLLED_MAX_TOKENS,
-    environmentMode: "full-env",
+    environmentMode: CONTROLLED_ENVIRONMENT_MODE,
     flowId,
     agentLabel: `acm-saffron-${matrixRunId}-${model.id}-${contextWindow}`,
   })));
@@ -119,13 +122,14 @@ export function createLongFlowMatrixManifest({ flowId = DEFAULT_FLOW_ID, matrixR
     id: `acm-real-pi-saffron-400k-vs-1m-${matrixRunId}`,
     matrixRunId,
     flowId,
-    environmentMode: "full-env",
+    environmentMode: CONTROLLED_ENVIRONMENT_MODE,
     controlledDimensions: {
       hardContextWindow: CONTROLLED_WINDOWS,
       maxTokensCap: CONTROLLED_MAX_TOKENS,
       piBinary: "repo-node-modules",
       piContextSource: "current-worktree",
-      sessionRecall: "sanitized_by_full_env_builder_and_denylist",
+      sessionRecall: "absent_by_agents_only_harness_and_runtime_audit",
+      isolation: "darwin_outer_and_nested_tool_seatbelt_with_exclusive_lock",
     },
     cells,
   };
@@ -617,7 +621,32 @@ function fullEnvPin(matrixRunId) {
   return arms;
 }
 
-export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOptions } = {}) {
+function agentsOnlyPin(matrixRunId) {
+  const arms = {};
+  for (const contextWindow of CONTROLLED_WINDOWS) {
+    const agentDir = buildAgentsOnlyAgentDir({
+      contextWindow,
+      maxTokensCap: CONTROLLED_MAX_TOKENS,
+      shrink: true,
+      label: `matrix-agents-pin-${matrixRunId}-${contextWindow}`,
+    });
+    const audit = readAgentsOnlyHarnessAudit(agentDir);
+    arms[String(contextWindow)] = {
+      settingsSha256: audit.settings?.harness?.sha256 ?? null,
+      modelsSha256: audit.models?.harness?.sha256 ?? null,
+      sourceModelsSha256: audit.models?.source?.sha256 ?? null,
+      authSha256: audit.auth?.harness?.sha256 ?? null,
+      sourceAuthSha256: audit.auth?.source?.sha256 ?? null,
+      globalAgentsSha256: audit.globalAgents?.harness?.sha256 ?? null,
+      excludedAmbientResources: audit.excludedAmbientResources ?? [],
+      sessionRecall: audit.sessionRecall ?? null,
+    };
+    if (!arms.sourceConfigHashes) arms.sourceConfigHashes = configHashes(audit.sourceAgentDir);
+  }
+  return arms;
+}
+
+export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOptions, environmentMode = CONTROLLED_ENVIRONMENT_MODE } = {}) {
   if (!secretSeed || !matrixRunId) throw new Error("secretSeed and matrixRunId are required for pinned provenance");
   const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   const pi = piProvenance();
@@ -626,14 +655,17 @@ export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOption
     sourceHashes: Object.fromEntries(PINNED_SOURCE_FILES.map((path) => [relativeRepoPath(path), fileHash(path)])),
     saffron: buildSaffronPin(secretSeed, saffronOptions),
     pi: { ...pi, binarySha256: fileHash(pi.path) },
-    fullEnv: fullEnvPin(matrixRunId),
+    environmentMode,
+    ...(environmentMode === "agents-only"
+      ? { agentsOnly: agentsOnlyPin(matrixRunId) }
+      : { fullEnv: fullEnvPin(matrixRunId) }),
     controlled: { contextWindows: CONTROLLED_WINDOWS, maxTokensCap: CONTROLLED_MAX_TOKENS },
   };
 }
 
 export function assertPinnedProvenance(expected, actual) {
   if (JSON.stringify(expected) !== JSON.stringify(actual)) {
-    throw new Error("resume provenance mismatch: HEAD, prompts, fixture, Pi, full-env configuration, or resource trees changed");
+    throw new Error("resume provenance mismatch: HEAD, prompts, fixture, Pi, environment configuration, or resource trees changed");
   }
 }
 
@@ -843,15 +875,20 @@ export async function runAuditPreflight({
     throw new Error(`audit preflight failed: ${report.infrastructureInvalid?.reason ?? report.status}`);
   }
   const fullEnvAudit = report.resources?.fullEnvHarness ?? null;
+  const agentsOnlyAudit = report.resources?.agentsOnlyHarness ?? null;
   const commands = report.commands ?? [];
+  const isolatedResources = report.agentsOnly === true;
+  if (isolatedResources && !agentsOnlyAudit) {
+    throw new Error("audit preflight failed: agents-only harness audit missing");
+  }
   return {
     reportPath,
     reportSha256: fileHash(reportPath),
     commandInventory: normalizeGlobalCommandInventory(commands),
     piBinary: report.piBinary ?? null,
     resources: report.resources ?? null,
-    globalResourceTree: hashFullEnvLinkedResourceTree(fullEnvAudit),
-    externalCommandResourceTree: hashExternalCommandResourceTree(commands, fullEnvAudit),
+    globalResourceTree: isolatedResources ? hashContentTree([]) : hashFullEnvLinkedResourceTree(fullEnvAudit),
+    externalCommandResourceTree: isolatedResources ? hashContentTree([]) : hashExternalCommandResourceTree(commands, fullEnvAudit),
     piRuntimeTree: collectPiRuntimeTree(),
     bunRuntime: collectBunRuntime(),
   };
@@ -904,19 +941,34 @@ function readSessionEntries(sessionDir) {
 }
 
 function integrityFromReport(report) {
-  const audit = report?.resources?.fullEnvHarness ?? null;
-  const sanitized = audit?.settings?.sanitizedPackages ?? [];
+  const agentsOnlyAudit = report?.resources?.agentsOnlyHarness ?? null;
+  if (report?.agentsOnly) {
+    return {
+      sessionRecallPackagePresent: agentsOnlyAudit?.sessionRecall?.packagePresent === true,
+      sessionRecallConfigPresent: agentsOnlyAudit?.sessionRecall?.configPresent === true,
+      audit: agentsOnlyAudit === null ? { present: false } : {
+        present: true,
+        removedPackages: [],
+        excludedFiles: agentsOnlyAudit.excludedAmbientResources ?? [],
+        globalAgentsIncluded: agentsOnlyAudit.globalAgents?.source?.exists === true
+          && agentsOnlyAudit.globalAgents?.harness?.exists === true
+          && agentsOnlyAudit.globalAgents?.source?.sha256 === agentsOnlyAudit.globalAgents?.harness?.sha256,
+      },
+    };
+  }
+  const fullEnvAudit = report?.resources?.fullEnvHarness ?? null;
+  const sanitized = fullEnvAudit?.settings?.sanitizedPackages ?? [];
   const identities = new Set(sanitized.map((entry) => entry?.identity));
   return {
     sessionRecallPackagePresent: identities.has("npm:@ogulcancelik/pi-session-recall"),
-    sessionRecallConfigPresent: !audit?.excludedFiles?.includes("session-recall.json"),
-    audit: audit === null ? { present: false } : {
+    sessionRecallConfigPresent: !fullEnvAudit?.excludedFiles?.includes("session-recall.json"),
+    audit: fullEnvAudit === null ? { present: false } : {
       present: true,
-      removedPackages: audit.settings?.removedPackages ?? [],
-      excludedFiles: audit.excludedFiles ?? [],
-      globalAgentsIncluded: audit.globalAgents?.source?.exists === true
-        && audit.globalAgents?.harness?.exists === true
-        && audit.globalAgents?.source?.sha256 === audit.globalAgents?.harness?.sha256,
+      removedPackages: fullEnvAudit.settings?.removedPackages ?? [],
+      excludedFiles: fullEnvAudit.excludedFiles ?? [],
+      globalAgentsIncluded: fullEnvAudit.globalAgents?.source?.exists === true
+        && fullEnvAudit.globalAgents?.harness?.exists === true
+        && fullEnvAudit.globalAgents?.source?.sha256 === fullEnvAudit.globalAgents?.harness?.sha256,
     },
   };
 }
@@ -924,14 +976,20 @@ function integrityFromReport(report) {
 function runtimeCellProvenance(report, runDir) {
   const saffronManifestPath = join(runDir, "saffron-manifest.json");
   const saffron = existsSync(saffronManifestPath) ? readJson(saffronManifestPath) : null;
-  const audit = report?.resources?.fullEnvHarness ?? null;
+  const fullEnvAudit = report?.resources?.fullEnvHarness ?? null;
+  const agentsOnlyAudit = report?.resources?.agentsOnlyHarness ?? null;
+  const agentsOnly = report?.agentsOnly === true;
   const configuredModel = report?.runtimeAudit?.configuredModel ?? null;
-  const globalResourceTree = audit === null
-    ? { tree: null, error: "full-env audit missing" }
-    : captureContentTree(() => hashFullEnvLinkedResourceTree(audit));
-  const externalCommandResourceTree = audit === null
-    ? { tree: null, error: "full-env audit missing" }
-    : captureContentTree(() => hashExternalCommandResourceTree(report?.commands ?? [], audit));
+  const globalResourceTree = agentsOnly
+    ? { tree: hashContentTree([]), error: null }
+    : fullEnvAudit === null
+      ? { tree: null, error: "full-env audit missing" }
+      : captureContentTree(() => hashFullEnvLinkedResourceTree(fullEnvAudit));
+  const externalCommandResourceTree = agentsOnly
+    ? { tree: hashContentTree([]), error: null }
+    : fullEnvAudit === null
+      ? { tree: null, error: "full-env audit missing" }
+      : captureContentTree(() => hashExternalCommandResourceTree(report?.commands ?? [], fullEnvAudit));
   const piRuntimeTree = captureContentTree(hashRepoLocalPiRuntimeTree);
   const bunRuntime = captureContentTree(bunRuntimeProvenance);
   return {
@@ -958,18 +1016,30 @@ function runtimeCellProvenance(report, runDir) {
       evidence: bunRuntime.tree,
       error: bunRuntime.error,
     },
-    fullEnv: audit ? {
-      sanitizedSettingsSha256: audit.settings?.sanitizedSha256 ?? null,
-      sanitizedPackagesSha256: audit.settings?.sanitizedPackagesSha256 ?? null,
-      originalSettingsSha256: audit.settings?.originalSha256 ?? null,
-      originalPackagesSha256: audit.settings?.originalPackagesSha256 ?? null,
-      globalAgentsSha256: audit.globalAgents?.harness?.sha256 ?? null,
-      rootConfigHashes: Object.fromEntries((audit.rootConfigs ?? []).map((entry) => [entry.name, entry.harness?.sha256 ?? null])),
+    fullEnv: fullEnvAudit ? {
+      sanitizedSettingsSha256: fullEnvAudit.settings?.sanitizedSha256 ?? null,
+      sanitizedPackagesSha256: fullEnvAudit.settings?.sanitizedPackagesSha256 ?? null,
+      originalSettingsSha256: fullEnvAudit.settings?.originalSha256 ?? null,
+      originalPackagesSha256: fullEnvAudit.settings?.originalPackagesSha256 ?? null,
+      globalAgentsSha256: fullEnvAudit.globalAgents?.harness?.sha256 ?? null,
+      rootConfigHashes: Object.fromEntries((fullEnvAudit.rootConfigs ?? []).map((entry) => [entry.name, entry.harness?.sha256 ?? null])),
       linkedResourceTree: globalResourceTree.tree,
       linkedResourceTreeError: globalResourceTree.error,
       externalCommandResourceTree: externalCommandResourceTree.tree,
       externalCommandResourceTreeError: externalCommandResourceTree.error,
     } : null,
+    agentsOnly: agentsOnlyAudit ? {
+      settingsSha256: agentsOnlyAudit.settings?.harness?.sha256 ?? null,
+      modelsSha256: agentsOnlyAudit.models?.harness?.sha256 ?? null,
+      sourceModelsSha256: agentsOnlyAudit.models?.source?.sha256 ?? null,
+      authSha256: agentsOnlyAudit.auth?.harness?.sha256 ?? null,
+      sourceAuthSha256: agentsOnlyAudit.auth?.source?.sha256 ?? null,
+      globalAgentsSha256: agentsOnlyAudit.globalAgents?.harness?.sha256 ?? null,
+      excludedAmbientResources: agentsOnlyAudit.excludedAmbientResources ?? [],
+      sessionRecall: agentsOnlyAudit.sessionRecall ?? null,
+    } : null,
+    sandbox: report?.sandbox ?? null,
+    lock: report?.lock ?? null,
     runtime: {
       contextWindow: configuredModel?.contextWindow ?? report?.contextWindow ?? null,
       maxTokens: configuredModel?.maxTokens ?? report?.maxTokensCap ?? null,
@@ -981,7 +1051,8 @@ function runtimeCellProvenance(report, runDir) {
 
 export function validateCellProvenance(cell, runtime, pinned) {
   const reasons = [];
-  const arm = pinned?.fullEnv?.[String(cell.contextWindow)] ?? null;
+  const fullEnvArm = pinned?.fullEnv?.[String(cell.contextWindow)] ?? null;
+  const agentsOnlyArm = pinned?.agentsOnly?.[String(cell.contextWindow)] ?? null;
   if (!runtime) reasons.push("runtime_provenance_missing");
   if (runtime && !pinned.headSha.startsWith(runtime.productGitHead ?? "(missing)")) reasons.push("product_head_mismatch");
   if (JSON.stringify(runtime?.promptHashes) !== JSON.stringify(pinned?.saffron?.promptHashes)) reasons.push("prompt_hash_mismatch");
@@ -1003,14 +1074,24 @@ export function validateCellProvenance(cell, runtime, pinned) {
   if (runtime?.bun?.error) reasons.push("bun_runtime_unavailable");
   if (!bunRuntimeMatches(pinned?.bunRuntime, runtime?.bun?.evidence)) reasons.push("bun_runtime_mismatch");
   if (runtime?.globalCommands?.sha256 !== pinned?.globalCommands?.sha256) reasons.push("global_command_inventory_mismatch");
-  if (runtime?.fullEnv?.sanitizedSettingsSha256 !== arm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
-  if (runtime?.fullEnv?.sanitizedPackagesSha256 !== arm?.sanitizedPackagesSha256) reasons.push("sanitized_packages_mismatch");
-  if (runtime?.fullEnv?.globalAgentsSha256 !== arm?.globalAgentsSha256) reasons.push("global_agents_mismatch");
-  if (JSON.stringify(runtime?.fullEnv?.rootConfigHashes) !== JSON.stringify(arm?.rootConfigHashes)) reasons.push("global_config_hash_mismatch");
-  if (runtime?.fullEnv?.linkedResourceTreeError) reasons.push("global_resource_tree_unavailable");
-  if (runtime?.fullEnv?.linkedResourceTree?.sha256 !== pinned?.globalResourceTree?.sha256) reasons.push("global_resource_tree_mismatch");
-  if (runtime?.fullEnv?.externalCommandResourceTreeError) reasons.push("external_command_resource_tree_unavailable");
-  if (runtime?.fullEnv?.externalCommandResourceTree?.sha256 !== pinned?.externalCommandResourceTree?.sha256) reasons.push("external_command_resource_tree_mismatch");
+  if (cell.environmentMode === "agents-only") {
+    for (const key of ["settingsSha256", "modelsSha256", "sourceModelsSha256", "authSha256", "sourceAuthSha256", "globalAgentsSha256"]) {
+      if (runtime?.agentsOnly?.[key] !== agentsOnlyArm?.[key]) reasons.push(`agents_only_${key}_mismatch`);
+    }
+    if (JSON.stringify(runtime?.agentsOnly?.excludedAmbientResources) !== JSON.stringify(agentsOnlyArm?.excludedAmbientResources)) reasons.push("agents_only_excluded_resources_mismatch");
+    if (JSON.stringify(runtime?.agentsOnly?.sessionRecall) !== JSON.stringify(agentsOnlyArm?.sessionRecall)) reasons.push("agents_only_session_recall_mismatch");
+    if (runtime?.sandbox?.formalEvidenceEligible !== true || runtime?.sandbox?.enforcement !== "kernel_enforced") reasons.push("agents_only_sandbox_ineligible");
+    if (runtime?.lock?.acquired !== true || runtime?.lock?.released !== true) reasons.push("agents_only_lock_incomplete");
+  } else {
+    if (runtime?.fullEnv?.sanitizedSettingsSha256 !== fullEnvArm?.sanitizedSettingsSha256) reasons.push("sanitized_settings_mismatch");
+    if (runtime?.fullEnv?.sanitizedPackagesSha256 !== fullEnvArm?.sanitizedPackagesSha256) reasons.push("sanitized_packages_mismatch");
+    if (runtime?.fullEnv?.globalAgentsSha256 !== fullEnvArm?.globalAgentsSha256) reasons.push("global_agents_mismatch");
+    if (JSON.stringify(runtime?.fullEnv?.rootConfigHashes) !== JSON.stringify(fullEnvArm?.rootConfigHashes)) reasons.push("global_config_hash_mismatch");
+    if (runtime?.fullEnv?.linkedResourceTreeError) reasons.push("global_resource_tree_unavailable");
+    if (runtime?.fullEnv?.linkedResourceTree?.sha256 !== pinned?.globalResourceTree?.sha256) reasons.push("global_resource_tree_mismatch");
+    if (runtime?.fullEnv?.externalCommandResourceTreeError) reasons.push("external_command_resource_tree_unavailable");
+    if (runtime?.fullEnv?.externalCommandResourceTree?.sha256 !== pinned?.externalCommandResourceTree?.sha256) reasons.push("external_command_resource_tree_mismatch");
+  }
   if (runtime?.runtime?.contextWindow !== cell.contextWindow) reasons.push("context_window_mismatch");
   if (runtime?.runtime?.maxTokens !== cell.maxTokensCap) reasons.push("max_tokens_mismatch");
   if (runtime?.runtime?.model?.provider !== cell.model.provider || runtime?.runtime?.model?.modelId !== cell.model.modelId) reasons.push("selected_model_mismatch");

@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   CONTROLLED_MAX_TOKENS,
+  CONTROLLED_ENVIRONMENT_MODE,
   CONTROLLED_WINDOWS,
   DEFAULT_FLOW_ID,
   acquireMatrixLock,
@@ -35,6 +36,7 @@ import {
   runFlowChild,
   shouldSkipMatrixCell,
   verifyPinnedCheckout,
+  validateCellProvenance,
 } from "./run-flow-matrix.mjs";
 
 const LINKED_RESOURCE_ROOTS = ["git", "npm", "extensions", "skills", "themes", "agents", "bin"];
@@ -87,7 +89,9 @@ describe("real Pi long-flow matrix declaration", () => {
       "local-claude/claude-opus-4-8:high",
     ]);
     expect(manifest.flowId).toBe(DEFAULT_FLOW_ID);
-    expect(manifest.cells.every((cell) => cell.environmentMode === "full-env" && cell.flowId === DEFAULT_FLOW_ID)).toBe(true);
+    expect(CONTROLLED_ENVIRONMENT_MODE).toBe("agents-only");
+    expect(manifest.environmentMode).toBe("agents-only");
+    expect(manifest.cells.every((cell) => cell.environmentMode === "agents-only" && cell.flowId === DEFAULT_FLOW_ID)).toBe(true);
     expect(new Set(manifest.cells.map((cell) => cell.agentLabel)).size).toBe(8);
     expect(manifest.cells.every((cell) => cell.agentLabel.includes("matrix-a"))).toBe(true);
   });
@@ -117,7 +121,7 @@ describe("real Pi long-flow matrix declaration", () => {
     });
     expect(args).toEqual(expect.arrayContaining([
       "eval/run-flow.mjs",
-      "--full-env",
+      "--environment-mode", "agents-only",
       "--flow", DEFAULT_FLOW_ID,
       "--context-window", "400000",
       "--max-tokens-cap", "16000",
@@ -130,9 +134,7 @@ describe("real Pi long-flow matrix declaration", () => {
       "--judge-thinking", "high",
       "--flow-seed", "secret-seed-for-child",
     ]));
-    const agentsArgs = buildRunFlowArgs({ ...cell, environmentMode: "agents-only" }, { piBinary: "/checkout/node_modules/.bin/pi" });
-    expect(agentsArgs).toEqual(expect.arrayContaining(["--environment-mode", "agents-only"]));
-    expect(agentsArgs).not.toContain("--full-env");
+    expect(args).not.toContain("--full-env");
 
     let spawnCalled = false;
     const fakeSpawn = (_binary, childArgs, spawnOptions) => {
@@ -425,6 +427,79 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(postChild.valid).toBe(false);
     expect(postChild.reasons).toContain("checkout_post_child:pinned_source_mismatch:eval/saffron-verifier.mjs");
     expect(postChild.checkout.post_child.valid).toBe(false);
+  });
+
+  test("agents-only provenance requires matching sparse harness, kernel sandbox, and released lock", () => {
+    const cell = createLongFlowMatrixManifest({ matrixRunId: "agents-provenance" }).cells[0];
+    const arm = {
+      settingsSha256: "settings",
+      modelsSha256: "models",
+      sourceModelsSha256: "source-models",
+      authSha256: "auth",
+      sourceAuthSha256: "source-auth",
+      globalAgentsSha256: "agents",
+      excludedAmbientResources: ["extensions"],
+      sessionRecall: { packagePresent: false, configPresent: false },
+    };
+    const emptyTree = hashContentTree([]);
+    const runtime = {
+      productGitHead: "abc123",
+      flowId: cell.flowId,
+      promptHashes: [{ phase: "P1", sha256: "prompt" }],
+      fixtureVersion: "fixture-v1",
+      fixtureSha256: "fixture",
+      oracleSha256: "oracle",
+      secretSeedSha256: "seed",
+      sourceHashes: {
+        extensions: [
+          { path: "src/index.ts", sha256: "core" },
+          { path: "src/context.ts", sha256: "context" },
+          { path: "eval/integrity-guard.mjs", sha256: "guard" },
+        ],
+        skills: [{ path: "skills/context-management/SKILL.md", sha256: "skill" }],
+      },
+      globalCommands: normalizeGlobalCommandInventory([]),
+      pi: { version: "0.81.1", binarySha256: "pi", runtimeTree: emptyTree, runtimeTreeError: null },
+      bun: { evidence: { realpath: "/bun", version: "1", binarySha256: "bun", binaryTree: emptyTree }, error: null },
+      agentsOnly: structuredClone(arm),
+      fullEnv: null,
+      sandbox: { formalEvidenceEligible: true, enforcement: "kernel_enforced" },
+      lock: { acquired: true, released: true },
+      runtime: { contextWindow: cell.contextWindow, maxTokens: cell.maxTokensCap, model: cell.model, thinkingLevel: cell.thinking },
+    };
+    const pinned = {
+      headSha: "abc123-full",
+      saffron: {
+        promptHashes: runtime.promptHashes,
+        fixtureVersion: runtime.fixtureVersion,
+        fixtureSha256: runtime.fixtureSha256,
+        oracleSha256: runtime.oracleSha256,
+        secretSeedSha256: runtime.secretSeedSha256,
+      },
+      sourceHashes: {
+        "src/index.ts": "core",
+        "src/context.ts": "context",
+        "eval/integrity-guard.mjs": "guard",
+        "skills/context-management/SKILL.md": "skill",
+      },
+      pi: { version: "0.81.1", binarySha256: "pi" },
+      piRuntimeTree: emptyTree,
+      bunRuntime: runtime.bun.evidence,
+      globalCommands: runtime.globalCommands,
+      globalResourceTree: emptyTree,
+      externalCommandResourceTree: emptyTree,
+      agentsOnly: { [String(cell.contextWindow)]: arm },
+    };
+
+    expect(validateCellProvenance(cell, runtime, pinned)).toEqual({ valid: true, reasons: [] });
+    expect(validateCellProvenance(cell, { ...runtime, sandbox: { formalEvidenceEligible: false, enforcement: "unsupported" } }, pinned).reasons)
+      .toContain("agents_only_sandbox_ineligible");
+    expect(validateCellProvenance(cell, { ...runtime, lock: { acquired: true, released: false } }, pinned).reasons)
+      .toContain("agents_only_lock_incomplete");
+    expect(validateCellProvenance(cell, {
+      ...runtime,
+      agentsOnly: { ...runtime.agentsOnly, settingsSha256: "tampered" },
+    }, pinned).reasons).toContain("agents_only_settingsSha256_mismatch");
   });
 
   test("resume rejects any pinned provenance drift", () => {

@@ -51,4 +51,17 @@ describe("scenario evaluation workspace", () => {
       expect(pathIsInside(tmpdir(), workspace)).toBe(true);
     }
   });
+
+  test("places agents-only workspaces under a dedicated lock-protected root", () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "acm-agents-only-root-"));
+    temporaryPaths.push(rootDir);
+    const workspace = createFlowWorkspace({
+      flowId: "agents-only-formal",
+      environmentMode: "agents-only",
+      rootDir,
+    });
+    temporaryPaths.push(workspace);
+    expect(existsSync(workspace)).toBe(true);
+    expect(pathIsInside(rootDir, workspace)).toBe(true);
+  });
 });
