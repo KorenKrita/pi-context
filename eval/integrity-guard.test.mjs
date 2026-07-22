@@ -237,6 +237,10 @@ describe("measurement integrity tool-call gate", () => {
         .toBe("cat <<EOF\n/tmp/prose\nEOF");
       expect(rewriteWorkspaceTempPaths("curl https://example.com?path=/tmp/foo#fragment=/tmp/bar", workspace))
         .toBe("curl https://example.com?path=/tmp/foo#fragment=/tmp/bar");
+      expect(rewriteWorkspaceTempPaths("curl HTTPS://example.com?path=/tmp/foo", workspace))
+        .toBe("curl HTTPS://example.com?path=/tmp/foo");
+      expect(rewriteWorkspaceTempPaths("curl Http://example.com?path=/tmp/foo", workspace))
+        .toBe("curl Http://example.com?path=/tmp/foo");
       expect(rewriteWorkspaceTempPaths("curl https://example.com/a\\;b/path=/tmp/foo", workspace))
         .toBe("curl https://example.com/a\\;b/path=/tmp/foo");
       expect(rewriteWorkspaceTempPaths("curl https://example.com/a\\|b\\(c\\)\\<d\\>/path=/tmp/foo", workspace))

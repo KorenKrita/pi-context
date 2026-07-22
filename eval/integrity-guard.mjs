@@ -303,13 +303,14 @@ function maskAllHeredocBodies(command) {
 function maskHttpUris(command) {
   let masked = "";
   for (let index = 0; index < command.length;) {
-    const scheme = command.startsWith("https://", index) ? "https://" : command.startsWith("http://", index) ? "http://" : null;
-    if (scheme === null) {
+    const prefix = command.slice(index, index + "https://".length).toLowerCase();
+    const schemeLength = prefix.startsWith("https://") ? "https://".length : prefix.startsWith("http://") ? "http://".length : 0;
+    if (schemeLength === 0) {
       masked += command[index];
       index += 1;
       continue;
     }
-    let end = index + scheme.length;
+    let end = index + schemeLength;
     while (end < command.length) {
       const character = command[end];
       if (character === "\\" && end + 1 < command.length) {
