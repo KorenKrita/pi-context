@@ -123,6 +123,11 @@ export function readAgentsOnlyHarnessAudit(agentDir) {
   return JSON.parse(readFileSync(join(agentDir, AGENTS_ONLY_AUDIT_FILE), "utf8"));
 }
 
+/** Read project-level AGENTS evidence without mutating the model workspace. */
+export function captureProjectAgentsEvidence(workspace) {
+  return fileSnapshot(join(workspace, "AGENTS.md"));
+}
+
 /** Enforce that full-env always measures this checkout's exact ACM extensions. */
 export function assertFullEnvCheckoutExtensions({
   environmentMode,

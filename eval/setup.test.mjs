@@ -7,6 +7,7 @@ import {
   assertAgentsOnlyCheckoutResources,
   buildAgentsOnlyAgentDir,
   buildFullEnvAgentDir,
+  captureProjectAgentsEvidence,
   forbiddenFullEnvPackageIdentity,
   readAgentsOnlyHarnessAudit,
   readFullEnvHarnessAudit,
@@ -188,6 +189,21 @@ describe("agents-only harness", () => {
       expect(audit.excludedAmbientResources).toEqual(expect.arrayContaining(["extensions", "skills", "session-recall.json"]));
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("records a project AGENTS contract without removing or modifying it", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-context-project-agents-"));
+    const projectAgents = join(workspace, "AGENTS.md");
+    writeFileSync(projectAgents, "# Project delivery contract\n");
+
+    try {
+      const evidence = captureProjectAgentsEvidence(workspace);
+      expect(evidence).toMatchObject({ path: projectAgents, exists: true, realpath: expect.any(String), sha256: expect.any(String) });
+      expect(existsSync(projectAgents)).toBe(true);
+      expect(readFileSync(projectAgents, "utf8")).toBe("# Project delivery contract\n");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
     }
   });
 });

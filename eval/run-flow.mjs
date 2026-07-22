@@ -20,7 +20,7 @@
 
 import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import {
   buildAgentDir,
@@ -30,6 +30,7 @@ import {
   assertFullEnvCheckoutExtensions,
   CONTEXT_EXTENSION_PATH,
   CONTEXT_MANAGEMENT_SKILL_PATH,
+  captureProjectAgentsEvidence,
   createRunDir,
   EXTENSION_PATH,
   INTEGRITY_GUARD_PATH,
@@ -289,17 +290,10 @@ const integrityAuditPath = fullEnv ? join(runDir, "integrity-audit.jsonl") : nul
 // invalidate environment isolation. Retain the directory for post-run evidence.
 const workspace = createFlowWorkspace({ flowId: declaredFlow.id, environmentMode });
 cpSync(declaredFlow.seedDir, workspace, { recursive: true });
-// Context discovery remains on in agents-only. The model-visible fixture must
-// therefore not contribute its own project AGENTS.md: only the copied real
-// global AGENTS.md is ambient context in this environment.
-const removedWorkspaceContextFiles = [];
-if (agentsOnly) {
-  const workspaceAgents = join(workspace, "AGENTS.md");
-  if (existsSync(workspaceAgents)) {
-    removedWorkspaceContextFiles.push(fileEvidence(workspaceAgents));
-    rmSync(workspaceAgents, { force: true });
-  }
-}
+// Context discovery remains on in agents-only. Preserve the fixture/project
+// AGENTS.md as its task contract alongside the copied global AGENTS.md, then
+// retain independent hash evidence for both context layers in the report.
+const agentsOnlyProjectAgents = agentsOnly ? captureProjectAgentsEvidence(workspace) : null;
 const materializedFlow = await invokeHook(declaredFlow, "materialize", {
   flow: declaredFlow,
   seed: flowSeed,
@@ -351,7 +345,7 @@ const resourceEvidence = {
   ...(agentsOnly
     ? {
         agentsOnlyHarness: agentsOnlyHarnessAudit,
-        agentsOnlyWorkspaceContextFilesRemoved: removedWorkspaceContextFiles,
+        agentsOnlyProjectAgents,
         agentsOnlyCheckoutConstraint,
       }
     : {}),
