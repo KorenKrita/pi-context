@@ -301,7 +301,29 @@ function maskAllHeredocBodies(command) {
 }
 
 function maskHttpUris(command) {
-  return command.replace(/https?:\/\/[^\s"'<>;|()]*/gi, (uri) => "_".repeat(uri.length));
+  let masked = "";
+  for (let index = 0; index < command.length;) {
+    const scheme = command.startsWith("https://", index) ? "https://" : command.startsWith("http://", index) ? "http://" : null;
+    if (scheme === null) {
+      masked += command[index];
+      index += 1;
+      continue;
+    }
+    let end = index + scheme.length;
+    while (end < command.length) {
+      const character = command[end];
+      if (character === "\\" && end + 1 < command.length) {
+        end += 2;
+      } else if (/\s|["';|&()<>]/.test(character)) {
+        break;
+      } else {
+        end += 1;
+      }
+    }
+    masked += "_".repeat(end - index);
+    index = end;
+  }
+  return masked;
 }
 
 // Quoted prose may contain shell-looking separators. Preserve only a quoted
