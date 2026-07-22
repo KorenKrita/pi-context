@@ -279,14 +279,15 @@ function maskHeredocBodies(command, shouldNeutralize) {
   const lines = command.split("\n");
   const maskedLines = [];
   for (let index = 0; index < lines.length; index += 1) {
-    maskedLines.push(lines[index]);
-    for (const spec of heredocSpecs(lines[index])) {
+    const header = lines[index];
+    maskedLines.push(header);
+    for (const spec of heredocSpecs(header)) {
       index += 1;
       while (index < lines.length) {
         const line = lines[index];
         const comparison = (spec.stripTabs ? line.replace(/^\t+/, "") : line).replace(/\r$/, "");
         const terminator = comparison === spec.delimiter;
-        maskedLines.push(shouldNeutralize(spec) || terminator ? neutralizeHeredocLine(line) : line);
+        maskedLines.push(shouldNeutralize(spec, header) || terminator ? neutralizeHeredocLine(line) : line);
         if (terminator) break;
         index += 1;
       }
@@ -295,8 +296,19 @@ function maskHeredocBodies(command, shouldNeutralize) {
   return maskedLines.join("\n");
 }
 
+function isDataOnlyHeredocSink(header) {
+  if (header.includes("|")) return false;
+  const heredocIndex = header.indexOf("<<");
+  const commandPrefix = (heredocIndex >= 0 ? header.slice(0, heredocIndex) : header).trim();
+  const receivingSegment = commandPrefix.split(/&&|;/).at(-1)?.trim() ?? "";
+  const command = receivingSegment.split(/\s+/, 1)[0];
+  return command === "cat" || command === "tee";
+}
+
 function maskQuotedHeredocBodies(command) {
-  return maskHeredocBodies(command, (spec) => spec.quoted);
+  // Quoted bodies are executable for interpreter/stdin consumers. Only data
+  // sinks used by the evaluation flow may hide literal prose from path checks.
+  return maskHeredocBodies(command, (spec, header) => spec.quoted && isDataOnlyHeredocSink(header));
 }
 
 function maskAllHeredocBodies(command) {

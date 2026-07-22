@@ -339,9 +339,13 @@ describe("measurement integrity tool-call gate", () => {
       "python3 - <<'PY'\nimport os\nprint(os.environ[\"HOME\"])\nPY",
       "node - <<'NODE'\nconsole.log(process.env.PI_CODING_AGENT_DIR)\nNODE",
       "sh <<'SH'\nenv\nSH",
+      "python3 - <<'PY'\nopen('/etc/passwd')\nPY",
+      "node - <<'NODE'\nrequire('node:fs').readFileSync('/etc/passwd')\nNODE",
+      "sh <<'SH'\ncat /etc/passwd\nSH",
+      "cat <<'SH' | sh\ncat /etc/passwd\nSH",
     ]) {
       expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
-        .toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+        .toMatchObject({ block: true });
     }
   });
 
