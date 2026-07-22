@@ -46,6 +46,7 @@ const PINNED_SOURCE_FILES = Object.freeze([
   join(repoRoot, "eval", "flow.mjs"),
   join(repoRoot, "eval", "saffron-flow.mjs"),
   join(repoRoot, "eval", "saffron-verifier.mjs"),
+  join(repoRoot, "eval", "saffron-workspace-probe.mjs"),
   INTEGRITY_GUARD_PATH,
 ]);
 

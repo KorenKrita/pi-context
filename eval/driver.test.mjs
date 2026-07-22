@@ -288,9 +288,9 @@ input.on("close", () => process.exit(0));
   const unhandled = [];
   const onUnhandled = (reason) => unhandled.push(reason);
   process.on("unhandledRejection", onUnhandled);
-  driver.start();
   const startedAt = performance.now();
   try {
+    driver.start();
     await expect(driver.prompt("short budget", { timeoutMs: 50 })).rejects.toThrow(/50ms/);
     const elapsedMs = performance.now() - startedAt;
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -338,8 +338,8 @@ input.on("close", () => process.exit(0));
   const unhandled = [];
   const onUnhandled = (reason) => unhandled.push(reason);
   process.on("unhandledRejection", onUnhandled);
-  driver.start();
   try {
+    driver.start();
     await driver.request({ type: "ready" }, { timeoutMs: 1000 });
     const startedAt = performance.now();
     await expect(driver.prompt("reject promptly", { timeoutMs: 1000 })).rejects.toThrow("prompt rejected: fixture rejection");

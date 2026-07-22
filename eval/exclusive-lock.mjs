@@ -31,8 +31,30 @@ export async function acquireExclusiveEvaluationLock({
   const ownerRecord = { ...owner, pid: process.pid, token, acquiredAt: new Date().toISOString() };
   const recoveryPath = `${path}.recovery`;
   const recoveredOwners = [];
+  let malformedRecoveryObservedAt = null;
   while (true) {
     if (existsSync(recoveryPath)) {
+      const recoveryOwner = readOwner(recoveryPath);
+      if (!recoveryOwner) {
+        const observedAt = now();
+        malformedRecoveryObservedAt ??= observedAt;
+        if (observedAt - malformedRecoveryObservedAt >= Math.max(25, pollMs * 2)) {
+          if (readOwner(recoveryPath) === null) {
+            try { unlinkSync(recoveryPath); } catch { /* another process repaired it */ }
+          }
+          malformedRecoveryObservedAt = null;
+          continue;
+        }
+      } else if (!isProcessAlive(recoveryOwner.pid)) {
+        const confirmedRecoveryOwner = readOwner(recoveryPath);
+        if (confirmedRecoveryOwner?.token === recoveryOwner.token && !isProcessAlive(confirmedRecoveryOwner.pid)) {
+          try { unlinkSync(recoveryPath); } catch { /* another process recovered it */ }
+        }
+        malformedRecoveryObservedAt = null;
+        continue;
+      } else {
+        malformedRecoveryObservedAt = null;
+      }
       const remaining = deadline - now();
       if (remaining <= 0) {
         return { acquired: false, path, owner: ownerRecord, currentOwner: readOwner(path), recovered: recoveredOwners.length > 0, recoveredOwners, released: false, releasedAt: null };

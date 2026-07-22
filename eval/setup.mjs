@@ -463,7 +463,11 @@ export function buildFullEnvAgentDir({
       copiedFiles.push(f);
     }
   }
-  const rootConfigs = safeRootJsonConfigs(realDir).map((name) => {
+  const currentRootConfigNames = new Set(safeRootJsonConfigs(realDir));
+  for (const existing of safeRootJsonConfigs(agentDir)) {
+    if (!currentRootConfigNames.has(existing)) rmSync(join(agentDir, existing), { force: true });
+  }
+  const rootConfigs = [...currentRootConfigNames].sort().map((name) => {
     const source = join(realDir, name);
     const target = join(agentDir, name);
     cpSync(source, target);

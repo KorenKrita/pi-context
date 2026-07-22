@@ -46,6 +46,8 @@ test("profile denies existing sibling workspaces, sibling runs, private state, a
     expect(denied.has(siblingAgentDir)).toBe(true);
     expect(denied.has(agentDir)).toBe(false);
     expect(denied.has(join(homeDir, ".pi"))).toBe(true);
+    expect(denied.has("/private/etc/passwd")).toBe(true);
+    expect(denied.has("/etc/passwd")).toBe(true);
     expect(denied.has(privateEvalRoot)).toBe(true);
     expect(denied.has(join(evalRoot, "fixtures"))).toBe(true);
     expect(result.outer.deniedRoots.find((entry) => entry.path === privateEvalRoot)?.source).toBe("private_eval_root");
@@ -58,6 +60,16 @@ test("profile denies existing sibling workspaces, sibling runs, private state, a
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("profile generation rejects control characters before emitting SBPL", () => {
+  expect(() => buildEvaluationSeatbeltProfiles({
+    workspace: "/tmp/acm-current\n(allow default)",
+    runDir: "/tmp/runs/current",
+    agentDir: "/tmp/harness/current",
+    homeDir: "/tmp/home",
+    evalRoot: "/tmp/eval",
+  })).toThrow("control characters");
 });
 
 const darwinTest = process.platform === "darwin" ? test : test.skip;
@@ -101,6 +113,8 @@ darwinTest("kernel sandbox blocks dynamic and alias reads while allowing the cur
     expect(currentAuth.status).toBe(0);
     const siblingAuth = spawnSync("/usr/bin/sandbox-exec", ["-f", evidence.outer.path, "/bin/cat", join(siblingAgentDir, "auth.json")], { encoding: "utf8" });
     expect(siblingAuth.status).not.toBe(0);
+    const accountAlias = spawnSync("/usr/bin/sandbox-exec", ["-f", evidence.outer.path, "/bin/cat", "/etc/passwd"], { encoding: "utf8" });
+    expect(accountAlias.status).not.toBe(0);
 
     const toolEnvScript = "const fs=require('node:fs');fs.readFileSync(process.env.PI_CODING_AGENT_DIR + '/auth.json')";
     const toolCurrentAuth = spawnSync("/usr/bin/sandbox-exec", ["-f", evidence.tool.path, nodeBinary, "-e", toolEnvScript], {

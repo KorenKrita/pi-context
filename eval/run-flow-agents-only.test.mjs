@@ -144,6 +144,7 @@ describe("agents-only audit-only integration", () => {
     try {
       if (process.platform !== "darwin") {
         expect(execution.result.status).toBe(1);
+        expect(execution.report).not.toBeNull();
         expect(execution.report).toMatchObject({
           status: "infrastructure_invalid",
           sandbox: { formalEvidenceEligible: false, enforcement: "unsupported" },
@@ -151,6 +152,7 @@ describe("agents-only audit-only integration", () => {
         });
         return;
       }
+      expect(execution.result.signal).toBeNull();
       expect({ status: execution.result.status, stdout: execution.result.stdout, stderr: execution.result.stderr }).toMatchObject({ status: 0 });
       expect(execution.report).toMatchObject({ status: "completed", infrastructureInvalid: null, turns: [] });
       expect(execution.report.productExtensionPaths).toHaveLength(2);

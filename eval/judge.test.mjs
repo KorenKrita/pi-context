@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   JUDGE_DIMENSIONS,
   RUBRIC_VERSION,
@@ -6,6 +9,7 @@ import {
   parseVerdict,
   validateVerdict,
   validatePersistedVerdict,
+  writeJsonAtomically,
 } from "./judge.mjs";
 
 function validVerdict() {
@@ -175,6 +179,39 @@ describe("judge verdict schema", () => {
 });
 
 describe("judge repair execution", () => {
+  test("cleans its temporary artifact when the atomic rename fails", () => {
+    const root = mkdtempSync(join(tmpdir(), "judge-atomic-write-"));
+    const target = join(root, "target-directory");
+    mkdirSync(target);
+    try {
+      expect(() => writeJsonAtomically(target, { verdict: true })).toThrow();
+      expect(readdirSync(root).filter((name) => name.startsWith("target-directory.tmp-"))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("treats judge shutdown failure as non-certifying even after a valid reply", async () => {
+    const result = await judgeTranscript({
+      transcript: "valid reply with failed terminal cleanup",
+      opportunities: [{ phase: "P1-baseline", intent: "finish" }],
+      judgeAgentDir: "/agent",
+      sessionDir: "/sessions",
+      cwd: "/workspace",
+      driverFactory() {
+        return {
+          start() {},
+          async prompt() { return assistantEvents(fenced(validVerdict())); },
+          async stop() { throw new Error("judge process would not stop"); },
+        };
+      },
+    });
+
+    expect(result).toMatchObject({ ok: false, rubricVersion: RUBRIC_VERSION });
+    expect(result.attempts.at(-1)).toMatchObject({ kind: "shutdown", ok: false });
+    expect(result.error).toContain("judge process would not stop");
+  });
+
   test("repairs one invalid reply in the same judge session without resending the transcript", async () => {
     const invalid = validVerdict();
     invalid.overall.score = 9;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  activeTokensFromUsage,
   classifyFlowEvidence,
   collectFlowTelemetry,
   compareContextArms,
@@ -43,6 +44,11 @@ function report(overrides = {}) {
 }
 
 describe("flow telemetry", () => {
+  test("treats an explicit zero-input prompt as zero rather than falling back to output-inclusive totals", () => {
+    expect(activeTokensFromUsage({ input: 0, cacheRead: 0, totalTokens: 17 })).toBe(0);
+    expect(activeTokensFromUsage({ totalTokens: 17 })).toBe(17);
+  });
+
   test("keeps working-budget pressure equal while hard-window usage differs", () => {
     const events = [assistantUsage(120_000), settled()];
     const constrained = collectFlowTelemetry({ events, report: report({ turns: [{ phase: "P1" }] }), contextWindow: 400_000 });

@@ -591,8 +591,13 @@ export function materializeSaffronFlow({
       persistRunEvidence(actualRunDir);
       return baseline;
     },
-    verify: ({ workspace, turnRecords }) => import("./saffron-verifier.mjs")
-      .then(({ verifySaffronDelivery }) => verifySaffronDelivery({ workspace, oracle, turnRecords })),
+    verify: ({ workspace, turnRecords, verificationSandboxProfilePath }) => import("./saffron-verifier.mjs")
+      .then(({ verifySaffronDelivery }) => verifySaffronDelivery({
+        workspace,
+        oracle,
+        turnRecords,
+        sandboxProfilePath: verificationSandboxProfilePath,
+      })),
     persistPrivateEvidence: ({ runDir: actualRunDir }) => persistSaffronPrivateEvidence({ runDir: actualRunDir, oracle, manifest }),
     afterStop: ({ runDir: actualRunDir }) => persistSaffronPrivateEvidence({ runDir: actualRunDir, oracle, manifest }),
   });
@@ -629,6 +634,8 @@ export const SAFFRON_FLOW = Object.freeze({
   seedDir: SAFFRON_FIXTURE_DIR,
   taskCompletionDesc: "Saffron release-cutover 的代码修复、authority-based evidence judgement、R2 external freshness、法律例外精确短语与最终交付验证是否全部正确。",
   materialize: materializeSaffronFlow,
+  // Compatibility preview only: every access intentionally receives a fresh
+  // cryptographic seed. Paired/formal consumers must call materialize(seed).
   get turns() {
     return materializeSaffronFlow().turns;
   },
@@ -638,13 +645,18 @@ export function assertSaffronWorkspaceHasNoOracleFacts(workspace, oracle) {
   if (!existsSync(workspace)) throw new Error(`workspace does not exist: ${workspace}`);
   if (!oracle) throw new Error("oracle is required for Saffron workspace isolation checks");
   const forbidden = [oracle.legalExclusion, oracle.incidentNonce, oracle.authorityOwner, oracle.staleClaim];
+  // Git object databases are compressed/binary and cannot be validated by a
+  // plaintext substring scan; the deterministic fixture tree/Git baseline is
+  // pinned separately. Generated dependency trees are likewise not model task
+  // source. Scan only model-visible project files here.
+  const skippedDirectories = new Set([".git", "node_modules"]);
   const stack = [workspace];
   while (stack.length) {
     const current = stack.pop();
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const target = join(current, entry.name);
       if (entry.isDirectory()) {
-        stack.push(target);
+        if (!skippedDirectories.has(entry.name)) stack.push(target);
       } else {
         const content = readFileSync(target, "utf8");
         for (const fact of forbidden) {

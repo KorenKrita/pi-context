@@ -38,7 +38,7 @@ export function activeTokensFromUsage(usage) {
   }
   const input = finiteNumber(usage.inputTokens ?? usage.input ?? usage.promptTokens);
   const cache = finiteNumber(usage.cacheReadTokens ?? usage.cacheRead);
-  if ((input ?? 0) + (cache ?? 0) > 0) return (input ?? 0) + (cache ?? 0);
+  if (input !== null || cache !== null) return (input ?? 0) + (cache ?? 0);
   for (const key of ["totalTokens", "total"]) {
     const value = finiteNumber(usage[key]);
     if (value !== null) return value;
@@ -95,12 +95,6 @@ function toolResultIsApplied(event) {
   const details = toolDetails(event);
   if (hasDomainError(details)) return false;
   return details?.mutationStatus === "applied" || details?.status === "created";
-}
-
-function toolResultIsFailure(event) {
-  if (event?.isError === true || event?.result?.isError === true) return true;
-  const details = toolDetails(event);
-  return details?.mutationStatus === "not_applied" || details?.status === "error" || hasDomainError(details);
 }
 
 function reportTurnPhase(report, index) {
@@ -307,15 +301,17 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
     }
   }
 
+  const eventIndexes = new Map(events.map((event, index) => [event, index]));
   const turnTelemetry = turns.map((turnEvents, index) => {
     const indexed = turnEvents
-      .map((event) => events.indexOf(event))
+      .map((event) => eventIndexes.get(event) ?? -1)
       .filter((eventIndex) => eventIndex >= 0);
-    const inTurnReadings = readings.filter((reading) => indexed.includes(reading.eventIndex));
+    const indexedSet = new Set(indexed);
+    const inTurnReadings = readings.filter((reading) => indexedSet.has(reading.eventIndex));
     const peak = inTurnReadings.reduce((max, reading) => Math.max(max, reading.activeTokens), 0);
     const hard = inTurnReadings.reduce((max, reading) => Math.max(max, reading.hardUsagePercent), 0);
     const pressure = inTurnReadings.reduce((max, reading) => Math.max(max, reading.pressurePercent), 0);
-    const turnCalls = [...calls.values()].filter((call) => call.startEventIndex !== null && indexed.includes(call.startEventIndex));
+    const turnCalls = [...calls.values()].filter((call) => call.startEventIndex !== null && indexedSet.has(call.startEventIndex));
     return {
       index,
       phase: reportTurnPhase(report, index),

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 function sha256(value) {
@@ -35,6 +35,9 @@ function existingDirectory(path) {
 }
 
 function aliases(path) {
+  if (/[\x00-\x1f\x7f]/.test(String(path))) {
+    throw new Error(`Seatbelt path contains control characters: ${JSON.stringify(path)}`);
+  }
   const absolute = resolve(path);
   const values = new Set([absolute]);
   try { values.add(realpathSync(absolute)); } catch { /* retain the lexical path */ }
@@ -43,6 +46,8 @@ function aliases(path) {
     if (value === "/private/var" || value.startsWith("/private/var/")) values.add(value.slice("/private".length));
     if (value === "/tmp" || value.startsWith("/tmp/")) values.add(`/private${value}`);
     if (value === "/private/tmp" || value.startsWith("/private/tmp/")) values.add(value.slice("/private".length));
+    if (value === "/etc" || value.startsWith("/etc/")) values.add(`/private${value}`);
+    if (value === "/private/etc" || value.startsWith("/private/etc/")) values.add(value.slice("/private".length));
   }
   return [...values];
 }
@@ -57,6 +62,9 @@ function siblingDirectories(root, predicate, excludedPaths) {
 }
 
 function seatbeltString(value) {
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throw new Error(`Seatbelt profile value contains control characters: ${JSON.stringify(value)}`);
+  }
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
@@ -131,7 +139,9 @@ export function buildEvaluationSeatbeltProfiles({
 function writeProfile(path, result) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, result.profile);
-  return { path, exists: existsSync(path), ...result };
+  const persistedProfile = readFileSync(path, "utf8");
+  if (persistedProfile !== result.profile) throw new Error(`Seatbelt profile verification failed: ${path}`);
+  return { path, exists: true, ...result };
 }
 
 export function writeEvaluationSeatbeltProfiles(options) {

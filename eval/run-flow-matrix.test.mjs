@@ -134,7 +134,9 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(agentsArgs).toEqual(expect.arrayContaining(["--environment-mode", "agents-only"]));
     expect(agentsArgs).not.toContain("--full-env");
 
+    let spawnCalled = false;
     const fakeSpawn = (_binary, childArgs, spawnOptions) => {
+      spawnCalled = true;
       const child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.stderr = new EventEmitter();
@@ -163,21 +165,25 @@ describe("real Pi long-flow matrix declaration", () => {
       spawnImpl: fakeSpawn,
       bunBinary: "/fake/bun",
     });
+    expect(spawnCalled).toBe(true);
     expect(child.exitCode).toBe(0);
     expect(child.stdout).toContain("report: /tmp/saffron-stub/report.json");
   });
 
   test("pins byte-identical Saffron prompts across arms from one secret seed", () => {
-    const pin = buildSaffronPin("matrix-secret", {
+    const options = {
       packetTokenTarget: 2_000,
       earlyDigestTokenTarget: 1_500,
       supplementTokenTarget: 1_500,
-    });
+    };
+    const pin = buildSaffronPin("matrix-secret", options);
     expect(pin.fixtureVersion).toBeTruthy();
     expect(pin.fixtureSha256).toBeTruthy();
     expect(pin.oracleSha256).toBeTruthy();
     expect(pin.promptHashes).toHaveLength(10);
     expect(pin.secretSeedSha256).toHaveLength(64);
+    expect(buildSaffronPin("matrix-secret", options)).toEqual(pin);
+    expect(buildSaffronPin("different-secret", options).secretSeedSha256).not.toBe(pin.secretSeedSha256);
   });
 
   test("audit preflight pins actual global command source files and detects later drift", async () => {

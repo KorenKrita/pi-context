@@ -128,8 +128,12 @@ function piBinaryEvidence(binary) {
 }
 
 function harnessModelEntry(agentDir, model) {
-  const models = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
-  return models.providers?.[model.provider]?.models?.find((entry) => entry.id === model.modelId) ?? null;
+  try {
+    const models = JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8"));
+    return models.providers?.[model.provider]?.models?.find((entry) => entry.id === model.modelId) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function classifyCheckoutContextCommand(commands) {
@@ -355,14 +359,26 @@ if (agentsOnly && !evaluationLock.acquired) {
   process.exit(1);
 }
 const releaseEvaluationLock = () => evaluationLock?.release();
-const releaseOnSignal = (signal) => {
+let driver = null;
+let driverStarted = false;
+let signalTerminationStarted = false;
+const releaseOnSignal = async (signal) => {
+  if (signalTerminationStarted) return;
+  signalTerminationStarted = true;
   releaseEvaluationLock();
-  process.off(signal, signalHandlers[signal]);
-  process.kill(process.pid, signal);
+  try {
+    if (driverStarted) await driver.stop();
+  } catch {
+    // Signal termination is already in progress; the driver's own stop path
+    // escalates from stdin close through SIGTERM/SIGKILL when necessary.
+  } finally {
+    process.off(signal, signalHandlers[signal]);
+    process.kill(process.pid, signal);
+  }
 };
 const signalHandlers = {
-  SIGINT: () => releaseOnSignal("SIGINT"),
-  SIGTERM: () => releaseOnSignal("SIGTERM"),
+  SIGINT: () => { void releaseOnSignal("SIGINT"); },
+  SIGTERM: () => { void releaseOnSignal("SIGTERM"); },
 };
 if (evaluationLock?.acquired) {
   process.once("exit", releaseEvaluationLock);
@@ -450,19 +466,13 @@ const workspaceTmpDir = agentsOnly ? workspaceTempDirectory(workspace) : null;
 if (workspaceTmpDir) mkdirSync(workspaceTmpDir, { recursive: true });
 const fullEnvHarnessAudit = fullEnv ? readFullEnvHarnessAudit(agentDir) : null;
 const agentsOnlyHarnessAudit = agentsOnly ? readAgentsOnlyHarnessAudit(agentDir) : null;
+const globalAgentsHeading = fullEnv || agentsOnly ? firstMarkdownHeading(join(agentDir, "AGENTS.md")) : null;
+const projectAgentsHeading = fullEnv || agentsOnly ? firstMarkdownHeading(join(workspace, "AGENTS.md")) : null;
 const integrityRequiredMarkers = fullEnv || agentsOnly
   ? [
       { id: "acm_core_marker", value: ACM_CORE_MARKER, exact: 1 },
-      ...(
-        firstMarkdownHeading(join(agentDir, "AGENTS.md"))
-          ? [{ id: "global_agents_heading", value: firstMarkdownHeading(join(agentDir, "AGENTS.md")), min: 1 }]
-          : []
-      ),
-      ...(
-        firstMarkdownHeading(join(workspace, "AGENTS.md"))
-          ? [{ id: "project_agents_heading", value: firstMarkdownHeading(join(workspace, "AGENTS.md")), min: 1 }]
-          : []
-      ),
+      ...(globalAgentsHeading ? [{ id: "global_agents_heading", value: globalAgentsHeading, min: 1 }] : []),
+      ...(projectAgentsHeading ? [{ id: "project_agents_heading", value: projectAgentsHeading, min: 1 }] : []),
     ]
   : [];
 const resourceEvidence = {
@@ -506,7 +516,7 @@ console.log(`variant=${variant} gitHead=${gitHead} context=${shrink ? contextWin
 console.log(`pi=${binaryEvidence.realpath ?? binaryEvidence.requested} version=${binaryEvidence.version ?? "unavailable"} agentLabel=${agentLabel}`);
 console.log(`run dir: ${runDir}`);
 
-const driver = new PiRpcDriver({
+driver = new PiRpcDriver({
   cwd: workspace,
   agentDir,
   sessionDir: join(runDir, "sessions"),
@@ -704,7 +714,6 @@ function effectiveRuntimeFailures(state, availableModels, availableThinkingLevel
   return failures;
 }
 
-let driverStarted = false;
 try {
   const staticFailures = staticAuditFailures();
   if (staticFailures.length > 0) {
@@ -778,7 +787,19 @@ try {
       } else if (auditOnly) {
         console.log("\n=== audit-only: infrastructure valid; no model task was sent ===");
       } else {
-        const runContext = { driver, flow, workspace, runDir, model: modelSpec, thinkingLevel, contextWindow, maxTokensCap, environmentMode, turnRecords };
+        const runContext = {
+          driver,
+          flow,
+          workspace,
+          runDir,
+          model: modelSpec,
+          thinkingLevel,
+          contextWindow,
+          maxTokensCap,
+          environmentMode,
+          turnRecords,
+          verificationSandboxProfilePath: sandboxProfiles?.tool.path ?? null,
+        };
         await invokeHook(flow, "beforeRun", runContext);
         await runHostActions(flow.beforeHostActions, runContext);
         for (const [turnIndex, turn] of flow.turns.entries()) {

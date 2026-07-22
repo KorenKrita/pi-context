@@ -8,7 +8,7 @@
 // is version-pinned so every comparison uses the same ruler.
 
 import { PiRpcDriver } from "./driver.mjs";
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, unlinkSync, writeFileSync } from "node:fs";
 
 export const JUDGE_MODEL = { provider: "local-claude", modelId: "claude-opus-4-8" };
 // v3 is outcome-first. v2 treated any fold during an unfinished turn as a
@@ -422,7 +422,12 @@ attribution 必须使用原提示给出的标签，modelTier 必须是 weak、mi
 export function writeJsonAtomically(path, value) {
   const temporaryPath = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(temporaryPath, JSON.stringify(value, null, 2));
-  renameSync(temporaryPath, path);
+  try {
+    renameSync(temporaryPath, path);
+  } catch (error) {
+    try { unlinkSync(temporaryPath); } catch { /* preserve the original rename failure */ }
+    throw error;
+  }
 }
 
 function judgeFailure({ transcript, raw, attempts, judgeModel, error, errors }) {
@@ -555,6 +560,9 @@ export async function judgeTranscript(options) {
       } catch (error) {
         const failure = errorDetails(error, "shutdown");
         attempts.push({ attempt: attempts.length + 1, kind: "shutdown", raw: latestRaw, ok: false, ...failure });
+        // A judge process that cannot shut down cleanly is not certifying
+        // evidence even when it emitted schema-valid JSON: terminal state and
+        // artifact integrity are part of the judge contract.
         outcome = judgeFailure({ transcript, raw: latestRaw, attempts, judgeModel: model, ...failure });
       }
     }

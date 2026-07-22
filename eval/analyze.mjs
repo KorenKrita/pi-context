@@ -58,7 +58,7 @@ for (const d of readdirSync(RUNS_DIR)) {
   }
   const u = usageOf(join(RUNS_DIR, d));
   runs.push({
-    model: r.model.modelId, eff: r.thinkingLevel, variant: r.variant, rubricVersion: v?.rubricVersion ?? r.rubricVersion ?? "unjudged",
+    model: r.model?.modelId ?? "unknown", eff: r.thinkingLevel, variant: r.variant, rubricVersion: v?.rubricVersion ?? r.rubricVersion ?? "unjudged",
     durMin: r.durationMs / 60000, err: !!r.runError,
     dims: Object.fromEntries(DIMS.map((k) => [k, v?.dimensions?.[k]?.score ?? null])),
     overall: v?.overall?.score ?? null, tier: v?.overall?.modelTier ?? null,

@@ -1,6 +1,7 @@
-import { pathToFileURL } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SAFFRON_EXPECTED_R1_SHA256 } from "./saffron-flow.mjs";
 
 function check(name, pass, detail) {
@@ -101,9 +102,42 @@ function claimIsExplicitlyRejected(text, claim) {
   return /superseded|rejected|non-authoritative|not authoritative|不得采用|已失效|被取代|拒绝|非权威/i.test(nearby);
 }
 
-async function importWorkspaceModule(workspace, relativePath) {
-  const file = join(workspace, relativePath);
-  return import(`${pathToFileURL(file).href}?saffron-verify=${Date.now()}-${Math.random()}`);
+const WORKSPACE_PROBE_PATH = join(dirname(fileURLToPath(import.meta.url)), "saffron-workspace-probe.mjs");
+const WORKSPACE_PROBE_PREFIX = "SAFFRON_WORKSPACE_PROBE=";
+
+function runWorkspaceProbe({ workspace, externalRevision, sandboxProfilePath }) {
+  const canonicalWorkspace = realpathSync(workspace);
+  const canonicalProbePath = realpathSync(WORKSPACE_PROBE_PATH);
+  const nodeArgs = [
+    "--permission",
+    `--allow-fs-read=${canonicalWorkspace}`,
+    `--allow-fs-read=${canonicalProbePath}`,
+    canonicalProbePath,
+    canonicalWorkspace,
+    externalRevision,
+  ];
+  const useSeatbelt = process.platform === "darwin" && sandboxProfilePath && existsSync(sandboxProfilePath);
+  const binary = useSeatbelt ? "/usr/bin/sandbox-exec" : "node";
+  const args = useSeatbelt ? ["-f", sandboxProfilePath, "node", ...nodeArgs] : nodeArgs;
+  const result = spawnSync(binary, args, {
+    cwd: canonicalWorkspace,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+    env: {
+      PATH: process.env.PATH ?? "",
+      LANG: "C",
+      LC_ALL: "C",
+      NODE_NO_WARNINGS: "1",
+    },
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`workspace probe failed status=${String(result.status)} signal=${String(result.signal)}: ${String(result.stderr).slice(0, 1000)}`);
+  }
+  const encoded = String(result.stdout).split(/\r?\n/).findLast((line) => line.startsWith(WORKSPACE_PROBE_PREFIX));
+  if (!encoded) throw new Error("workspace probe emitted no trusted result marker");
+  return JSON.parse(encoded.slice(WORKSPACE_PROBE_PREFIX.length));
 }
 
 /**
@@ -111,51 +145,33 @@ async function importWorkspaceModule(workspace, relativePath) {
  * the exact legal phrase and R2 incident nonce deliberately remain outside the
  * model workspace. This module is executed by the eval runner only.
  */
-export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [] }) {
+export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [], sandboxProfilePath = null }) {
+  if (typeof workspace !== "string" || !workspace || !isAbsolute(workspace)) {
+    throw new Error("an absolute workspace is required for Saffron delivery verification");
+  }
   if (!oracle) throw new Error("oracle is required for Saffron delivery verification");
   const checks = [];
-  let eventGate;
-  let policyOrder;
-  let cli;
+  let probe;
   try {
-    [eventGate, policyOrder, cli] = await Promise.all([
-      importWorkspaceModule(workspace, "src/event-gate.mjs"),
-      importWorkspaceModule(workspace, "src/policy-order.mjs"),
-      importWorkspaceModule(workspace, "src/cli.mjs"),
-    ]);
+    probe = runWorkspaceProbe({ workspace, externalRevision: oracle.externalRevision, sandboxProfilePath });
   } catch (error) {
     checks.push(check("load repaired source modules", false, error instanceof Error ? error.message : String(error)));
     return Object.freeze({ pass: false, checks });
   }
 
-  const accepted = eventGate.acceptEvents([
-    { eventId: "evt-a", receivedAt: "2026-07-22T10:00:00Z" },
-    { eventId: "evt-a", receivedAt: "2026-07-22T10:04:00Z" },
-    { eventId: "evt-b", receivedAt: "2026-07-22T10:00:00Z" },
-  ]);
   checks.push(check(
     "event identity is eventId rather than receipt time",
-    Array.isArray(accepted) && accepted.map((event) => event.eventId).join(",") === "evt-a,evt-b",
-    `accepted=${Array.isArray(accepted) ? accepted.map((event) => event.eventId).join(",") : typeof accepted}`,
+    Array.isArray(probe.acceptedEventIds) && probe.acceptedEventIds.join(",") === "evt-a,evt-b",
+    `accepted=${Array.isArray(probe.acceptedEventIds) ? probe.acceptedEventIds.join(",") : typeof probe.acceptedEventIds}`,
   ));
   checks.push(check(
     "rollout requires plan plus policy acknowledgement",
-    policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: false, freeze: false }) === false
-      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: false }) === true
-      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: true }) === false,
+    probe.rolloutWithoutAcknowledgement === false
+      && probe.rolloutReady === true
+      && probe.rolloutDuringFreeze === false,
     "checked missing acknowledgement, valid gate, and release freeze",
   ));
-  let dryRun;
-  try {
-    dryRun = JSON.parse(cli.formatDryRun({
-      revision: oracle.externalRevision,
-      ready: false,
-      decisionBasis: "freeze-active",
-      externalRevision: oracle.externalRevision,
-    }));
-  } catch (error) {
-    dryRun = { parseError: error instanceof Error ? error.message : String(error) };
-  }
+  const dryRun = probe.dryRun;
   checks.push(check(
     "dry-run names decision basis and external revision",
     dryRun?.decisionBasis === "freeze-active" && dryRun?.externalRevision === oracle.externalRevision,
@@ -209,7 +225,7 @@ export async function verifySaffronDelivery({ workspace, oracle, turnRecords = [
     projectRules.ok
       && projectRules.text.includes("Never start a rollout while a release freeze is active.")
       && decision?.decision === oracle.expectedDecision
-      && policyOrder.canStartRollout({ planApproved: true, policyAcknowledged: true, freeze: true }) === false,
+      && probe.rolloutDuringFreeze === false,
     projectRules.ok ? "freeze rule present and final delivery holds it" : projectRules.error,
   ));
   const reconciliation = readText(join(workspace, "release", "reconciliation.md"));

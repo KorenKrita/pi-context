@@ -35,7 +35,7 @@ function persistedJudge(report) {
     return { verdict: undefined, rubricVersion: report.judge?.verdict?.rubricVersion, error: "SANDBOX-ERR" };
   }
   const verdict = report.judge?.verdict;
-  if (verdict === undefined) {
+  if (verdict == null) {
     return { verdict: undefined, error: report.judge?.error ? "JUDGE-ERR" : undefined };
   }
   const validation = validatePersistedVerdict(verdict, { expectedPhases: expectedPhases(report) });
@@ -43,7 +43,7 @@ function persistedJudge(report) {
   const error = validation.errors.some((item) => item.startsWith("$.rubricVersion: unsupported rubric"))
     ? "RUBRIC-MISMATCH"
     : "JUDGE-ERR";
-  return { verdict: undefined, rubricVersion: verdict.rubricVersion, error };
+  return { verdict: undefined, rubricVersion: verdict?.rubricVersion, error };
 }
 
 const rows = [];
@@ -81,8 +81,8 @@ for (const { report, judge } of rows) {
   const scoreCells = DIMS.map((d) => pad(dims[d]?.score ?? "-", 6)).join("");
   const err = report.runError ? "RUN-ERR" : (judge.error ?? "");
   console.log(
-    pad(report.model.modelId, 26) +
-    pad(report.thinkingLevel, 7) +
+    pad(report.model?.modelId ?? "unknown", 26) +
+    pad(report.thinkingLevel ?? "-", 7) +
     pad(report.variant ?? "-", 11) +
     pad(judge.rubricVersion ?? "-", 20) +
     scoreCells +
@@ -102,11 +102,11 @@ for (const { report, judge } of rows) {
     if (!rec) return pad("·", 4);
     return pad(rec.opportunityTaken ? `✓${rec.quality ?? ""}` : "✗", 4);
   }).join("");
-  console.log(pad(report.model.modelId, 26) + pad(report.thinkingLevel, 7) + cells);
+  console.log(pad(report.model?.modelId ?? "unknown", 26) + pad(report.thinkingLevel ?? "-", 7) + cells);
 }
 
 console.log(`\n=== one-line summaries ===`);
 for (const { report, judge } of rows) {
   const v = judge.verdict;
-  console.log(`• ${report.model.modelId} (${report.thinkingLevel}): ${v?.overall?.summary ?? report.runError ?? judge.error ?? report.judge?.error ?? "(no verdict)"}`);
+  console.log(`• ${report.model?.modelId ?? "unknown"} (${report.thinkingLevel ?? "-"}): ${v?.overall?.summary ?? report.runError ?? judge.error ?? report.judge?.error ?? "(no verdict)"}`);
 }

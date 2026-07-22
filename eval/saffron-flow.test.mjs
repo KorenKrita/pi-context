@@ -18,6 +18,7 @@ import {
   materializeSaffronFlow,
 } from "./saffron-flow.mjs";
 import { verifySaffronDelivery } from "./saffron-verifier.mjs";
+import { writeEvaluationSeatbeltProfiles } from "./seatbelt.mjs";
 
 const TEST_SEED = "saffron-test-seed-2026-07-22";
 
@@ -212,6 +213,11 @@ test("Saffron P7 compaction skips only the exact already-compacted or too-small-
     events: [],
     driver: { compact: async () => ({ error: "transport lost" }) },
   })).rejects.toThrow("compact rejected: transport lost");
+
+  await expect(p7.after({
+    events: [],
+    driver: { compact: async () => ({ compacted: true }) },
+  })).resolves.toEqual({ kind: "native_compact", result: { compacted: true } });
 });
 
 test("Saffron persists only hashes before stop and writes private oracle evidence afterward", () => {
@@ -289,14 +295,53 @@ test("Saffron oracle anchors are absent from the copied model workspace", () => 
   const workspace = temporaryDirectory("saffron-workspace");
   try {
     cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
-    expect(() => assertSaffronWorkspaceHasNoOracleFacts(workspace, getSaffronOracle(TEST_SEED))).not.toThrow();
+    const oracle = getSaffronOracle(TEST_SEED);
+    mkdirSync(join(workspace, ".git", "objects"), { recursive: true });
+    mkdirSync(join(workspace, "node_modules", "fixture"), { recursive: true });
+    writeFileSync(join(workspace, ".git", "objects", "binary-ish"), oracle.incidentNonce);
+    writeFileSync(join(workspace, "node_modules", "fixture", "generated.txt"), oracle.incidentNonce);
+    expect(() => assertSaffronWorkspaceHasNoOracleFacts(workspace, oracle)).not.toThrow();
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
 });
 
+test("Saffron verifier requires an absolute workspace and isolates imported model code", async () => {
+  const workspace = temporaryDirectory("saffron-verifier-permission");
+  const outside = temporaryDirectory("saffron-verifier-private");
+  const oracle = getSaffronOracle(TEST_SEED);
+  const outsideSecret = join(outside, "host-secret.txt");
+  try {
+    await expect(verifySaffronDelivery({ workspace: "", oracle })).rejects.toThrow("absolute workspace");
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+    writeFileSync(outsideSecret, "must remain outside verifier permissions\n");
+    writeFileSync(join(workspace, "src", "event-gate.mjs"), `
+import { readFileSync } from "node:fs";
+readFileSync(${JSON.stringify(outsideSecret)}, "utf8");
+export function acceptEvents(events) { return events; }
+`);
+
+    const result = await verifySaffronDelivery({
+      workspace,
+      oracle,
+      turnRecords: saffronTurnRecords(oracle),
+    });
+    expect(result.pass).toBe(false);
+    expect(result.checks).toContainEqual(expect.objectContaining({
+      name: "load repaired source modules",
+      pass: false,
+    }));
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("Saffron verifier accepts a correct delivery and rejects an altered legal phrase", async () => {
   const workspace = temporaryDirectory("saffron-verifier");
+  const sandboxRoot = temporaryDirectory("saffron-verifier-sandbox");
   const oracle = getSaffronOracle(TEST_SEED);
   try {
     cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
@@ -307,7 +352,21 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     expect(hostHook.expectedBeforeSha256).toBe(SAFFRON_EXPECTED_R1_SHA256);
     expect(hostHook.beforeError).toBeNull();
     writeReferenceDelivery(workspace, oracle);
-    const good = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle, { p6AfterTurnHook: hostHook }) });
+    const sandboxProfilePath = process.platform === "darwin"
+      ? writeEvaluationSeatbeltProfiles({
+          workspace,
+          runDir: join(sandboxRoot, "run"),
+          agentDir: join(sandboxRoot, "harness", "agent"),
+          homeDir: join(sandboxRoot, "home"),
+          evalRoot: join(import.meta.dir),
+        }).tool.path
+      : null;
+    const good = await verifySaffronDelivery({
+      workspace,
+      oracle,
+      turnRecords: saffronTurnRecords(oracle, { p6AfterTurnHook: hostHook }),
+      sandboxProfilePath,
+    });
     expect(good.pass).toBe(true);
 
     writeFileSync(join(workspace, "release", "legal-exceptions.md"), "Approved legal exception: paraphrased wording\n");
@@ -316,6 +375,7 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     expect(bad.checks.find((item) => item.name === "legal exception preserves exact high-entropy phrase")?.pass).toBe(false);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
+    rmSync(sandboxRoot, { recursive: true, force: true });
   }
 });
 

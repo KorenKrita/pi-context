@@ -142,6 +142,21 @@ describe("full-env package sanitization", () => {
         expect(config.source.sha256).toBe(config.harness.sha256);
       }
       expect(existsSync(join(agentDir, "mcp-cache.json"))).toBe(false);
+
+      rmSync(join(source, "command-blacklist.json"));
+      const rebuiltAgentDir = buildFullEnvAgentDir({
+        contextWindow: 400000,
+        maxTokensCap: 16000,
+        label: "fixture",
+        sourceAgentDir: source,
+        harnessDir: harness,
+      });
+      expect(rebuiltAgentDir).toBe(agentDir);
+      expect(existsSync(join(rebuiltAgentDir, "command-blacklist.json"))).toBe(false);
+      expect(readFullEnvHarnessAudit(rebuiltAgentDir).rootConfigs.map((entry) => entry.name)).toEqual([
+        "pi-autoname.json",
+        "pistatusline.json",
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

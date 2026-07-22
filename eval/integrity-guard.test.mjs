@@ -113,6 +113,7 @@ describe("measurement integrity tool-call gate", () => {
   };
 
   test("replays tracked, redacted formal-cell tool calls with their recorded decisions", () => {
+    expect(REPLAY_FIXTURE.cases.length).toBeGreaterThan(0);
     for (const replayCase of REPLAY_FIXTURE.cases) {
       expect(replayCase.sourceRun).toMatch(/^2026-07-22T.+-flow-/);
       expect(replayCase.sourceInputSha256).toMatch(/^[a-f0-9]{64}$/);
@@ -611,7 +612,7 @@ test("extension registers only integrity handlers and persists blocked attempts 
       systemPromptOptions: {
         skills: [{ baseDir: "/opt/pi-skills/context-management" }],
       },
-    }, { shutdown() { throw new Error("valid prompt must not shutdown"); } });
+    }, { abort() { throw new Error("valid prompt must not abort"); } });
     const blocked = await handlers.get("tool_call")({
       toolName: "read",
       toolCallId: "call-1",
