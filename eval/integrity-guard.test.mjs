@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,8 @@ import integrityGuard, {
   FULL_ENV_DENIED_TOOLS,
   inspectPromptIntegrity,
   readIntegrityAudit,
+  rewriteWorkspaceTempPaths,
+  workspaceTempDirectory,
 } from "./integrity-guard.mjs";
 
 const CORE = `${ACM_CORE_MARKER}\n## Agentic Context Management CORE`;
@@ -211,6 +213,33 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
+  test("rewrites native temp paths to a stable workspace-local directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "acm-integrity-temp-rewrite-"));
+    const workspace = join(root, "workspace");
+    const otherWorkspace = join(root, "other-workspace");
+    mkdirSync(join(workspace, ".git"), { recursive: true });
+    mkdirSync(otherWorkspace);
+    const command = "for i in 1 2; do npm test >/tmp/saffron-test-$i.log; done; cat /private/tmp/saffron-test-$i.log";
+    try {
+      const rewritten = rewriteWorkspaceTempPaths(command, workspace);
+      const workspaceTemp = join(workspace, ".git", "acm-eval-tmp");
+      expect(workspaceTempDirectory(workspace)).toBe(workspaceTemp);
+      expect(rewritten).toBe(`for i in 1 2; do npm test >${workspaceTemp}/saffron-test-$i.log; done; cat ${workspaceTemp}/saffron-test-$i.log`);
+      expect(rewriteWorkspaceTempPaths(command, workspace)).toBe(rewritten);
+      expect(workspaceTempDirectory(otherWorkspace)).toBe(join(otherWorkspace, ".acm-eval-tmp"));
+      expect(rewriteWorkspaceTempPaths("echo https://example.com/tmp/file /tmpfoo", workspace))
+        .toBe("echo https://example.com/tmp/file /tmpfoo");
+      expect(rewriteWorkspaceTempPaths(`cd ${policy.workspace} && find .`, policy.workspace))
+        .toBe(`cd ${policy.workspace} && find .`);
+      expect(rewriteWorkspaceTempPaths("cat <<'EOF'\n/tmp/prose\nEOF\nprintf %s /tmp/live", workspace))
+        .toBe(`cat <<'EOF'\n/tmp/prose\nEOF\nprintf %s ${workspaceTemp}/live`);
+      expect(evaluateToolCall({ toolName: "bash", input: { command: rewritten }, workspace, approvedSkillRoots: [] }))
+        .toEqual({ block: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("blocks parent, HOME, and eval-run escapes separated from an allowed workspace", () => {
     for (const [command, code] of [
       ["cd /private/tmp/saffron-workspace/..; pwd", "bash_parent_escape"],
@@ -379,6 +408,58 @@ test("extension registers only integrity handlers and persists blocked attempts 
     const records = readIntegrityAudit(auditPath);
     expect(records.map((record) => record.type)).toEqual(["extension_loaded", "before_agent_start", "tool_blocked"]);
     expect(readFileSync(auditPath, "utf8")).not.toContain("/etc/passwd");
+  } finally {
+    if (previous.audit === undefined) delete process.env.ACM_INTEGRITY_AUDIT_PATH;
+    else process.env.ACM_INTEGRITY_AUDIT_PATH = previous.audit;
+    if (previous.roots === undefined) delete process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS;
+    else process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS = previous.roots;
+    if (previous.markers === undefined) delete process.env.ACM_INTEGRITY_REQUIRED_MARKERS;
+    else process.env.ACM_INTEGRITY_REQUIRED_MARKERS = previous.markers;
+    if (previous.workspace === undefined) delete process.env.ACM_INTEGRITY_WORKSPACE;
+    else process.env.ACM_INTEGRITY_WORKSPACE = previous.workspace;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extension rewrites native temp paths in the bash execution input", async () => {
+  const root = mkdtempSync(join(tmpdir(), "acm-integrity-temp-handler-"));
+  const workspace = join(root, "workspace");
+  const auditPath = join(root, "audit", "integrity.jsonl");
+  const handlers = new Map();
+  mkdirSync(join(workspace, ".git"), { recursive: true });
+  const pi = {
+    on(name, handler) { handlers.set(name, handler); },
+    getActiveTools() { return ["read", "bash", ...ACM_TOOLS]; },
+    getAllTools() { return this.getActiveTools().map((name) => ({ name })); },
+  };
+  const previous = {
+    audit: process.env.ACM_INTEGRITY_AUDIT_PATH,
+    roots: process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS,
+    markers: process.env.ACM_INTEGRITY_REQUIRED_MARKERS,
+    workspace: process.env.ACM_INTEGRITY_WORKSPACE,
+  };
+  process.env.ACM_INTEGRITY_AUDIT_PATH = auditPath;
+  process.env.ACM_INTEGRITY_APPROVED_SKILL_ROOTS = JSON.stringify([]);
+  process.env.ACM_INTEGRITY_REQUIRED_MARKERS = JSON.stringify([]);
+  process.env.ACM_INTEGRITY_WORKSPACE = workspace;
+  const tempDirectory = join(workspace, ".git", "acm-eval-tmp");
+  try {
+    integrityGuard(pi);
+    const event = {
+      toolName: "bash",
+      toolCallId: "temp-call-1",
+      input: { command: "for i in 1 2; do npm test >/tmp/saffron-test-$i.log; done; cat /private/tmp/saffron-test-$i.log" },
+    };
+    expect(await handlers.get("tool_call")(event, {})).toBeUndefined();
+    expect(event.input.command).toBe(`for i in 1 2; do npm test >${tempDirectory}/saffron-test-$i.log; done; cat ${tempDirectory}/saffron-test-$i.log`);
+    expect(existsSync(tempDirectory)).toBe(true);
+
+    const nextEvent = { toolName: "bash", toolCallId: "temp-call-2", input: { command: "cat /tmp/next.log" } };
+    expect(await handlers.get("tool_call")(nextEvent, {})).toBeUndefined();
+    expect(nextEvent.input.command).toBe(`cat ${tempDirectory}/next.log`);
+    const records = readIntegrityAudit(auditPath);
+    expect(records.map((record) => record.type)).toEqual(["extension_loaded", "bash_temp_rewritten", "bash_temp_rewritten"]);
+    expect(readFileSync(auditPath, "utf8")).not.toContain("/tmp/");
   } finally {
     if (previous.audit === undefined) delete process.env.ACM_INTEGRITY_AUDIT_PATH;
     else process.env.ACM_INTEGRITY_AUDIT_PATH = previous.audit;

@@ -2,8 +2,8 @@
 // It registers no tools or commands and never modifies the system prompt.
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export const ACM_CORE_MARKER = "<!-- PI-CONTEXT:ACM-CORE:v1 -->";
 export const ACM_CORE_HEADING = "## Agentic Context Management CORE";
@@ -47,10 +47,12 @@ const BASH_PATH_START = `(?:^|${BASH_PATH_START_BOUNDARY})`;
 const BASH_TOKEN_END = `(?=$|${BASH_TOKEN_END_BOUNDARY})`;
 const BASH_PATH_END = `(?=$|${BASH_PATH_END_BOUNDARY})`;
 const BASH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_TOKEN_START_BOUNDARY);
+const BASH_PATH_BOUNDARY_CHARACTER_PATTERN = new RegExp(BASH_PATH_END_BOUNDARY);
 const HEREDOC_DELIMITER_TERMINATOR_PATTERN = /[\s;|&()<>]/;
 const BASH_ABSOLUTE_PATH_PATTERN = new RegExp(`${BASH_TOKEN_START}/(?!/)`);
 const BASH_PARENT_ESCAPE_PATTERN = new RegExp(`${BASH_PATH_START}\\.\\.${BASH_PATH_END}`);
 const BASH_SAFE_DEVICE_PATH_PATTERN = new RegExp(`(${BASH_PATH_START})/dev/null${BASH_TOKEN_END}`, "g");
+const BASH_NATIVE_TEMP_PATH_PATTERN = /(^|[\s"'=;|&()<>:])(\/private\/tmp|\/tmp)(?=$|[\/\s"'=;|&()<>])/g;
 const BASH_HOME_OR_PI_PATTERN = new RegExp(
   `${BASH_TOKEN_START}${String.raw`~(?:[^/\s"'=;|&()<>]+)?`}${BASH_PATH_END}`
   + `|${BASH_PATH_START}(?:\\$HOME|\\$\\{HOME\\}|\\.pi|PI_CODING_AGENT_DIR|CODEX_HOME)${BASH_PATH_END}`,
@@ -151,17 +153,54 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function workspacePathRoots(workspace) {
+  return [...new Set([resolve(workspace), canonicalExistingPath(workspace)])]
+    .sort((left, right) => right.length - left.length);
+}
+
 function maskWorkspacePaths(command, workspace) {
   if (typeof workspace !== "string" || workspace.length === 0) return command;
-  const roots = [...new Set([resolve(workspace), canonicalExistingPath(workspace)])]
-    .sort((left, right) => right.length - left.length);
-  return roots.reduce((masked, root) => (
+  return workspacePathRoots(workspace).reduce((masked, root) => (
     masked.replace(new RegExp(`${escapeRegExp(root)}${BASH_PATH_END}`, "g"), "__ACM_WORKSPACE__")
   ), command);
 }
 
 function maskSafeDevicePaths(command) {
   return command.replace(BASH_SAFE_DEVICE_PATH_PATTERN, "$1__ACM_SAFE_DEVICE__");
+}
+
+export function workspaceTempDirectory(workspace) {
+  const workspaceRoot = resolve(workspace);
+  const gitDirectory = join(workspaceRoot, ".git");
+  try {
+    if (statSync(gitDirectory).isDirectory()) return join(gitDirectory, "acm-eval-tmp");
+  } catch {
+    // A missing or worktree-file `.git` uses the workspace-local fallback.
+  }
+  return join(workspaceRoot, ".acm-eval-tmp");
+}
+
+export function rewriteWorkspaceTempPaths(command, workspace) {
+  if (typeof command !== "string" || typeof workspace !== "string" || workspace.length === 0) return command;
+  const policyCommand = quoteAwarePathCommands(maskQuotedHeredocBodies(command)).absolutePathCommand;
+  const replacements = [];
+  for (const match of policyCommand.matchAll(BASH_NATIVE_TEMP_PATH_PATTERN)) {
+    const boundaryLength = match[1].length;
+    const sourcePath = match[2];
+    const start = match.index + boundaryLength;
+    const workspacePath = workspacePathRoots(workspace).some((root) => (
+      command.slice(start, start + root.length) === root
+      && (start + root.length === command.length || BASH_PATH_BOUNDARY_CHARACTER_PATTERN.test(command[start + root.length]))
+    ));
+    if (!workspacePath && command.slice(start, start + sourcePath.length) === sourcePath) {
+      replacements.push({ end: start + sourcePath.length, start });
+    }
+  }
+  if (replacements.length === 0) return command;
+  const targetDirectory = workspaceTempDirectory(workspace);
+  return replacements.toReversed().reduce((rewritten, replacement) => (
+    `${rewritten.slice(0, replacement.start)}${targetDirectory}${rewritten.slice(replacement.end)}`
+  ), command);
 }
 
 function neutralizeHeredocLine(line) {
@@ -477,6 +516,22 @@ export default function integrityGuard(pi) {
   });
 
   pi.on("tool_call", (event) => {
+    if (event.toolName === "bash" && typeof event.input.command === "string") {
+      const originalCommand = event.input.command;
+      const rewrittenCommand = rewriteWorkspaceTempPaths(originalCommand, workspace);
+      if (rewrittenCommand !== originalCommand) {
+        const tempDirectory = workspaceTempDirectory(workspace);
+        mkdirSync(tempDirectory, { recursive: true });
+        event.input.command = rewrittenCommand;
+        appendAudit(auditPath, {
+          type: "bash_temp_rewritten",
+          toolCallId: event.toolCallId,
+          originalCommandSha256: sha256(originalCommand),
+          rewrittenCommandSha256: sha256(rewrittenCommand),
+          workspaceTempSha256: sha256(tempDirectory),
+        });
+      }
+    }
     const decision = evaluateToolCall({
       toolName: event.toolName,
       input: event.input,
