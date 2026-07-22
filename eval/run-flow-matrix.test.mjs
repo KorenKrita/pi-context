@@ -79,14 +79,24 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(new Set(manifest.cells.map((cell) => cell.maxTokensCap))).toEqual(new Set([CONTROLLED_MAX_TOKENS]));
     expect(CONTROLLED_MAX_TOKENS).toBe(16_000);
     expect(manifest.cells.map((cell) => `${cell.model.provider}/${cell.model.modelId}:${cell.thinking}`)).toEqual([
-      "local-responses/gpt-5.6-sol:medium",
-      "local-responses/gpt-5.6-sol:medium",
-      "local-responses/gpt-5.6-terra:high",
-      "local-responses/gpt-5.6-terra:high",
       "local-claude/claude-opus-4-6:max",
       "local-claude/claude-opus-4-6:max",
       "local-claude/claude-opus-4-8:high",
       "local-claude/claude-opus-4-8:high",
+      "local-responses/gpt-5.6-terra:high",
+      "local-responses/gpt-5.6-terra:high",
+      "local-responses/gpt-5.6-sol:medium",
+      "local-responses/gpt-5.6-sol:medium",
+    ]);
+    expect(manifest.cells.map((cell) => `${cell.pairKey}:${cell.contextWindow}`)).toEqual([
+      "opus-4-6-max:400000",
+      "opus-4-6-max:1000000",
+      "opus-4-8-high:400000",
+      "opus-4-8-high:1000000",
+      "terra-high:400000",
+      "terra-high:1000000",
+      "sol-medium:400000",
+      "sol-medium:1000000",
     ]);
     expect(manifest.flowId).toBe(DEFAULT_FLOW_ID);
     expect(CONTROLLED_ENVIRONMENT_MODE).toBe("agents-only");

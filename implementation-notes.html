@@ -431,12 +431,12 @@
       <tr>
         <td>agent-resolved</td>
         <td>不要在 eval runner 主进程中直接 import/执行模型写入的 Saffron source module。</td>
-        <td>Deterministic verifier 现在通过独立 Node permission subprocess 执行 event gate、policy order 与 dry-run probe，清空 credential-bearing environment、只允许读取 canonical workspace 与 tracked probe script、设置 timeout/maxBuffer；Darwin formal run 还复用 nested tool Seatbelt。非零退出、越界读取、缺失 marker 或非法 JSON 都只形成 verification failure，不能影响 runner 主进程。probe script 已加入 matrix pinned-source provenance。</td>
+        <td>Deterministic verifier 现在通过独立 Node permission subprocess 执行 event gate、policy order 与 dry-run probe，清空 credential-bearing environment、只允许读取 canonical workspace 与 tracked probe script、设置 timeout/maxBuffer；该 post-run verifier boundary 由 Node permission model 独立于模型工具 Seatbelt 执行，避免 shared-root Seatbelt 的 parent-metadata 例外扩大可见面。非零退出、越界读取、缺失 marker 或非法 JSON 都只形成 verification failure，不能影响 runner 主进程。probe script 已加入 matrix pinned-source provenance。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
         <td>把固定四模型 Saffron 400K/1M matrix 从 full-env calibration runner 切换为 agents-only formal runner。</td>
-        <td>Manifest 的八个 cells 全部使用 agents-only，effective concurrency 固定为 1。Pinned provenance 按 arm 固定 sparse harness 的 models/settings/auth/global AGENTS hashes、checkout sources、Pi/Bun runtime 与空 ambient resource trees；每个完成 cell 还必须证明 <code>kernel_enforced</code>、<code>formalEvidenceEligible=true</code>、lock acquired/released、session-recall absent 和 exact source/model/window/cap/effort。Audit-only preview 已在真实 Pi <code>0.81.1</code> 上完成，零 task/judge prompt，profile 从历史 sibling 枚举的约 339KB 降为 shared-root deny + current exceptions 的约 1.2KB。</td>
+        <td>Manifest 的八个 cells 全部使用 agents-only，按 Opus 4.6 → Opus 4.8 → Terra → Sol 的顺序逐模型运行，每个 model pair 先 400K、再 1M，effective concurrency 固定为 1。Pinned provenance 按 arm 固定 sparse harness 的 models/settings/auth/global AGENTS hashes、checkout sources、Pi/Bun runtime 与空 ambient resource trees；每个完成 cell 还必须证明 <code>kernel_enforced</code>、<code>formalEvidenceEligible=true</code>、lock acquired/released、session-recall absent 和 exact source/model/window/cap/effort。Audit-only preview 已在真实 Pi <code>0.81.1</code> 上完成，零 task/judge prompt，profile 从历史 sibling 枚举的约 339KB 降为 shared-root deny + current exceptions 的约 1.2KB。</td>
       </tr>
     </tbody>
   </table>
