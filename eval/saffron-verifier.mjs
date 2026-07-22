@@ -1,6 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { SAFFRON_EXPECTED_R1_SHA256 } from "./saffron-flow.mjs";
 
 function check(name, pass, detail) {
   return Object.freeze({ name, pass: Boolean(pass), detail });
@@ -83,13 +84,13 @@ function p6PrestateCheck(turnRecords) {
   const pass = evidence.kind === "control_plane_r1_to_r2"
     && evidence.precondition === "expected_r1"
     && evidence.beforeRevision === "R1"
-    && typeof evidence.beforeSha256 === "string"
-    && evidence.beforeSha256.length === 64
+    && evidence.beforeSha256 === SAFFRON_EXPECTED_R1_SHA256
+    && evidence.expectedBeforeSha256 === SAFFRON_EXPECTED_R1_SHA256
     && evidence.beforeError === null;
   return check(
     "P6 host perturbation starts from exact R1",
     pass,
-    `precondition=${String(evidence.precondition)}; beforeRevision=${String(evidence.beforeRevision)}; beforeSha256=${String(evidence.beforeSha256)}; beforeError=${String(evidence.beforeError)}`,
+    `precondition=${String(evidence.precondition)}; beforeRevision=${String(evidence.beforeRevision)}; beforeSha256=${String(evidence.beforeSha256)}; expectedBeforeSha256=${String(evidence.expectedBeforeSha256)}; beforeError=${String(evidence.beforeError)}`,
   );
 }
 

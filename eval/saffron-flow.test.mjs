@@ -9,6 +9,7 @@ import {
   DEFAULT_PACKET_TOKEN_TARGET,
   DEFAULT_SUPPLEMENT_TOKEN_TARGET,
   MAX_PACKET_TOKEN_TARGET,
+  SAFFRON_EXPECTED_R1_SHA256,
   SAFFRON_FIXTURE_DIR,
   applySaffronControlPlaneR2,
   assertSaffronWorkspaceHasNoOracleFacts,
@@ -76,7 +77,8 @@ function saffronTurnRecords(oracle, {
     kind: "control_plane_r1_to_r2",
     precondition: "expected_r1",
     beforeRevision: "R1",
-    beforeSha256: "0".repeat(64),
+    beforeSha256: SAFFRON_EXPECTED_R1_SHA256,
+    expectedBeforeSha256: SAFFRON_EXPECTED_R1_SHA256,
     beforeError: null,
   },
 } = {}) {
@@ -301,7 +303,8 @@ test("Saffron verifier accepts a correct delivery and rejects an altered legal p
     const hostHook = applySaffronControlPlaneR2({ workspace, oracle });
     expect(hostHook.precondition).toBe("expected_r1");
     expect(hostHook.beforeRevision).toBe("R1");
-    expect(hostHook.beforeSha256).toHaveLength(64);
+    expect(hostHook.beforeSha256).toBe(SAFFRON_EXPECTED_R1_SHA256);
+    expect(hostHook.expectedBeforeSha256).toBe(SAFFRON_EXPECTED_R1_SHA256);
     expect(hostHook.beforeError).toBeNull();
     writeReferenceDelivery(workspace, oracle);
     const good = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle, { p6AfterTurnHook: hostHook }) });
@@ -341,6 +344,40 @@ test("Saffron P6 overwrites a model-forged R2 and attributes the precondition fa
       incidentNonce: oracle.incidentNonce,
       updatedBy: "saffron-control-plane-r2-hook",
     });
+
+    writeReferenceDelivery(workspace, oracle);
+    const result = await verifySaffronDelivery({
+      workspace,
+      oracle,
+      turnRecords: saffronTurnRecords(oracle, { p6AfterTurnHook: hostHook }),
+    });
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "P6 host perturbation starts from exact R1")?.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "external control plane reached R2 freeze")?.pass).toBe(true);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("Saffron P6 rejects forged R1 content even when the revision remains R1", async () => {
+  const workspace = temporaryDirectory("saffron-forged-r1");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    writeFileSync(join(workspace, "fixtures", "control-plane.json"), `${JSON.stringify({
+      revision: "R1",
+      freeze: true,
+      approvedProviders: ["forged"],
+      incidentNonce: "forged-r1-nonce",
+      updatedBy: "model-forgery",
+    }, null, 2)}\n`);
+
+    const hostHook = applySaffronControlPlaneR2({ workspace, oracle });
+    expect(hostHook.precondition).toBe("unexpected_content");
+    expect(hostHook.beforeRevision).toBe("R1");
+    expect(hostHook.beforeSha256).not.toBe(SAFFRON_EXPECTED_R1_SHA256);
+    expect(hostHook.expectedBeforeSha256).toBe(SAFFRON_EXPECTED_R1_SHA256);
+    expect(JSON.parse(readFileSync(join(workspace, "fixtures", "control-plane.json"), "utf8")).revision).toBe(oracle.externalRevision);
 
     writeReferenceDelivery(workspace, oracle);
     const result = await verifySaffronDelivery({

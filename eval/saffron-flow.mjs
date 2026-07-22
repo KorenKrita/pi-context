@@ -8,7 +8,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 const EVAL_ROOT = dirname(fileURLToPath(import.meta.url));
 export const SAFFRON_FIXTURE_DIR = join(EVAL_ROOT, "fixtures", "saffron-cutover");
 export const SAFFRON_FLOW_ID = "saffron-cutover-long-flow-v1";
-export const SAFFRON_FIXTURE_VERSION = "2026-07-22.5";
+export const SAFFRON_FIXTURE_VERSION = "2026-07-22.6";
 // P4's early digest plus this 235K packet calibrate the pre-P7 active working
 // set to roughly 287K tokens (about 71.7%) after observed Pi/system/tool
 // overhead in a 400K host window, preserving headroom for current-turn work.
@@ -37,6 +37,11 @@ export const BANNED_PROMPT_TERMS = Object.freeze([
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
+
+/** Exact raw bytes of the committed R1 control-plane fixture, not just its revision field. */
+export const SAFFRON_EXPECTED_R1_SHA256 = sha256(
+  readFileSync(join(SAFFRON_FIXTURE_DIR, "fixtures", "control-plane.json"), "utf8"),
+);
 
 function shortHash(seed, label, length = 12) {
   return sha256(`${seed}\u0000${label}`).slice(0, length).toUpperCase();
@@ -415,6 +420,7 @@ function controlPlanePreconditionEvidence(controlPlanePath) {
       precondition: error && typeof error === "object" && error.code === "ENOENT" ? "missing" : "read_error",
       beforeRevision: null,
       beforeSha256,
+      expectedBeforeSha256: SAFFRON_EXPECTED_R1_SHA256,
       beforeError,
     };
   }
@@ -422,9 +428,12 @@ function controlPlanePreconditionEvidence(controlPlanePath) {
     const before = JSON.parse(beforeText);
     const beforeRevision = before?.revision ?? null;
     return {
-      precondition: beforeRevision === "R1" ? "expected_r1" : "unexpected_revision",
+      precondition: beforeRevision !== "R1"
+        ? "unexpected_revision"
+        : beforeSha256 === SAFFRON_EXPECTED_R1_SHA256 ? "expected_r1" : "unexpected_content",
       beforeRevision,
       beforeSha256,
+      expectedBeforeSha256: SAFFRON_EXPECTED_R1_SHA256,
       beforeError: null,
     };
   } catch (error) {
@@ -432,6 +441,7 @@ function controlPlanePreconditionEvidence(controlPlanePath) {
       precondition: "invalid_json",
       beforeRevision: null,
       beforeSha256,
+      expectedBeforeSha256: SAFFRON_EXPECTED_R1_SHA256,
       beforeError: error instanceof Error ? error.message : String(error),
     };
   }
