@@ -23,7 +23,7 @@ import {
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime } from "./runtime.js";
+import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { getAvailableAdvancedGuidance, withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
@@ -566,11 +566,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerDelivery.usageObserved;
-      const authoritativePressure = providerTurnUsageAuthoritative
-        ? calculateContextUsagePressure(lastUsage?.tokens, lastUsage?.contextWindow, lastUsage?.percent)
-        : providerDelivery.persistentMutationApplied
-          ? null
-          : officialPressure;
+      let authoritativePressure = officialPressure ?? null;
+      if (providerEpoch) {
+        authoritativePressure = providerTurnUsageAuthoritative
+          ? calculateContextUsagePressure(lastUsage?.tokens, lastUsage?.contextWindow, lastUsage?.percent) ?? null
+          : null;
+      }
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
@@ -596,25 +597,29 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : "";
         hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       }
+      // Failure evidence and the currently deliverable provider state are
+      // complementary; show both while a bounded retry remains pending.
+      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
       if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const pendingPhase = providerDelivery.phase === "pending_tool_result"
-          ? "waiting for matching persisted tool_result; current valid tool batch is preserved"
-          : providerDelivery.phase === "ready"
-            ? "matching receipt observed; provider Context Packet rebuild starts on this context event"
-            : providerDelivery.phase === "fallback"
-              ? "provider rebuild fallback is retrying from the latest persisted branch"
-              : `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
-        const retry = attempt === 0
-          ? ""
-          : providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null
-            ? ` (cached retry ${attempt})`
-            : ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
+        const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
+          pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
+          ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
+          fallback: "provider rebuild fallback is retrying from the latest persisted branch",
+        };
+        const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
+          ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
+        let retry = "";
+        if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
+          retry = ` (cached retry ${attempt})`;
+        } else if (attempt > 0) {
+          retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
+        }
         hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
-        hudParts.push(`• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`);
+        hudParts.push(providerPacketLine);
       } else {
         hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
-        hudParts.push(`• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`);
+        hudParts.push(providerPacketLine);
       }
       const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
       const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);

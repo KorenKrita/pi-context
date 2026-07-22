@@ -546,7 +546,15 @@ describe("deferred post-travel context delivery", () => {
         timestamp: 6,
       }],
     });
-    expect(invalidSameRun).toBeUndefined();
+    expect(invalidSameRun).toEqual({
+      messages: [expect.objectContaining({
+        role: "custom",
+        customType: "acm:protocol-recovery",
+        display: false,
+        details: { kind: "acm-protocol-recovery", reason: "no_protocol_valid_messages" },
+      })],
+    });
+    expect(JSON.stringify(invalidSameRun)).not.toContain("duplicate-current");
     expect(fixture.notifications.at(-1)).toContain("Unexpected invalid same-run tool protocol");
     expect(fixture.notifications.at(-1)).toContain("duplicate_tool_call_id");
     expect(runtime.getContextDeliveryPhase(session)).toBe("pending_tool_result");

@@ -76,13 +76,26 @@ function findPersistedFinalTravelReceipt(
   return { status: "absent" };
 }
 
-function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): AgentMessage[] | undefined {
+function protocolRecoveryMessage(): AgentMessage {
+  return {
+    role: "custom",
+    customType: "acm:protocol-recovery",
+    content: "[ACM CONTEXT RECOVERY] No protocol-valid provider messages remained after defensive repair. Stop tool execution and reload or repair the session before continuing.",
+    display: false,
+    details: { kind: "acm-protocol-recovery", reason: "no_protocol_valid_messages" },
+    timestamp: Date.now(),
+  };
+}
+
+function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): AgentMessage[] {
   const initial = analyzeToolProtocol(messages);
-  if (initial.status !== "invalid") return initial.messages.length > 0 ? initial.messages : undefined;
+  if (initial.status !== "invalid" && initial.messages.length > 0) return initial.messages;
   const rejectedAssistants = new Set(initial.defects.map((defect) => defect.assistantIndex));
   const withoutMalformedAssistants = messages.filter((_message, index) => !rejectedAssistants.has(index));
   const repaired = analyzeToolProtocol(withoutMalformedAssistants);
-  return repaired.status !== "invalid" && repaired.messages.length > 0 ? repaired.messages : undefined;
+  return repaired.status !== "invalid" && repaired.messages.length > 0
+    ? repaired.messages
+    : [protocolRecoveryMessage()];
 }
 
 /**
@@ -200,7 +213,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           `Unexpected invalid same-run tool protocol after acm_travel prevalidation: ${formatToolProtocolDefects(analysis.defects) || "no defect details were supplied"}. The current run was left unchanged; reload or repair the session before retrying travel.`,
           "warning",
         );
-        return undefined;
+        return { messages: buildSafeCurrentProviderFallback(messages) as typeof event.messages };
       }
       const sanitized = analysis.messages;
       const changed = sanitized.length !== messages.length
@@ -227,7 +240,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         "Cached provider delivery could not preserve the finalized post-cutover tail after refresh exhaustion. Falling back to the current protocol-valid provider messages; reload to rebuild persistent compact context.",
         "warning",
       );
-      return safeCurrent ? { messages: safeCurrent as typeof event.messages } : undefined;
+      return { messages: safeCurrent as typeof event.messages };
     }
     if (!contextRefresh.isPending(sessionManager) && !runtime.shouldRebuildProviderContext(sessionManager)) {
       const original = event.messages as AgentMessage[];
@@ -259,31 +272,34 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const attempt = contextRefresh.getAttemptCount(sessionManager);
       const safeCurrent = buildSafeCurrentProviderFallback(event.messages as AgentMessage[]);
       const safeCachedTail = cached !== undefined && tailStatus === "merged";
+      let disposition: "retry" | "unsafe_fallback" | "cached_exhausted";
+      if (!safeCachedTail) disposition = "unsafe_fallback";
+      else disposition = willRetry ? "retry" : "cached_exhausted";
       runtime.recordProviderDeliveryFailure(
         sessionManager,
         message,
-        safeCachedTail
-          ? willRetry ? "retry" : "cached_exhausted"
-          : "unsafe_fallback",
+        disposition,
       );
-      const tailGuidance = tailStatus === "unmatched"
-        ? " The latest provider tail could not be correlated safely; current protocol-valid provider messages are used until persistence recovers."
-        : tailStatus === "invalid"
-          ? " The latest provider tail is protocol-invalid; current protocol-valid provider messages are used until persistence recovers."
-          : "";
-      ctx.ui.notify(
-        willRetry
-          ? cached
-            ? `Context refresh after travel failed (${attempt}): ${message}. Keeping the last valid compact provider packet and retrying on the next LLM turn.`
-            : `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Keeping current same-run messages and retrying on the next LLM turn.`
-          : cached && safeCachedTail
-            ? `Context refresh after travel failed after ${attempt} attempts: ${message}. The last protocol-valid compact packet remains active in cached_exhausted state; automatic rebuild is stopped until a new travel/lifecycle cycle. Reload to retry persistent reconstruction.`
-            : `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`,
-        "warning",
-      );
+      let tailGuidance = "";
+      if (tailStatus === "unmatched") {
+        tailGuidance = "The latest provider tail could not be correlated safely; current protocol-valid provider messages are used until persistence recovers.";
+      } else if (tailStatus === "invalid") {
+        tailGuidance = "The latest provider tail is protocol-invalid; current protocol-valid provider messages are used until persistence recovers.";
+      }
+      let failureNotice: string;
+      if (willRetry && cached) {
+        failureNotice = `Context refresh after travel failed (${attempt}): ${message}. Keeping the last valid compact provider packet and retrying on the next LLM turn.`;
+      } else if (willRetry) {
+        failureNotice = `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Keeping current same-run messages and retrying on the next LLM turn.`;
+      } else if (cached && safeCachedTail) {
+        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. The last protocol-valid compact packet remains active in cached_exhausted state; automatic rebuild is stopped until a new travel/lifecycle cycle. Reload to retry persistent reconstruction.`;
+      } else {
+        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`;
+      }
+      ctx.ui.notify(failureNotice, "warning");
       if (tailGuidance) ctx.ui.notify(tailGuidance.trim(), "warning");
       return {
-        messages: (safeCachedTail ? cachedFallback : safeCurrent ?? event.messages) as typeof event.messages,
+        messages: (safeCachedTail ? cachedFallback : safeCurrent) as typeof event.messages,
       };
     };
 

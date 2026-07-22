@@ -168,12 +168,17 @@ export class AcmSessionRuntime {
     if (!deferred || deferred.providerPhase !== "active" || !deferred.providerPacket) {
       return deferred?.providerPhase ?? "active";
     }
-    switch (deferred.liveAgentSessionSync.status) {
+    const syncStatus = deferred.liveAgentSessionSync.status;
+    switch (syncStatus) {
       case "pending": return "provider_active_native_pending";
       case "applied": return "provider_active_native_applied";
       case "unavailable": return "provider_active_native_unavailable";
       case "failed": return "provider_active_native_failed";
       case "skipped": return "provider_active_native_skipped";
+      default: {
+        const unreachable: never = syncStatus;
+        throw new Error(`Unhandled AgentSession sync status: ${String(unreachable)}`);
+      }
     }
   }
 
@@ -209,7 +214,7 @@ export class AcmSessionRuntime {
   getPendingTravelToolCallId(session: object): string | undefined {
     const deferred = this.deferredTravelRefresh.get(session);
     return deferred?.receiptStatus === "pending"
-      && (deferred?.providerPhase === "pending_tool_result" || deferred?.providerPhase === "fallback")
+      && (deferred.providerPhase === "pending_tool_result" || deferred.providerPhase === "fallback")
       ? deferred.toolCallId
       : undefined;
   }
@@ -266,15 +271,13 @@ export class AcmSessionRuntime {
   ): void {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred) return;
+    let providerPhase: ProviderDeliveryPhase;
+    if (disposition === "cached_exhausted") providerPhase = "cached_exhausted";
+    else if (disposition === "unsafe_fallback") providerPhase = "fallback";
+    else providerPhase = deferred.providerPacket ? "active" : "fallback";
     this.deferredTravelRefresh.set(session, {
       ...deferred,
-      providerPhase: disposition === "cached_exhausted"
-        ? "cached_exhausted"
-        : disposition === "unsafe_fallback"
-          ? "fallback"
-          : deferred.providerPacket
-            ? "active"
-            : "fallback",
+      providerPhase,
       providerError: message,
     });
   }
@@ -371,7 +374,6 @@ export class AcmSessionRuntime {
       ...deferred,
       liveAgentSessionSync,
       nativeSettled: true,
-      providerPhase: deferred.providerPhase,
     });
     return liveAgentSessionSync;
   }
