@@ -344,9 +344,9 @@ function maskExecutableJavaScriptRegexLiterals(command) {
   const masked = [];
   for (let index = 0; index < lines.length; index += 1) {
     const header = lines[index];
+    const javascriptConsumer = /(?:^|[;&|()\s])(?:node|bun)(?=$|[;&|()\s])/.test(header);
     masked.push(header);
     for (const spec of heredocSpecs(header)) {
-      const javascriptConsumer = /(?:^|[;&|()\s])(?:node|bun)(?=$|[;&|()\s])/.test(header);
       index += 1;
       while (index < lines.length) {
         const line = lines[index];
@@ -448,7 +448,7 @@ function bashViolation(command, workspace) {
   // checks; paths below it still expose `..`, and every other absolute path
   // remains subject to the existing policy.
   const uriMaskedCommand = maskHttpUris(command);
-  const quotedHeredocMaskedCommand = maskExecutableJavaScriptRegexLiterals(maskQuotedHeredocBodies(uriMaskedCommand));
+  const quotedHeredocMaskedCommand = maskQuotedHeredocBodies(maskExecutableJavaScriptRegexLiterals(uriMaskedCommand));
   if (BASH_FILE_URI_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_file_uri";
   if (BASH_ESCAPED_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";
   if (BASH_PARAMETER_ABSOLUTE_PATH_PATTERN.test(quotedHeredocMaskedCommand)) return "bash_absolute_path";

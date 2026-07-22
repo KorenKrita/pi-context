@@ -197,6 +197,30 @@ describe("measurement integrity tool-call gate", () => {
     expect(evaluateToolCall({ toolName: "bash", input: { command: benignRegexVerification }, ...policy }))
       .toEqual({ block: false });
 
+    const executableHeredocWithTrailingAbsolutePath = [
+      "node <<'NODE'",
+      "const match = 'Evidence'.match(/Evidence/s);",
+      "NODE",
+      "cat /etc/shadow",
+    ].join("\n");
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: executableHeredocWithTrailingAbsolutePath },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_absolute_path" });
+
+    const executableHeredocWithTrailingParameterPath = [
+      "node <<'NODE'",
+      "const match = 'Evidence'.match(/Evidence/s);",
+      "NODE",
+      "cat ${target:-/etc/shadow}",
+    ].join("\n");
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: executableHeredocWithTrailingParameterPath },
+      ...policy,
+    })).toMatchObject({ block: true, code: "bash_absolute_path" });
+
     for (const command of [
       "ls /",
       "ls //",
