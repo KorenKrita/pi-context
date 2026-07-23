@@ -538,6 +538,109 @@ test("Saffron verifier rejects a stale bypass claim copied as valid permission",
   }
 });
 
+test("Saffron verifier accepts an explicitly rejected stale claim in formatted audit artifacts", async () => {
+  const workspace = temporaryDirectory("saffron-stale-rejection-verifier");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+    const formattedClaim = oracle.staleClaim.replace(/^(carrier override )(\S+)( may bypass)/, "$1`$2`$3");
+    writeFileSync(
+      join(workspace, "docs", "evidence-ledger.md"),
+      `${oracle.authorityOwner}\nEarlier statement: **${formattedClaim}** — superseded and must not control a release decision.\n`,
+    );
+    writeFileSync(join(workspace, "release", "go-no-go.json"), `${JSON.stringify({
+      externalRevision: oracle.externalRevision,
+      incidentNonce: oracle.incidentNonce,
+      decision: oracle.expectedDecision,
+      rationale: `The superseded ${oracle.staleClaim} is void and does not authorize rollout.`,
+      supersededClaims: [`${oracle.staleClaim} (VOID)`],
+    }, null, 2)}\n`);
+
+    const result = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
+    expect(result.pass).toBe(true);
+    expect(result.checks.find((item) => item.name === "evidence ledger preserves authority and rejects stale lower-rank claim"))
+      .toMatchObject({ pass: true, detail: "authorityAnchor=true; staleClaimRejected=true" });
+    expect(result.checks.find((item) => item.name === "stale lower-rank claim is not used as release permission"))
+      .toMatchObject({ pass: true, detail: "decision=hold; staleClaimMentioned=true; staleClaimRejected=true" });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("Saffron verifier still rejects a stale claim presented as decision permission", async () => {
+  const workspace = temporaryDirectory("saffron-stale-decision-verifier");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+    writeFileSync(join(workspace, "release", "go-no-go.json"), `${JSON.stringify({
+      externalRevision: oracle.externalRevision,
+      incidentNonce: oracle.incidentNonce,
+      decision: oracle.expectedDecision,
+      rationale: `Valid release permission: ${oracle.staleClaim}`,
+    }, null, 2)}\n`);
+
+    const result = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "stale lower-rank claim is not used as release permission"))
+      .toMatchObject({ pass: false, detail: "decision=hold; staleClaimMentioned=true; staleClaimRejected=false" });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("Saffron verifier rejects a later permissive reuse after an earlier explicit rejection", async () => {
+  const workspace = temporaryDirectory("saffron-stale-mixed-use-verifier");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+    writeFileSync(
+      join(workspace, "docs", "evidence-ledger.md"),
+      [
+        oracle.authorityOwner,
+        `Rejected stale claim: ${oracle.staleClaim}`,
+        "x".repeat(500),
+        `Valid release permission: ${oracle.staleClaim}`,
+      ].join("\n"),
+    );
+
+    const result = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "evidence ledger preserves authority and rejects stale lower-rank claim"))
+      .toMatchObject({ pass: false, detail: "authorityAnchor=true; staleClaimRejected=false" });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("Saffron verifier fails closed for a stale claim that normalizes to empty", async () => {
+  const workspace = temporaryDirectory("saffron-empty-stale-verifier");
+  const oracle = getSaffronOracle(TEST_SEED);
+  try {
+    cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
+    applySaffronControlPlaneR2({ workspace, oracle });
+    writeReferenceDelivery(workspace, oracle);
+
+    const result = await verifySaffronDelivery({
+      workspace,
+      oracle: { ...oracle, staleClaim: "``" },
+      turnRecords: saffronTurnRecords(oracle),
+    });
+    expect(result.pass).toBe(false);
+    expect(result.checks.find((item) => item.name === "evidence ledger preserves authority and rejects stale lower-rank claim"))
+      .toMatchObject({ pass: false, detail: "authorityAnchor=true; staleClaimRejected=false" });
+    expect(result.checks.find((item) => item.name === "stale lower-rank claim is not used as release permission"))
+      .toMatchObject({ pass: true, detail: "decision=hold; staleClaimMentioned=false; staleClaimRejected=false" });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("Saffron packet has deterministic structured records rather than random text", () => {
   const first = buildSaffronEvidencePacket({ seed: TEST_SEED, tokenTarget: 2_000 });
   const second = buildSaffronEvidencePacket({ seed: TEST_SEED, tokenTarget: 2_000 });

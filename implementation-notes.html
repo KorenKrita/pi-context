@@ -438,6 +438,11 @@
         <td>把固定四模型 Saffron 400K/1M matrix 从 full-env calibration runner 切换为 agents-only formal runner。</td>
         <td>Manifest 的八个 cells 全部使用 agents-only，按 Opus 4.6 → Opus 4.8 → Terra → Sol 的顺序逐模型运行，每个 model pair 先 400K、再 1M，effective concurrency 固定为 1。Pinned provenance 按 arm 固定 sparse harness 的 models/settings/auth/global AGENTS hashes、checkout sources、Pi/Bun runtime 与空 ambient resource trees；每个完成 cell 还必须证明 <code>kernel_enforced</code>、<code>formalEvidenceEligible=true</code>、lock acquired/released、session-recall absent 和 exact source/model/window/cap/effort。Audit-only preview 已在真实 Pi <code>0.81.1</code> 上完成，零 task/judge prompt，tool profile 从历史 sibling 枚举的约 339KB 降为 shared-root deny + current-workspace exception 的约 1.5KB；Pi host 不应用 outer profile，避免 nested <code>sandbox_apply</code> 在 macOS 上被内核拒绝。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Saffron verifier 必须区分“明确拒绝 stale claim”与“把 stale claim 当作 release permission”。</td>
+        <td>Opus 4.8 / 400K pilot 按 P6 要求在 evidence ledger 中用 Markdown inline code 保留原主张并标注 <code>superseded</code>，且在 hold decision 中标注 <code>VOID</code> / <code>does not authorize rollout</code>；旧 verifier 因裸字符串匹配与“只要出现就失败”而产生两个 false negative。当前规则仅忽略 inline-code 展示差异，并要求 claim 的每次出现都在局部有明确 rejection marker；缺席或明确拒绝可通过，<code>Valid release permission</code> 仍必须失败。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
