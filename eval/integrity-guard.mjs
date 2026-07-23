@@ -77,6 +77,11 @@ const BASH_SENSITIVE_ENVIRONMENT_KEY_PATTERN = new RegExp([
 ].join("|"), "i");
 const BASH_WHOLE_ENVIRONMENT_PATTERN = /(?:process\.env|os\.environ|Deno\.env)(?=\s*(?:[),;}:]|$))|(?:process\.env|os\.environ|Deno\.env)\s*\.\s*(?:keys|values|items|entries|copy|toObject)\s*\(/i;
 const BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN = /(?:^|[;&|()\s])(?:env|printenv|ps|pgrep|top|lsof)(?=$|[;&|()\s])|(?:^|[;&|()\s])export\s+-p(?=$|[;&|()\s])|(?:^|[;&|()\s])declare\s+-x(?=$|[;&|()\s])|\bACM_INTEGRITY_[A-Z0-9_]+\b/i;
+const EXECUTABLE_CODE_PROCESS_DISCOVERY_PATTERN = new RegExp([
+  String.raw`(?:subprocess\s*\.\s*(?:run|Popen|call|check_call|check_output)|os\s*\.\s*(?:system|popen))\s*\([^\n]{0,240}["'](?:env|printenv|ps|pgrep|top|lsof)\b`,
+  String.raw`(?:execFileSync|execFile|execSync|exec|spawnSync|spawn)\s*\(\s*(?:\[\s*)?["'](?:env|printenv|ps|pgrep|top|lsof)\b`,
+  String.raw`(?:new\s+)?Deno\s*\.\s*Command\s*\(\s*["'](?:env|printenv|ps|pgrep|top|lsof)\b`,
+].join("|"), "i");
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -324,6 +329,13 @@ function maskAllHeredocBodies(command) {
   return maskHeredocBodies(command, () => true);
 }
 
+function maskQuotedNonShellInterpreterHeredocBodies(command) {
+  return maskHeredocBodies(command, (spec, header) => (
+    spec.quoted
+    && /(?:^|[;&|()\s])(?:python(?:3(?:\.\d+)?)?|node|bun|deno)(?=$|[;&|()\s])/.test(header)
+  ));
+}
+
 function maskJavaScriptRegexLiterals(line) {
   const pattern = /(^|[=(:,;!&|?{}[\]\s])\/(?:\\.|[^/\\\r\n])+\/[dgimsuvy]*/g;
   return line.replace(pattern, (match, prefix, offset, source) => {
@@ -471,12 +483,14 @@ function bashViolation(command, workspace) {
   const checks = [
     ["bash_process_or_env_discovery", BASH_SENSITIVE_ENVIRONMENT_KEY_PATTERN],
     ["bash_process_or_env_discovery", BASH_WHOLE_ENVIRONMENT_PATTERN],
-    ["bash_process_or_env_discovery", BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN],
+    ["bash_process_or_env_discovery", EXECUTABLE_CODE_PROCESS_DISCOVERY_PATTERN],
   ];
   for (const [code, pattern] of checks) {
     if (pattern.test(command)) return code;
   }
-  if (hasShellOptionOrEnvironmentDump(command)) return "bash_process_or_env_discovery";
+  const shellProcessCommand = maskQuotedNonShellInterpreterHeredocBodies(command);
+  if (BASH_PROCESS_OR_ENV_DISCOVERY_PATTERN.test(shellProcessCommand)) return "bash_process_or_env_discovery";
+  if (hasShellOptionOrEnvironmentDump(shellProcessCommand)) return "bash_process_or_env_discovery";
   return null;
 }
 

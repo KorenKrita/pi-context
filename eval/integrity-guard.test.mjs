@@ -604,6 +604,36 @@ describe("measurement integrity tool-call gate", () => {
     expect(evaluateToolCall({ toolName: "bash", input: { command: "bun test && git status --short" }, ...policy })).toMatchObject({ block: false });
   });
 
+  test("allows ordinary interpreter identifiers while blocking explicit process discovery calls", () => {
+    const digestCounter = [
+      "cat <<'EOF' | python3",
+      "from collections import Counter",
+      "src=Counter(); top=Counter()",
+      "print('by topic:', dict(top))",
+      "EOF",
+    ].join("\n");
+    expect(evaluateToolCall({ toolName: "bash", input: { command: digestCounter }, ...policy })).toEqual({ block: false });
+    expect(evaluateToolCall({
+      toolName: "bash",
+      input: { command: "deno <<'TS'\nconst top = new Map(); console.log(top.size)\nTS" },
+      ...policy,
+    })).toEqual({ block: false });
+
+    for (const command of [
+      "python3 <<'PY'\nimport subprocess\nsubprocess.run(['ps', 'aux'])\nPY",
+      "python3 <<'PY'\nimport os\nos.popen('pgrep -af pi').read()\nPY",
+      "node <<'NODE'\nrequire('node:child_process').execSync('ps aux')\nNODE",
+      "node <<'NODE'\nrequire('node:child_process').execFile('ps', ['aux'], () => {})\nNODE",
+      "node <<'NODE'\nrequire('node:child_process').execFileSync('pgrep', ['-af', 'pi'])\nNODE",
+      "bun <<'BUN'\nBun.spawnSync(['top', '-l', '1'])\nBUN",
+      "deno <<'TS'\nawait new Deno.Command('ps', { args: ['aux'] }).output()\nTS",
+      "sh <<'SH'\nps aux\nSH",
+    ]) {
+      expect(evaluateToolCall({ toolName: "bash", input: { command }, ...policy }))
+        .toMatchObject({ block: true, code: "bash_process_or_env_discovery" });
+    }
+  });
+
   test("blocks denied background, subagent, and replacement tools even if CLI filtering regresses", () => {
     for (const toolName of ["bash_bg", "Agent", "replace"]) {
       expect(evaluateToolCall({ toolName, input: {}, ...policy })).toMatchObject({

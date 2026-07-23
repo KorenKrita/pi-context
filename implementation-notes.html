@@ -463,6 +463,11 @@
         <td>Formal checkout 与证据使用持久 private-eval 路径，content-tree fingerprint 仅排除精确 basename <code>.DS_Store</code>。</td>
         <td><code>/private/tmp</code> 会在长跑期间被环境清理，而 macOS Finder metadata 又会在持久 <code>node_modules</code> 内生成 <code>.DS_Store</code>；后者不影响 Pi 执行，却使全树 entry count/hash 漂移。当前规则不使用宽泛 glob，只忽略精确 <code>.DS_Store</code>；任何其他文件、内容、mode 或 symlink 变化仍必须改变 provenance hash。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Integrity guard 区分 shell process-discovery command 与 quoted Python/Node/Bun/Deno heredoc 中的普通标识符。</td>
+        <td>Opus pilot 使用 Python <code>Counter</code> 统计 digest topic，<code>dict(top)</code> 中的变量 <code>top</code> 被 shell 级 process-discovery regex 误当成 <code>top</code> 命令。当前 shell header 与 shell heredoc 仍拒绝 <code>env/ps/pgrep/top/lsof</code>；quoted 非 shell interpreter body 不再使用 shell token 匹配，但仍检查 sensitive/whole environment access，并对 Python <code>subprocess</code>/<code>os.system</code>/<code>os.popen</code>、Node/Bun <code>exec</code>/<code>execFile</code>/<code>spawn</code> 与 Deno <code>Deno.Command</code> 的高置信 process-discovery 调用单独拒绝。Lexical gate 仍是 defense-in-depth，kernel tool sandbox 保持 filesystem authoritative boundary。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
