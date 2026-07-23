@@ -339,6 +339,25 @@ describe("real Pi long-flow matrix declaration", () => {
     }
   });
 
+  test("content-tree ignores macOS Finder metadata but still detects runtime changes", () => {
+    const output = mkdtempSync(join(tmpdir(), "saffron-runtime-metadata-"));
+    try {
+      const root = join(output, "node_modules");
+      const runtimeFile = join(root, "runtime", "index.mjs");
+      writeFixtureFile(runtimeFile, "export const runtime = 'v1';\n");
+      const pinned = hashContentTree([{ name: "runtime", path: root }]);
+
+      writeFixtureFile(join(root, ".DS_Store"), "finder-root\n");
+      writeFixtureFile(join(root, "runtime", ".DS_Store"), "finder-nested\n");
+      expect(rehashContentTree(pinned)).toEqual(pinned);
+
+      writeFixtureFile(runtimeFile, "export const runtime = 'v2';\n");
+      expect(rehashContentTree(pinned).sha256).not.toBe(pinned.sha256);
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
   test("records the executing Bun binary and version as runtime provenance", () => {
     const bun = bunRuntimeProvenance();
     expect(bun.realpath).toBeTruthy();

@@ -448,6 +448,16 @@
         <td>Flow telemetry 以真实 Pi RPC 的 completed lifecycle event 作为 compaction 与 hidden reminder 的唯一计数边界。</td>
         <td>Pi <code>0.81.1</code> 的 native compact 在 RPC stream 中产生 <code>compaction_start</code> / <code>compaction_end</code>，而同一条 custom reminder 会同时出现 <code>message_start</code> / <code>message_end</code>。Telemetry 只在非 aborted、非 retry 且带 summary 的 <code>compaction_end</code> 开启新 cycle（仍兼容 <code>session_compact</code>），并只在完成的 custom message event 记录 reminder，避免漏记 native compaction 或把一次 reminder 重复计数。</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>近期评测目标是先跑通 Opus 4.8 与 Sol × 400K/1M 的 2×2 矩阵，四个 cell 均不得含 environment、verifier、judge、provider/run 或 provenance 问题。</td>
+        <td>矩阵跑通是为了从真实 Pi session/events/report/telemetry/verdict 中分析 pi-context 产品本身的不足，不是为了修饰分数。每次只运行一个 cell，审计完成并修复通用缺陷后才进入下一个；只有同 commit/seed/model/effort/cap 且唯一变量为 hard context window 的两臂可形成 pair。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Formal checkout 与证据使用持久 private-eval 路径，content-tree fingerprint 仅排除精确 basename <code>.DS_Store</code>。</td>
+        <td><code>/private/tmp</code> 会在长跑期间被环境清理，而 macOS Finder metadata 又会在持久 <code>node_modules</code> 内生成 <code>.DS_Store</code>；后者不影响 Pi 执行，却使全树 entry count/hash 漂移。当前规则不使用宽泛 glob，只忽略精确 <code>.DS_Store</code>；任何其他文件、内容、mode 或 symlink 变化仍必须改变 provenance hash。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

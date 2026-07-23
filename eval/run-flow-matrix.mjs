@@ -41,6 +41,7 @@ const markdownFileName = "matrix-report.md";
 const lockFileName = ".matrix.lock";
 const INTEGRITY_GUARD_PATH = join(repoRoot, "eval", "integrity-guard.mjs");
 const FULL_ENV_LINKED_RESOURCE_ROOTS = Object.freeze(["git", "npm", "extensions", "skills", "themes", "agents", "bin"]);
+const CONTENT_TREE_IGNORED_BASENAMES = Object.freeze(new Set([".DS_Store"]));
 const PINNED_SOURCE_FILES = Object.freeze([
   EXTENSION_PATH,
   CONTEXT_EXTENSION_PATH,
@@ -270,7 +271,9 @@ function hashContentTreeRoot({ name, path, boundaryPath = path }) {
     }
     let names;
     try {
-      names = readdirSync(nodePath).sort(stableCompare);
+      names = readdirSync(nodePath)
+        .filter((entry) => !CONTENT_TREE_IGNORED_BASENAMES.has(entry))
+        .sort(stableCompare);
     } catch (error) {
       throw treeError(label, nodePath, error);
     }
@@ -293,8 +296,10 @@ function hashContentTreeRoot({ name, path, boundaryPath = path }) {
 /**
  * Fingerprint an auditable content tree without trusting only command discovery.
  * Files contribute bytes and modes; directories and symlinks keep their own
- * identity. Symlinks are never traversed and an escape from the declared root
- * is a hard failure, so a link cannot quietly import mutable outside content.
+ * identity. Exact OS metadata basenames that cannot affect execution are
+ * excluded; all other files remain fail-closed. Symlinks are never traversed
+ * and an escape from the declared root is a hard failure, so a link cannot
+ * quietly import mutable outside content.
  */
 export function hashContentTree(roots) {
   if (!Array.isArray(roots)) throw new Error("content tree roots must be an array");
