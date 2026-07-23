@@ -12,6 +12,7 @@ import {
   CONTROLLED_WINDOWS,
   DEFAULT_FLOW_ID,
   acquireMatrixLock,
+  agentsOnlySourceConfigHashes,
   assertCleanGitWorktree,
   assertMatrixWorktreeClean,
   assertPinnedProvenance,
@@ -118,6 +119,33 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(shouldSkipMatrixCell({ classification: "infrastructure_invalid" })).toBe(true);
     expect(shouldSkipMatrixCell({ classification: "run_error" })).toBe(false);
     expect(shouldSkipMatrixCell({ status: "pending" })).toBe(false);
+  });
+
+  test("agents-only source provenance tracks only inputs copied into the sparse harness", () => {
+    const source = mkdtempSync(join(tmpdir(), "saffron-agents-source-inputs-"));
+    try {
+      for (const [name, content] of Object.entries({
+        "models.json": "models-v1\n",
+        "auth.json": "auth-v1\n",
+        "AGENTS.md": "agents-v1\n",
+        "settings.json": "settings-v1\n",
+        "thinking-presets.json": "thinking-v1\n",
+        "subagents-lite.json": "subagents-v1\n",
+        "pi.env": "env-v1\n",
+      })) writeFileSync(join(source, name), content);
+
+      const pinned = agentsOnlySourceConfigHashes(source);
+      expect(Object.keys(pinned)).toEqual(["models.json", "auth.json", "AGENTS.md"]);
+      for (const name of ["settings.json", "thinking-presets.json", "subagents-lite.json", "pi.env"]) {
+        writeFileSync(join(source, name), `${name}-ambient-drift\n`);
+      }
+      expect(agentsOnlySourceConfigHashes(source)).toEqual(pinned);
+
+      writeFileSync(join(source, "models.json"), "models-v2\n");
+      expect(agentsOnlySourceConfigHashes(source)["models.json"]).not.toBe(pinned["models.json"]);
+    } finally {
+      rmSync(source, { recursive: true, force: true });
+    }
   });
 
   test("delegates every cell to run-flow with Saffron hooks, an exact Pi binary, and controlled caps", async () => {

@@ -52,6 +52,20 @@ const PINNED_SOURCE_FILES = Object.freeze([
   join(repoRoot, "eval", "saffron-workspace-probe.mjs"),
   INTEGRITY_GUARD_PATH,
 ]);
+const FULL_ENV_SOURCE_CONFIG_FILES = Object.freeze([
+  "settings.json",
+  "models.json",
+  "auth.json",
+  "AGENTS.md",
+  "thinking-presets.json",
+  "subagents-lite.json",
+  "pi.env",
+]);
+const AGENTS_ONLY_SOURCE_INPUT_FILES = Object.freeze([
+  "models.json",
+  "auth.json",
+  "AGENTS.md",
+]);
 
 const MODEL_SPECS = Object.freeze([
   { id: "opus-4-6-max", provider: "local-claude", modelId: "claude-opus-4-6", thinking: "max" },
@@ -582,16 +596,12 @@ export function buildSaffronPin(secretSeed, materializeOptions = {}) {
   };
 }
 
-function configHashes(sourceAgentDir) {
-  return Object.fromEntries([
-    "settings.json",
-    "models.json",
-    "auth.json",
-    "AGENTS.md",
-    "thinking-presets.json",
-    "subagents-lite.json",
-    "pi.env",
-  ].map((name) => [name, fileHash(join(sourceAgentDir, name))]));
+function configHashes(sourceAgentDir, names = FULL_ENV_SOURCE_CONFIG_FILES) {
+  return Object.fromEntries(names.map((name) => [name, fileHash(join(sourceAgentDir, name))]));
+}
+
+export function agentsOnlySourceConfigHashes(sourceAgentDir) {
+  return configHashes(sourceAgentDir, AGENTS_ONLY_SOURCE_INPUT_FILES);
 }
 
 function fullEnvPin(matrixRunId) {
@@ -641,7 +651,7 @@ function agentsOnlyPin(matrixRunId) {
       excludedAmbientResources: audit.excludedAmbientResources ?? [],
       sessionRecall: audit.sessionRecall ?? null,
     };
-    if (!arms.sourceConfigHashes) arms.sourceConfigHashes = configHashes(audit.sourceAgentDir);
+    if (!arms.sourceConfigHashes) arms.sourceConfigHashes = agentsOnlySourceConfigHashes(audit.sourceAgentDir);
   }
   return arms;
 }

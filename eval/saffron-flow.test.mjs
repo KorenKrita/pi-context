@@ -545,11 +545,6 @@ test("Saffron verifier accepts an explicitly rejected stale claim in formatted a
     cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
     applySaffronControlPlaneR2({ workspace, oracle });
     writeReferenceDelivery(workspace, oracle);
-    const formattedClaim = oracle.staleClaim.replace(/^(carrier override )(\S+)( may bypass)/, "$1`$2`$3");
-    writeFileSync(
-      join(workspace, "docs", "evidence-ledger.md"),
-      `${oracle.authorityOwner}\nEarlier statement: **${formattedClaim}** — superseded and must not control a release decision.\n`,
-    );
     writeFileSync(join(workspace, "release", "go-no-go.json"), `${JSON.stringify({
       externalRevision: oracle.externalRevision,
       incidentNonce: oracle.incidentNonce,
@@ -558,12 +553,22 @@ test("Saffron verifier accepts an explicitly rejected stale claim in formatted a
       supersededClaims: [`${oracle.staleClaim} (VOID)`],
     }, null, 2)}\n`);
 
-    const result = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
-    expect(result.pass).toBe(true);
-    expect(result.checks.find((item) => item.name === "evidence ledger preserves authority and rejects stale lower-rank claim"))
-      .toMatchObject({ pass: true, detail: "authorityAnchor=true; staleClaimRejected=true" });
-    expect(result.checks.find((item) => item.name === "stale lower-rank claim is not used as release permission"))
-      .toMatchObject({ pass: true, detail: "decision=hold; staleClaimMentioned=true; staleClaimRejected=true" });
+    for (const marker of ["`", "**", "__", "~~"]) {
+      const formattedClaim = oracle.staleClaim.replace(
+        /^(carrier override )(\S+)( may bypass)/,
+        `$1${marker}$2${marker}$3`,
+      );
+      writeFileSync(
+        join(workspace, "docs", "evidence-ledger.md"),
+        `${oracle.authorityOwner}\nEarlier statement: ${formattedClaim} — superseded and must not control a release decision.\n`,
+      );
+      const result = await verifySaffronDelivery({ workspace, oracle, turnRecords: saffronTurnRecords(oracle) });
+      expect(result.pass).toBe(true);
+      expect(result.checks.find((item) => item.name === "evidence ledger preserves authority and rejects stale lower-rank claim"))
+        .toMatchObject({ pass: true, detail: "authorityAnchor=true; staleClaimRejected=true" });
+      expect(result.checks.find((item) => item.name === "stale lower-rank claim is not used as release permission"))
+        .toMatchObject({ pass: true, detail: "decision=hold; staleClaimMentioned=true; staleClaimRejected=true" });
+    }
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -628,7 +633,7 @@ test("Saffron verifier fails closed for a stale claim that normalizes to empty",
 
     const result = await verifySaffronDelivery({
       workspace,
-      oracle: { ...oracle, staleClaim: "``" },
+      oracle: { ...oracle, staleClaim: "**``__~~" },
       turnRecords: saffronTurnRecords(oracle),
     });
     expect(result.pass).toBe(false);

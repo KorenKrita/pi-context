@@ -96,7 +96,7 @@ function p6PrestateCheck(turnRecords) {
 }
 
 function normalizeClaimFormatting(value) {
-  return String(value).replaceAll("`", "");
+  return String(value).replace(/[*_~`]/g, "");
 }
 
 function claimIsMentioned(text, claim) {
