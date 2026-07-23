@@ -80,10 +80,31 @@ describe("flow telemetry", () => {
     expect(classifyFlowEvidence({ report: report({ turns: [{ phase: "P1" }] }), telemetry }).classification).toBe("certifying_run");
   });
 
-  test("starts a fresh cycle after compaction and captures pre/post usage", () => {
+  test("counts one completed reminder across Pi message lifecycle events", () => {
+    const message = {
+      role: "custom",
+      customType: "acm:context-usage-reminder",
+      details: { kind: "context-usage-reminder", level: 70, tokens: 285_000 },
+    };
+    const telemetry = collectFlowTelemetry({
+      events: [
+        { type: "message_start", message },
+        { type: "message_end", message },
+        settled(),
+      ],
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.reminders).toHaveLength(1);
+    expect(telemetry.reminders[0]).toMatchObject({ level: 70, eventIndex: 1, cycle: 0 });
+  });
+
+  test("starts a fresh cycle after a successful real Pi compaction and captures pre/post usage", () => {
     const events = [
       assistantUsage(220_000),
-      { type: "session_compact" },
+      { type: "compaction_start", reason: "manual" },
+      { type: "compaction_end", reason: "manual", result: { summary: "compacted" }, aborted: false, willRetry: false },
       assistantUsage(40_000),
       settled(),
     ];
@@ -96,6 +117,23 @@ describe("flow telemetry", () => {
       postTokens: 40_000,
     }]);
     expect(telemetry.coverage.compactionBoundaryObserved).toBe(true);
+  });
+
+  test("does not start a fresh cycle for an aborted or retrying compaction", () => {
+    for (const event of [
+      { type: "compaction_end", result: { summary: "discarded" }, aborted: true, willRetry: false },
+      { type: "compaction_end", result: { summary: "discarded" }, aborted: false, willRetry: true },
+      { type: "compaction_end", result: null, aborted: false, willRetry: false },
+      { type: "compaction_end", result: { summary: "" }, aborted: false, willRetry: false },
+    ]) {
+      const telemetry = collectFlowTelemetry({
+        events: [assistantUsage(220_000), event, assistantUsage(40_000), settled()],
+        report: report({ turns: [{ phase: "P1" }] }),
+        contextWindow: 400_000,
+      });
+      expect(telemetry.cycles).toHaveLength(1);
+      expect(telemetry.coverage.compactionBoundaryObserved).toBe(false);
+    }
   });
 
   test("does not reset cycle or claim summary growth for a failed travel", () => {

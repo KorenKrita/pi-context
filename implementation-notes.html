@@ -443,6 +443,11 @@
         <td>Saffron verifier 必须区分“明确拒绝 stale claim”与“把 stale claim 当作 release permission”。</td>
         <td>Opus 4.8 / 400K pilot 按 P6 要求在 evidence ledger 中用 Markdown inline code 或 emphasis 保留原主张并标注 <code>superseded</code>，且在 hold decision 中标注 <code>VOID</code> / <code>does not authorize rollout</code>；旧 verifier 因裸字符串匹配与“只要出现就失败”而产生 false negative。当前规则仅忽略 <code>`</code> / <code>*</code> / <code>_</code> / <code>~</code> 展示差异，并要求 claim 的每次出现都在局部有明确 rejection marker；缺席或明确拒绝可通过，<code>Valid release permission</code> 仍必须失败。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Flow telemetry 以真实 Pi RPC 的 completed lifecycle event 作为 compaction 与 hidden reminder 的唯一计数边界。</td>
+        <td>Pi <code>0.81.1</code> 的 native compact 在 RPC stream 中产生 <code>compaction_start</code> / <code>compaction_end</code>，而同一条 custom reminder 会同时出现 <code>message_start</code> / <code>message_end</code>。Telemetry 只在非 aborted、非 retry 且带 summary 的 <code>compaction_end</code> 开启新 cycle（仍兼容 <code>session_compact</code>），并只在完成的 custom message event 记录 reminder，避免漏记 native compaction 或把一次 reminder 重复计数。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

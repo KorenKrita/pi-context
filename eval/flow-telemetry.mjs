@@ -112,6 +112,7 @@ function splitTurns(events) {
 }
 
 function parseReminder(event) {
+  if (event?.type === "message_start" || event?.type === "message_update") return null;
   const message = event?.message ?? event;
   const customType = message?.customType;
   const details = message?.details ?? event?.details ?? {};
@@ -131,11 +132,17 @@ function parseReminder(event) {
 }
 
 function isCompactionBoundary(event) {
-  return event?.type === "session_compact" || event?.type === "session_tree";
+  return event?.type === "session_compact"
+    || event?.type === "session_tree"
+    || (event?.type === "compaction_end"
+      && event?.aborted !== true
+      && event?.willRetry !== true
+      && typeof event?.result?.summary === "string"
+      && event.result.summary.length > 0);
 }
 
 function boundaryKind(event) {
-  if (event?.type === "session_compact") return "compaction";
+  if (event?.type === "session_compact" || event?.type === "compaction_end") return "compaction";
   if (event?.type === "session_tree") return "manual_tree";
   return "successful_travel";
 }
