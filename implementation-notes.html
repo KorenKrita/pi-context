@@ -446,7 +446,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Flow telemetry 以真实 Pi RPC 的 completed lifecycle event 作为 compaction 与 hidden reminder 的唯一计数边界。</td>
-        <td>Pi <code>0.81.1</code> 的 native compact 在 RPC stream 中产生 <code>compaction_start</code> / <code>compaction_end</code>，而同一条 custom reminder 会同时出现 <code>message_start</code> / <code>message_end</code>。Telemetry 只在非 aborted、非 retry 且带 summary 的 <code>compaction_end</code> 开启新 cycle（仍兼容 <code>session_compact</code>），并只在完成的 custom message event 记录 reminder，避免漏记 native compaction 或把一次 reminder 重复计数。</td>
+        <td>Pi <code>0.81.1</code> 的 native compact 在 RPC stream 中产生 <code>compaction_start</code> / <code>compaction_end</code>，而同一条 custom reminder 会同时出现 <code>message_start</code> / <code>message_end</code>。Telemetry 只在非 aborted、非 retry 且带 summary 的 <code>compaction_end</code> 开启新 cycle（仍兼容 <code>session_compact</code>），并只在完成的 custom message event 记录 reminder，避免漏记 native compaction 或把一次 reminder 重复计数。当 RPC message 本身没有 usage payload 时，reminder details 中 runtime 已计算的 <code>tokens</code> / <code>usagePercent</code> / <code>pressurePercent</code> 作为该周期的 authoritative pressure reading，不得出现“已发 70% reminder 却报告未跨 70%”的自相矛盾。</td>
       </tr>
       <tr>
         <td>user-decided</td>

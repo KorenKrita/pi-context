@@ -100,6 +100,30 @@ describe("flow telemetry", () => {
     expect(telemetry.reminders[0]).toMatchObject({ level: 70, eventIndex: 1, cycle: 0 });
   });
 
+  test("uses completed reminder details as pressure evidence when RPC events omit usage", () => {
+    const message = {
+      role: "custom",
+      customType: "acm:context-usage-reminder",
+      details: {
+        kind: "context-usage-reminder",
+        level: 70,
+        tokens: 310_000,
+        usagePercent: 77.5,
+        pressurePercent: 77.5,
+        workingBudgetTokens: 400_000,
+      },
+    };
+    const telemetry = collectFlowTelemetry({
+      events: [assistantUsage(250_000), { type: "message_end", message }, settled()],
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.peak).toEqual({ activeTokens: 310_000, hardUsagePercent: 77.5, pressurePercent: 77.5 });
+    expect(telemetry.coverage.crossedLevels).toEqual([30, 50, 70]);
+    expect(telemetry.coverage.reminderLevels).toEqual([70]);
+  });
+
   test("starts a fresh cycle after a successful real Pi compaction and captures pre/post usage", () => {
     const events = [
       assistantUsage(220_000),

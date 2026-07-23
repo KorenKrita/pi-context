@@ -250,7 +250,19 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
     }
 
     const reminder = parseReminder(event);
-    if (reminder) reminders.push({ ...reminder, eventIndex, cycle });
+    if (reminder) {
+      reminders.push({ ...reminder, eventIndex, cycle });
+      if (activeTokens === null && reminder.tokens !== null && hardContextWindow !== null && workingBudgetTokens !== null) {
+        readings.push({
+          eventIndex,
+          cycle,
+          activeTokens: reminder.tokens,
+          hardUsagePercent: reminder.hardUsagePercent ?? reminder.tokens / hardContextWindow * 100,
+          pressurePercent: reminder.pressurePercent ?? reminder.tokens / workingBudgetTokens * 100,
+          eventType: event?.type ?? "context-usage-reminder",
+        });
+      }
+    }
 
     const name = toolName(event);
     if (typeof name === "string") observedTools.push(name);
