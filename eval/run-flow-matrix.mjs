@@ -6,10 +6,11 @@
 // resource audit, and session semantics in the one production evaluation path.
 
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 
 import { classifyFlowEvidence, collectFlowTelemetry, compareContextArms } from "./flow-telemetry.mjs";
 import {
@@ -39,6 +40,8 @@ const stateFileName = "matrix-state.json";
 const compactFileName = "matrix-report.json";
 const markdownFileName = "matrix-report.md";
 const lockFileName = ".matrix.lock";
+const sourceSnapshotDirName = ".agents-only-source";
+const DEFAULT_SOURCE_AGENT_DIR = join(homedir(), ".pi", "agent");
 const INTEGRITY_GUARD_PATH = join(repoRoot, "eval", "integrity-guard.mjs");
 const FULL_ENV_LINKED_RESOURCE_ROOTS = Object.freeze(["git", "npm", "extensions", "skills", "themes", "agents", "bin"]);
 const CONTENT_TREE_IGNORED_BASENAMES = Object.freeze(new Set([".DS_Store"]));
@@ -609,6 +612,44 @@ export function agentsOnlySourceConfigHashes(sourceAgentDir) {
   return configHashes(sourceAgentDir, AGENTS_ONLY_SOURCE_INPUT_FILES);
 }
 
+export function createAgentsOnlySourceSnapshot({
+  sourceAgentDir = DEFAULT_SOURCE_AGENT_DIR,
+  snapshotDir,
+} = {}) {
+  if (!snapshotDir) throw new Error("agents-only source snapshot requires snapshotDir");
+  if (existsSync(snapshotDir)) throw new Error(`agents-only source snapshot already exists: ${snapshotDir}`);
+  mkdirSync(snapshotDir, { mode: 0o700 });
+  try {
+    for (const name of AGENTS_ONLY_SOURCE_INPUT_FILES) {
+      const source = join(sourceAgentDir, name);
+      if (!existsSync(source)) {
+        if (name === "models.json") throw new Error(`agents-only source snapshot requires ${source}`);
+        continue;
+      }
+      writeFileSync(join(snapshotDir, name), readFileSync(source), { flag: "wx", mode: 0o600 });
+    }
+  } catch (error) {
+    rmSync(snapshotDir, { recursive: true, force: true });
+    throw error;
+  }
+  const path = realpathSync(snapshotDir);
+  return { path, hashes: agentsOnlySourceConfigHashes(path) };
+}
+
+export function assertPinnedSourceSnapshot(pinnedProvenance, snapshotDir) {
+  if (pinnedProvenance?.environmentMode !== "agents-only") return;
+  if (!pinnedProvenance?.sourceAgentSnapshot) {
+    throw new Error("agents-only matrix state lacks source-agent snapshot provenance; cannot resume");
+  }
+  if (!existsSync(snapshotDir)) {
+    throw new Error(`source-agent snapshot missing from matrix output: ${snapshotDir}; restore the output or start a new matrix`);
+  }
+  const actualPath = realpathSync(snapshotDir);
+  if (actualPath !== pinnedProvenance.sourceAgentSnapshot.path) {
+    throw new Error(`source-agent snapshot path mismatch: expected ${pinnedProvenance.sourceAgentSnapshot.path}, got ${actualPath}`);
+  }
+}
+
 function fullEnvPin(matrixRunId) {
   const arms = {};
   for (const contextWindow of CONTROLLED_WINDOWS) {
@@ -636,7 +677,7 @@ function fullEnvPin(matrixRunId) {
   return arms;
 }
 
-function agentsOnlyPin(matrixRunId) {
+function agentsOnlyPin(matrixRunId, sourceAgentDir = DEFAULT_SOURCE_AGENT_DIR) {
   const arms = {};
   for (const contextWindow of CONTROLLED_WINDOWS) {
     const agentDir = buildAgentsOnlyAgentDir({
@@ -644,6 +685,7 @@ function agentsOnlyPin(matrixRunId) {
       maxTokensCap: CONTROLLED_MAX_TOKENS,
       shrink: true,
       label: `matrix-agents-pin-${matrixRunId}-${contextWindow}`,
+      sourceAgentDir,
     });
     const audit = readAgentsOnlyHarnessAudit(agentDir);
     arms[String(contextWindow)] = {
@@ -661,7 +703,13 @@ function agentsOnlyPin(matrixRunId) {
   return arms;
 }
 
-export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOptions, environmentMode = CONTROLLED_ENVIRONMENT_MODE } = {}) {
+export function collectPinnedProvenance({
+  secretSeed,
+  matrixRunId,
+  saffronOptions,
+  environmentMode = CONTROLLED_ENVIRONMENT_MODE,
+  sourceAgentDir = DEFAULT_SOURCE_AGENT_DIR,
+} = {}) {
   if (!secretSeed || !matrixRunId) throw new Error("secretSeed and matrixRunId are required for pinned provenance");
   const headSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   const pi = piProvenance();
@@ -672,7 +720,13 @@ export function collectPinnedProvenance({ secretSeed, matrixRunId, saffronOption
     pi: { ...pi, binarySha256: fileHash(pi.path) },
     environmentMode,
     ...(environmentMode === "agents-only"
-      ? { agentsOnly: agentsOnlyPin(matrixRunId) }
+      ? {
+        agentsOnly: agentsOnlyPin(matrixRunId, sourceAgentDir),
+        sourceAgentSnapshot: {
+          path: realpathSync(sourceAgentDir),
+          hashes: agentsOnlySourceConfigHashes(sourceAgentDir),
+        },
+      }
       : { fullEnv: fullEnvPin(matrixRunId) }),
     controlled: { contextWindows: CONTROLLED_WINDOWS, maxTokensCap: CONTROLLED_MAX_TOKENS },
   };
@@ -773,6 +827,7 @@ export function buildRunFlowArgs(cell, {
   piBinary = localPiPath(),
   secretSeed,
   auditOnly = false,
+  sourceAgentDir,
 } = {}) {
   const environmentArgs = cell.environmentMode === "agents-only"
     ? ["--environment-mode", "agents-only"]
@@ -795,6 +850,7 @@ export function buildRunFlowArgs(cell, {
   if (auditOnly) args.push("--audit-only");
   if (judgeModel) args.push("--judge-model", judgeModel);
   if (judgeThinking) args.push("--judge-thinking", judgeThinking);
+  if (sourceAgentDir) args.push("--source-agent-dir", sourceAgentDir);
   // The seed is passed to the orchestration process as an argv value, not an
   // environment variable inherited by the Pi worker. run-flow owns the final
   // scrub boundary before it starts Pi.
@@ -862,11 +918,12 @@ export async function runAuditPreflight({
   bunBinary,
   collectPiRuntimeTree = hashRepoLocalPiRuntimeTree,
   collectBunRuntime = bunRuntimeProvenance,
+  sourceAgentDir,
 } = {}) {
   const cell = preflightCell(manifest);
   const child = await runFlowChild({
     cell,
-    options: { timeoutScale, doJudge: false, auditOnly: true, piBinary, secretSeed },
+    options: { timeoutScale, doJudge: false, auditOnly: true, piBinary, secretSeed, sourceAgentDir },
     spawnImpl,
     bunBinary,
   });
@@ -1375,6 +1432,8 @@ async function main() {
       ? asAbsolute(output)
       : join(RUNS_DIR, `saffron-flow-matrix-${timestampLabel()}-${newMatrixRunId}`);
   mkdirSync(outputDir, { recursive: true });
+  const sourceSnapshotDir = join(outputDir, sourceSnapshotDirName);
+  const matrixSourceAgentDir = CONTROLLED_ENVIRONMENT_MODE === "agents-only" ? sourceSnapshotDir : undefined;
   const lockPath = acquireMatrixLock(outputDir, { recoverStale: flag("--recover-stale-lock") });
   try {
     const statePath = join(outputDir, stateFileName);
@@ -1392,7 +1451,8 @@ async function main() {
       secretSeed = suppliedFlowSeed;
       manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: state.matrixRunId });
       if (JSON.stringify(state.manifest) !== JSON.stringify(manifest)) throw new Error("resume manifest differs from this runner's fixed declaration");
-      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId });
+      assertPinnedSourceSnapshot(state.pinnedProvenance, sourceSnapshotDir);
+      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId, sourceAgentDir: matrixSourceAgentDir });
       assertPiProvenance(baseProvenance.pi);
       const runtimeTrees = verifyPinnedRuntimeTrees(state.pinnedProvenance);
       if (!runtimeTrees.valid) throw new Error(`resume runtime tree mismatch: ${runtimeTrees.reasons.join(",")}`);
@@ -1418,6 +1478,7 @@ async function main() {
         piBinary: baseProvenance.pi.path,
         bunBinary: state.pinnedProvenance.bunRuntime.realpath,
         timeoutScale,
+        sourceAgentDir: matrixSourceAgentDir,
       });
       if (resumePreflight.commandInventory.sha256 !== state.pinnedProvenance.globalCommands.sha256) {
         throw new Error("resume global command inventory mismatch");
@@ -1441,13 +1502,15 @@ async function main() {
       if (existsSync(statePath)) throw new Error(`output already contains ${stateFileName}; use --resume`);
       secretSeed = suppliedFlowSeed ?? generateMatrixSecret();
       manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: newMatrixRunId });
-      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: newMatrixRunId });
+      if (matrixSourceAgentDir) createAgentsOnlySourceSnapshot({ snapshotDir: matrixSourceAgentDir });
+      const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: newMatrixRunId, sourceAgentDir: matrixSourceAgentDir });
       assertPiProvenance(baseProvenance.pi);
       const preflight = await runAuditPreflight({
         manifest,
         secretSeed,
         piBinary: baseProvenance.pi.path,
         timeoutScale,
+        sourceAgentDir: matrixSourceAgentDir,
       });
       pinnedProvenance = {
         ...baseProvenance,
@@ -1488,6 +1551,7 @@ async function main() {
       piBinary: pinnedProvenance.pi.path,
       bunBinary: pinnedProvenance.bunRuntime.realpath,
       secretSeed,
+      sourceAgentDir: matrixSourceAgentDir,
     };
     // Keep each same-model pair adjacent and deterministic: constrained 400K
     // first, then native 1M, before advancing to the next model.

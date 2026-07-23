@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   assertFullEnvCheckoutExtensions,
   assertAgentsOnlyCheckoutResources,
+  buildAgentDir,
   buildAgentsOnlyAgentDir,
   buildEvaluationExtensionPlan,
   buildFullEnvAgentDir,
@@ -190,6 +191,27 @@ describe("agents-only checkout resources", () => {
 });
 
 describe("agents-only harness", () => {
+  test("ordinary judge harness can use a matrix-owned source snapshot", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-context-judge-snapshot-"));
+    const source = join(root, "source-agent");
+    const harness = join(root, "harness");
+    mkdirSync(source, { recursive: true });
+    try {
+      writeFileSync(join(source, "models.json"), JSON.stringify({ providers: { fixture: { models: [{ id: "snapshot-model", contextWindow: 1_000_000, maxTokens: 64_000 }] } } }));
+      writeFileSync(join(source, "auth.json"), "snapshot-auth\n");
+      const agentDir = buildAgentDir({
+        shrink: false,
+        label: "judge",
+        sourceAgentDir: source,
+        harnessDir: harness,
+      });
+      expect(JSON.parse(readFileSync(join(agentDir, "models.json"), "utf8")).providers.fixture.models[0].id).toBe("snapshot-model");
+      expect(readFileSync(join(agentDir, "auth.json"), "utf8")).toBe("snapshot-auth\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("copies only models, auth, and the global AGENTS.md while excluding all ambient resources", () => {
     const root = mkdtempSync(join(tmpdir(), "pi-context-agents-only-"));
     const source = join(root, "source-agent");

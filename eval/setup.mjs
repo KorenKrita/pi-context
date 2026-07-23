@@ -250,14 +250,21 @@ function safeRootJsonConfigs(agentDir) {
 /**
  * Build (or rebuild) the harness agent dir.
  *
- * @param {{ contextWindow?: number, maxTokensCap?: number, shrink?: boolean, label?: string }} options
+ * @param {{ contextWindow?: number, maxTokensCap?: number, shrink?: boolean, label?: string, sourceAgentDir?: string, harnessDir?: string }} options
  * @returns {string} path to the agent dir
  */
-export function buildAgentDir({ contextWindow = 80000, maxTokensCap = 16000, shrink = true, label } = {}) {
-  const sourceModelsPath = join(homedir(), ".pi", "agent", "models.json");
+export function buildAgentDir({
+  contextWindow = 80000,
+  maxTokensCap = 16000,
+  shrink = true,
+  label,
+  sourceAgentDir = join(homedir(), ".pi", "agent"),
+  harnessDir = HARNESS_DIR,
+} = {}) {
+  const sourceModelsPath = join(sourceAgentDir, "models.json");
   const source = JSON.parse(readFileSync(sourceModelsPath, "utf8"));
 
-  const agentDir = join(HARNESS_DIR, label ?? (shrink ? `agent-cw${contextWindow}` : "agent-native"));
+  const agentDir = join(harnessDir, label ?? (shrink ? `agent-cw${contextWindow}` : "agent-native"));
   mkdirSync(agentDir, { recursive: true });
 
   const models = structuredClone(source);
@@ -284,7 +291,7 @@ export function buildAgentDir({ contextWindow = 80000, maxTokensCap = 16000, shr
   };
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify(settings, null, 2));
 
-  const sourceAuthPath = join(homedir(), ".pi", "agent", "auth.json");
+  const sourceAuthPath = join(sourceAgentDir, "auth.json");
   if (existsSync(sourceAuthPath)) {
     cpSync(sourceAuthPath, join(agentDir, "auth.json"));
   }

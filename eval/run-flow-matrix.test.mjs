@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,10 +16,12 @@ import {
   assertCleanGitWorktree,
   assertMatrixWorktreeClean,
   assertPinnedProvenance,
+  assertPinnedSourceSnapshot,
   assertResumeSeed,
   buildSaffronPin,
   buildRunFlowArgs,
   bunRuntimeProvenance,
+  createAgentsOnlySourceSnapshot,
   createInitialMatrixState,
   createLongFlowMatrixManifest,
   effectiveRunFlowConcurrency,
@@ -148,6 +150,75 @@ describe("real Pi long-flow matrix declaration", () => {
     }
   });
 
+  test("agents-only matrix snapshot remains fixed when live user configuration changes", () => {
+    const root = mkdtempSync(join(tmpdir(), "saffron-agents-snapshot-"));
+    const source = join(root, "live-agent");
+    const snapshotDir = join(root, "matrix-source-snapshot");
+    mkdirSync(source, { recursive: true });
+    try {
+      writeFileSync(join(source, "models.json"), JSON.stringify({ providers: { fixture: { models: [{ id: "v1" }] } } }));
+      writeFileSync(join(source, "auth.json"), "auth-v1\n");
+      writeFileSync(join(source, "AGENTS.md"), "agents-v1\n");
+      writeFileSync(join(source, "settings.json"), "settings-v1\n");
+
+      const snapshot = createAgentsOnlySourceSnapshot({ sourceAgentDir: source, snapshotDir });
+      expect(snapshot.hashes).toEqual(agentsOnlySourceConfigHashes(snapshot.path));
+      expect(existsSync(join(snapshot.path, "settings.json"))).toBe(false);
+
+      writeFileSync(join(source, "models.json"), JSON.stringify({ providers: { fixture: { models: [{ id: "v2" }] } } }));
+      writeFileSync(join(source, "auth.json"), "auth-v2\n");
+      writeFileSync(join(source, "AGENTS.md"), "agents-v2\n");
+      writeFileSync(join(source, "settings.json"), "settings-v2\n");
+      expect(agentsOnlySourceConfigHashes(snapshot.path)).toEqual(snapshot.hashes);
+      expect(readFileSync(join(snapshot.path, "AGENTS.md"), "utf8")).toBe("agents-v1\n");
+      expect(() => createAgentsOnlySourceSnapshot({ sourceAgentDir: source, snapshotDir })).toThrow("already exists");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("failed source snapshot creation removes partial output so the same path can retry", () => {
+    const root = mkdtempSync(join(tmpdir(), "saffron-agents-snapshot-retry-"));
+    const source = join(root, "live-agent");
+    const snapshotDir = join(root, "matrix-source-snapshot");
+    mkdirSync(source, { recursive: true });
+    try {
+      expect(() => createAgentsOnlySourceSnapshot({ sourceAgentDir: source, snapshotDir }))
+        .toThrow("requires");
+      expect(existsSync(snapshotDir)).toBe(false);
+
+      writeFileSync(join(source, "models.json"), JSON.stringify({ providers: {} }));
+      expect(createAgentsOnlySourceSnapshot({ sourceAgentDir: source, snapshotDir }).path)
+        .toBe(realpathSync(snapshotDir));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("resume requires the exact agents-only source snapshot while full-env is unaffected", () => {
+    const root = mkdtempSync(join(tmpdir(), "saffron-source-snapshot-resume-"));
+    const snapshot = join(root, "snapshot");
+    const replacement = join(root, "replacement");
+    mkdirSync(snapshot);
+    mkdirSync(replacement);
+    try {
+      const pinned = {
+        environmentMode: "agents-only",
+        sourceAgentSnapshot: { path: realpathSync(snapshot), hashes: {} },
+      };
+      expect(() => assertPinnedSourceSnapshot(pinned, snapshot)).not.toThrow();
+      expect(() => assertPinnedSourceSnapshot({ environmentMode: "agents-only" }, snapshot))
+        .toThrow("lacks source-agent snapshot provenance");
+      expect(() => assertPinnedSourceSnapshot(pinned, join(root, "missing")))
+        .toThrow("source-agent snapshot missing from matrix output");
+      expect(() => assertPinnedSourceSnapshot(pinned, replacement))
+        .toThrow("source-agent snapshot path mismatch");
+      expect(() => assertPinnedSourceSnapshot({ environmentMode: "full-env" }, join(root, "missing"))).not.toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("delegates every cell to run-flow with Saffron hooks, an exact Pi binary, and controlled caps", async () => {
     const cell = createLongFlowMatrixManifest({ matrixRunId: "matrix-c" }).cells[0];
     const args = buildRunFlowArgs(cell, {
@@ -156,6 +227,7 @@ describe("real Pi long-flow matrix declaration", () => {
       judgeModel: "local-claude/claude-opus-4-8",
       judgeThinking: "high",
       secretSeed: "secret-seed-for-child",
+      sourceAgentDir: "/matrix/source-agent-snapshot",
     });
     expect(args).toEqual(expect.arrayContaining([
       "eval/run-flow.mjs",
@@ -170,6 +242,7 @@ describe("real Pi long-flow matrix declaration", () => {
       "--timeout-scale", "1.5",
       "--judge-model", "local-claude/claude-opus-4-8",
       "--judge-thinking", "high",
+      "--source-agent-dir", "/matrix/source-agent-snapshot",
       "--flow-seed", "secret-seed-for-child",
     ]));
     expect(args).not.toContain("--full-env");
@@ -201,6 +274,7 @@ describe("real Pi long-flow matrix declaration", () => {
         judgeModel: "local-claude/claude-opus-4-8",
         judgeThinking: "high",
         secretSeed: "secret-seed-for-child",
+        sourceAgentDir: "/matrix/source-agent-snapshot",
       },
       spawnImpl: fakeSpawn,
       bunBinary: "/fake/bun",

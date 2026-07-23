@@ -304,7 +304,13 @@ const agentDir = fullEnv
         ...(sourceAgentDir ? { sourceAgentDir } : {}),
         ...(harnessDir ? { harnessDir } : {}),
       })
-    : buildAgentDir({ contextWindow, maxTokensCap, shrink, label: agentLabel });
+    : buildAgentDir({
+        contextWindow,
+        maxTokensCap,
+        shrink,
+        label: agentLabel,
+        ...(sourceAgentDir ? { sourceAgentDir } : {}),
+      });
 const runDir = createRunDir(`flow-${modelSpec.modelId}`, runsDir ? { runsDir } : undefined);
 const integrityAuditPath = fullEnv || agentsOnly ? join(runDir, "integrity-audit.jsonl") : null;
 const privateEvalRoot = join(homedir(), ".codex", "private", "pi-context-eval");
@@ -987,7 +993,11 @@ writeFileSync(join(runDir, "transcript.txt"), transcript);
 
 if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && doJudge) {
   console.log(`\n=== judging with ${judgeModel.provider}/${judgeModel.modelId} (thinking=${judgeThinking}) ===`);
-  const judgeAgentDir = buildAgentDir({ shrink: false, label: judgeAgentLabel });
+  const judgeAgentDir = buildAgentDir({
+    shrink: false,
+    label: judgeAgentLabel,
+    ...(sourceAgentDir ? { sourceAgentDir } : {}),
+  });
   const judgeSessions = join(runDir, "judge-sessions");
   const judgeWorkspace = join(runDir, "judge-workspace");
   mkdirSync(judgeSessions, { recursive: true });

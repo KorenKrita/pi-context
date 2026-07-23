@@ -454,6 +454,11 @@
         <td>矩阵跑通是为了从真实 Pi session/events/report/telemetry/verdict 中分析 pi-context 产品本身的不足，不是为了修饰分数。每次只运行一个 cell，审计完成并修复通用缺陷后才进入下一个；只有同 commit/seed/model/effort/cap 且唯一变量为 hard context window 的两臂可形成 pair。</td>
       </tr>
       <tr>
+        <td>user-decided</td>
+        <td>每个 formal matrix 在创建时固定一份独立配置 snapshot，不得因用户后续修改 live Pi 配置而失效或改变后续 cell。</td>
+        <td>Snapshot 仅包含 agents-only task 与 judge 真正使用的 <code>models.json</code>、<code>auth.json</code> 和 global <code>AGENTS.md</code>，存放在 matrix output 的 private <code>.agents-only-source</code> 中；400K/1M 与后续 resume 全部从该 snapshot 构建 harness。用户可自由修改默认模型、provider、thinking、packages 或 live models/auth/AGENTS；已启动 matrix 不重新取样。只有 snapshot 本身漂移才使 provenance 失效，新 matrix 才会采样当时的 live 配置。</td>
+      </tr>
+      <tr>
         <td>agent-resolved</td>
         <td>Formal checkout 与证据使用持久 private-eval 路径，content-tree fingerprint 仅排除精确 basename <code>.DS_Store</code>。</td>
         <td><code>/private/tmp</code> 会在长跑期间被环境清理，而 macOS Finder metadata 又会在持久 <code>node_modules</code> 内生成 <code>.DS_Store</code>；后者不影响 Pi 执行，却使全树 entry count/hash 漂移。当前规则不使用宽泛 glob，只忽略精确 <code>.DS_Store</code>；任何其他文件、内容、mode 或 symlink 变化仍必须改变 provenance hash。</td>
