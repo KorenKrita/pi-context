@@ -545,19 +545,22 @@ test("Saffron verifier accepts an explicitly rejected stale claim in formatted a
     cpSync(SAFFRON_FIXTURE_DIR, workspace, { recursive: true });
     applySaffronControlPlaneR2({ workspace, oracle });
     writeReferenceDelivery(workspace, oracle);
+    const token = oracle.staleClaim.split(" ")[2];
     writeFileSync(join(workspace, "release", "go-no-go.json"), `${JSON.stringify({
       externalRevision: oracle.externalRevision,
       incidentNonce: oracle.incidentNonce,
       decision: oracle.expectedDecision,
-      rationale: `The superseded ${oracle.staleClaim} is void and does not authorize rollout.`,
-      supersededClaims: [`${oracle.staleClaim} (VOID)`],
+      rationale: `The carrier-override ${token} in "may bypass an active freeze" is superseded and does not authorize rollout.`,
+      supersededClaims: [`carrier override ${token} "may bypass an active freeze" (VOID)`],
     }, null, 2)}\n`);
 
-    for (const marker of ["`", "**", "__", "~~"]) {
-      const formattedClaim = oracle.staleClaim.replace(
-        /^(carrier override )(\S+)( may bypass)/,
-        `$1${marker}$2${marker}$3`,
-      );
+    const formattedClaims = [
+      ...[["`", "`"], ["**", "**"], ["__", "__"], ["~~", "~~"], ['"', '"'], ["'", "'"], ["“", "”"]]
+        .map(([open, close]) => `carrier override ${open}${token}${close} may bypass an active freeze`),
+      `carrier-override ${token} may bypass an active freeze`,
+      `carrier override ${token} "may bypass an active freeze"`,
+    ];
+    for (const formattedClaim of formattedClaims) {
       writeFileSync(
         join(workspace, "docs", "evidence-ledger.md"),
         `${oracle.authorityOwner}\nEarlier statement: ${formattedClaim} — superseded and must not control a release decision.\n`,
@@ -633,7 +636,7 @@ test("Saffron verifier fails closed for a stale claim that normalizes to empty",
 
     const result = await verifySaffronDelivery({
       workspace,
-      oracle: { ...oracle, staleClaim: "**``__~~" },
+      oracle: { ...oracle, staleClaim: "**``__~~“”--" },
       turnRecords: saffronTurnRecords(oracle),
     });
     expect(result.pass).toBe(false);

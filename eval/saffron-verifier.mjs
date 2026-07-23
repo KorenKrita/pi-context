@@ -96,7 +96,11 @@ function p6PrestateCheck(turnRecords) {
 }
 
 function normalizeClaimFormatting(value) {
-  return String(value).replace(/[*_~`]/g, "");
+  return String(value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function claimIsMentioned(text, claim) {
@@ -118,7 +122,7 @@ function claimIsExplicitlyRejected(text, claim) {
       Math.max(0, index - 220),
       Math.min(normalizedText.length, index + normalizedClaim.length + 220),
     );
-    if (!/superseded|rejected|non-authoritative|not authoritative|must not control|does not authorize|\bvoid\b|不得采用|已失效|被取代|拒绝|非权威|作废/i.test(nearby)) return false;
+    if (!/superseded|rejected|non\s+authoritative|not authoritative|must not control|does not authorize|\bvoid\b|不得采用|已失效|被取代|拒绝|非权威|作废/i.test(nearby)) return false;
     cursor = index + normalizedClaim.length;
   }
   return found;

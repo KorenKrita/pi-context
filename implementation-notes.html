@@ -441,7 +441,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Saffron verifier 必须区分“明确拒绝 stale claim”与“把 stale claim 当作 release permission”。</td>
-        <td>Opus 4.8 / 400K pilot 按 P6 要求在 evidence ledger 中用 Markdown inline code 或 emphasis 保留原主张并标注 <code>superseded</code>，且在 hold decision 中标注 <code>VOID</code> / <code>does not authorize rollout</code>；旧 verifier 因裸字符串匹配与“只要出现就失败”而产生 false negative。当前规则仅忽略 <code>`</code> / <code>*</code> / <code>_</code> / <code>~</code> 展示差异，并要求 claim 的每次出现都在局部有明确 rejection marker；缺席或明确拒绝可通过，<code>Valid release permission</code> 仍必须失败。</td>
+        <td>Opus 4.8 / 400K 与 1M pilot 按 P6 要求在 evidence ledger 中用 Markdown emphasis、引号或连字符保留原主张并标注 <code>superseded</code>，且在 hold decision 中标注 <code>VOID</code> / <code>does not authorize rollout</code>；旧 verifier 因裸字符串匹配与“只要出现就失败”而产生 false negative。当前 claim 比较使用 Unicode NFKC + lowercase + 字母数字 token normalization，因此展示标记只是分隔符；词本身仍必须一致，且 claim 的每次出现都必须在局部有明确 rejection marker。缺席或明确拒绝可通过，<code>Valid release permission</code> 仍必须失败。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
