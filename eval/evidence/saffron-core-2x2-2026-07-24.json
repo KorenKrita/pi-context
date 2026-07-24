@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "formal-core-2x2-and-targeted-rerun",
+  "recordedAt": "2026-07-24",
+  "environment": "agents-only",
+  "fixture": "saffron-cutover-long-flow-v1",
+  "piVersion": "0.81.1",
+  "maxTokensCap": 16000,
+  "seedSha256": "526305d9a7c2af4b3757d94c915006105d21e4e157e395d76beddc3f386d033c",
+  "sourceMatrix": {
+    "productCommit": "a59516c04eab4336caafb7dac6dc1ff5300d5d95",
+    "matrixId": "62ee6b2df6142120",
+    "runName": "saffron-core-2x2-2026-07-24T08-19-34Z-a59516c0",
+    "matrixStateSha256": "e75ff876d8f6b070665b96d75bd923827ce4b63584ca67922d9a685ee897eaa6",
+    "matrixReportSha256": "762e4f75f99199e85741340811e5362c2de06378e2bbaf31aee32cc0c19f58d8",
+    "profile": "core-2x2",
+    "status": "completed",
+    "experimentalVariable": "hardContextWindow",
+    "skillProvenance": {
+      "command": "skill:context-management",
+      "available": true,
+      "status": "available_from_expected_checkout",
+      "source": "skill",
+      "scope": "temporary",
+      "origin": "top-level",
+      "checkoutRelativePath": "skills/context-management/SKILL.md",
+      "sha256": "4f5451e6a07d135cc0a36722825172e40ff656c82f470aa7896ef045ac2d0e46",
+      "expectedCheckoutCommit": "a59516c04eab4336caafb7dac6dc1ff5300d5d95"
+    },
+    "cells": [
+      {
+        "id": "opus-4-8-high-400k",
+        "provider": "local-claude",
+        "modelId": "claude-opus-4-8",
+        "thinkingLevel": "high",
+        "contextWindow": 400000,
+        "maxTokensCap": 16000,
+        "environment": "agents-only",
+        "sessionId": "019f9335-7cf5-7235-a44b-c2002da62e0c",
+        "reportSha256": "6e4175dff622f5b4cf91e0aa1e0bb401bb8897864a36e8986d578016ed1febe3",
+        "classification": "certifying_run",
+        "deterministicVerification": "passed",
+        "judge": "3/3 strong",
+        "formalEvidenceEligible": true,
+        "lockReleased": true,
+        "observedIssue": "P8 targeted a raw transaction backup as a fold base, expanding estimated context from 114804 to 301410 tokens, messages from 43 to 78, and summary depth from 1 to 2."
+      },
+      {
+        "id": "opus-4-8-high-1m",
+        "provider": "local-claude",
+        "modelId": "claude-opus-4-8",
+        "thinkingLevel": "high",
+        "contextWindow": 1000000,
+        "maxTokensCap": 16000,
+        "environment": "agents-only",
+        "sessionId": "019f9356-18ed-74fa-9778-eaadf2efd43d",
+        "reportSha256": "35c42ee593c9e7d84e469e60e2ffa6e95fb523f79731be618a77f56529849ff6",
+        "classification": "certifying_run",
+        "deterministicVerification": "passed",
+        "judge": "3/3 strong",
+        "formalEvidenceEligible": true,
+        "lockReleased": true,
+        "observedBehavior": "Completed fold, root rebase, checkpoint, and a bounded rehydrate round trip without task degradation."
+      },
+      {
+        "id": "sol-medium-400k",
+        "provider": "local-responses",
+        "modelId": "gpt-5.6-sol",
+        "thinkingLevel": "medium",
+        "contextWindow": 400000,
+        "maxTokensCap": 16000,
+        "environment": "agents-only",
+        "sessionId": "019f9374-766b-79a4-a987-c22dd2eaeb3e",
+        "reportSha256": "3e2d5de8de78f5e79d34be0e4eca37a954fb1dfef2ce4e9a8d3c0120d9b85bd5",
+        "classification": "task_failure",
+        "deterministicVerification": "failed",
+        "judge": "skipped",
+        "formalEvidenceEligible": true,
+        "lockReleased": true,
+        "failureShape": "Repeated stopReason=length in P7-P10; final go-no-go content was correct but the required P7 write ordering was absent, and README final-contract terms were incomplete."
+      },
+      {
+        "id": "sol-medium-1m",
+        "provider": "local-responses",
+        "modelId": "gpt-5.6-sol",
+        "thinkingLevel": "medium",
+        "contextWindow": 1000000,
+        "maxTokensCap": 16000,
+        "environment": "agents-only",
+        "sessionId": "019f9392-2937-7f63-9ab8-7db8603bf6d3",
+        "reportSha256": "2c07b50589b643426067eae61719626f4cf5375756e0ad06671b45454b3efe1d",
+        "classification": "task_failure",
+        "deterministicVerification": "failed",
+        "judge": "skipped",
+        "formalEvidenceEligible": true,
+        "lockReleased": true,
+        "failureShape": "Repeated stopReason=length from P2 onward; dry-run provenance and later evidence/release artifacts were not completed."
+      }
+    ]
+  },
+  "promotedFindings": [
+    {
+      "id": "transition-boundary-sampling",
+      "evidence": "Both Sol sessions emitted zero-token length lifecycle records adjacent to native compaction. The old collector reported preTokens=0. Recalculation after the fix reports Sol 400K compaction 86061 to 62938 tokens and Sol 1M preTokens=203228 with postTokens unknown because no valid same-settled-turn landing sample existed.",
+      "fixCommits": [
+        "83fe8acdf439cdd357ef157f3de330c3be26cc0c",
+        "836dfcc66f5f709d9638f1913dd12953b04cabdb",
+        "ce0a734be7a260dcd1bcb84e07b2b1cded9239f1",
+        "2b47aede0c4e7060cf4f1e368aea249538c82b45"
+      ]
+    },
+    {
+      "id": "raw-archive-target-affordance",
+      "evidence": "The source Opus 400K run used a transaction backup as a fold base. The product now marks only canonical, topology-valid, unique finalized applied transactions as raw archives; all timeline views retain the marker across multiple aliases, and guidance reserves raw archives for restore/rehydrate.",
+      "fixCommits": [
+        "dd35a6732083d203d25c07d0bdace3b4964749e8",
+        "cd2f24c0687ef92907cb5a064fa747f6336d8965",
+        "93d514ffe52def9513839ba0c6746f90478e7df3"
+      ]
+    }
+  ],
+  "targetedRerun": {
+    "productCommit": "93d514ffe52def9513839ba0c6746f90478e7df3",
+    "matrixId": "2e6fd9dc6c8aeb95",
+    "runName": "saffron-raw-alias-check-2026-07-24T11-25-08Z-93d514ff",
+    "matrixStateSha256": "d4a69fad2411771721f71c76524f68df758bb988c21b7b57585d39503a057245",
+    "matrixReportSha256": "6a8205887eb9d6d74395eb6282bee23ccc4fea8c2d502f2342de3c774e5b940c",
+    "cell": "opus-4-8-high-400k",
+    "provider": "local-claude",
+    "modelId": "claude-opus-4-8",
+    "thinkingLevel": "high",
+    "contextWindow": 400000,
+    "maxTokensCap": 16000,
+    "environment": "agents-only",
+    "experimentalVariable": "rawArchiveTargetAffordance",
+    "sessionId": "019f93df-57e6-7709-a0b9-d0ce91472efa",
+    "reportSha256": "457230242b3e15491e26a691d4d6ccfd6c7db9919c54b4045688d9b296c3f688",
+    "skillProvenance": {
+      "command": "skill:context-management",
+      "available": true,
+      "status": "available_from_expected_checkout",
+      "source": "skill",
+      "scope": "temporary",
+      "origin": "top-level",
+      "checkoutRelativePath": "skills/context-management/SKILL.md",
+      "sha256": "4f5451e6a07d135cc0a36722825172e40ff656c82f470aa7896ef045ac2d0e46",
+      "expectedCheckoutCommit": "93d514ffe52def9513839ba0c6746f90478e7df3"
+    },
+    "classification": "certifying_run",
+    "deterministicVerification": "passed",
+    "judge": "3/3 strong",
+    "topAttributions": [
+      "healthy"
+    ],
+    "formalEvidenceEligible": true,
+    "lockReleased": true,
+    "result": "The raw-archive fold-base error did not recur. All three travels were on-path; P8 rebased to root and reduced active summary depth from 2 to 1."
+  },
+  "deterministicGateAfterFixes": {
+    "productCommit": "2b47aede0c4e7060cf4f1e368aea249538c82b45",
+    "rootTests": 448,
+    "exactHostTests": 64,
+    "typecheck": "passed",
+    "generatedGuidance": "passed"
+  },
+  "scopeLimits": [
+    "Each matrix cell and the targeted rerun are single stochastic samples; they do not estimate population-level model reliability.",
+    "Equal or different outcomes do not establish a causal hard-context-window effect.",
+    "The Sol failures are valid task outcomes dominated by stopReason=length, not evidence of environment, verifier, judge, sandbox, lock, provenance, or provider failure.",
+    "The targeted rerun supports the raw-archive affordance change on the observed task; continued production-like monitoring is still required."
+  ]
+}
