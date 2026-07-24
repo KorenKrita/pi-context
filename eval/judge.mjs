@@ -61,6 +61,68 @@ function summarizeArgs(name, args) {
   return keys.length ? `${keys[0]}=${String(args[keys[0]]).slice(0, 60)}` : "";
 }
 
+const EDIT_TOOLS = new Set(['write', 'replace', 'undo_last_replace']);
+const READ_TOOLS = new Set(['read', 'read_text']);
+
+/** Collect a turn's tool calls regardless of segment/legacy shape. */
+function turnCalls(turn) {
+  if (Array.isArray(turn.segments)) {
+    return turn.segments.filter((s) => s?.kind === 'tool' && s.call).map((s) => s.call);
+  }
+  return Array.isArray(turn.toolCalls) ? turn.toolCalls : [];
+}
+
+/** Compact, factual per-phase tool summary so data-loss / recoverability claims can be checked against the record. */
+function toolFactsLine(calls) {
+  if (!calls.length) return '【工具事实】无工具调用';
+  let read = 0, edit = 0, bash = 0, acm = 0, other = 0;
+  const written = [];
+  for (const c of calls) {
+    const name = c?.name ?? '';
+    if (ACM_TOOLS.has(name)) { acm += 1; continue; }
+    if (READ_TOOLS.has(name)) read += 1;
+    else if (EDIT_TOOLS.has(name)) {
+      edit += 1;
+      const p = c?.args?.path ?? c?.args?.file_path ?? c?.args?.file;
+      if (p) written.push(String(p));
+    } else if (name === 'bash' || name === 'bash_bg') bash += 1;
+    else other += 1;
+  }
+  const parts = [`${calls.length} calls`];
+  if (read) parts.push(`${read} read`);
+  if (edit) parts.push(`${edit} edit`);
+  if (bash) parts.push(`${bash} bash`);
+  if (acm) parts.push(`${acm} acm`);
+  if (other) parts.push(`${other} other`);
+  let line = `【工具事实】${parts.join(' · ')}`;
+  if (written.length) line += `；写入: ${[...new Set(written)].join(', ')}`;
+  return line;
+}
+
+/** Per-phase working-budget pressure %, the signal for whether ACM was warranted. */
+function pressureLine(turn) {
+  const fmt = (v) => (typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}%` : null);
+  const b = fmt(turn?.telemetry?.before?.pressurePercent);
+  const a = fmt(turn?.telemetry?.after?.pressurePercent);
+  if (b === null && a === null) return null;
+  if (b !== null && a !== null) return `【压力】进入 ${b} → 离开 ${a}`;
+  return `【压力】${a ?? b}`;
+}
+
+/** Peak working-budget pressure across the flow; drives the restraint gate. */
+function peakPressureFromTurns(turnRecords) {
+  let peak = null;
+  for (const turn of turnRecords ?? []) {
+    for (const side of [turn?.telemetry?.before, turn?.telemetry?.after]) {
+      const p = side?.pressurePercent;
+      if (typeof p === 'number' && Number.isFinite(p)) {
+        peak = peak === null ? p : Math.max(peak, p);
+      }
+    }
+  }
+  return peak;
+}
+
 /**
  * Render the run as a readable transcript. ACM tool calls are shown in full
  * (args + result) because they are the load-bearing evidence; other tools are
@@ -93,6 +155,9 @@ export function buildTranscript(turnRecords) {
   for (const turn of turnRecords) {
     out.push(`\n════════ 阶段 ${turn.phase} ════════`);
     out.push(`【用户】${turn.prompt}`);
+    const pressure = pressureLine(turn);
+    if (pressure) out.push(pressure);
+    out.push(toolFactsLine(turnCalls(turn)));
     if (Array.isArray(turn.segments)) {
       let previousKind = null;
       for (const segment of turn.segments) {
@@ -122,7 +187,10 @@ function buildOpportunityKey(opportunities) {
     .join("\n");
 }
 
-export function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc }) {
+export function buildJudgePrompt({ opportunities, transcript, taskCompletionDesc, peakPressurePercent }) {
+  const peakText = typeof peakPressurePercent === 'number' && Number.isFinite(peakPressurePercent)
+    ? `${peakPressurePercent.toFixed(1)}%`
+    : '未知(本次未提供遥测)';
   return `你是 ACM(Agentic Context Management)行为的资深评审。你要评估一个编码 agent 在一段真实开发会话里,\
 **在完全没有被提示的情况下**,是否恰当地主动管理了自己的上下文(working set)。
 
@@ -143,16 +211,21 @@ ${buildOpportunityKey(opportunities)}
 本轮使用 **${RUBRIC_VERSION}**。它把时机判断改为 outcome-first：旧版 v1/v2 的分数与本轮**不可直接比较**，
 因为旧版曾把“当前回合仍有义务时 travel”本身视作时机错误。
 
+## 压力上下文(activation 闸门)
+本次会话峰值工作预算压力 = **${peakText}**。ACM 价值随压力上升,判断 activation 必须结合它:
+- 峰值 **< 30%**:working set 宽裕,不折不存通常是**合理克制**而非失败——此时“未使用 ACM”不得记为 activation 缺失(不得给 never-activated),activation 不应低于 2;仅当确有该折未折的 sediment、或做了无谓 ACM 操作才扣分。
+- 峰值 **≥ 30%**:不管理上下文的代价开始显现,能否恰当激活 ACM 才是核心信号。
+
 ## 评分维度(每项 0-3 分:0=缺失/错误,1=差,2=合格,3=优秀)并给出 attribution
-1. **activation 激活**:在无提示下到底用没用 ACM。弱模型的地板是哪怕只做了压缩/rebase。
+1. **activation 激活**:在无提示下到底用没用 ACM。弱模型的地板是哪怕只做了压缩/rebase。**低压克制见上方压力上下文闸门:峰值<30% 时未用 ACM 属合理克制,不扣激活分。**
 2. **timing_and_measure 时机与度（outcome-first）**:有真 sediment 才折;**没有为折而折**;当不确定性还活着、下一步动作明确时通常应继续。\
    机械地“到阶段就折”是缺陷不是优点。但“当前回合还有义务”**本身不是自动扣分条件**：若 handoff 明确保留了测试、回答、未完成改动等义务，\
    travel 后 agent 直接从 NEXT 继续，且没有丢失事实、无谓重读、thrash 或转去错误工作，这可以是正确的时机选择。\
    只有 transcript 显示 travel 造成义务遗漏/扭曲、继续被打断、重复探索、错误行动或任务事实性变差，才把它判为时机错误。
 3. **handoff_quality**:折叠产生的 handoff 能否通过 cold start——新 agent 只凭它和指针能否立刻接着干,\
    structured fields 是否完整、State 是否带了 hot set 和未决项。
-4. **recoverability 可恢复性**:高风险改动/分叉前是否先 save;需要回退/取回时是否命中**精确正确的节点**,\
-   而不是就近的标签(anchor gravity)。
+4. **recoverability 可恢复性**:高风险改动/分叉前是否先 save;需要回退/取回时是否命中**精确正确的节点**,
+   而不是就近的标签(anchor gravity)。**证据纪律:任何“丢失/损坏/未能恢复 X”的判断必须对得上各阶段【工具事实】与 transcript——若记录显示 X 从未被删改、或已被重写/保留,则不得断言其丢失,不得幻觉 data loss。**
 5. **ceiling 天花板**:是否出现高级/涌现操作——fork、rehydrate 往返、rebase 到最早安全基底、精确 target 选择,\
    乃至设计者都没预设的巧妙用法。强模型在这里加分,弱模型给 0-1 不扣激活分。\
    注意:rehydrate 是取回**确实已不在 working set(含 handoff State)**的细节时的兑底手段,不是仪式——\
@@ -160,6 +233,8 @@ ${buildOpportunityKey(opportunities)}
    对可重导的事实(如重跑代码验证语义),实证重跑与 rehydrate 同等有效。
 6. **task_completion 任务完成度**:${taskCompletionDesc ?? "任务本身做得如何。"}\
    用来抓"为折而折拖垮任务"(折叠拖垮或折坏导致任务事实性变差,就是 task 受损)。
+
+**总证据纪律:data-loss、recoverability、task 受损等负面断言必须由【工具事实】与工具记录支撑;无记录支撑的负面断言不得作为扣分依据。**
 
 ## attribution 标签(每维度选最贴切的一个)
 healthy / never-activated / event-driven-overfold / negation-suppressed-inaction / bad-handoff / \
@@ -468,7 +543,7 @@ function errorDetails(error, stage) {
 export async function judgeTranscript(options) {
   const model = options.model ?? JUDGE_MODEL;
   const transcript = options.transcript;
-  const prompt = buildJudgePrompt({ opportunities: options.opportunities, transcript, taskCompletionDesc: options.taskCompletionDesc });
+  const prompt = buildJudgePrompt({ opportunities: options.opportunities, transcript, taskCompletionDesc: options.taskCompletionDesc, peakPressurePercent: options.peakPressurePercent });
   const expectedPhases = Array.isArray(options.opportunities)
     ? options.opportunities.map((opportunity) => opportunity?.phase)
     : undefined;
@@ -575,5 +650,6 @@ export async function judgeRun(options) {
   return judgeTranscript({
     ...options,
     transcript: buildTranscript(options.turnRecords),
+    peakPressurePercent: peakPressureFromTurns(options.turnRecords),
   });
 }
