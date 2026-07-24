@@ -64,10 +64,18 @@ function formatTimelineAliases(labels: readonly string[], rawArchiveAliases: Rea
     : `${preferredText}${rawArchiveMarker}`;
 }
 
-function collectRawArchiveAliases(entries: readonly SessionEntry[]): Set<string> {
-  return new Set(collectTrustedAcmTravelTransactions(entries)
-    .map((transaction) => transaction.details.backupCurrentHeadAs)
-    .filter((alias): alias is string => typeof alias === "string" && alias.length > 0));
+function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: LabelMaps): Set<string> {
+  const aliases = new Set<string>();
+  for (const transaction of collectTrustedAcmTravelTransactions(entries)) {
+    const alias = transaction.details.backupCurrentHeadAs;
+    if (
+      typeof alias === "string"
+      && alias.length > 0
+      && transaction.backupEntryId !== null
+      && labelMaps.labelToEntryId.get(alias) === transaction.backupEntryId
+    ) aliases.add(alias);
+  }
+  return aliases;
 }
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -439,7 +447,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const activeSummaryDepth = countActiveSummaryDepth(branch);
       const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
       const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
-      const rawArchiveAliases = collectRawArchiveAliases(entries);
+      const rawArchiveAliases = collectRawArchiveAliases(entries, labelMaps);
       const lines: string[] = [];
       let treeTruncated = false;
       let activeVisibleEntries = 0;

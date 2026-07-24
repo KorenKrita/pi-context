@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ReadonlySessionManager } from "./host-bridge.js";
 import { buildSessionMessages } from "./host-bridge.js";
-import { ACM_CONTINUATION_MARKER } from "./handoff.js";
+import { ACM_CONTINUATION_MARKER, buildCanonicalHandoff, type HandoffInput } from "./handoff.js";
 import { analyzeToolProtocol, type ToolProtocolDefect, type ToolProtocolRepair } from "./tool-protocol.js";
 
 export { ACM_CONTINUATION_MARKER } from "./handoff.js";
@@ -25,6 +25,7 @@ export interface TrustedAcmTravelSummaryDetails {
 export interface TrustedAcmTravelTransaction {
   summaryEntryId: string;
   details: TrustedAcmTravelSummaryDetails;
+  backupEntryId: string | null;
   receiptIdentity: string;
   normalization: AcmProtocolNormalization;
 }
@@ -78,7 +79,7 @@ function trustedTravelSummaryDetails(entry: SessionEntry | undefined): TrustedAc
     entry?.type !== "branch_summary"
     || entry.fromHook !== true
     || typeof entry.summary !== "string"
-    || !entry.summary.startsWith(ACM_CONTINUATION_MARKER)
+    || !isCanonicalAcmHandoff(entry.summary)
   ) return undefined;
   const details = record(entry.details);
   const toolCallId = typeof details?.toolCallId === "string" && details.toolCallId.trim().length > 0
@@ -106,6 +107,8 @@ function trustedTravelSummaryDetails(entry: SessionEntry | undefined): TrustedAc
     || !target
     || !targetId
     || backupCurrentHeadAs === undefined
+    || entry.parentId !== targetId
+    || entry.fromId !== targetId
   ) return undefined;
   return {
     toolCallId,
@@ -119,7 +122,7 @@ function trustedTravelSummaryDetails(entry: SessionEntry | undefined): TrustedAc
 
 export function collectTrustedAcmTravelTransactions(entries: readonly SessionEntry[]): TrustedAcmTravelTransaction[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const transactions: TrustedAcmTravelTransaction[] = [];
+  const grouped = new Map<string, TrustedAcmTravelTransaction[]>();
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
     const message = entry.message;
@@ -136,26 +139,39 @@ export function collectTrustedAcmTravelTransactions(entries: readonly SessionEnt
       || entry.parentId !== summaryEntryId
     ) continue;
     const provenance = trustedTravelSummaryDetails(byId.get(summaryEntryId));
+    const receiptBackupAlias = receipt.backupCurrentHeadAs;
+    const backupEntryId = typeof receipt.backupEntryId === "string" && receipt.backupEntryId.length > 0
+      ? receipt.backupEntryId
+      : null;
     if (
       !provenance
       || receipt.originId !== provenance.originId
+      || receipt.target !== provenance.target
       || receipt.targetId !== provenance.targetId
       || provenance.toolCallId !== message.toolCallId
+      || receipt.currentUserTurnOpen !== provenance.currentUserTurnOpen
+      || receiptBackupAlias !== provenance.backupCurrentHeadAs
+      || (provenance.backupCurrentHeadAs !== null && backupEntryId === null)
     ) continue;
     const identity = receiptIdentity(message);
     if (!identity) continue;
-    transactions.push({
+    const transaction = {
       summaryEntryId,
       details: provenance,
+      backupEntryId,
       receiptIdentity: identity,
       normalization: {
         kind: "removed_applied_acm_travel_receipt",
         toolCallId: message.toolCallId,
         summaryEntryId,
       },
-    });
+    } satisfies TrustedAcmTravelTransaction;
+    const key = JSON.stringify([summaryEntryId, provenance.toolCallId]);
+    const candidates = grouped.get(key) ?? [];
+    candidates.push(transaction);
+    grouped.set(key, candidates);
   }
-  return transactions;
+  return [...grouped.values()].flatMap((candidates) => candidates.length === 1 ? candidates : []);
 }
 
 function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
@@ -209,6 +225,21 @@ function canonicalField(handoff: string, label: string, nextLabel?: string): str
     : handoff.indexOf(`\n${nextLabel}: `, valueStart);
   const raw = handoff.slice(valueStart, end < 0 ? handoff.length : end);
   return raw.replace(/\n  /g, "\n").trim() || null;
+}
+
+function isCanonicalAcmHandoff(summary: string): boolean {
+  const fields = {
+    goal: canonicalField(summary, "Goal", "State"),
+    state: canonicalField(summary, "State", "Evidence"),
+    evidence: canonicalField(summary, "Evidence", "External"),
+    external: canonicalField(summary, "External", "Exclusions"),
+    exclusions: canonicalField(summary, "Exclusions", "Recover"),
+    recover: canonicalField(summary, "Recover", "NEXT"),
+    next: canonicalField(summary, "NEXT"),
+  };
+  if (Object.values(fields).some((value) => value === null)) return false;
+  const rebuilt = buildCanonicalHandoff(fields as HandoffInput);
+  return rebuilt.ok && rebuilt.value.text === summary;
 }
 
 interface TrustedContinuationMetadata {

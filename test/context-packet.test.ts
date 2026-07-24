@@ -3,6 +3,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
   ACM_CONTINUATION_MARKER,
+  collectTrustedAcmTravelTransactions,
   normalizeExistingAcmPacket,
   normalizeExistingAcmPacketForSession,
 } from "../src/context-packet";
@@ -171,7 +172,11 @@ describe("ACM context packet", () => {
         summaryEntryId: "summary-applied",
         resultingLeafId: "summary-applied",
         originId: "old-leaf",
+        target: "root",
         targetId: "root",
+        currentUserTurnOpen: true,
+        backupCurrentHeadAs: null,
+        backupEntryId: null,
       },
       isError: false,
       timestamp: 3,
@@ -276,7 +281,11 @@ describe("ACM context packet", () => {
           summaryEntryId,
           resultingLeafId: summaryEntryId,
           originId: "old-leaf",
+          target: "root",
           targetId: "root",
+          currentUserTurnOpen: false,
+          backupCurrentHeadAs: null,
+          backupEntryId: null,
           ...(scenario.error === undefined ? {} : { error: scenario.error }),
         },
         isError: false,
@@ -339,7 +348,11 @@ describe("ACM context packet", () => {
         summaryEntryId: "summary-duplicate",
         resultingLeafId: "summary-duplicate",
         originId: "old-leaf",
+        target: "root",
         targetId: "root",
+        currentUserTurnOpen: false,
+        backupCurrentHeadAs: null,
+        backupEntryId: null,
       },
       isError: false,
       timestamp: 3,
@@ -409,7 +422,11 @@ describe("ACM context packet", () => {
         summaryEntryId: "summary-identical-duplicate",
         resultingLeafId: "summary-identical-duplicate",
         originId: "old-leaf",
+        target: "root",
         targetId: "root",
+        currentUserTurnOpen: false,
+        backupCurrentHeadAs: null,
+        backupEntryId: null,
       },
       isError: false,
       timestamp: 3,
@@ -448,5 +465,76 @@ describe("ACM context packet", () => {
     expect(packet.protocol.normalizations).toEqual([]);
     expect(packet.protocol.status).toBe("repaired");
     expect(packet.protocol.repairs).toHaveLength(2);
+  });
+
+  test("trusted travel transactions require canonical topology, exact backup provenance, and one receipt", () => {
+    const canonical = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: folded\nEvidence: none\nExternal: none\nExclusions: none\nRecover: raw-origin\nNEXT: continue`;
+    const summary = {
+      type: "branch_summary",
+      id: "summary-transaction",
+      parentId: "root",
+      timestamp: new Date(2).toISOString(),
+      fromId: "root",
+      fromHook: true,
+      summary: canonical,
+      details: {
+        kind: "acm_travel",
+        handoffVersion: 1,
+        toolCallId: "travel-transaction",
+        currentUserTurnOpen: false,
+        originId: "old-head",
+        target: "root",
+        targetId: "root",
+        backupCurrentHeadAs: "raw-origin",
+      },
+    } as SessionEntry;
+    const receiptMessage = {
+      role: "toolResult" as const,
+      toolCallId: "travel-transaction",
+      toolName: "acm_travel",
+      content: [{ type: "text" as const, text: "Travel complete" }],
+      details: {
+        mutationStatus: "applied",
+        persistentMutationApplied: true,
+        handoffFormat: "structured-v1",
+        summaryEntryId: "summary-transaction",
+        resultingLeafId: "summary-transaction",
+        originId: "old-head",
+        target: "root",
+        targetId: "root",
+        currentUserTurnOpen: false,
+        backupCurrentHeadAs: "raw-origin",
+        backupEntryId: "archive-leaf",
+      },
+      isError: false,
+      timestamp: 3,
+    } as AgentMessage;
+    const receipt = {
+      type: "message",
+      id: "receipt-transaction",
+      parentId: "summary-transaction",
+      timestamp: new Date(3).toISOString(),
+      message: receiptMessage,
+    } as SessionEntry;
+
+    expect(collectTrustedAcmTravelTransactions([summary, receipt])).toHaveLength(1);
+
+    const malformed = { ...summary, summary: `${ACM_CONTINUATION_MARKER}\nnot canonical` } as SessionEntry;
+    expect(collectTrustedAcmTravelTransactions([malformed, receipt])).toEqual([]);
+
+    const wrongTopology = { ...summary, parentId: "wrong-parent", fromId: "wrong-parent" } as SessionEntry;
+    expect(collectTrustedAcmTravelTransactions([wrongTopology, receipt])).toEqual([]);
+
+    const mismatchedReceipt = {
+      ...receipt,
+      message: {
+        ...receiptMessage,
+        details: { ...receiptMessage.details, backupCurrentHeadAs: "different-archive" },
+      },
+    } as SessionEntry;
+    expect(collectTrustedAcmTravelTransactions([summary, mismatchedReceipt])).toEqual([]);
+
+    const duplicateReceipt = { ...receipt, id: "receipt-transaction-duplicate" } as SessionEntry;
+    expect(collectTrustedAcmTravelTransactions([summary, receipt, duplicateReceipt])).toEqual([]);
   });
 });
