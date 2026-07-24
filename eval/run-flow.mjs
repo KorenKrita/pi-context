@@ -1016,7 +1016,7 @@ const report = {
 const transcript = buildTranscript(turnRecords);
 writeFileSync(join(runDir, "transcript.txt"), transcript);
 
-if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && doJudge) {
+if (!infrastructureInvalid && !runError && !auditOnly && doJudge) {
   console.log(`\n=== judging with ${judgeModel.provider}/${judgeModel.modelId} (thinking=${judgeThinking}) ===`);
   const judgeAgentDir = buildAgentDir({
     shrink: false,
@@ -1084,8 +1084,6 @@ if (!infrastructureInvalid && !runError && !verificationFailed && !auditOnly && 
     ? { skipped: true, reason: "infrastructure_invalid" }
     : runError
       ? { skipped: true, reason: "run_error" }
-    : verificationFailed
-      ? { skipped: true, reason: "verification_failed" }
       : auditOnly
         ? { skipped: true, reason: "audit_only" }
         : { skipped: true };
