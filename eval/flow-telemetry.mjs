@@ -5,7 +5,9 @@
 // optional persisted session entries, then labels whether the resulting run is
 // complete enough to support the requested 400K/1M comparison.
 
-export const FLOW_TELEMETRY_SCHEMA_VERSION = 1;
+import { findProviderEmptyLengthResponses } from "./assistant-outcome.mjs";
+
+export const FLOW_TELEMETRY_SCHEMA_VERSION = 2;
 export const NUDGE_LEVELS = Object.freeze([30, 50, 70]);
 
 function finiteNumber(value) {
@@ -266,6 +268,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
   const reminders = [];
   const summaryDepthSnapshots = [];
   const currentUserTurnOpenReceipts = [];
+  const providerEmptyLengthResponses = findProviderEmptyLengthResponses(events);
   const observedTools = [];
   let cycle = 0;
   let settledTurn = 0;
@@ -443,6 +446,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
       observedBranchSummaryEntries: summaryDepthFromEntries(sessionEntries),
     },
     currentUserTurnOpenReceipts,
+    providerEmptyLengthResponses,
     boundaries: compactBoundarySamples(readings, boundaries),
     integrity: finalIntegrity,
     coverage,
@@ -469,8 +473,12 @@ export function classifyFlowEvidence({ report = {}, telemetry = {} } = {}) {
     };
   }
   const terminalError = (report?.turns ?? []).some((turn) => turn?.stopReason === "error" || turn?.stopReason === "aborted" || turn?.errorMessage);
-  if (report?.status === "run_error" || report?.runError || terminalError) {
-    return { classification: "run_error", reason: report?.runError ?? "terminal_assistant_error" };
+  const emptyLength = telemetry?.providerEmptyLengthResponses?.[0];
+  if (report?.status === "run_error" || report?.runError || terminalError || emptyLength) {
+    return {
+      classification: "run_error",
+      reason: emptyLength ? "provider_empty_length_response" : report?.runError ?? "terminal_assistant_error",
+    };
   }
   if (report?.status === "verification_failed" || report?.deterministicVerification?.passed === false) {
     return { classification: "task_failure", reason: "deterministic_verification_failed" };

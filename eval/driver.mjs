@@ -8,6 +8,14 @@
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { FULL_ENV_DENIED_TOOLS } from "./integrity-guard.mjs";
+import { assertTurnCompleted } from "./assistant-outcome.mjs";
+
+export {
+  assertTurnCompleted,
+  finalAssistantOutcome,
+  findProviderEmptyLengthResponses,
+  isProviderEmptyLengthMessage,
+} from "./assistant-outcome.mjs";
 
 export const ENVIRONMENT_MODES = Object.freeze(["raw-control", "core-only", "product-isolated", "agents-only", "full-env"]);
 export const CONTEXT_MANAGEMENT_COMMAND = "skill:context-management";
@@ -203,27 +211,6 @@ export function classifySkillAvailability(input) {
     expectedSkillPath: expected.path,
     discoveredSkillPath: actual.path,
   };
-}
-
-export function finalAssistantOutcome(events) {
-  const message = [...events]
-    .reverse()
-    .find((event) => event?.type === "message_end" && event.message?.role === "assistant")
-    ?.message;
-  return message
-    ? { stopReason: message.stopReason ?? null, errorMessage: message.errorMessage ?? null }
-    : { stopReason: null, errorMessage: null };
-}
-
-export function assertTurnCompleted(events) {
-  const outcome = finalAssistantOutcome(events);
-  if (outcome.stopReason === null) {
-    throw new Error("assistant turn failed: no terminal assistant message");
-  }
-  if (outcome.stopReason === "error" || outcome.stopReason === "aborted") {
-    throw new Error(`assistant turn failed: ${outcome.errorMessage ?? outcome.stopReason}`);
-  }
-  return outcome;
 }
 
 export class PiRpcDriver {

@@ -437,6 +437,35 @@ describe("assistant turn completion", () => {
     }
   });
 
+  test("rejects a zero-usage empty length response as a provider run error", () => {
+    const events = [{
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "length",
+        responseId: "resp-empty-length",
+        content: [],
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 },
+      },
+    }];
+
+    expect(() => assertTurnCompleted(events)).toThrow("provider_empty_length_response (resp-empty-length)");
+  });
+
+  test("keeps a non-empty length response as an outcome-bearing model turn", () => {
+    const events = [{
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "length",
+        content: [{ type: "text", text: "partial output" }],
+        usage: { input: 100, output: 16_000, cacheRead: 0, cacheWrite: 0, reasoning: 100, totalTokens: 16_100 },
+      },
+    }];
+
+    expect(() => assertTurnCompleted(events)).not.toThrow();
+  });
+
   test("rejects a settled turn with no terminal assistant message", () => {
     expect(() => assertTurnCompleted([{ type: "agent_settled" }])).toThrow("assistant turn failed: no terminal assistant message");
   });

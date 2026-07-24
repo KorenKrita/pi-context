@@ -139,6 +139,48 @@ describe("ACM eval result scoring", () => {
     expect(result.checks.find((check) => check.name === "travel succeeded")?.pass).toBe(false);
   });
 
+  test("directed checkpoint requires visible confirmation after the tool result", () => {
+    const scenario = SCENARIOS.find((candidate) => candidate.id === "directed-checkpoint");
+    if (!scenario) throw new Error("directed checkpoint scenario missing");
+    const checkpoint = {
+      name: "acm_checkpoint",
+      args: { name: "baseline-before-refactor" },
+      toolCallId: "checkpoint-1",
+      completed: true,
+      isError: false,
+      details: {},
+    };
+    const baseEvents = [
+      { type: "tool_execution_start", toolName: "acm_checkpoint", toolCallId: "checkpoint-1", args: checkpoint.args },
+      { type: "tool_execution_end", toolName: "acm_checkpoint", toolCallId: "checkpoint-1", isError: false, result: { details: {} } },
+    ];
+
+    const missing = scenario.score({
+      events: baseEvents,
+      toolCalls: [checkpoint],
+      assistantTexts: [],
+      turnRecords: [{ events: baseEvents, toolCalls: [checkpoint], assistantTexts: [] }],
+    });
+    expect(missing.pass).toBe(false);
+    expect(missing.checks.find((check) => check.name === "confirmed checkpoint after tool result")?.pass).toBe(false);
+
+    const confirmedEvents = [...baseEvents, {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "text", text: "Checkpoint baseline-before-refactor created." }],
+      },
+    }];
+    const confirmed = scenario.score({
+      events: confirmedEvents,
+      toolCalls: [checkpoint],
+      assistantTexts: ["Checkpoint baseline-before-refactor created."],
+      turnRecords: [{ events: confirmedEvents, toolCalls: [checkpoint], assistantTexts: ["Checkpoint baseline-before-refactor created."] }],
+    });
+    expect(confirmed.pass).toBe(true);
+  });
+
   test("selects a completed travel rather than a later domain-rejected attempt", () => {
     const applied = { name: "acm_travel", args: { handoff: VALID_HANDOFF }, completed: true, isError: false, details: {} };
     const rejected = {

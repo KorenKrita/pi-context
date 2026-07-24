@@ -407,6 +407,36 @@ describe("flow telemetry", () => {
     expect(classifyFlowEvidence({ report: report({ turns: [{ phase: "P1" }] }), telemetry: lowOccupancy }).classification).toBe("occupancy_miss");
   });
 
+  test("classifies a zero-usage empty length response as run_error before task verification", () => {
+    const telemetry = collectFlowTelemetry({
+      events: [{
+        type: "message_end",
+        message: {
+          role: "assistant",
+          provider: "local-responses",
+          model: "gpt-5.6-sol",
+          responseId: "resp-empty-length",
+          stopReason: "length",
+          content: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 },
+        },
+      }, settled()],
+      report: report({ status: "verification_failed", deterministicVerification: { passed: false } }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.providerEmptyLengthResponses).toEqual([{
+      eventIndex: 0,
+      responseId: "resp-empty-length",
+      provider: "local-responses",
+      model: "gpt-5.6-sol",
+    }]);
+    expect(classifyFlowEvidence({ report: report({ status: "verification_failed", deterministicVerification: { passed: false } }), telemetry })).toEqual({
+      classification: "run_error",
+      reason: "provider_empty_length_response",
+    });
+  });
+
   test("flags session-recall registration or invocation as infrastructure invalid", () => {
     const telemetry = collectFlowTelemetry({
       events: [

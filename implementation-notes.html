@@ -493,6 +493,11 @@
         <td>把 transaction backup alias 明确呈现为 raw archive origin，而不是普通 fold/rebase candidate。</td>
         <td>新 Opus 400K session 在 P8 把 <code>evidence-packet-classified</code> raw backup 当 fold base，receipt 显示 115K→301K、messages 43→78、summary depth 1→2；任务仍完成，但这是 anchor-gravity affordance 缺口。Tool schema、canonical guidance 与 advanced target reference 现明确：raw archive alias 只用于 deliberate restore/rehydrate，fold/rebase 必须选择 sediment 之前的 clean ancestor。Timeline 复用 Context Packet 的 trusted ACM transaction collector，只有 canonical/fromHook/full provenance summary 与 unique finalized applied receipt 匹配时才分类 raw；foreign details 不生效。同一 entry 任一 alias 为 raw 时，active/search/tree/checkpoints 都保留节点级 marker，search 优先命中 alias；checkpoint view 额外给出“not a fold/rebase base”说明。Runtime 不硬拒绝，因为合法 rehydrate 本就需要扩大 history。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>把空内容、全零 usage 的 <code>stopReason:length</code> 识别为 provider run error，而不是模型 task failure。</td>
+        <td>新 core-2x2 的 Sol 400K/1M 曾被持久化为 task failure，但原始 RPC 事件分别含 4/9 次 <code>content=[]</code>、input/output/cache/reasoning/total 全零且带 responseId 的 length completion；短 <code>directed-checkpoint</code> 复现中一次在首个模型响应发生，一次在成功 checkpoint 后的确认回合发生，证明它不是 Saffron 长任务、16K 正常耗尽或 checkpoint mutation 失败。<code>PiRpcDriver</code> 现在统一拒绝该形态并返回 <code>provider_empty_length_response</code>；long-flow/matrix 分类为 run_error、跳过 verifier/judge，并只允许从 fresh workspace 原样重跑整个 cell。正常有内容或非零 usage 的 length 仍保留为 outcome-bearing turn。短 directed-checkpoint scorer 还要求 tool result 之后出现可见 checkpoint 确认，避免工具调用成功却缺失交付时误报 PASS。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

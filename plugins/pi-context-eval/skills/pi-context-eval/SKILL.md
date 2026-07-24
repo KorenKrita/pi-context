@@ -72,7 +72,7 @@ python3 plugins/pi-context-eval/skills/pi-context-eval/scripts/matrix_status.py 
 - `task_failure`: a valid task run failed deterministic verification. Treat it as a real outcome, not infrastructure noise.
 - `coverage_insufficient`: the task may have completed, but required pressure or behavior coverage was not observed. Do not promote it to a pass/fail ceiling claim.
 - `infrastructure_invalid`: the runner, sandbox, provenance, or integrity gate invalidated the cell. It says nothing about model quality.
-- `run_error`: inspect `runError`. Provider transport failure is not a task-quality conclusion.
+- `run_error`: inspect `runError`. Provider transport failure is not a task-quality conclusion. `provider_empty_length_response` specifically means Pi received `stopReason:length` with empty content and all-zero usage; retry the whole cell once from a fresh workspace, never replay the same prompt inside the contaminated session after tools may have completed.
 
 Never claim a 400K-versus-1M pair conclusion unless both arms are formal-evidence eligible and have outcome-bearing classifications. Report incomplete pairs explicitly.
 

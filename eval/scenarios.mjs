@@ -336,12 +336,25 @@ export const SCENARIOS = [
     score(ctx) {
       const cp = ctx.toolCalls.find((c) => c.name === "acm_checkpoint");
       const name = cp?.args?.name;
+      const events = ctx.turnRecords?.[0]?.events ?? ctx.events ?? [];
+      const completionIndex = events.findIndex((event) => event?.type === "tool_execution_end"
+        && event.toolName === "acm_checkpoint"
+        && (!cp?.toolCallId || event.toolCallId === cp.toolCallId));
+      const confirmation = completionIndex < 0 ? "" : events.slice(completionIndex + 1)
+        .filter((event) => event?.type === "message_end" && event.message?.role === "assistant")
+        .flatMap((event) => event.message.content ?? [])
+        .filter((block) => block?.type === "text" && typeof block.text === "string")
+        .map((block) => block.text)
+        .join("\n");
+      const confirmedAfterTool = confirmation.includes("baseline-before-refactor");
       return {
-        pass: toolSucceeded(cp) && name === "baseline-before-refactor",
+        pass: toolSucceeded(cp) && name === "baseline-before-refactor" && confirmedAfterTool,
         checks: [
           check("called acm_checkpoint", Boolean(cp), cp ? "called" : "missing"),
           check("correct name", name === "baseline-before-refactor", `name=${name ?? "none"}`),
           check("checkpoint succeeded", toolSucceeded(cp), !cp ? "missing" : cp.details?.error ?? (cp.isError ? "error" : "ok")),
+          check("confirmed checkpoint after tool result", confirmedAfterTool,
+            confirmedAfterTool ? "visible confirmation observed" : "missing post-tool confirmation"),
           check("did not travel", !ctx.toolCalls.some((c) => c.name === "acm_travel"), "travel absent"),
         ],
       };
