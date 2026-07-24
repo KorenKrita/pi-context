@@ -370,6 +370,66 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     }));
   });
 
+  test("keeps a foreign duplicate receipt as repaired evidence instead of granting a raw backup", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "first branch payload", timestamp: Date.now() });
+    const firstCallId = "first-travel-with-foreign-duplicate";
+    sessionManager.appendMessage(travelToolCall(firstCallId));
+    const fixture = createExtensionFixture(sessionManager);
+    const first = await fixture.travelTool.execute(
+      firstCallId,
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(first.details?.error).toBeUndefined();
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: firstCallId,
+      toolName: "acm_travel",
+      content: first.content,
+      details: first.details,
+      isError: false,
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: firstCallId,
+      toolName: "acm_travel",
+      content: [{ type: "text", text: "foreign duplicate" }],
+      details: {},
+      isError: false,
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage({ role: "user", content: "continue after duplicate", timestamp: Date.now() });
+    const secondCallId = "second-travel-reject-foreign-duplicate";
+    sessionManager.appendMessage(travelToolCall(secondCallId));
+
+    const second = await fixture.travelTool.execute(
+      secondCallId,
+      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "must-not-trust-foreign-duplicate" },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+
+    expect(second.details).toMatchObject({
+      error: "backup_protocol_incomplete",
+      normalizations: [expect.objectContaining({
+        kind: "removed_applied_acm_travel_receipt",
+        toolCallId: firstCallId,
+      })],
+      repairs: [expect.objectContaining({
+        kind: "removed_orphan_result",
+        toolCallId: firstCallId,
+        toolName: "acm_travel",
+      })],
+    });
+    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "must-not-trust-foreign-duplicate")).toBe(false);
+  });
+
   test("accepts a JSON-encoded structured handoff from providers that serialize nested arguments", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });

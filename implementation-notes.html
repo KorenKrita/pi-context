@@ -471,7 +471,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Flow transition telemetry 的 post sample 必须来自新 cycle 中第一条完成的 assistant <code>message_end</code>。</td>
-        <td>最终 2×2 的八次 successful travel 全被旧 collector 记成 pre/post tokens 相等，因为 originating run 的陈旧 <code>turn_end</code> 出现在 boundary 后；Responses compaction 还会先出现 usage-less lifecycle event，导致 post tokens 被记成 0。新规则跳过 originating stale turn 与 message start/update，只用后续 cycle 的 completed prompt sample，因此能报告真实 context drop。</td>
+        <td>最终 2×2 的八次 successful travel 全被旧 collector 记成 pre/post tokens 相等，因为 originating run 的陈旧 <code>turn_end</code> 出现在 boundary 后；Responses compaction 还会先出现 usage-less lifecycle event，导致 post tokens 被记成 0。新规则只接受紧邻新 cycle 中 role=assistant、non-error/non-aborted 的 completed <code>message_end</code>，跳过 originating stale turn、custom reminder、失败 retry 与 message start/update，因此能报告真实 context drop。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
@@ -481,7 +481,7 @@
       <tr>
         <td>user-decided</td>
         <td>自动 checkpoint 的语义名称必须绑定到调用前最新的 protocol-complete leaf；只有可信 applied ACM receipt elision 可视为安全 normalization。</td>
-        <td>最终 2×2 审计发现 16/16 自动 checkpoint 都物理落在 assistant tool-call turn，恢复会合成 42 个虚假 <code>[Interrupted by context travel]</code>；三条矩阵臂的后续 travel 还四次因为上一 applied travel receipt 被当作普通 orphan repair 而丢失新 raw backup。当前实现从 checkpoint assistant batch 之前向前选择最新能原样重建的 prefix，通常是最后一个已完成 tool result；名称继续表达语义状态。孤立 ACM receipt 仅在 direct parent summary、entry/origin/target、可用 toolCallId 与 finalized non-error <code>mutationStatus: applied</code> provenance 全部匹配时安全移除并记录 normalization；foreign/untrusted receipt 与任何普通 missing/duplicate/reorder/invalid repair 仍拒绝 raw backup。</td>
+        <td>最终 2×2 审计发现 16/16 自动 checkpoint 都物理落在 assistant tool-call turn，恢复会合成 42 个虚假 <code>[Interrupted by context travel]</code>；三条矩阵臂的后续 travel 还四次因为上一 applied travel receipt 被当作普通 orphan repair 而丢失新 raw backup。当前实现从 checkpoint assistant batch 之前向前选择最新能原样重建的 prefix，通常是最后一个已完成 tool result；名称继续表达语义状态。孤立 ACM receipt 仅在 packet 中存在唯一完整 message match，且 direct parent summary、entry/origin/target、必需的精确 toolCallId 与 finalized non-error/no-domain-error <code>mutationStatus: applied</code> provenance 全部匹配时安全移除并记录 normalization；同 ID foreign/identical duplicate、untrusted receipt 与任何普通 missing/duplicate/reorder/invalid repair 仍拒绝 raw backup。</td>
       </tr>
     </tbody>
   </table>

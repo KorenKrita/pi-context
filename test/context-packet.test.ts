@@ -192,6 +192,7 @@ describe("ACM context packet", () => {
         details: {
           kind: "acm_travel",
           handoffVersion: 1,
+          toolCallId: "travel-applied",
           currentUserTurnOpen: true,
           originId: "old-leaf",
           target: "root",
@@ -251,5 +252,197 @@ describe("ACM context packet", () => {
         toolName: "acm_travel",
       }],
     });
+  });
+
+  test("requires exact tool-call provenance and a domain-error-free finalized receipt", () => {
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: archive\nNEXT: act`;
+    for (const scenario of [
+      { summaryToolCallId: undefined, receiptToolCallId: "travel-missing", error: undefined },
+      { summaryToolCallId: "different-call", receiptToolCallId: "travel-mismatch", error: undefined },
+      { summaryToolCallId: "travel-domain-error", receiptToolCallId: "travel-domain-error", error: "final handler rejected" },
+      { summaryToolCallId: "travel-object-error", receiptToolCallId: "travel-object-error", error: { code: "rejected" } },
+    ]) {
+      const summaryEntryId = `summary-${scenario.receiptToolCallId}`;
+      const receipt = {
+        role: "toolResult" as const,
+        toolCallId: scenario.receiptToolCallId,
+        toolName: "acm_travel",
+        content: [{ type: "text" as const, text: "Travel complete" }],
+        details: {
+          mutationStatus: "applied",
+          persistentMutationApplied: true,
+          handoffFormat: "structured-v1",
+          summaryEntryId,
+          resultingLeafId: summaryEntryId,
+          originId: "old-leaf",
+          targetId: "root",
+          ...(scenario.error === undefined ? {} : { error: scenario.error }),
+        },
+        isError: false,
+        timestamp: 3,
+      } as AgentMessage;
+      const activeEntries = [
+        {
+          type: "branch_summary",
+          id: summaryEntryId,
+          parentId: "root",
+          timestamp: new Date(2).toISOString(),
+          fromId: "root",
+          summary,
+          details: {
+            kind: "acm_travel",
+            handoffVersion: 1,
+            ...(scenario.summaryToolCallId === undefined ? {} : { toolCallId: scenario.summaryToolCallId }),
+            currentUserTurnOpen: false,
+            originId: "old-leaf",
+            target: "root",
+            targetId: "root",
+            backupCurrentHeadAs: null,
+          },
+        },
+        {
+          type: "message",
+          id: `receipt-${scenario.receiptToolCallId}`,
+          parentId: summaryEntryId,
+          timestamp: new Date(3).toISOString(),
+          message: receipt,
+        },
+      ] as SessionEntry[];
+
+      const packet = normalizeExistingAcmPacket([receipt], activeEntries);
+
+      expect(packet.protocol).toMatchObject({
+        status: "repaired",
+        normalizations: [],
+        repairs: [{
+          kind: "removed_orphan_result",
+          toolCallId: scenario.receiptToolCallId,
+          toolName: "acm_travel",
+        }],
+      });
+    }
+  });
+
+  test("normalizes only the unique trusted receipt when a foreign duplicate reuses its tool-call id", () => {
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: archive\nNEXT: act`;
+    const trustedReceipt = {
+      role: "toolResult" as const,
+      toolCallId: "travel-duplicate",
+      toolName: "acm_travel",
+      content: [{ type: "text" as const, text: "Travel complete" }],
+      details: {
+        mutationStatus: "applied",
+        persistentMutationApplied: true,
+        handoffFormat: "structured-v1",
+        summaryEntryId: "summary-duplicate",
+        resultingLeafId: "summary-duplicate",
+        originId: "old-leaf",
+        targetId: "root",
+      },
+      isError: false,
+      timestamp: 3,
+    } as AgentMessage;
+    const foreignDuplicate = {
+      ...trustedReceipt,
+      content: [{ type: "text" as const, text: "foreign duplicate" }],
+      details: {},
+      timestamp: 4,
+    } as AgentMessage;
+    const activeEntries = [
+      {
+        type: "branch_summary",
+        id: "summary-duplicate",
+        parentId: "root",
+        timestamp: new Date(2).toISOString(),
+        fromId: "root",
+        summary,
+        details: {
+          kind: "acm_travel",
+          handoffVersion: 1,
+          toolCallId: "travel-duplicate",
+          currentUserTurnOpen: false,
+          originId: "old-leaf",
+          target: "root",
+          targetId: "root",
+          backupCurrentHeadAs: null,
+        },
+      },
+      {
+        type: "message",
+        id: "receipt-duplicate",
+        parentId: "summary-duplicate",
+        timestamp: new Date(3).toISOString(),
+        message: trustedReceipt,
+      },
+    ] as SessionEntry[];
+
+    const packet = normalizeExistingAcmPacket([trustedReceipt, foreignDuplicate], activeEntries);
+
+    expect(packet.protocol).toMatchObject({
+      status: "repaired",
+      normalizations: [{
+        kind: "removed_applied_acm_travel_receipt",
+        toolCallId: "travel-duplicate",
+      }],
+      repairs: [{
+        kind: "removed_orphan_result",
+        toolCallId: "travel-duplicate",
+        toolName: "acm_travel",
+      }],
+    });
+  });
+
+  test("keeps identical duplicate receipts repaired instead of normalizing by shared identity", () => {
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: archive\nNEXT: act`;
+    const receipt = {
+      role: "toolResult" as const,
+      toolCallId: "travel-identical-duplicate",
+      toolName: "acm_travel",
+      content: [{ type: "text" as const, text: "Travel complete" }],
+      details: {
+        mutationStatus: "applied",
+        persistentMutationApplied: true,
+        handoffFormat: "structured-v1",
+        summaryEntryId: "summary-identical-duplicate",
+        resultingLeafId: "summary-identical-duplicate",
+        originId: "old-leaf",
+        targetId: "root",
+      },
+      isError: false,
+      timestamp: 3,
+    } as AgentMessage;
+    const activeEntries = [
+      {
+        type: "branch_summary",
+        id: "summary-identical-duplicate",
+        parentId: "root",
+        timestamp: new Date(2).toISOString(),
+        fromId: "root",
+        summary,
+        details: {
+          kind: "acm_travel",
+          handoffVersion: 1,
+          toolCallId: "travel-identical-duplicate",
+          currentUserTurnOpen: false,
+          originId: "old-leaf",
+          target: "root",
+          targetId: "root",
+          backupCurrentHeadAs: null,
+        },
+      },
+      {
+        type: "message",
+        id: "receipt-identical-duplicate",
+        parentId: "summary-identical-duplicate",
+        timestamp: new Date(3).toISOString(),
+        message: receipt,
+      },
+    ] as SessionEntry[];
+
+    const packet = normalizeExistingAcmPacket([receipt, structuredClone(receipt)], activeEntries);
+
+    expect(packet.protocol.normalizations).toEqual([]);
+    expect(packet.protocol.status).toBe("repaired");
+    expect(packet.protocol.repairs).toHaveLength(2);
   });
 });

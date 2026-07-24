@@ -280,7 +280,7 @@ preTravelLeafId + analysis.status / repairs / defects
 - 完整 tool batch 的最后一个 toolResult；
 - 其他无需 protocol repair 的合法 leaf。
 
-若 immediate packet 需要普通 repair 或包含 duplicate/invalid tool-call identity，travel 在任何 backup/branch mutation 前失败，并返回 repairs/defects；不得静默回退到更早、已经不代表当前 raw continuation 的 anchor。唯一安全 normalization 是宿主在 applied travel branch 上追加的孤立 ACM receipt：它必须与 trusted branch-summary provenance 和 finalized applied details 精确匹配；foreign/untrusted receipt 不享有该例外。
+若 immediate packet 需要普通 repair 或包含 duplicate/invalid tool-call identity，travel 在任何 backup/branch mutation 前失败，并返回 repairs/defects；不得静默回退到更早、已经不代表当前 raw continuation 的 anchor。唯一安全 normalization 是宿主在 applied travel branch 上追加的孤立 ACM receipt：packet 必须只有一个完整 message match，且 trusted branch-summary 的必需 toolCall/entry/origin/target provenance 与 finalized non-error/no-domain-error applied details 全部精确匹配；同 ID duplicate 与 foreign/untrusted receipt 不享有该例外。
 
 自动 checkpoint 不要求 immediate prefix 必须完整：它从 checkpoint assistant batch 前一项开始向前寻找最新 protocol-complete prefix，并把语义 label 写到该物理 leaf；通常它就是最近一个已完成 `toolResult`。若所有候选都需要普通 repair 或 invalid，则 checkpoint 明确失败且不写 label。显式 target 仍保留 caller 对历史节点的直接选择权。
 

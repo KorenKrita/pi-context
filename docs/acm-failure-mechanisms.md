@@ -474,7 +474,7 @@ Backup resolution 跳过当前 internal-only travel turn 和 completed toolResul
 - 再用行为实验比较旧工具重放率。
 
 **正确性质**:
-Travel backup 保存的是可直接恢复的 raw continuation leaf：使用紧邻当前 travel call 之前的 leaf，并以该 leaf 的 compaction-aware projected packet 验证 protocol completeness；需要普通 repair 或 unrepairable defect 时阻止 travel，不静默回退旧状态。自动 checkpoint 的名称仍是语义 cue，但物理 anchor 改为 checkpoint call 之前最新的 protocol-complete leaf，通常是已完成 tool result。与 trusted ACM summary 和 finalized applied details 精确匹配的孤立旧 travel receipt 作为安全 normalization，不算普通 repair；其他 orphan/missing/duplicate/reorder/invalid 均不放宽。
+Travel backup 保存的是可直接恢复的 raw continuation leaf：使用紧邻当前 travel call 之前的 leaf，并以该 leaf 的 compaction-aware projected packet 验证 protocol completeness；需要普通 repair 或 unrepairable defect 时阻止 travel，不静默回退旧状态。自动 checkpoint 的名称仍是语义 cue，但物理 anchor 改为 checkpoint call 之前最新的 protocol-complete leaf，通常是已完成 tool result。只有 packet 中唯一完整 receipt message、trusted summary 的必需 toolCall/entry/origin/target provenance 与 finalized non-error/no-domain-error applied details 全部精确匹配时才做安全 normalization；同 ID duplicate 与其他 orphan/missing/duplicate/reorder/invalid 均不放宽。
 
 **证据**:
 

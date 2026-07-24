@@ -33,10 +33,33 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization> {
+function hasDomainError(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== null && typeof value === "object" && Object.keys(value).length > 0;
+}
+
+function receiptIdentity(message: AgentMessage): string | undefined {
+  if (message.role !== "toolResult" || message.toolName !== "acm_travel" || !message.toolCallId) return undefined;
+  try {
+    return JSON.stringify({
+      role: message.role,
+      toolCallId: message.toolCallId,
+      toolName: message.toolName,
+      content: message.content,
+      details: message.details,
+      isError: message.isError ?? false,
+      timestamp: message.timestamp,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const trusted = new Map<string, AcmProtocolNormalization>();
-  const ambiguous = new Set<string>();
+  const trusted = new Map<string, AcmProtocolNormalization[]>();
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
     const message = entry.message;
@@ -47,6 +70,7 @@ function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<str
       receipt?.mutationStatus !== "applied"
       || receipt.persistentMutationApplied !== true
       || receipt.handoffFormat !== "structured-v1"
+      || hasDomainError(receipt.error)
       || !summaryEntryId
       || receipt.resultingLeafId !== summaryEntryId
       || entry.parentId !== summaryEntryId
@@ -63,45 +87,47 @@ function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<str
       || provenance.handoffVersion !== 1
       || receipt.originId !== provenance.originId
       || receipt.targetId !== provenance.targetId
-      || (typeof provenance.toolCallId === "string" && provenance.toolCallId !== message.toolCallId)
+      || typeof provenance.toolCallId !== "string"
+      || provenance.toolCallId.trim().length === 0
+      || provenance.toolCallId !== message.toolCallId
     ) continue;
-    if (trusted.has(message.toolCallId)) {
-      trusted.delete(message.toolCallId);
-      ambiguous.add(message.toolCallId);
-      continue;
-    }
-    if (!ambiguous.has(message.toolCallId)) {
-      trusted.set(message.toolCallId, {
-        kind: "removed_applied_acm_travel_receipt",
-        toolCallId: message.toolCallId,
-        summaryEntryId,
-      });
-    }
+    const identity = receiptIdentity(message);
+    if (!identity) continue;
+    const candidates = trusted.get(identity) ?? [];
+    candidates.push({
+      kind: "removed_applied_acm_travel_receipt",
+      toolCallId: message.toolCallId,
+      summaryEntryId,
+    });
+    trusted.set(identity, candidates);
   }
   return trusted;
 }
 
-function normalizeProtocol(
-  protocol: ReturnType<typeof analyzeToolProtocol>,
+function normalizeAppliedTravelReceipts(
+  messages: readonly AgentMessage[],
   activeEntries: readonly SessionEntry[],
-) {
-  if (protocol.status === "invalid") {
-    return { ...protocol, normalizations: [] as AcmProtocolNormalization[] };
-  }
+): { messages: AgentMessage[]; normalizations: AcmProtocolNormalization[] } {
   const trustedReceipts = trustedAppliedTravelReceipts(activeEntries);
+  const packetCandidates = new Map<string, number[]>();
+  for (let index = 0; index < messages.length; index++) {
+    const identity = receiptIdentity(messages[index]!);
+    if (!identity) continue;
+    const indices = packetCandidates.get(identity) ?? [];
+    indices.push(index);
+    packetCandidates.set(identity, indices);
+  }
+  const removed = new Set<number>();
   const normalizations: AcmProtocolNormalization[] = [];
-  const repairs = protocol.repairs.filter((repair) => {
-    if (repair.kind !== "removed_orphan_result" || repair.toolName !== "acm_travel") return true;
-    const normalization = trustedReceipts.get(repair.toolCallId);
-    if (!normalization) return true;
-    normalizations.push(normalization);
-    return false;
-  });
+  for (const [identity, persistedCandidates] of trustedReceipts) {
+    const packetIndices = packetCandidates.get(identity) ?? [];
+    if (persistedCandidates.length !== 1 || packetIndices.length !== 1) continue;
+    removed.add(packetIndices[0]!);
+    normalizations.push(persistedCandidates[0]!);
+  }
   return {
-    ...protocol,
-    status: repairs.length === 0 ? "complete" as const : "repaired" as const,
+    messages: messages.filter((_, index) => !removed.has(index)),
     normalizations,
-    repairs,
   };
 }
 
@@ -216,12 +242,13 @@ export function normalizeExistingAcmPacket(
       ? projectContinuation(message, latestCandidate.metadata!)
       : message)
     : [...messages];
-  const protocol = normalizeProtocol(analyzeToolProtocol(projected), activeEntries);
+  const normalized = normalizeAppliedTravelReceipts(projected, activeEntries);
+  const protocol = analyzeToolProtocol(normalized.messages);
   return {
     messages: protocol.messages,
     protocol: {
       status: protocol.status,
-      normalizations: protocol.normalizations,
+      normalizations: normalized.normalizations,
       repairs: protocol.repairs,
       defects: protocol.defects,
     },
