@@ -510,8 +510,8 @@
       </tr>
       <tr>
         <td>user-decided</td>
-        <td>activation 低压闸门：会话峰值工作预算压力 <strong>&lt; 30%</strong> 时，未使用 ACM 视为合理克制，不得记为 activation 失败（不得 never-activated，activation 不低于 2）；per-phase 压力（进入/离开 <code>pressurePercent</code>）渲染进 transcript，峰值经 <code>judgeRun</code> 喂入 <code>buildJudgePrompt</code>。30% 门限由用户批准。</td>
-        <td>exprlang smoke 峰值仅 10.3%、零 ACM，judge 却判 never-activated——把合理克制误记为失败。压力源为 D4 修正后的 <code>flow-telemetry</code>（cacheWrite 计入后数值正确）。峰值在 <code>judge.mjs</code> 内由 turnRecords 的 <code>telemetry.{before,after}.pressurePercent</code> 求 max，自包含、无需改 run-flow。无遥测时优雅降级（peakText=未知、省略压力行）。commit <code>8babb0f1</code>。</td>
+        <td>activation 低压闸门：会话峰值工作预算压力 <strong>&lt; 30%</strong> 时，未使用 ACM 视为合理克制，不得记为 activation 失败（不得 never-activated，activation 不低于 2）。权威峰值由 run-flow 对整条 flow 的原始事件跑 event-based <code>collectFlowTelemetry</code>（<code>peak.pressurePercent</code>）算出，存入 <code>report.telemetry</code> 并经 <code>judgeRun</code> 传入 <code>buildJudgePrompt</code> 闸门。per-phase 压力显示已 deferred（本轮 peak-only）。30% 门限由用户批准。</td>
+        <td>两次实现：(1) <code>8babb0f1</code> 首版从 <code>turnRecords.telemetry.before/after.pressurePercent</code> 读峰值——该字段不存在（真实 per-turn 形状是 <code>sessionStats.contextUsage.tokens</code>，且同样漏算 cacheWrite），saffron 峰值被低估成 9.9%，单元 render-check 用手工 fixture 骗过测试但运行时结构不符。(2) <code>a8a8a405</code> 改为 peak-only：run-flow 累积原始事件跑 <code>collectFlowTelemetry</code>（D4 修正、含 cacheWrite）取 <code>peak.pressurePercent</code>，删掉 judge 里坏的 per-turn helper。端到端 smoke 验证：exprlang 峰值 6.5%，judge activation 从 never-activated 翻为 healthy 并明说“6.5% &lt; 30% 合理克制”；saffron 峰值 85.6%（与真实事件重放 85.58% 吻合），activation 3/3。教训：仪器改动必须端到端重跑 smoke，不能只信单元。commit <code>a8a8a405</code>（首版 <code>8babb0f1</code>）。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
