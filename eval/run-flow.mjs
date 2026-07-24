@@ -826,7 +826,32 @@ try {
           const beforeFlowHook = await invokeHook(flow, "beforeTurn", turnContext);
           const beforeTurnHook = await invokeHook(turn, "before", turnContext);
           const beforeHostActions = await runHostActions(turn.beforeHostActions, turnContext);
-          const events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
+          let events;
+          try {
+            events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
+          } catch (error) {
+            events = Array.isArray(error?.turnEvents) ? error.turnEvents : [];
+            const toolCalls = extractToolCalls(events);
+            const assistantText = extractAssistantTranscript(events);
+            const segments = extractTranscriptSegments(events);
+            const outcome = finalAssistantOutcome(events);
+            const afterTelemetry = await captureTurnTelemetry(driver);
+            runError = error instanceof Error ? error.message : String(error);
+            turnRecords.push({
+              phase: turn.phase,
+              prompt: turn.prompt,
+              toolCalls,
+              assistantText,
+              segments,
+              ...outcome,
+              telemetry: { before: beforeTelemetry, after: afterTelemetry },
+              hooks: { beforeFlowHook, beforeTurnHook, afterTurnHook: null, afterFlowHook: null },
+              hostActions: { before: beforeHostActions, after: [] },
+            });
+            console.log(`  run error: ${runError}`);
+            console.log(`  partial tools: ${toolCalls.map((call) => call.name).join(", ") || "(none)"}`);
+            break;
+          }
           const toolCalls = extractToolCalls(events);
           const assistantText = extractAssistantTranscript(events);
           const segments = extractTranscriptSegments(events);
@@ -863,7 +888,7 @@ try {
             break;
           }
         }
-        if (!infrastructureInvalid) {
+        if (!infrastructureInvalid && !runError) {
           await runHostActions(flow.afterHostActions, { ...runContext, turnRecords });
           await invokeHook(flow, "afterRun", { ...runContext, turnRecords });
           const verification = await invokeHook(flow, "verify", { ...runContext, turnRecords, driver });

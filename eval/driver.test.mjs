@@ -449,7 +449,17 @@ describe("assistant turn completion", () => {
       },
     }];
 
-    expect(() => assertTurnCompleted(events)).toThrow("provider_empty_length_response (resp-empty-length)");
+    let failure;
+    try {
+      assertTurnCompleted(events);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({
+      code: "provider_empty_length_response",
+      turnEvents: events,
+    });
+    expect(failure?.message).toContain("provider_empty_length_response (resp-empty-length)");
   });
 
   test("keeps a non-empty length response as an outcome-bearing model turn", () => {

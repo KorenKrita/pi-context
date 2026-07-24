@@ -5,6 +5,15 @@ function terminalAssistantMessage(events) {
     ?.message ?? null;
 }
 
+export class AssistantTurnError extends Error {
+  constructor(code, message, turnEvents) {
+    super(message);
+    this.name = "AssistantTurnError";
+    this.code = code;
+    this.turnEvents = [...turnEvents];
+  }
+}
+
 function zeroUsage(usage) {
   if (!usage || typeof usage !== "object") return false;
   return ["input", "output", "cacheRead", "cacheWrite", "reasoning", "totalTokens"]
@@ -43,12 +52,26 @@ export function finalAssistantOutcome(events) {
 
 export function assertTurnCompleted(events) {
   const message = terminalAssistantMessage(events);
-  if (!message) throw new Error("assistant turn failed: no terminal assistant message");
+  if (!message) {
+    throw new AssistantTurnError(
+      "terminal_assistant_missing",
+      "assistant turn failed: no terminal assistant message",
+      events,
+    );
+  }
   if (isProviderEmptyLengthMessage(message)) {
-    throw new Error(`assistant turn failed: provider_empty_length_response${message.responseId ? ` (${message.responseId})` : ""}`);
+    throw new AssistantTurnError(
+      "provider_empty_length_response",
+      `assistant turn failed: provider_empty_length_response${message.responseId ? ` (${message.responseId})` : ""}`,
+      events,
+    );
   }
   if (message.stopReason === "error" || message.stopReason === "aborted") {
-    throw new Error(`assistant turn failed: ${message.errorMessage ?? message.stopReason}`);
+    throw new AssistantTurnError(
+      "terminal_assistant_error",
+      `assistant turn failed: ${message.errorMessage ?? message.stopReason}`,
+      events,
+    );
   }
   return { stopReason: message.stopReason ?? null, errorMessage: message.errorMessage ?? null };
 }
