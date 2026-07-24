@@ -12,6 +12,7 @@ import {
   CONTROLLED_WINDOWS,
   DEFAULT_FLOW_ID,
   acquireMatrixLock,
+  appendMatrixAttempt,
   agentsOnlySourceConfigHashes,
   assertCleanGitWorktree,
   assertMatrixWorktreeClean,
@@ -37,6 +38,7 @@ import {
   releaseMatrixLock,
   runAuditPreflight,
   runFlowChild,
+  shouldRunMatrixCell,
   shouldSkipMatrixCell,
   verifyPinnedCheckout,
   validateCellProvenance,
@@ -112,15 +114,70 @@ describe("real Pi long-flow matrix declaration", () => {
   test("starts each cell resumable and skips only durable terminal evidence by default", () => {
     const manifest = createLongFlowMatrixManifest({ matrixRunId: "matrix-b" });
     const state = createInitialMatrixState({ manifest, outputDir: "/tmp/acm-flow-matrix", piProvenance: { exact: true } });
-    expect(Object.values(state.cells).every((cell) => cell.status === "pending" && cell.attempts === 0)).toBe(true);
+    expect(Object.values(state.cells).every((cell) => cell.status === "pending" && cell.attempts === 0 && cell.attemptHistory.length === 0)).toBe(true);
     expect(state.secretSeed).toBeUndefined();
     expect(shouldSkipMatrixCell({ classification: "certifying_run" })).toBe(true);
     expect(shouldSkipMatrixCell({ classification: "coverage_insufficient" })).toBe(true);
     expect(shouldSkipMatrixCell({ classification: "occupancy_miss" })).toBe(true);
     expect(shouldSkipMatrixCell({ classification: "task_failure" })).toBe(true);
     expect(shouldSkipMatrixCell({ classification: "infrastructure_invalid" })).toBe(true);
-    expect(shouldSkipMatrixCell({ classification: "run_error" })).toBe(false);
+    expect(shouldSkipMatrixCell({ classification: "run_error", attempts: 1 })).toBe(false);
+    expect(shouldSkipMatrixCell({ classification: "run_error", attempts: 2 })).toBe(true);
+    expect(shouldSkipMatrixCell({ classification: "run_error", attempts: 3 })).toBe(true);
     expect(shouldSkipMatrixCell({ status: "pending" })).toBe(false);
+    expect(shouldRunMatrixCell({ classification: "run_error", attempts: 1 }, { retryAll: true })).toBe(true);
+    expect(shouldRunMatrixCell({ classification: "run_error", attempts: 2 }, { retryAll: true })).toBe(false);
+    expect(shouldRunMatrixCell({ classification: "task_failure" }, { retryAll: false })).toBe(false);
+    expect(shouldRunMatrixCell({ classification: "task_failure" }, { retryAll: true })).toBe(true);
+  });
+
+  test("preserves immutable evidence for both allowed provider attempts", () => {
+    const root = mkdtempSync(join(tmpdir(), "saffron-attempt-history-"));
+    try {
+      const firstReport = join(root, "attempt-1-report.json");
+      const firstTelemetry = join(root, "attempt-1-telemetry.json");
+      const secondReport = join(root, "attempt-2-report.json");
+      const secondTelemetry = join(root, "attempt-2-telemetry.json");
+      writeFileSync(firstReport, '{"attempt":1}\n');
+      writeFileSync(firstTelemetry, '{"attempt":1,"kind":"telemetry"}\n');
+      writeFileSync(secondReport, '{"attempt":2}\n');
+      writeFileSync(secondTelemetry, '{"attempt":2,"kind":"telemetry"}\n');
+
+      const cell = {
+        attempts: 1,
+        startedAt: "2026-07-24T01:00:00.000Z",
+        finishedAt: "2026-07-24T01:01:00.000Z",
+        classification: "run_error",
+        reason: "provider_empty_length_response",
+        reportPath: firstReport,
+        telemetryPath: firstTelemetry,
+        provenanceCheck: { valid: true, reasons: [] },
+        child: { exitCode: 1, signal: null, error: null },
+      };
+      appendMatrixAttempt(cell);
+      const firstHistory = structuredClone(cell.attemptHistory[0]);
+
+      Object.assign(cell, {
+        attempts: 2,
+        startedAt: "2026-07-24T01:02:00.000Z",
+        finishedAt: "2026-07-24T01:03:00.000Z",
+        reportPath: secondReport,
+        telemetryPath: secondTelemetry,
+        child: { exitCode: 1, signal: null, error: "second failure" },
+      });
+      appendMatrixAttempt(cell);
+
+      expect(cell.attemptHistory).toHaveLength(2);
+      expect(cell.attemptHistory[0]).toEqual(firstHistory);
+      expect(cell.attemptHistory.map((attempt) => attempt.attempt)).toEqual([1, 2]);
+      expect(cell.attemptHistory.map((attempt) => attempt.reportPath)).toEqual([firstReport, secondReport]);
+      expect(cell.attemptHistory.map((attempt) => attempt.telemetryPath)).toEqual([firstTelemetry, secondTelemetry]);
+      expect(cell.attemptHistory.every((attempt) => /^[a-f0-9]{64}$/.test(attempt.reportSha256))).toBe(true);
+      expect(cell.attemptHistory.every((attempt) => /^[a-f0-9]{64}$/.test(attempt.telemetrySha256))).toBe(true);
+      expect(shouldSkipMatrixCell(cell)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("agents-only source provenance tracks only inputs copied into the sparse harness", () => {

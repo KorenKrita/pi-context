@@ -30,14 +30,29 @@ export function isProviderEmptyLengthMessage(message) {
 
 export function findProviderEmptyLengthResponses(events) {
   const responses = [];
+  let terminalCandidate = null;
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
     const event = events[eventIndex];
-    if (event?.type !== "message_end" || !isProviderEmptyLengthMessage(event.message)) continue;
+    if (event?.type === "message_end" && event.message?.role === "assistant") {
+      terminalCandidate = { eventIndex, message: event.message };
+    }
+    if (event?.type !== "agent_settled") continue;
+    if (terminalCandidate && isProviderEmptyLengthMessage(terminalCandidate.message)) {
+      responses.push({
+        eventIndex: terminalCandidate.eventIndex,
+        responseId: terminalCandidate.message.responseId ?? null,
+        provider: terminalCandidate.message.provider ?? null,
+        model: terminalCandidate.message.model ?? null,
+      });
+    }
+    terminalCandidate = null;
+  }
+  if (terminalCandidate && isProviderEmptyLengthMessage(terminalCandidate.message)) {
     responses.push({
-      eventIndex,
-      responseId: event.message.responseId ?? null,
-      provider: event.message.provider ?? null,
-      model: event.message.model ?? null,
+      eventIndex: terminalCandidate.eventIndex,
+      responseId: terminalCandidate.message.responseId ?? null,
+      provider: terminalCandidate.message.provider ?? null,
+      model: terminalCandidate.message.model ?? null,
     });
   }
   return responses;

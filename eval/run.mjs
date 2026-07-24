@@ -19,7 +19,7 @@ import {
   createRunDir,
   EXTENSION_PATH,
 } from "./setup.mjs";
-import { classifySkillAvailability, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
+import { classifySkillAvailability, finalAssistantOutcome, normalizeEnvironmentMode, PiRpcDriver } from "./driver.mjs";
 import { createScenarioWorkspace } from "./scenario-workspace.mjs";
 import {
   extractAssistantTexts,
@@ -46,6 +46,30 @@ function parseModel(raw) {
     return { provider: raw.slice(0, slash), modelId: raw.slice(slash + 1) };
   }
   return { provider: "local-openai", modelId: raw };
+}
+
+function compactToolCall(call) {
+  return {
+    name: call.name,
+    args: call.args,
+    completed: call.completed ?? false,
+    isError: call.isError ?? false,
+    resultPreview: (call.resultText ?? "").slice(0, 240),
+  };
+}
+
+function failedTurnEvidence(error, turnIndex) {
+  const events = Array.isArray(error?.turnEvents) ? error.turnEvents : [];
+  const toolCalls = extractToolCalls(events);
+  const assistantTexts = extractAssistantTexts(events);
+  return {
+    turnIndex,
+    eventCount: events.length,
+    eventTypes: events.map((event) => event?.type ?? "unknown"),
+    toolCalls: toolCalls.map(compactToolCall),
+    assistantTexts,
+    ...finalAssistantOutcome(events),
+  };
 }
 
 if (process.argv.includes("--list")) {
@@ -162,6 +186,8 @@ for (const scenario of scenarios) {
     checks: [],
     toolCalls: [],
     error: null,
+    runErrorCode: null,
+    failedTurnEvidence: null,
     environmentMode,
     workspace,
     commands: null,
@@ -204,8 +230,29 @@ for (const scenario of scenarios) {
     } else {
       const allEvents = [];
       const turnRecords = [];
-      for (const turn of scenario.turns) {
-        const events = await driver.prompt(turn.prompt, { timeoutMs: turn.timeoutMs ?? 240000 });
+      let turnFailure = null;
+      for (const [turnIndex, turn] of scenario.turns.entries()) {
+        let events;
+        try {
+          events = await driver.prompt(turn.prompt, { timeoutMs: turn.timeoutMs ?? 240000 });
+        } catch (error) {
+          const evidence = failedTurnEvidence(error, turnIndex);
+          events = Array.isArray(error?.turnEvents) ? error.turnEvents : [];
+          allEvents.push(...events);
+          turnRecords.push({
+            events,
+            toolCalls: extractToolCalls(events),
+            assistantTexts: extractAssistantTexts(events),
+            error: error instanceof Error ? error.message : String(error),
+            errorCode: typeof error?.code === "string" ? error.code : "runner_error",
+          });
+          turnFailure = {
+            message: error instanceof Error ? error.message : String(error),
+            code: typeof error?.code === "string" ? error.code : "runner_error",
+            evidence,
+          };
+          break;
+        }
         const toolCalls = extractToolCalls(events);
         const assistantTexts = extractAssistantTexts(events);
         allEvents.push(...events);
@@ -213,30 +260,36 @@ for (const scenario of scenarios) {
       }
       const toolCalls = extractToolCalls(allEvents);
       const assistantTexts = extractAssistantTexts(allEvents);
-      const scored = await scenario.score({
-        events: allEvents,
-        toolCalls,
-        assistantTexts,
-        turnRecords,
-        environmentMode,
-        workspace,
-      });
-      result = {
-        ...result,
-        pass: scored.pass,
-        checks: scored.checks,
-        toolCalls: toolCalls.map((c) => ({
-          name: c.name,
-          args: c.args,
-          completed: c.completed ?? false,
-          isError: c.isError ?? false,
-          resultPreview: (c.resultText ?? "").slice(0, 240),
-        })),
-        assistantPreview: (assistantTexts.at(-1) ?? "").slice(0, 400),
-      };
+      if (turnFailure) {
+        result = {
+          ...result,
+          error: turnFailure.message,
+          runErrorCode: turnFailure.code,
+          failedTurnEvidence: turnFailure.evidence,
+          toolCalls: toolCalls.map(compactToolCall),
+          assistantPreview: (assistantTexts.at(-1) ?? "").slice(0, 400),
+        };
+      } else {
+        const scored = await scenario.score({
+          events: allEvents,
+          toolCalls,
+          assistantTexts,
+          turnRecords,
+          environmentMode,
+          workspace,
+        });
+        result = {
+          ...result,
+          pass: scored.pass,
+          checks: scored.checks,
+          toolCalls: toolCalls.map(compactToolCall),
+          assistantPreview: (assistantTexts.at(-1) ?? "").slice(0, 400),
+        };
+      }
     }
   } catch (error) {
     result.error = error instanceof Error ? error.message : String(error);
+    result.runErrorCode = typeof error?.code === "string" ? error.code : "runner_error";
   } finally {
     await driver.stop();
   }
@@ -257,7 +310,14 @@ for (const scenario of scenarios) {
 
 report.finishedAt = new Date().toISOString();
 report.passed = report.results.filter((r) => r.pass).length;
-report.failed = report.results.filter((r) => !r.pass).length;
+report.failed = report.results.filter((r) => !r.pass && !r.runErrorCode && !r.infrastructureInvalid).length;
+report.runErrors = report.results.filter((r) => r.runErrorCode).map((r) => ({
+  id: r.id,
+  code: r.runErrorCode,
+  error: r.error,
+  failedTurnEvidence: r.failedTurnEvidence,
+}));
+report.runErrorCount = report.runErrors.length;
 report.passRate = report.results.length === 0 ? 0 : report.passed / report.results.length;
 report.infrastructureInvalid = report.results.filter((r) => r.infrastructureInvalid).map((r) => ({
   id: r.id,
@@ -267,10 +327,14 @@ report.skillAvailability = report.results.map((r) => ({
   id: r.id,
   availability: r.skillAvailability,
 }));
-report.status = report.infrastructureInvalid.length > 0 ? "infrastructure_invalid" : "completed";
+report.status = report.infrastructureInvalid.length > 0
+  ? "infrastructure_invalid"
+  : report.runErrorCount > 0
+    ? "run_error"
+    : "completed";
 writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
 
 console.log(`\n=== summary ===`);
 console.log(`${report.passed}/${report.results.length} passed (${(report.passRate * 100).toFixed(0)}%)`);
 console.log(`report: ${join(runDir, "report.json")}`);
-process.exit(report.failed === 0 ? 0 : 1);
+process.exit(report.results.every((result) => result.pass) ? 0 : 1);

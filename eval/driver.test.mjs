@@ -9,6 +9,7 @@ import {
   CONTEXT_MANAGEMENT_COMMAND,
   assertTurnCompleted,
   finalAssistantOutcome,
+  findProviderEmptyLengthResponses,
   FULL_ENV_DENIED_TOOLS,
   PiRpcDriver,
   sanitizePiChildEnvironment,
@@ -474,6 +475,67 @@ describe("assistant turn completion", () => {
     }];
 
     expect(() => assertTurnCompleted(events)).not.toThrow();
+  });
+
+  test("does not classify an intermediate empty length when the settled turn later succeeds", () => {
+    const events = [
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "length",
+          responseId: "resp-intermediate-empty",
+          content: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 },
+        },
+      },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "retry succeeded" }],
+          usage: { input: 100, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 102 },
+        },
+      },
+      { type: "agent_settled" },
+    ];
+
+    expect(findProviderEmptyLengthResponses(events)).toEqual([]);
+    expect(() => assertTurnCompleted(events)).not.toThrow();
+  });
+
+  test("retains an empty terminal response from an earlier settled turn", () => {
+    const events = [
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "length",
+          responseId: "resp-first-turn-empty",
+          content: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 },
+        },
+      },
+      { type: "agent_settled" },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "later user turn succeeded" }],
+          usage: { input: 100, output: 4, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 104 },
+        },
+      },
+      { type: "agent_settled" },
+    ];
+
+    expect(findProviderEmptyLengthResponses(events)).toEqual([{
+      eventIndex: 0,
+      responseId: "resp-first-turn-empty",
+      provider: null,
+      model: null,
+    }]);
   });
 
   test("rejects a settled turn with no terminal assistant message", () => {

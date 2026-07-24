@@ -183,13 +183,39 @@ export function createInitialMatrixState({
     pinnedProvenance,
     manifest,
     piProvenance,
-    cells: Object.fromEntries(manifest.cells.map((cell) => [cell.id, { ...cell, status: "pending", attempts: 0 }])),
+    cells: Object.fromEntries(manifest.cells.map((cell) => [cell.id, { ...cell, status: "pending", attempts: 0, attemptHistory: [] }])),
   };
 }
 
 /** A provider/RPC error is retriable; durable outcome evidence is not by default. */
 export function shouldSkipMatrixCell(cell) {
+  if (cell?.classification === "run_error") return (cell.attempts ?? 0) >= 2;
   return ["certifying_run", "task_failure", "coverage_insufficient", "occupancy_miss", "infrastructure_invalid"].includes(cell?.classification);
+}
+
+export function shouldRunMatrixCell(cell, { retryAll = false } = {}) {
+  // Formal provider failures receive exactly one fresh-workspace retry. A
+  // broad retry-all request may revisit outcome cells, but it must not create
+  // an optional-stopping loop for a repeatedly failing provider cell.
+  if (cell?.classification === "run_error") return !shouldSkipMatrixCell(cell);
+  return retryAll || !shouldSkipMatrixCell(cell);
+}
+
+export function appendMatrixAttempt(cell) {
+  cell.attemptHistory = [...(cell.attemptHistory ?? []), {
+    attempt: cell.attempts,
+    startedAt: cell.startedAt,
+    finishedAt: cell.finishedAt,
+    classification: cell.classification,
+    reason: cell.reason,
+    reportPath: cell.reportPath,
+    reportSha256: cell.reportPath ? fileHash(cell.reportPath) : null,
+    telemetryPath: cell.telemetryPath,
+    telemetrySha256: cell.telemetryPath ? fileHash(cell.telemetryPath) : null,
+    provenanceCheck: cell.provenanceCheck,
+    child: cell.child,
+  }];
+  return cell;
 }
 
 function sha256(value) {
@@ -1234,6 +1260,7 @@ function compactMatrix(state) {
       classification: cell.classification ?? null,
       reason: cell.reason ?? null,
       attempts: cell.attempts,
+      attemptHistory: cell.attemptHistory ?? [],
       reportPath: cell.reportPath ?? null,
       telemetryPath: cell.telemetryPath ?? null,
       deterministicVerification: cell.report?.deterministicVerification ?? null,
@@ -1583,7 +1610,7 @@ async function main() {
         .filter((cell) => cell.pairKey === model.id)
         .sort((left, right) => left.contextWindow - right.contextWindow)
         .map((cell) => state.cells[cell.id])
-        .filter((cell) => flag("--retry-all") || !shouldSkipMatrixCell(cell));
+        .filter((cell) => shouldRunMatrixCell(cell, { retryAll: flag("--retry-all") }));
       if (pairCells.length === 0) continue;
       const pairConcurrency = effectiveRunFlowConcurrency(pairCells, concurrency);
       console.log(`pair=${model.id} launching=${pairCells.length} concurrency=${pairConcurrency}`);
@@ -1601,11 +1628,13 @@ async function main() {
         cell.provenance = result.provenance;
         cell.provenanceCheck = result.provenanceCheck;
         cell.child = { exitCode: result.child.exitCode, signal: result.child.signal, error: result.child.error, stderr: result.child.stderr.slice(-2_000) };
-        Object.assign(cell, result.provenanceCheck.valid
+        const classification = result.provenanceCheck.valid
           ? classifyFlowEvidence({ report: result.report, telemetry: result.telemetry })
-          : { classification: "infrastructure_invalid", reason: `runtime_provenance_mismatch:${result.provenanceCheck.reasons.join(",")}` });
+          : { classification: "infrastructure_invalid", reason: `runtime_provenance_mismatch:${result.provenanceCheck.reasons.join(",")}` };
+        Object.assign(cell, classification);
         cell.status = "completed";
         cell.finishedAt = new Date().toISOString();
+        appendMatrixAttempt(cell);
         writeArtifacts(outputDir, state);
         console.log(`DONE ${cell.id} -> ${cell.classification}`);
       });
