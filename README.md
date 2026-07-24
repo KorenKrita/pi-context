@@ -168,7 +168,9 @@ pi -e /path/to/pi-context/src/index.ts \
 - persistent context rebuild 和 settled-boundary live AgentSession sync 状态。
 - travel target 的 protocol status/repairs/defects、surviving open-user、assistant tool-batch、old-summary 与 off-path warnings；无效 tool-call identity 的 target 会在任何 mutation 前被拒绝，其余 warning 不冒充语义 verdict。
 
-Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
+Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。省略 `target` 时，名称会落在 checkpoint 调用前最新的 protocol-complete session leaf 上——通常是已完成的 tool result，而不是它前面的 assistant tool-call turn，因此恢复不会把已经完成的工具伪装成 `[Interrupted by context travel]`。语义由 checkpoint 名称表达，物理节点负责忠实恢复；显式 `target` 仍可标记任意历史节点并对非 USER/AI 节点给出 warning。
+
+Travel 后由宿主持久化的孤立 receipt 只有在它与 trusted ACM branch summary 的 entry、origin、target 及可用 tool-call provenance 精确匹配，并明确携带 non-error `mutationStatus: applied` 时，才会作为安全 normalization 从 provider packet 移除。该 normalization 不把 packet 降级为 repaired，因此后续 `backupCurrentHeadAs` 仍可保存完整 raw origin；foreign/untrusted receipt、普通 missing result、duplicate、reorder 或 invalid identity 仍按 repair/invalid 处理。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
 
 ## 安全边界
 

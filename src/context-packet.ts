@@ -7,10 +7,17 @@ import { analyzeToolProtocol, type ToolProtocolDefect, type ToolProtocolRepair }
 
 export { ACM_CONTINUATION_MARKER } from "./handoff.js";
 
+export type AcmProtocolNormalization = {
+  kind: "removed_applied_acm_travel_receipt";
+  toolCallId: string;
+  summaryEntryId: string;
+};
+
 export interface AcmContextPacket {
   messages: AgentMessage[];
   protocol: {
     status: "complete" | "repaired" | "invalid";
+    normalizations: AcmProtocolNormalization[];
     repairs: ToolProtocolRepair[];
     defects: ToolProtocolDefect[];
   };
@@ -18,6 +25,84 @@ export interface AcmContextPacket {
     | { status: "projected"; count: number }
     | { status: "ambiguous"; candidates: number }
     | { status: "not_present" };
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization> {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const trusted = new Map<string, AcmProtocolNormalization>();
+  const ambiguous = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
+    const message = entry.message;
+    if (message.toolName !== "acm_travel" || message.isError === true || !message.toolCallId) continue;
+    const receipt = record(message.details);
+    const summaryEntryId = typeof receipt?.summaryEntryId === "string" ? receipt.summaryEntryId : undefined;
+    if (
+      receipt?.mutationStatus !== "applied"
+      || receipt.persistentMutationApplied !== true
+      || receipt.handoffFormat !== "structured-v1"
+      || !summaryEntryId
+      || receipt.resultingLeafId !== summaryEntryId
+      || entry.parentId !== summaryEntryId
+    ) continue;
+    const summary = byId.get(summaryEntryId);
+    if (
+      summary?.type !== "branch_summary"
+      || typeof summary.summary !== "string"
+      || !summary.summary.startsWith(ACM_CONTINUATION_MARKER)
+    ) continue;
+    const provenance = record(summary.details);
+    if (
+      provenance?.kind !== "acm_travel"
+      || provenance.handoffVersion !== 1
+      || receipt.originId !== provenance.originId
+      || receipt.targetId !== provenance.targetId
+      || (typeof provenance.toolCallId === "string" && provenance.toolCallId !== message.toolCallId)
+    ) continue;
+    if (trusted.has(message.toolCallId)) {
+      trusted.delete(message.toolCallId);
+      ambiguous.add(message.toolCallId);
+      continue;
+    }
+    if (!ambiguous.has(message.toolCallId)) {
+      trusted.set(message.toolCallId, {
+        kind: "removed_applied_acm_travel_receipt",
+        toolCallId: message.toolCallId,
+        summaryEntryId,
+      });
+    }
+  }
+  return trusted;
+}
+
+function normalizeProtocol(
+  protocol: ReturnType<typeof analyzeToolProtocol>,
+  activeEntries: readonly SessionEntry[],
+) {
+  if (protocol.status === "invalid") {
+    return { ...protocol, normalizations: [] as AcmProtocolNormalization[] };
+  }
+  const trustedReceipts = trustedAppliedTravelReceipts(activeEntries);
+  const normalizations: AcmProtocolNormalization[] = [];
+  const repairs = protocol.repairs.filter((repair) => {
+    if (repair.kind !== "removed_orphan_result" || repair.toolName !== "acm_travel") return true;
+    const normalization = trustedReceipts.get(repair.toolCallId);
+    if (!normalization) return true;
+    normalizations.push(normalization);
+    return false;
+  });
+  return {
+    ...protocol,
+    status: repairs.length === 0 ? "complete" as const : "repaired" as const,
+    normalizations,
+    repairs,
+  };
 }
 
 function continuationKey(summary: string, fromId: string, timestamp: number): string {
@@ -131,11 +216,12 @@ export function normalizeExistingAcmPacket(
       ? projectContinuation(message, latestCandidate.metadata!)
       : message)
     : [...messages];
-  const protocol = analyzeToolProtocol(projected);
+  const protocol = normalizeProtocol(analyzeToolProtocol(projected), activeEntries);
   return {
     messages: protocol.messages,
     protocol: {
       status: protocol.status,
+      normalizations: protocol.normalizations,
       repairs: protocol.repairs,
       defects: protocol.defects,
     },

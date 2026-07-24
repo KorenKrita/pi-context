@@ -441,13 +441,13 @@ Checkpoint candidate cache 使用 `{ ok: true, messages } | { ok: false }`，同
 
 ## FM-13 — Raw backup bookmark lands on a protocol-incomplete prefix
 
-**状态**: Confirmed structural behavior; replay impact is Hypothesis
+**状态**: Resolved for raw backup and automatic checkpoint anchoring; replay impact remains a historical risk
 
 **现象**:
-`backupCurrentHeadAs` 可能把 raw recovery alias 放在一个旧 assistant tool-call turn，而不是该工具批次已经完成后的最深 leaf。之后恢复该 alias 时，真实 tool results 不在 active prefix 中，context sanitizer 会合成 `[Interrupted by context travel]`。
+历史实现中，`backupCurrentHeadAs` 与自动 checkpoint 都可能把 recovery alias 放在一个旧 assistant tool-call turn，而不是该工具批次已经完成后的最深 leaf。之后恢复该 alias 时，真实 tool results 不在 active prefix 中，context sanitizer 会合成 `[Interrupted by context travel]`。最终 2×2 session 审计进一步确认：16 个自动 checkpoint 中 16 个都落在需要 repair 的 prefix，共会合成 42 个虚假 interrupted results。
 
 **底层机制**:
-Travel backup 使用 `findLastMeaningfulEntry()`。该 resolver 跳过所有 `toolResult`，并把包含普通 tool calls 的 assistant turn 视为 meaningful。典型路径：
+旧 Travel backup 与 checkpoint 语义 resolver 使用 `findLastMeaningfulEntry()`。该 resolver 跳过所有 `toolResult`，并把包含普通 tool calls 的 assistant turn 视为 meaningful。典型路径：
 
 ```text
 user
@@ -474,7 +474,7 @@ Backup resolution 跳过当前 internal-only travel turn 和 completed toolResul
 - 再用行为实验比较旧工具重放率。
 
 **正确性质**:
-Travel backup 保存的是可直接恢复的 raw continuation leaf。它应使用紧邻当前 travel call 之前的 leaf，并以该 leaf 的 compaction-aware projected packet 验证 protocol completeness；需要 repair 或包含 unrepairable defect 时阻止 travel，不静默回退旧状态。普通 checkpoint 的语义 target contract 保持独立。
+Travel backup 保存的是可直接恢复的 raw continuation leaf：使用紧邻当前 travel call 之前的 leaf，并以该 leaf 的 compaction-aware projected packet 验证 protocol completeness；需要普通 repair 或 unrepairable defect 时阻止 travel，不静默回退旧状态。自动 checkpoint 的名称仍是语义 cue，但物理 anchor 改为 checkpoint call 之前最新的 protocol-complete leaf，通常是已完成 tool result。与 trusted ACM summary 和 finalized applied details 精确匹配的孤立旧 travel receipt 作为安全 normalization，不算普通 repair；其他 orphan/missing/duplicate/reorder/invalid 均不放宽。
 
 **证据**:
 

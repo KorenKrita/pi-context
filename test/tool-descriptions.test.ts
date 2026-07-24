@@ -20,8 +20,8 @@ describe("ACM tool description contract", () => {
     expect(travelTool).toContain("promptGuidelines: PROMPT_GUIDELINES.travel.split(\"\\n\")");
     expect(travelTool).toContain("handoff: HandoffSchema");
     expect(travelTool).not.toContain("summary: Type.String");
-    expect(generatedGuidance).toContain("Save point: attach a semantic label to a session node");
-    expect(generatedGuidance).toContain("Omitting `target` labels the nearest meaningful USER/AI turn");
+    expect(generatedGuidance).toContain("Save point: attach a semantic label to a recoverable session state");
+    expect(generatedGuidance).toContain("Omitting `target` anchors that name on the latest protocol-complete leaf before this call");
   });
 
   test("keeps checkpoint names and backup labels free of workflow-state semantics", () => {

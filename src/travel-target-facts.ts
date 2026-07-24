@@ -1,4 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AcmProtocolNormalization } from "./context-packet.js";
 import type { ToolProtocolAnalysis } from "./tool-protocol.js";
 import { hasOpenLatestUserTurn } from "./tool-protocol.js";
 
@@ -19,6 +20,7 @@ export interface TravelTargetFacts {
   targetIsBranchSummary: boolean;
   survivingLatestUserTurnOpen: boolean;
   protocolStatus: ToolProtocolAnalysis["status"];
+  protocolNormalizations: AcmProtocolNormalization[];
   protocolRepairs: ToolProtocolAnalysis["repairs"];
   protocolDefects: ToolProtocolAnalysis["defects"];
   fromOffPath: boolean;
@@ -41,7 +43,7 @@ export function buildTravelTargetFacts(input: {
   targetId: string;
   targetEntry: SessionEntry | undefined;
   targetBranch: readonly SessionEntry[];
-  protocol: ToolProtocolAnalysis;
+  protocol: ToolProtocolAnalysis & { normalizations?: AcmProtocolNormalization[] };
   fromOffPath: boolean;
 }): { facts: TravelTargetFacts; warnings: TravelTargetWarning[] } {
   const assistant = assistantFacts(input.targetEntry);
@@ -55,6 +57,7 @@ export function buildTravelTargetFacts(input: {
     targetIsBranchSummary: input.targetEntry?.type === "branch_summary",
     survivingLatestUserTurnOpen: hasOpenLatestUserTurn(input.targetBranch),
     protocolStatus: input.protocol.status,
+    protocolNormalizations: input.protocol.normalizations ?? [],
     protocolRepairs: input.protocol.repairs,
     protocolDefects: input.protocol.defects,
     fromOffPath: input.fromOffPath,

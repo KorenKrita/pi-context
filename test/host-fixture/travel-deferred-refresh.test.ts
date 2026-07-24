@@ -40,12 +40,12 @@ afterEach(() => {
   delete (AgentSession.prototype as Record<PropertyKey, unknown>)[installationSymbol];
 });
 
-function travelToolCall(): AssistantMessage {
+function travelToolCall(toolCallId = TOOL_CALL_ID): AssistantMessage {
   return {
     role: "assistant",
     content: [{
       type: "toolCall",
-      id: TOOL_CALL_ID,
+      id: toolCallId,
       name: "acm_travel",
       arguments: { target: "root", handoff: HANDOFF },
     }],
@@ -81,10 +81,12 @@ function hasToolCall(messages: readonly AgentMessage[], toolCallId: string): boo
 
 function createExtensionFixture(sessionManager: SessionManager) {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
+  let checkpointTool: ToolDefinition | undefined;
   let travelTool: ToolDefinition | undefined;
   let timelineTool: ToolDefinition | undefined;
   const api = {
     registerTool(tool: ToolDefinition) {
+      if (tool.name === "acm_checkpoint") checkpointTool = tool;
       if (tool.name === "acm_travel") travelTool = tool;
       if (tool.name === "acm_timeline") timelineTool = tool;
     },
@@ -100,8 +102,8 @@ function createExtensionFixture(sessionManager: SessionManager) {
     getContextUsage: () => ({ tokens: 1000, contextWindow: 100_000, percent: 1 }),
     ui: { notify() {} },
   } as unknown as ExtensionContext;
-  if (!travelTool || !timelineTool) throw new Error("ACM tools were not registered");
-  return { context, handlers, timelineTool, travelTool };
+  if (!checkpointTool || !travelTool || !timelineTool) throw new Error("ACM tools were not registered");
+  return { checkpointTool, context, handlers, timelineTool, travelTool };
 }
 
 async function emit(handlers: Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>, type: string, event: object, context: ExtensionContext) {
@@ -186,7 +188,188 @@ describe("travel batch safety", () => {
   });
 });
 
+describe("checkpoint recovery anchoring", () => {
+  test("auto checkpoint labels the latest protocol-complete pre-call tool result", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "checkpoint-read", name: "read", arguments: { path: "src/parser.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const toolResultId = sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "checkpoint-read",
+      toolName: "read",
+      content: [{ type: "text", text: "parser source read successfully" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const checkpointCallId = "checkpoint-safe-anchor";
+    sessionManager.appendMessage({
+      ...travelToolCall(checkpointCallId),
+      content: [{ type: "toolCall", id: checkpointCallId, name: "acm_checkpoint", arguments: { name: "parser-read-complete" } }],
+    });
+    const { checkpointTool, context } = createExtensionFixture(sessionManager);
+
+    const result = await checkpointTool.execute(
+      checkpointCallId,
+      { name: "parser-read-complete" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      status: "created",
+      entryId: toolResultId,
+      resolvedEntryId: toolResultId,
+      role: "TOOL:read",
+      targetResolution: "automatic_protocol_complete",
+      protocolStatus: "complete",
+    });
+    expect(sessionManager.getEntries()).toContainEqual(expect.objectContaining({
+      type: "label",
+      targetId: toolResultId,
+      label: "parser-read-complete",
+    }));
+    const restored = rebuildAcmContextPacket(sessionManager, toolResultId);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) throw new Error(restored.message);
+    expect(restored.value.protocol.status).toBe("complete");
+    expect(JSON.stringify(restored.value.messages)).toContain("parser source read successfully");
+    expect(JSON.stringify(restored.value.messages)).not.toContain("Interrupted by context travel");
+  });
+
+  test("auto checkpoint skips a newer incomplete tool batch instead of labeling it", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "known-good baseline", timestamp: Date.now() });
+    const incompleteId = sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-checkpoint-read", name: "read", arguments: { path: "missing.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const checkpointCallId = "checkpoint-after-incomplete";
+    sessionManager.appendMessage({
+      ...travelToolCall(checkpointCallId),
+      content: [{ type: "toolCall", id: checkpointCallId, name: "acm_checkpoint", arguments: { name: "safe-before-incomplete" } }],
+    });
+    const { checkpointTool, context } = createExtensionFixture(sessionManager);
+
+    const result = await checkpointTool.execute(
+      checkpointCallId,
+      { name: "safe-before-incomplete" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      status: "created",
+      entryId: rootId,
+      protocolStatus: "complete",
+      autoResolved: {
+        skipped: [expect.objectContaining({
+          id: incompleteId,
+          reason: "protocol_repaired",
+          repairs: [expect.objectContaining({
+            kind: "synthesized_missing_result",
+            toolCallId: "unfinished-checkpoint-read",
+          })],
+        })],
+      },
+    });
+    expect(sessionManager.getEntries()).toContainEqual(expect.objectContaining({
+      type: "label",
+      targetId: rootId,
+      label: "safe-before-incomplete",
+    }));
+  });
+});
+
 describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
+  test("allows a later raw backup after safely normalizing the prior applied travel receipt", async () => {
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+    sessionManager.appendMessage({ role: "user", content: "first branch payload", timestamp: Date.now() });
+    const firstCallId = "first-applied-travel";
+    sessionManager.appendMessage(travelToolCall(firstCallId));
+    const fixture = createExtensionFixture(sessionManager);
+
+    const first = await fixture.travelTool.execute(
+      firstCallId,
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(first.details?.error).toBeUndefined();
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: firstCallId,
+      toolName: "acm_travel",
+      content: first.content,
+      details: first.details,
+      isError: false,
+      timestamp: Date.now(),
+    });
+    sessionManager.appendMessage({ role: "user", content: "inspect one more file", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "followup-read", name: "read", arguments: { path: "README.md" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const followupResultId = sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "followup-read",
+      toolName: "read",
+      content: [{ type: "text", text: "follow-up source" }],
+      isError: false,
+      timestamp: Date.now(),
+    });
+    const secondCallId = "second-travel-with-backup";
+    sessionManager.appendMessage(travelToolCall(secondCallId));
+
+    const second = await fixture.travelTool.execute(
+      secondCallId,
+      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "second-origin-raw" },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+
+    expect(second.details?.error).toBeUndefined();
+    expect(second.details).toMatchObject({
+      backupEntryId: followupResultId,
+      backupOutcome: "created",
+      backupProtocolStatus: "complete",
+      backupProtocolNormalizations: [expect.objectContaining({
+        kind: "removed_applied_acm_travel_receipt",
+        toolCallId: firstCallId,
+      })],
+    });
+    expect(sessionManager.getEntries()).toContainEqual(expect.objectContaining({
+      type: "label",
+      targetId: followupResultId,
+      label: "second-origin-raw",
+    }));
+  });
+
   test("accepts a JSON-encoded structured handoff from providers that serialize nested arguments", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });

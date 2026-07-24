@@ -5,7 +5,7 @@ This file is the single source of truth for generated ACM tool descriptions, pro
 ## Tool descriptions
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Save point: attach a semantic label to a session node without changing the active context. Never blocks or folds anything — it makes recovery, forks, and bold compression cheap. Use before a risky attempt, at a validated baseline, before a fork in strategy, when parking a front, or before raw history is folded away. Names are unique and case-sensitive across the whole session tree ('root' is reserved); name the state a future search should find. Omitting `target` labels the nearest meaningful USER/AI turn; an explicit checkpoint name or node ID labels older history.
+Save point: attach a semantic label to a recoverable session state without changing the active context. Never blocks or folds anything — it makes recovery, forks, and bold compression cheap. Use before a risky attempt, at a validated baseline, before a fork in strategy, when parking a front, or before raw history is folded away. Names are unique and case-sensitive across the whole session tree ('root' is reserved); name the state a future search should find. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->

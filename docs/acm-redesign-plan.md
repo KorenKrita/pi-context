@@ -262,7 +262,7 @@ Native `/tree` summary 没有 marker，继续使用 Pi 的 archival framing。
 
 ### Backup anchor
 
-`backupCurrentHeadAs` 的职责是恢复 raw continuation，不等同于普通语义 checkpoint。
+`backupCurrentHeadAs` 的职责是恢复 raw continuation；自动 checkpoint 同样必须落在可原样恢复的 protocol-complete prefix，但 checkpoint 名称继续表达语义状态，而不是暴露底层 entry role。
 
 当前 resolver 跳过 tool results，可能把 backup 放在旧 assistant tool-call turn，恢复时再合成 `[Interrupted by context travel]`。
 
@@ -280,7 +280,9 @@ preTravelLeafId + analysis.status / repairs / defects
 - 完整 tool batch 的最后一个 toolResult；
 - 其他无需 protocol repair 的合法 leaf。
 
-若 immediate packet 需要 repair 或包含 duplicate/invalid tool-call identity，travel 在任何 backup/branch mutation 前失败，并返回 repairs/defects；不得静默回退到更早、已经不代表当前 raw continuation 的 anchor。
+若 immediate packet 需要普通 repair 或包含 duplicate/invalid tool-call identity，travel 在任何 backup/branch mutation 前失败，并返回 repairs/defects；不得静默回退到更早、已经不代表当前 raw continuation 的 anchor。唯一安全 normalization 是宿主在 applied travel branch 上追加的孤立 ACM receipt：它必须与 trusted branch-summary provenance 和 finalized applied details 精确匹配；foreign/untrusted receipt 不享有该例外。
+
+自动 checkpoint 不要求 immediate prefix 必须完整：它从 checkpoint assistant batch 前一项开始向前寻找最新 protocol-complete prefix，并把语义 label 写到该物理 leaf；通常它就是最近一个已完成 `toolResult`。若所有候选都需要普通 repair 或 invalid，则 checkpoint 明确失败且不写 label。显式 target 仍保留 caller 对历史节点的直接选择权。
 
 ### Travel target evidence variants
 
@@ -541,7 +543,7 @@ Native-window 是整体产品效果的主证据；shrunk-window 只用于 pressu
 - agent 不负责脆弱 wire grammar，runtime 负责 durable handoff；
 - production 主路径不长期保留并行 handoff interfaces；
 - context reconstruction 与 normalization 共享一个 Context Packet implementation，同时保留 existing-packet composition；
-- backup 使用 immediate pre-travel leaf，且其 projected packet 必须 protocol-complete；
+- backup 使用 immediate pre-travel leaf，且其 projected packet 必须 protocol-complete；自动 checkpoint 使用 checkpoint call 前最新的 protocol-complete leaf；
 - authority 只覆盖 handoff 之前的 history，不压过后续用户或 session boundary；
 - Skill availability 在 eval 中硬断言；
 - Skill read rate 只作诊断；

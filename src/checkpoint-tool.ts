@@ -12,20 +12,39 @@ import {
   sanitizeTerminalText,
   isValidEntryId,
   resolveTargetId,
-  type MeaningfulResolveResult,
 } from "./lib.js";
+import { rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
 import {
   appendCheckpointLabel,
   type CheckpointLabelConflict,
 } from "./host-bridge.js";
 import {
+  describeEntrySnippet,
   findEntryInTree,
-  findLastMeaningfulEntry,
   getMessageRoleLabel,
   isCheckpointableMessage,
 } from "./entry-resolution.js";
+import { findContainingAssistantToolBatch, type ToolProtocolDefect, type ToolProtocolRepair } from "./tool-protocol.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+
+interface SkippedCheckpointAnchor {
+  id: string;
+  reason: "context_build_failed" | "protocol_repaired" | "protocol_invalid";
+  message?: string;
+  repairs?: ToolProtocolRepair[];
+  defects?: ToolProtocolDefect[];
+}
+
+interface AutomaticCheckpointAnchor {
+  entryId: string | null;
+  role?: string;
+  snippet?: string;
+  protocolStatus?: "complete";
+  normalizations: AcmProtocolNormalization[];
+  skipped: SkippedCheckpointAnchor[];
+  aborted?: boolean;
+}
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
@@ -36,7 +55,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "History node ID or checkpoint name to label. Defaults to the nearest meaningful USER/AI turn; use an explicit target to label an older return state.",
+      description: "History node ID or checkpoint name to label. By default the semantic save point is anchored on the latest protocol-complete session leaf before this checkpoint call, often a completed tool result, so restoration preserves finished tool work without synthesizing interruption. Use an explicit target only to label a deliberately chosen older node.",
     })),
   }, { additionalProperties: false });
 
@@ -53,7 +72,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const target = sanitizeTerminalText(args.target ?? "nearest meaningful turn");
+      const target = sanitizeTerminalText(args.target ?? "latest protocol-complete pre-call leaf");
       const name = sanitizeTerminalText(args.name ?? "…");
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
@@ -102,7 +121,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       return component;
     },
     async execute(
-      _id: string,
+      toolCallId: string,
       rawParams: Static<typeof schema>,
       signal: AbortSignal | undefined,
       _onUpdate: unknown,
@@ -122,7 +141,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));
 
       let entryId: string;
-      let autoResolved: MeaningfulResolveResult | undefined;
+      let autoResolved: AutomaticCheckpointAnchor | undefined;
       let targetEntry: SessionEntry | undefined;
       if (params.target) {
         const resolved = resolveTargetId(sessionManager, tree, params.target, branchIds, labelMaps);
@@ -158,7 +177,47 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           ctx.ui.notify(`Note: target '${params.target}' resolved from an off-path branch. Checkpoint will be placed on a non-active node.`, "warning");
         }
       } else {
-        autoResolved = findLastMeaningfulEntry(branch, signal);
+        const containingBatch = findContainingAssistantToolBatch(branch, toolCallId);
+        const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
+        const skipped: SkippedCheckpointAnchor[] = [];
+        autoResolved = { entryId: null, normalizations: [], skipped };
+        for (let index = startIndex; index >= 0; index--) {
+          if (signal?.aborted) {
+            autoResolved.aborted = true;
+            break;
+          }
+          const candidate = branch[index]!;
+          const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
+          if (!packet.ok) {
+            skipped.push({ id: candidate.id, reason: "context_build_failed", message: packet.message });
+            continue;
+          }
+          if (packet.value.protocol.status === "invalid") {
+            skipped.push({
+              id: candidate.id,
+              reason: "protocol_invalid",
+              defects: packet.value.protocol.defects,
+            });
+            continue;
+          }
+          if (packet.value.protocol.status === "repaired") {
+            skipped.push({
+              id: candidate.id,
+              reason: "protocol_repaired",
+              repairs: packet.value.protocol.repairs,
+            });
+            continue;
+          }
+          autoResolved = {
+            entryId: candidate.id,
+            role: getMessageRoleLabel(candidate) ?? candidate.type.toUpperCase(),
+            snippet: describeEntrySnippet(candidate),
+            protocolStatus: "complete",
+            normalizations: packet.value.protocol.normalizations,
+            skipped,
+          };
+          break;
+        }
         entryId = autoResolved.entryId ?? "";
       }
 
@@ -172,9 +231,12 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
             type: "text" as const,
             text: isEmpty
               ? "No session entry to checkpoint. The conversation is empty."
-              : "No meaningful entry to checkpoint. Recent HEAD traffic is tool/bash/custom/system-only or empty — specify a target explicitly.",
+              : "No protocol-complete session prefix exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
           }],
-          details: { error: isEmpty ? "empty_session" : "no_meaningful_entry" },
+          details: {
+            error: isEmpty ? "empty_session" : "no_protocol_complete_checkpoint_target",
+            skipped: autoResolved?.skipped ?? [],
+          },
         };
       }
 
@@ -222,7 +284,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const cue = GUIDANCE_CUES.checkpoint;
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
-        ? `${role}${skippedCount ? `; skipped ${skippedCount} nearer transient/non-meaningful entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
+        ? `${role}; latest protocol-complete pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
         : `${role}; explicit target '${params.target}'`;
       const action = status === "already_present" ? "Reused" : "Created";
       return {
@@ -240,7 +302,9 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           role,
           aliases,
           target: params.target ?? "auto",
-          targetResolution: params.target ? "explicit" : "automatic",
+          targetResolution: params.target ? "explicit" : "automatic_protocol_complete",
+          protocolStatus: autoResolved?.protocolStatus ?? null,
+          protocolNormalizations: autoResolved?.normalizations ?? [],
           contextUsage: usage ? { percent: usage.percent, tokens: usage.tokens, contextWindow: usage.contextWindow } : null,
           contextUsageAvailable: usage !== undefined,
           skippedTransientCount: skippedCount ?? null,

@@ -44,6 +44,7 @@ import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 interface TravelSummaryDetails {
   kind: "acm_travel";
   handoffVersion: 1;
+  toolCallId: string;
   currentUserTurnOpen: boolean;
   originId: string;
   originLabel?: string;
@@ -354,6 +355,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       let backupEntryId: string | undefined;
       let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
+      let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
       if (params.backupCurrentHeadAs) {
         if (signal?.aborted) {
           return {
@@ -382,6 +384,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           };
         }
         const backupProtocol = backupPacketResult.value.protocol;
+        backupProtocolNormalizations = backupProtocol.normalizations;
         if (backupProtocol.status === "invalid") {
           return {
             content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
@@ -400,6 +403,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
               error: "backup_protocol_incomplete",
               name: params.backupCurrentHeadAs,
               candidateId: backupCandidate.id,
+              normalizations: backupProtocol.normalizations,
               repairs: backupProtocol.repairs,
             },
           };
@@ -454,6 +458,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const travelDetails: TravelSummaryDetails = {
         kind: "acm_travel",
         handoffVersion: 1,
+        toolCallId,
         currentUserTurnOpen,
         originId,
         ...(originLabel === undefined ? {} : { originLabel }),
@@ -696,6 +701,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           backupEntryId,
           backupResolvedFromHead,
           backupOutcome,
+          backupProtocolStatus: params.backupCurrentHeadAs ? "complete" : null,
+          backupProtocolNormalizations,
           usageBefore: usageBeforeText,
           usageAfter: "pending_next_context_event",
           estimatedUsagePreview: estimatedPreviewText,
@@ -740,6 +747,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           persistentMutationApplied: true,
           postMutationEvidenceStatus: "verified",
           postMutationProtocolStatus: afterPacket.protocol.status,
+          postMutationProtocolNormalizations: afterPacket.protocol.normalizations,
           postMutationProtocolRepairs: afterPacket.protocol.repairs,
           postMutationProtocolDefects: afterPacket.protocol.defects,
           fromOffPath: resolved.fromOffPath,
