@@ -126,9 +126,11 @@
     },
     {
       "id": "provider-empty-length-classification",
-      "evidence": "The two persisted Sol cells contain 4 and 9 assistant message_end events with stopReason=length, content=[], and zero input/output/cache/reasoning/total usage. A short directed-checkpoint diagnostic reproduced the same shape both before any tool call and after a successful checkpoint; after the runner fix, three consecutive diagnostics were correctly rejected as provider_empty_length_response instead of being scored as task outcomes.",
+      "evidence": "The two persisted Sol cells contain 4 and 9 assistant message_end events with stopReason=length, content=[], and zero input/output/cache/reasoning/total usage. A short directed-checkpoint diagnostic reproduced the same shape both before any tool call and after a successful checkpoint. The final runner classifies only the terminal assistant completion of each settled turn, preserves failed-turn tools and visible assistant evidence, skips downstream verification/judging, stores immutable matrix attempt history, and permits exactly one fresh-workspace retry.",
       "fixCommits": [
-        "5eb53016ce2c9a4d5346027ddf6419e53b08b766"
+        "5eb53016ce2c9a4d5346027ddf6419e53b08b766",
+        "69f2169ee5cdcdca2010423a2616667d6502c8c1",
+        "25fa6b71f6a489adeebafb4afd389c9a363e4559"
       ]
     }
   ],
@@ -239,8 +241,9 @@
     "result": "The raw-archive fold-base error did not recur. All three travels were on-path; P8 rebased to root and reduced active summary depth from 2 to 1."
   },
   "deterministicGateAfterFixes": {
-    "productCommit": "67934f1745fb0d21affe83fd47a5188563ac8830",
-    "rootTests": 452,
+    "productCommit": "25fa6b71f6a489adeebafb4afd389c9a363e4559",
+    "npmCiIgnoreScripts": "passed",
+    "rootTests": 457,
     "exactHostTests": 64,
     "typecheck": "passed",
     "generatedGuidance": "passed"
@@ -250,6 +253,81 @@
     "Equal or different outcomes do not establish a causal hard-context-window effect.",
     "The persisted Sol task_failure labels are superseded by post-hoc schema-v2 telemetry: both cells are provider run errors and do not support task-quality or 400K-versus-1M conclusions.",
     "Two formal Sol 1M attempts on commit 67934f17 also ended as provider_empty_length_response before deterministic verification or judging; this supports a current provider-path reliability conclusion, not a model-capability conclusion.",
-    "The targeted rerun supports the raw-archive affordance change on the observed task; continued production-like monitoring is still required."
-  ]
+    "The targeted rerun supports the raw-archive affordance change on the observed task; continued production-like monitoring is still required.",
+    "The broader practical ranking mixes current formal Opus evidence with earlier outcome-bearing Sol evidence and therefore ranks confidence and observed capability, not a same-commit causal model comparison."
+  ],
+  "runnerReliabilityValidation": {
+    "productCommit": "25fa6b71f6a489adeebafb4afd389c9a363e4559",
+    "shortRunner": "provider failures are status=run_error, successful partial tools are retained, and failed excludes run errors",
+    "longFlow": "failed-turn tools and transcript evidence are retained; after-turn work, deterministic verification, and judging are skipped",
+    "matrix": "attemptHistory retains report/telemetry paths and SHA-256 for each attempt; run_error cells stop after two total attempts even under --retry-all",
+    "terminalSemantics": "an empty zero-usage length completion is a provider error only when it is terminal for a settled turn; an internal retry that succeeds before settlement remains outcome-bearing"
+  },
+  "interpretation": {
+    "formalCurrentRanking": [
+      {
+        "rank": 1,
+        "cells": [
+          "opus-4-8-high-1m",
+          "opus-4-8-high-400k"
+        ],
+        "verdict": "same formal tier: certifying_run, deterministic 14/14, judge 3/3 strong",
+        "tieBreak": "Prefer 1M for operational headroom. The 400K source run chose a raw transaction archive as a fold base and expanded context, while the 1M run completed fold, root rebase, checkpoint, and rehydrate without task degradation. The corrected 400K targeted rerun also passed 3/3 strong, so this is a safety-margin preference rather than a proven quality gap."
+      },
+      {
+        "rank": null,
+        "cells": [
+          "sol-medium-1m",
+          "sol-medium-400k"
+        ],
+        "verdict": "unranked in the current formal matrix: both are provider_empty_length_response run errors, not task-quality outcomes"
+      }
+    ],
+    "broaderHistoricalSignal": "On commit 457fa5b3, Sol 1M was a formal certifying run with deterministic verification passed and judge 3/3 strong. Sol 400K also passed deterministic verification and received judge 3/3 strong, but was coverage_insufficient because it reached only the 30/50 pressure levels rather than the required 70 level. These are real capability signals, but commit drift and the later repeated provider failures keep them outside the current formal core-2x2 ranking.",
+    "windowEffects": {
+      "directObservations": [
+        "Opus 400K peaked at 377444 active tokens: 94.361% hard-window usage and 94.361% ACM pressure; it crossed a native compaction boundary.",
+        "Opus 1M peaked at 363149 active tokens: 36.315% hard-window usage but 90.787% ACM pressure because policy caps the working budget at 400K; it did not need native compaction.",
+        "Both windows completed the task and received 3/3 strong, so this sample does not show a reasoning-quality ceiling difference."
+      ],
+      "supportedInference": [
+        "The larger hard window mainly increases recovery margin: a late or imperfect fold, failed target selection, and rehydrate round trip are less likely to collide with the hard limit.",
+        "The smaller window increases compaction pressure and makes wrong target selection materially more expensive; it rewards earlier, more accurate representation changes.",
+        "The larger window retains more raw evidence and supports deeper recovery, but it can also retain more low-attention-value sediment; size alone does not improve attention allocation.",
+        "Because both arms use a 400K working-budget policy, 1M does not postpone ACM reminders proportionally to its hard window. Hard usage and ACM pressure must be read separately."
+      ],
+      "notEstablished": [
+        "A causal model-quality advantage from 1M versus 400K.",
+        "Population reliability from one stochastic sample per valid Opus arm.",
+        "Any current same-commit capability ranking for Sol from the final matrix while its provider path does not produce outcome-bearing turns."
+      ]
+    },
+    "broaderPracticalRanking": [
+      {
+        "rank": 1,
+        "cell": "opus-4-8-high-1m",
+        "confidence": "high",
+        "basis": "Repeated 3/3 strong delivery plus the richest observed ACM repertoire: fold, root rebase, checkpoint, bounded rehydrate, and recovery from an invalid target without task degradation."
+      },
+      {
+        "rank": 2,
+        "cell": "opus-4-8-high-400k",
+        "confidence": "high",
+        "basis": "Repeated 3/3 strong delivery under near-hard-limit pressure. One source run selected a raw archive as a fold base, but the product fix and targeted rerun removed the error and again produced 3/3 strong."
+      },
+      {
+        "rank": 3,
+        "cell": "sol-medium-1m",
+        "confidence": "medium",
+        "basis": "An earlier outcome-bearing run was certifying and 3/3 strong, using a conservative checkpoint-heavy strategy and one precise travel. Current provider empty-length failures reduce operational confidence but are not model-quality failures."
+      },
+      {
+        "rank": 4,
+        "cell": "sol-medium-400k",
+        "confidence": "low-to-medium",
+        "basis": "An earlier run completed the task and judged 3/3 strong, but did not reach the required 70% pressure coverage; the later core run was contaminated by provider empty-length failures. The lower rank reflects evidence confidence and margin, not a demonstrated reasoning failure."
+      }
+    ],
+    "excludedModels": "Opus 4.6 and Terra are not ranked because the final core-2x2 did not run them to comparable, current formal outcomes."
+  }
 }
