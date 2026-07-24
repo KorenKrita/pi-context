@@ -13,7 +13,7 @@ Orient: inspect the session tree and context economics through one view — `act
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone — carrying knowns, open unknowns, the hot set, and one executable NEXT. Target the last clean node before the material being folded; for a rebase, prefer the earliest base whose projected summary depth does not grow. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
+Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone — carrying knowns, open unknowns, the hot set, and one executable NEXT. Target the last clean node before the material being folded; for a rebase, prefer the earliest base whose projected summary depth does not grow. A raw archive alias created by `backupCurrentHeadAs` points to the pre-travel origin and normally restores or expands history: use it only for deliberate rehydrate/restore, never as a fold or rebase base. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## Prompt snippets
@@ -44,6 +44,7 @@ acm_timeline reports facts — spine, save points, summary depth, usage. Judgmen
 acm_travel is a normal working move — fold finished process into a handoff as readily as you save a checkpoint; only an explicit user request to hold travel suspends it, and only for the scope the user names.
 An acm_travel fold is context hygiene, not the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
 Run acm_travel alone in its assistant tool batch, and read its result before building on the new context.
+acm_travel may use a raw archive alias as `target` only when intentionally restoring/rehydrating its raw history; a fold or rebase must target a clean ancestor before the sediment instead.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
@@ -73,7 +74,7 @@ Before deciding whether or how to retry, read the available Skills list and use 
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-`checkpoints` lists save points with projected post-travel depth. Choose a target by what it precedes, not by how recent or well named it is — anchor gravity misleads.
+`checkpoints` lists save points with projected post-travel depth and marks raw archive origins. Choose a target by what it precedes, not by how recent or well named it is — anchor gravity misleads. Raw archive origins are restore/rehydrate targets, not fold/rebase bases.
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->

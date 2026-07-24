@@ -50,6 +50,10 @@ describe("ACM tool description contract", () => {
   test("presents rehydration as a first-class travel direction", () => {
     expect(generatedGuidance).toContain("rehydrate an archived branch");
     expect(generatedGuidance).toContain("Rehydrate only when one exact missing detail is actually needed");
+    expect(generatedGuidance).toContain("raw archive alias");
+    expect(generatedGuidance).toContain("never as a fold or rebase base");
+    expect(travelTool).toContain("never as a fold/rebase base");
+    expect(timelineTool).toContain("[raw archive]");
   });
 
   test("uses the strict single-object timeline contract", () => {

@@ -31,6 +31,7 @@ interface CheckpointListing {
   entryId: string;
   labels: string[];
   matchedLabels: string[];
+  rawArchiveLabels: string[];
   onActivePath: boolean;
   isHead: boolean;
   pathOrder: number;
@@ -49,13 +50,28 @@ function boundedTimelineValue(value: string, maxChars = TIMELINE_DYNAMIC_VALUE_C
   return `${value.slice(0, maxChars)}… [truncated ${value.length} chars]`;
 }
 
-function formatTimelineAliases(labels: readonly string[]): string {
+function formatTimelineAliases(labels: readonly string[], rawArchiveAliases: ReadonlySet<string> = new Set()): string {
   const preferred = labels.at(-1);
   if (!preferred) return "";
   const remaining = labels.length - 1;
-  return remaining > 0
-    ? `${boundedTimelineValue(preferred)} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
+  const preferredText = rawArchiveAliases.has(preferred)
+    ? `${boundedTimelineValue(preferred)} [raw archive]`
     : boundedTimelineValue(preferred);
+  return remaining > 0
+    ? `${preferredText} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
+    : preferredText;
+}
+
+function collectRawArchiveAliases(entries: readonly SessionEntry[]): Set<string> {
+  const aliases = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "branch_summary" || typeof entry.details !== "object" || entry.details === null) continue;
+    const details = entry.details as Record<string, unknown>;
+    if (details.kind !== "acm_travel" || details.handoffVersion !== 1) continue;
+    const alias = details.backupCurrentHeadAs;
+    if (typeof alias === "string" && alias.length > 0) aliases.add(alias);
+  }
+  return aliases;
 }
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -93,6 +109,7 @@ function collectListings(
   filter: string,
   entriesById: Map<string, SessionEntry>,
   pathOrder: Map<string, number>,
+  rawArchiveAliases: ReadonlySet<string>,
 ): CheckpointListing[] {
   const listings: CheckpointListing[] = [];
   for (const [entryId, labels] of labelMaps.entryToLabels) {
@@ -109,6 +126,7 @@ function collectListings(
       entryId,
       labels,
       matchedLabels,
+      rawArchiveLabels: labels.filter((label) => rawArchiveAliases.has(label)),
       onActivePath: activeIds.has(entryId),
       isHead: entryId === leafId,
       pathOrder: pathOrder.get(entryId) ?? Number.MAX_SAFE_INTEGER,
@@ -126,9 +144,12 @@ function collectListings(
 function formatCheckpointLabels(listing: CheckpointListing): string {
   const preferred = listing.matchedLabels.at(-1) ?? listing.labels.at(-1) ?? "checkpoint";
   const remaining = Math.max(0, listing.labels.length - 1);
+  const preferredText = listing.rawArchiveLabels.includes(preferred)
+    ? `${boundedTimelineValue(preferred)} [raw archive]`
+    : boundedTimelineValue(preferred);
   return remaining === 0
-    ? boundedTimelineValue(preferred)
-    : `${boundedTimelineValue(preferred)} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
+    ? preferredText
+    : `${preferredText} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
 }
 
 function searchTree(
@@ -164,6 +185,7 @@ function searchTree(
 function renderTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
+  rawArchiveAliases: ReadonlySet<string>,
   leafId: string | null,
   activeIds: Set<string>,
   maxDepth: number,
@@ -177,7 +199,7 @@ function renderTree(
       return;
     }
     const role = displayRole(node.entry);
-    const labels = formatTimelineAliases(getEntryLabels(labelMaps, node.entry.id));
+    const labels = formatTimelineAliases(getEntryLabels(labelMaps, node.entry.id), rawArchiveAliases);
     const tags = [
       node.entry.id === leafId ? "HEAD" : null,
       activeIds.has(node.entry.id) ? "active" : "off-path",
@@ -413,6 +435,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const activeSummaryDepth = countActiveSummaryDepth(branch);
       const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
       const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
+      const rawArchiveAliases = collectRawArchiveAliases(entries);
       const lines: string[] = [];
       let treeTruncated = false;
       let activeVisibleEntries = 0;
@@ -432,7 +455,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
-        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder);
+        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliases);
         const rootEntry = tree[0]?.entry;
         const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
           !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
@@ -506,7 +529,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
-          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabels(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          const rawArchiveNote = checkpoint.rawArchiveLabels.length > 0
+            ? "; raw archive origin — restore/rehydrate only, not a fold/rebase base"
+            : "";
+          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabels(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -518,11 +544,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
-          lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${formatTimelineAliases(match.labels)})` : ""} [${displayRole(match.entry)}] ${body}`);
+          lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${formatTimelineAliases(match.labels, rawArchiveAliases)})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {
-        const rendered = renderTree(tree, labelMaps, leafId, activeIds, effectiveLimit, signal);
+        const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
         if (treeTruncated) lines.unshift("⚠ tree truncated by depth/line limit — use view checkpoints or view search to see hidden nodes");
@@ -534,7 +560,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatTimelineAliases(getEntryLabels(labelMaps, entry.id));
+          const labels = formatTimelineAliases(getEntryLabels(labelMaps, entry.id), rawArchiveAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const body = entryText(entry, verbose).replace(/\s+/g, " ").slice(0, 100);

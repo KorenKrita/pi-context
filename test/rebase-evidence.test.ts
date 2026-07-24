@@ -32,6 +32,17 @@ function summary(id: string, parentId: string, text: string): SessionEntry {
   } as SessionEntry;
 }
 
+function label(id: string, parentId: string, targetId: string, name: string): SessionEntry {
+  return {
+    id,
+    type: "label",
+    parentId,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    targetId,
+    label: name,
+  } as SessionEntry;
+}
+
 function node(entry: SessionEntry, children: SessionTreeNode[] = []): SessionTreeNode {
   return { entry, children };
 }
@@ -155,6 +166,44 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
     expect(result.content[0].text).toContain("summary depth 1 → 1 projected");
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
+  });
+
+  test("checkpoint view marks travel backups as raw archive origins rather than fold bases", async () => {
+    const root = message("root", null, "root");
+    const archived = message("archived", "root", "raw packet");
+    const rawLabel = label("label-raw", "archived", "archived", "raw-before-fold");
+    const folded = {
+      ...summary("summary-1", "root", "current handoff"),
+      details: {
+        kind: "acm_travel",
+        handoffVersion: 1,
+        toolCallId: "travel-1",
+        currentUserTurnOpen: false,
+        originId: "old-head",
+        target: "root",
+        targetId: "root",
+        backupCurrentHeadAs: "raw-before-fold",
+      },
+    } as SessionEntry;
+    const current = message("current", "summary-1", "current");
+    const entries = [root, archived, rawLabel, folded, current];
+    const branch = [root, folded, current];
+    const tool = captureTimelineTool();
+
+    const result = await tool.execute(
+      "timeline-raw-archive",
+      { view: "checkpoints", limit: 50 },
+      undefined,
+      undefined,
+      makeContext(
+        entries,
+        [node(root, [node(archived, [node(rawLabel)]), node(folded, [node(current)])])],
+        branch,
+      ),
+    );
+
+    expect(result.content[0].text).toContain("raw-before-fold [raw archive]");
+    expect(result.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
   });
 
   test("HUD exposes cached_exhausted and stops presenting persistence refresh as pending", async () => {

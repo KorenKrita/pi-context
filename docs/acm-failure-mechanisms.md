@@ -480,3 +480,19 @@ Travel backup 保存的是可直接恢复的 raw continuation leaf：使用紧�
 
 - `src/travel-tool.ts:272-293`
 - `src/tool-protocol.ts:36-213`
+
+## FM-14 — Raw archive alias is mistaken for a fold base
+
+**状态**: Observed in one formal core-2x2 cell; affordance tightened, hard rejection intentionally not adopted
+
+**现象**:
+由 `backupCurrentHeadAs` 创建的 alias 同时可作为合法 `target`，但它指向 travel 前的 raw origin。若 agent 把名称像“classified”或“delivered”的 raw alias 当成 fold/rebase milestone，travel 会恢复已归档 sediment、增加 message/token 与 summary depth。
+
+**证据**:
+新 Opus 4.8 / 400K formal cell 在 P8 target=`evidence-packet-classified`，实际从约 115K 增至 301K、messages 43→78、summary depth 1→2；judge 归因为 `anchor-gravity-wrong-target`。同矩阵 Opus 1M 正确使用 root rebase 与 checkpoint round-trip rehydrate，说明 archive target 本身不能被一刀切拒绝。
+
+**当前解决方式**:
+Tool schema、canonical guidance 与 advanced target selection 把 transaction backup 明确定义为 raw archive origin：只用于 deliberate restore/rehydrate，fold/rebase 选择 sediment 之前的 clean ancestor。Timeline 从 persisted trusted travel summary 的 `backupCurrentHeadAs` 重建 alias 类型，在 active/search/tree/checkpoint views 标记 `[raw archive]`，checkpoint view 同时展示预计 usage/message/depth 与“not a fold/rebase base”说明。
+
+**边界**:
+Runtime 不按 token increase 或 off-path 自动拒绝，因为合法 rehydrate 的结构效果本来就是恢复历史并可能扩张。是否需要进一步引入显式 travel intent，必须由后续同任务行为证据决定。

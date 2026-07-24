@@ -483,6 +483,16 @@
         <td>自动 checkpoint 的语义名称必须绑定到调用前最新的 protocol-complete leaf；只有可信 applied ACM receipt elision 可视为安全 normalization。</td>
         <td>最终 2×2 审计发现 16/16 自动 checkpoint 都物理落在 assistant tool-call turn，恢复会合成 42 个虚假 <code>[Interrupted by context travel]</code>；三条矩阵臂的后续 travel 还四次因为上一 applied travel receipt 被当作普通 orphan repair 而丢失新 raw backup。当前实现从 checkpoint assistant batch 之前向前选择最新能原样重建的 prefix，通常是最后一个已完成 tool result；名称继续表达语义状态。孤立 ACM receipt 仅在 packet 中存在唯一完整 message match，且 direct parent summary、entry/origin/target、必需的精确 toolCallId 与 finalized non-error/no-domain-error <code>mutationStatus: applied</code> provenance 全部匹配时安全移除并记录 normalization；同 ID foreign/identical duplicate、untrusted receipt 与任何普通 missing/duplicate/reorder/invalid repair 仍拒绝 raw backup。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Transition telemetry 的 pre/post token sample 只接受相邻 cycle 中正 token 的 assistant <code>message_end</code>。</td>
+        <td>新 core-2x2 的两个 Sol session 暴露 compaction 前最后一条 lifecycle reading 可能是 <code>stopReason:length</code> 且 usage=0；旧 collector 因此把实际约 86K/203K 的 pre-context 记为 0，并把压缩误报成扩张。当前 pre 取 boundary 所属 cycle 最后一条正 token、non-error/non-aborted assistant completion。Post 在下一 cycle 跳过 error/aborted retry，但若第一条 non-error completion 为零 usage 则报告 unknown，不跨过后续用户 phase 取一个更晚的大 prompt；custom reminder 同样不算。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>把 transaction backup alias 明确呈现为 raw archive origin，而不是普通 fold/rebase candidate。</td>
+        <td>新 Opus 400K session 在 P8 把 <code>evidence-packet-classified</code> raw backup 当 fold base，receipt 显示 115K→301K、messages 43→78、summary depth 1→2；任务仍完成，但这是 anchor-gravity affordance 缺口。Tool schema、canonical guidance 与 advanced target reference 现明确：raw archive alias 只用于 deliberate restore/rehydrate，fold/rebase 必须选择 sediment 之前的 clean ancestor；timeline 的 active/search/tree/checkpoint 呈现均增加 <code>[raw archive]</code> 标记，checkpoint view 额外给出“not a fold/rebase base”说明。Runtime 不硬拒绝，因为合法 rehydrate 本就需要扩大 history。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

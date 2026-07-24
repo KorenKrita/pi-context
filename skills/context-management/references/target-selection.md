@@ -36,6 +36,14 @@ Prefer the save point immediately before the material being folded, even when a 
 
 Missing labels do not block a fold; an unverifiable target does.
 
+## Raw archive aliases
+
+An alias created by `backupCurrentHeadAs` names the exact raw origin that existed before a successful travel. It is a recovery/rehydration destination, not a semantic fold base. Targeting it normally restores or expands the pre-travel history.
+
+- Use a raw archive alias when the current action deliberately needs detail from that archived origin, then return through the handoff-named pointer.
+- For fold or rebase, reject the raw archive alias even if its name sounds like a completed milestone; choose the clean ancestor immediately before the sediment instead.
+- In `acm_timeline`, treat the `[raw archive]` marker and an estimated message/usage increase as restoration evidence, not compression evidence.
+
 ## Raw node fallback
 
 A raw node is appropriate only when all of these are checkable:
