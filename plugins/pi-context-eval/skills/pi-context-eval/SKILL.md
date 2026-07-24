@@ -23,19 +23,24 @@ Do not use a dirty tree, mutable branch tip, ambient Pi binary, missing Darwin S
 From the immutable checkout:
 
 ```bash
-# No provider work; inspect the fixed manifest first.
-bun run eval:saffron
+# No provider work; inspect the focused Opus 4.8 + Sol 2x2 manifest first.
+bun run eval:saffron -- --profile core-2x2
 
-# Run every fixed cell serially for the strongest isolation.
+# Run the focused 2x2 serially for the strongest isolation.
 ACM_FLOW_SEED="$(cat "$seed_file")" \
-  bun run eval:saffron -- --execute --concurrency 1 --timeout-scale 1
+  bun run eval:saffron -- --profile core-2x2 --execute --concurrency 1 --timeout-scale 1
 ```
 
-The fixed manifest owns model IDs, thinking levels, hard windows, `maxTokensCap=16000`, `agents-only` isolation, and the Saffron flow. Do not silently substitute a model or lower a reasoning level. If the user asks for a subset, use exact committed cell IDs:
+The `core-2x2` profile owns Opus 4.8 high and Sol medium at both hard windows. The default `full` profile retains all four model pairs. Both profiles own model IDs, thinking levels, hard windows, `maxTokensCap=16000`, `agents-only` isolation, and the Saffron flow. Do not silently substitute a model or lower a reasoning level. To audit one cell before advancing, create the focused matrix with its first exact cell ID, then resume the same output for the remaining three:
 
 ```bash
 ACM_FLOW_SEED="$(cat "$seed_file")" \
-  bun run eval:saffron -- --execute --cell sol-medium-400k --concurrency 1
+  bun run eval:saffron -- \
+    --profile core-2x2 \
+    --execute \
+    --output eval/.runs/saffron-core-2x2-<timestamp>-<sha> \
+    --cell opus-4-8-high-400k \
+    --concurrency 1
 ```
 
 ## Resume without contaminating provenance

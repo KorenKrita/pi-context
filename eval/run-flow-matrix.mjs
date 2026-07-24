@@ -28,11 +28,12 @@ import {
   readFullEnvHarnessAudit,
 } from "./setup.mjs";
 
-export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 9;
+export const LONG_FLOW_MATRIX_SCHEMA_VERSION = 10;
 export const CONTROLLED_MAX_TOKENS = 16_000;
 export const CONTROLLED_WINDOWS = Object.freeze([400_000, 1_000_000]);
 export const DEFAULT_FLOW_ID = "saffron-cutover-long-flow-v1";
 export const CONTROLLED_ENVIRONMENT_MODE = "agents-only";
+export const DEFAULT_MATRIX_PROFILE = "full";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -77,6 +78,10 @@ const MODEL_SPECS = Object.freeze([
   { id: "terra-high", provider: "local-responses", modelId: "gpt-5.6-terra", thinking: "high" },
   { id: "sol-medium", provider: "local-responses", modelId: "gpt-5.6-sol", thinking: "medium" },
 ]);
+const MATRIX_PROFILES = Object.freeze({
+  full: Object.freeze(MODEL_SPECS.map((model) => model.id)),
+  "core-2x2": Object.freeze(["opus-4-8-high", "sol-medium"]),
+});
 
 function timestampLabel() {
   return new Date().toISOString().replace(/[:.]/g, "-");
@@ -115,15 +120,21 @@ function localPiPath() {
 
 function usage() {
   return [
-    "usage: bun eval/run-flow-matrix.mjs [--execute] [--concurrency 4] [--output DIR] [--resume DIR] [--flow-seed SECRET] [--recover-stale-lock] [--arm 400k|1m] [--cell ID] [--no-judge] [--timeout-scale N]",
+    "usage: bun eval/run-flow-matrix.mjs [--execute] [--profile full|core-2x2] [--concurrency 4] [--output DIR] [--resume DIR] [--flow-seed SECRET] [--recover-stale-lock] [--arm 400k|1m] [--cell ID] [--no-judge] [--timeout-scale N]",
     "",
-    "Fixed matrix: Sol medium, Terra high, Opus 4.6 max, Opus 4.8 high × 400K/1M hard windows.",
+    "Profiles: full = Sol medium, Terra high, Opus 4.6 max, Opus 4.8 high; core-2x2 = Sol medium + Opus 4.8 high. Every selected model runs at 400K and 1M hard windows.",
     "Cells run through eval/run-flow.mjs using agents-only kernel isolation, Saffron materialization, local Pi, and maxTokensCap=16000.",
   ].join("\n");
 }
 
-export function createLongFlowMatrixManifest({ flowId = DEFAULT_FLOW_ID, matrixRunId = "preview" } = {}) {
-  const cells = MODEL_SPECS.flatMap((model) => CONTROLLED_WINDOWS.map((contextWindow) => ({
+function modelSpecsForProfile(profile) {
+  const modelIds = MATRIX_PROFILES[profile];
+  if (!modelIds) throw new Error(`unknown --profile: ${profile}`);
+  return MODEL_SPECS.filter((model) => modelIds.includes(model.id));
+}
+
+export function createLongFlowMatrixManifest({ flowId = DEFAULT_FLOW_ID, matrixRunId = "preview", profile = DEFAULT_MATRIX_PROFILE } = {}) {
+  const cells = modelSpecsForProfile(profile).flatMap((model) => CONTROLLED_WINDOWS.map((contextWindow) => ({
     id: `${model.id}-${contextWindow === 400_000 ? "400k" : "1m"}`,
     pairKey: model.id,
     matrixRunId,
@@ -139,6 +150,7 @@ export function createLongFlowMatrixManifest({ flowId = DEFAULT_FLOW_ID, matrixR
     schemaVersion: LONG_FLOW_MATRIX_SCHEMA_VERSION,
     id: `acm-real-pi-saffron-400k-vs-1m-${matrixRunId}`,
     matrixRunId,
+    profile,
     flowId,
     environmentMode: CONTROLLED_ENVIRONMENT_MODE,
     controlledDimensions: {
@@ -1186,10 +1198,11 @@ function writeJsonAtomic(path, value) {
 
 function compactMatrix(state) {
   const cells = Object.values(state.cells);
-  const pairCandidates = MODEL_SPECS.map((model) => compareContextArms({
-    pairKey: model.id,
-    constrained400k: state.cells[`${model.id}-400k`],
-    native1m: state.cells[`${model.id}-1m`],
+  const pairKeys = [...new Set(state.manifest.cells.map((cell) => cell.pairKey))];
+  const pairCandidates = pairKeys.map((pairKey) => compareContextArms({
+    pairKey,
+    constrained400k: state.cells[`${pairKey}-400k`],
+    native1m: state.cells[`${pairKey}-1m`],
   }));
   return {
     schemaVersion: LONG_FLOW_MATRIX_SCHEMA_VERSION,
@@ -1417,6 +1430,7 @@ async function main() {
   const arm = option("--arm");
   const resume = option("--resume");
   const output = option("--output");
+  const requestedProfile = option("--profile");
   const suppliedFlowSeed = option("--flow-seed") ?? process.env.ACM_FLOW_SEED;
   if (execute && !suppliedFlowSeed) throw new Error("--execute requires --flow-seed or ACM_FLOW_SEED");
   // A resume always starts an audit Pi process, so it has the same immutable
@@ -1449,7 +1463,11 @@ async function main() {
       }
       assertResumeSeed(state.secretSeedSha256, suppliedFlowSeed);
       secretSeed = suppliedFlowSeed;
-      manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: state.matrixRunId });
+      const persistedProfile = state.manifest?.profile ?? DEFAULT_MATRIX_PROFILE;
+      if (requestedProfile !== undefined && requestedProfile !== persistedProfile) {
+        throw new Error(`resume profile differs from persisted matrix: requested ${requestedProfile}, expected ${persistedProfile}`);
+      }
+      manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: state.matrixRunId, profile: persistedProfile });
       if (JSON.stringify(state.manifest) !== JSON.stringify(manifest)) throw new Error("resume manifest differs from this runner's fixed declaration");
       assertPinnedSourceSnapshot(state.pinnedProvenance, sourceSnapshotDir);
       const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: state.matrixRunId, sourceAgentDir: matrixSourceAgentDir });
@@ -1501,7 +1519,11 @@ async function main() {
     } else {
       if (existsSync(statePath)) throw new Error(`output already contains ${stateFileName}; use --resume`);
       secretSeed = suppliedFlowSeed ?? generateMatrixSecret();
-      manifest = createLongFlowMatrixManifest({ flowId, matrixRunId: newMatrixRunId });
+      manifest = createLongFlowMatrixManifest({
+        flowId,
+        matrixRunId: newMatrixRunId,
+        profile: requestedProfile ?? DEFAULT_MATRIX_PROFILE,
+      });
       if (matrixSourceAgentDir) createAgentsOnlySourceSnapshot({ snapshotDir: matrixSourceAgentDir });
       const baseProvenance = collectPinnedProvenance({ secretSeed, matrixRunId: newMatrixRunId, sourceAgentDir: matrixSourceAgentDir });
       assertPiProvenance(baseProvenance.pi);
@@ -1555,7 +1577,8 @@ async function main() {
     };
     // Keep each same-model pair adjacent and deterministic: constrained 400K
     // first, then native 1M, before advancing to the next model.
-    for (const model of MODEL_SPECS) {
+    const manifestPairKeys = new Set(manifest.cells.map((cell) => cell.pairKey));
+    for (const model of MODEL_SPECS.filter((candidate) => manifestPairKeys.has(candidate.id))) {
       const pairCells = selected
         .filter((cell) => cell.pairKey === model.id)
         .sort((left, right) => left.contextWindow - right.contextWindow)

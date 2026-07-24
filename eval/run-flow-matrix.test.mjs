@@ -689,6 +689,24 @@ describe("real Pi long-flow matrix declaration", () => {
     expect(finalMatrixStatus(state)).toBe("completed");
   });
 
+  test("core-2x2 profile owns exactly the two requested model pairs and can complete independently", () => {
+    const manifest = createLongFlowMatrixManifest({ matrixRunId: "matrix-core-2x2", profile: "core-2x2" });
+    expect(manifest.profile).toBe("core-2x2");
+    expect(manifest.cells.map((cell) => cell.id)).toEqual([
+      "opus-4-8-high-400k",
+      "opus-4-8-high-1m",
+      "sol-medium-400k",
+      "sol-medium-1m",
+    ]);
+    const state = createInitialMatrixState({ manifest, outputDir: "/tmp/matrix-core-2x2", piProvenance: {} });
+    for (const cell of Object.values(state.cells)) cell.status = "completed";
+    expect(finalMatrixStatus(state)).toBe("completed");
+  });
+
+  test("rejects an unknown matrix profile", () => {
+    expect(() => createLongFlowMatrixManifest({ profile: "unknown" })).toThrow("unknown --profile: unknown");
+  });
+
   test("execute refuses to start without an explicit flow seed", () => {
     const result = spawnSync("bun", ["eval/run-flow-matrix.mjs", "--execute"], {
       cwd: process.cwd(),

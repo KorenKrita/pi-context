@@ -214,8 +214,11 @@ bun eval/run-flow.mjs \
   --thinking high \
   --context-window 40000
 
-# 预览固定 agents-only Saffron 矩阵；不会发送模型任务
-bun run eval:saffron
+# 预览聚焦的 Opus 4.8 + Sol 2×2；不会发送模型任务
+bun run eval:saffron -- --profile core-2x2
+
+# 预览完整四模型 × 400K/1M 矩阵
+bun run eval:saffron -- --profile full
 
 bun eval/run.mjs \
   --env product-isolated \
