@@ -503,6 +503,21 @@
         <td>Flow telemetry 的 active-token 提取（<code>activeTokensFromUsage</code>）必须把首次写入缓存的 prompt（<code>cacheWrite</code>）计入 active context，而不是只算 <code>input + cacheRead</code>。</td>
         <td>SAFFRON smoke（1M 窗口、注入约 235K evidence packet）显示注入包以 cache miss 形式到达：折叠轮 usage 为 <code>{input:2, cacheRead:7692, cacheWrite:332136, output:3409, totalTokens:343239}</code>。旧提取只算 <code>input + cacheRead = 7694</code>，把该轮真实约 340K active prompt 低估成约 7.7K，使遥测把峰值压力报成约 9%（真实约 86% = 343K / 400K working budget），并一度导致误判“包没注入”。修复=求和中加入 <code>cacheWrite</code>（别名 <code>cacheWriteTokens</code>/<code>cacheCreationTokens</code>）。采用该根因修复而非先前 surface 的 <code>usageBeforeTokens</code> 补丁：它可证明正确（<code>2+7692+332136+3409=343239=totalTokens</code>，三项互斥、和即 prompt），对所有高压轮次通用，且仍只用真实 usage 字段、不引入字符估算。新增 flow-telemetry 单测锁定该形态返回 339830。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>解耦“任务正确性”与“ACM 行为评分”：<code>run-flow.mjs</code> 的 judge 门去掉 <code>!verificationFailed</code>，使确定性任务验证失败但 transcript 有效的 run 仍跑 LLM judge 并把 verdict 记入 report；退出码对 <code>verificationFailed</code> 仍为 1。</td>
+        <td>SAFFRON smoke（<code>verification_failed</code>、14 次 ACM、真实峰值约 86%）此前被整体跳过 judge，丢掉唯一一次真实高压 ACM 行为的评分。任务失败（exit 1）与 ACM 判断是正交信号，模型榜需要后者即使任务未完成。<code>report.status</code> 仍为 verification_failed → 仍分类 task_failure；<code>aggregate.mjs</code> 只读 <code>report.judge.verdict</code>、不 branch skip-reason，故 verdict 现正常进聚合。commit <code>ac41b712</code>。</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>activation 低压闸门：会话峰值工作预算压力 <strong>&lt; 30%</strong> 时，未使用 ACM 视为合理克制，不得记为 activation 失败（不得 never-activated，activation 不低于 2）；per-phase 压力（进入/离开 <code>pressurePercent</code>）渲染进 transcript，峰值经 <code>judgeRun</code> 喂入 <code>buildJudgePrompt</code>。30% 门限由用户批准。</td>
+        <td>exprlang smoke 峰值仅 10.3%、零 ACM，judge 却判 never-activated——把合理克制误记为失败。压力源为 D4 修正后的 <code>flow-telemetry</code>（cacheWrite 计入后数值正确）。峰值在 <code>judge.mjs</code> 内由 turnRecords 的 <code>telemetry.{before,after}.pressurePercent</code> 求 max，自包含、无需改 run-flow。无遥测时优雅降级（peakText=未知、省略压力行）。commit <code>8babb0f1</code>。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>证据纪律：每阶段渲染紧凑工具事实汇总（call 数、read/edit、写入文件），rubric 要求任何 data-loss / recoverability / task 受损断言必须对得上该工具记录；无记录支撑的负面断言不得作为扣分依据。</td>
+        <td>exprlang smoke 中 judge 幻觉“P3 丢失”，而工具记录并无对应删改。把确定性工具事实喂入语义 judge，落实“确定性优先、LLM 只判语义残差”的仪器设计。与 D1 同一 commit <code>8babb0f1</code>。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
