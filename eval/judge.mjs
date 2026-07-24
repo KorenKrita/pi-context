@@ -99,30 +99,6 @@ function toolFactsLine(calls) {
   return line;
 }
 
-/** Per-phase working-budget pressure %, the signal for whether ACM was warranted. */
-function pressureLine(turn) {
-  const fmt = (v) => (typeof v === 'number' && Number.isFinite(v) ? `${v.toFixed(1)}%` : null);
-  const b = fmt(turn?.telemetry?.before?.pressurePercent);
-  const a = fmt(turn?.telemetry?.after?.pressurePercent);
-  if (b === null && a === null) return null;
-  if (b !== null && a !== null) return `【压力】进入 ${b} → 离开 ${a}`;
-  return `【压力】${a ?? b}`;
-}
-
-/** Peak working-budget pressure across the flow; drives the restraint gate. */
-function peakPressureFromTurns(turnRecords) {
-  let peak = null;
-  for (const turn of turnRecords ?? []) {
-    for (const side of [turn?.telemetry?.before, turn?.telemetry?.after]) {
-      const p = side?.pressurePercent;
-      if (typeof p === 'number' && Number.isFinite(p)) {
-        peak = peak === null ? p : Math.max(peak, p);
-      }
-    }
-  }
-  return peak;
-}
-
 /**
  * Render the run as a readable transcript. ACM tool calls are shown in full
  * (args + result) because they are the load-bearing evidence; other tools are
@@ -155,8 +131,6 @@ export function buildTranscript(turnRecords) {
   for (const turn of turnRecords) {
     out.push(`\n════════ 阶段 ${turn.phase} ════════`);
     out.push(`【用户】${turn.prompt}`);
-    const pressure = pressureLine(turn);
-    if (pressure) out.push(pressure);
     out.push(toolFactsLine(turnCalls(turn)));
     if (Array.isArray(turn.segments)) {
       let previousKind = null;
@@ -650,6 +624,5 @@ export async function judgeRun(options) {
   return judgeTranscript({
     ...options,
     transcript: buildTranscript(options.turnRecords),
-    peakPressurePercent: peakPressureFromTurns(options.turnRecords),
   });
 }

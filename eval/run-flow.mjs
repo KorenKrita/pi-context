@@ -52,6 +52,7 @@ import {
 import { extractAssistantTranscript, extractToolCalls, extractTranscriptSegments } from "./scenarios.mjs";
 import { createFlowWorkspace } from "./scenario-workspace.mjs";
 import { getFlow, listFlows } from "./flow.mjs";
+import { collectFlowTelemetry } from "./flow-telemetry.mjs";
 import { buildTranscript, JUDGE_MODEL, judgeRun, RUBRIC_VERSION, writeJsonAtomically } from "./judge.mjs";
 import { ACM_CORE_MARKER, integrityAuditFailures, readIntegrityAudit, workspaceTempDirectory } from "./integrity-guard.mjs";
 import { classifySeatbeltSupport, writeEvaluationSeatbeltProfiles } from "./seatbelt.mjs";
@@ -560,6 +561,7 @@ driver = new PiRpcDriver({
 });
 
 const turnRecords = [];
+const flowEvents = [];
 let runError = null;
 let commands = null;
 let skillAvailability = null;
@@ -831,6 +833,7 @@ try {
             events = await driver.prompt(turn.prompt, { timeoutMs: Math.round((turn.timeoutMs ?? 300000) * timeoutScale) });
           } catch (error) {
             events = Array.isArray(error?.turnEvents) ? error.turnEvents : [];
+            flowEvents.push(...events);
             const toolCalls = extractToolCalls(events);
             const assistantText = extractAssistantTranscript(events);
             const segments = extractTranscriptSegments(events);
@@ -853,6 +856,7 @@ try {
             break;
           }
           const toolCalls = extractToolCalls(events);
+          flowEvents.push(...events);
           const assistantText = extractAssistantTranscript(events);
           const segments = extractTranscriptSegments(events);
           const outcome = finalAssistantOutcome(events);
@@ -1016,6 +1020,9 @@ const report = {
 const transcript = buildTranscript(turnRecords);
 writeFileSync(join(runDir, "transcript.txt"), transcript);
 
+const flowTelemetry = collectFlowTelemetry({ events: flowEvents, report, contextWindow });
+report.telemetry = flowTelemetry;
+
 if (!infrastructureInvalid && !runError && !auditOnly && doJudge) {
   console.log(`\n=== judging with ${judgeModel.provider}/${judgeModel.modelId} (thinking=${judgeThinking}) ===`);
   const judgeAgentDir = buildAgentDir({
@@ -1032,6 +1039,7 @@ if (!infrastructureInvalid && !runError && !auditOnly && doJudge) {
   try {
     const result = await judgeRun({
       turnRecords,
+      peakPressurePercent: flowTelemetry?.peak?.pressurePercent ?? null,
       opportunities: flow.turns.map((t) => ({ phase: t.phase, intent: t.intent })),
       taskCompletionDesc: flow.taskCompletionDesc,
       judgeAgentDir,
