@@ -206,6 +206,7 @@ function compactBoundarySamples(readings, boundaries) {
     const before = [...readings].reverse().find((reading) => (
       reading.eventIndex < boundary.eventIndex
       && reading.cycle === boundary.cycle
+      && reading.settledTurn === boundary.settledTurn
       && usableAssistantReading(reading)
     )) ?? null;
     // A successful travel increments the telemetry cycle before the
@@ -218,6 +219,7 @@ function compactBoundarySamples(readings, boundaries) {
     const nextCycleAssistantReadings = readings.filter((reading) => (
       reading.eventIndex > boundary.eventIndex
       && reading.cycle === boundary.cycle + 1
+      && reading.settledTurn === boundary.settledTurn
       && reading.eventType === "message_end"
       && reading.messageRole === "assistant"
     ));
@@ -267,6 +269,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
   const currentUserTurnOpenReceipts = [];
   const observedTools = [];
   let cycle = 0;
+  let settledTurn = 0;
 
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
     const event = events[eventIndex];
@@ -277,6 +280,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
       readings.push({
         eventIndex,
         cycle,
+        settledTurn,
         activeTokens,
         hardUsagePercent: activeTokens / hardContextWindow * 100,
         pressurePercent: activeTokens / workingBudgetTokens * 100,
@@ -293,6 +297,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
         readings.push({
           eventIndex,
           cycle,
+          settledTurn,
           activeTokens: reminder.tokens,
           hardUsagePercent: reminder.hardUsagePercent ?? reminder.tokens / hardContextWindow * 100,
           pressurePercent: reminder.pressurePercent ?? reminder.tokens / workingBudgetTokens * 100,
@@ -334,7 +339,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
           currentUserTurnOpenReceipts.push({ eventIndex, toolCallId: id, value: details.currentUserTurnOpen, source: "travel_receipt" });
         }
         if (toolResultIsApplied(event)) {
-          boundaries.push({ eventIndex, cycle, kind: boundaryKind(event), toolCallId: id });
+          boundaries.push({ eventIndex, cycle, settledTurn, kind: boundaryKind(event), toolCallId: id });
           cycle += 1;
         }
       }
@@ -344,9 +349,10 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
       currentUserTurnOpenReceipts.push({ eventIndex, toolCallId: message.details.toolCallId ?? null, value: message.details.currentUserTurnOpen, source: "continuation_message" });
     }
     if (isCompactionBoundary(event)) {
-      boundaries.push({ eventIndex, cycle, kind: boundaryKind(event), toolCallId: null });
+      boundaries.push({ eventIndex, cycle, settledTurn, kind: boundaryKind(event), toolCallId: null });
       cycle += 1;
     }
+    if (event?.type === "agent_settled") settledTurn += 1;
   }
 
   const crossings = [];

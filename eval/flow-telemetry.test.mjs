@@ -264,6 +264,56 @@ describe("flow telemetry", () => {
     }]);
   });
 
+  test("does not borrow a post-transition sample from the next settled user phase", () => {
+    const events = [
+      assistantUsage(220_000),
+      { type: "compaction_end", result: { summary: "compacted" }, aborted: false, willRetry: false },
+      settled(),
+      assistantUsage(180_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }, { phase: "P2" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "compaction",
+      preTokens: 220_000,
+      postTokens: null,
+    }]);
+  });
+
+  test("does not skip a failed transition turn and use the next user phase", () => {
+    const events = [
+      assistantUsage(220_000),
+      travel({ status: "applied", open: true }),
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 0, cacheRead: 0, output: 0, totalTokens: 0 },
+          stopReason: "error",
+        },
+      },
+      settled(),
+      assistantUsage(180_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }, { phase: "P2" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "successful_travel",
+      preTokens: 220_000,
+      postTokens: null,
+    }]);
+  });
+
   test("does not start a fresh cycle for an aborted or retrying compaction", () => {
     for (const event of [
       { type: "compaction_end", result: { summary: "discarded" }, aborted: true, willRetry: false },
