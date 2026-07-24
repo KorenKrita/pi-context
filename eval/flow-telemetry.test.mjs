@@ -206,6 +206,64 @@ describe("flow telemetry", () => {
     }]);
   });
 
+  test("ignores a zero-token truncated lifecycle sample before compaction", () => {
+    const truncated = {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        usage: { input: 0, cacheRead: 0, output: 0, totalTokens: 0 },
+        stopReason: "length",
+      },
+    };
+    const events = [
+      assistantUsage(220_000),
+      truncated,
+      { type: "compaction_end", result: { summary: "compacted" }, aborted: false, willRetry: false },
+      assistantUsage(40_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "compaction",
+      preTokens: 220_000,
+      postTokens: 40_000,
+    }]);
+  });
+
+  test("reports an unknown post sample when no positive assistant prompt is observed", () => {
+    const events = [
+      assistantUsage(220_000),
+      { type: "compaction_end", result: { summary: "compacted" }, aborted: false, willRetry: false },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 0, cacheRead: 0, output: 0, totalTokens: 0 },
+          stopReason: "length",
+        },
+      },
+      assistantUsage(180_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "compaction",
+      preTokens: 220_000,
+      postTokens: null,
+      postHardUsagePercent: null,
+    }]);
+  });
+
   test("does not start a fresh cycle for an aborted or retrying compaction", () => {
     for (const event of [
       { type: "compaction_end", result: { summary: "discarded" }, aborted: true, willRetry: false },

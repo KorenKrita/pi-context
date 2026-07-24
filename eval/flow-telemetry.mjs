@@ -196,7 +196,18 @@ function collectModelIntegrity(events, sessionEntries, target) {
 
 function compactBoundarySamples(readings, boundaries) {
   return boundaries.map((boundary) => {
-    const before = [...readings].reverse().find((reading) => reading.eventIndex < boundary.eventIndex) ?? null;
+    const usableAssistantReading = (reading) => (
+      reading.eventType === "message_end"
+      && reading.messageRole === "assistant"
+      && reading.stopReason !== "error"
+      && reading.stopReason !== "aborted"
+      && reading.activeTokens > 0
+    );
+    const before = [...readings].reverse().find((reading) => (
+      reading.eventIndex < boundary.eventIndex
+      && reading.cycle === boundary.cycle
+      && usableAssistantReading(reading)
+    )) ?? null;
     // A successful travel increments the telemetry cycle before the
     // originating assistant run emits its final turn_end. That turn_end still
     // describes the pre-travel prompt, so treating it as the post-boundary
@@ -204,14 +215,23 @@ function compactBoundarySamples(readings, boundaries) {
     // followed by usage-less message_start/update events. The first completed
     // assistant message in a later cycle is the first real post-transition
     // context sample for both boundaries.
-    const after = readings.find((reading) => (
+    const nextCycleAssistantReadings = readings.filter((reading) => (
       reading.eventIndex > boundary.eventIndex
       && reading.cycle === boundary.cycle + 1
       && reading.eventType === "message_end"
       && reading.messageRole === "assistant"
-      && reading.stopReason !== "error"
-      && reading.stopReason !== "aborted"
-    )) ?? null;
+    ));
+    let after = null;
+    for (const reading of nextCycleAssistantReadings) {
+      if (reading.stopReason === "error" || reading.stopReason === "aborted") continue;
+      // A non-error completed turn with zero prompt usage is an unusable
+      // landing sample (Pi emits this shape for truncated turns). Do not skip
+      // across later user phases and mislabel their larger prompt as the
+      // immediate transition result.
+      if (reading.activeTokens <= 0) break;
+      after = reading;
+      break;
+    }
     return {
       ...boundary,
       preTokens: before?.activeTokens ?? null,
