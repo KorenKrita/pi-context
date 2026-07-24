@@ -133,7 +133,9 @@
     }
   ],
   "providerDiagnostic": {
-    "productCommit": "5eb53016ce2c9a4d5346027ddf6419e53b08b766",
+    "formalEvidenceEligible": false,
+    "observedGitHead": "87ac3430135da6f79caed03e88ad0dbb6c72eeaf",
+    "workingTreeCodeLaterCommittedAs": "5eb53016ce2c9a4d5346027ddf6419e53b08b766",
     "scenario": "directed-checkpoint",
     "provider": "local-responses",
     "modelId": "gpt-5.6-sol",
@@ -155,6 +157,47 @@
       {
         "runName": "2026-07-24T13-49-01-924Z-eval-gpt-5.6-sol-p69609",
         "reportSha256": "e8e36d1554cfbce7bcc30946aaf8f0f3c2e8d30cb08e6b310c5a8f85f633dfda"
+      }
+    ]
+  },
+  "formalProviderValidation": {
+    "productCommit": "67934f1745fb0d21affe83fd47a5188563ac8830",
+    "matrixId": "8ad36e6a951f342d",
+    "runName": "saffron-sol-empty-length-2026-07-24T14-01-24Z-67934f17",
+    "matrixStateSha256": "8011c7d52f713d1305718a1afc882b722cdf095ff4cb222cf29475771e11aee5",
+    "matrixReportSha256": "e440a53862cfd7e2ccb3a4af7a54cc3287cfc2f25c3319bf6ba31bc082a2936e",
+    "cell": "sol-medium-1m",
+    "provider": "local-responses",
+    "modelId": "gpt-5.6-sol",
+    "thinkingLevel": "medium",
+    "contextWindow": 1000000,
+    "maxTokensCap": 16000,
+    "environment": "agents-only",
+    "attempts": 2,
+    "classification": "run_error",
+    "classificationReason": "provider_empty_length_response",
+    "formalEvidenceEligible": true,
+    "lockReleased": true,
+    "deterministicVerification": "not run",
+    "judge": "skipped: run_error",
+    "skillProvenance": {
+      "command": "skill:context-management",
+      "available": true,
+      "status": "available_from_expected_checkout",
+      "checkoutRelativePath": "skills/context-management/SKILL.md",
+      "sha256": "4f5451e6a07d135cc0a36722825172e40ff656c82f470aa7896ef045ac2d0e46",
+      "expectedCheckoutCommit": "67934f1745fb0d21affe83fd47a5188563ac8830"
+    },
+    "reports": [
+      {
+        "runName": "2026-07-24T14-01-33-415Z-flow-gpt-5.6-sol-p76480",
+        "reportSha256": "7a1c951349064ec5fd703b42a15ca7bab6aa03008c866a0fa64b0f7f3819cb6d",
+        "completedTurns": 0
+      },
+      {
+        "runName": "2026-07-24T14-04-18-171Z-flow-gpt-5.6-sol-p77870",
+        "reportSha256": "aa521bd3e0d126c1c2a5cfbbbd1c83f4cd45398b5d75a47375b60052b8cb6f44",
+        "completedTurns": 0
       }
     ]
   },
@@ -196,7 +239,7 @@
     "result": "The raw-archive fold-base error did not recur. All three travels were on-path; P8 rebased to root and reduced active summary depth from 2 to 1."
   },
   "deterministicGateAfterFixes": {
-    "productCommit": "5eb53016ce2c9a4d5346027ddf6419e53b08b766",
+    "productCommit": "67934f1745fb0d21affe83fd47a5188563ac8830",
     "rootTests": 452,
     "exactHostTests": 64,
     "typecheck": "passed",
@@ -206,6 +249,7 @@
     "Each matrix cell and the targeted rerun are single stochastic samples; they do not estimate population-level model reliability.",
     "Equal or different outcomes do not establish a causal hard-context-window effect.",
     "The persisted Sol task_failure labels are superseded by post-hoc schema-v2 telemetry: both cells are provider run errors and do not support task-quality or 400K-versus-1M conclusions.",
+    "Two formal Sol 1M attempts on commit 67934f17 also ended as provider_empty_length_response before deterministic verification or judging; this supports a current provider-path reliability conclusion, not a model-capability conclusion.",
     "The targeted rerun supports the raw-archive affordance change on the observed task; continued production-like monitoring is still required."
   ]
 }
