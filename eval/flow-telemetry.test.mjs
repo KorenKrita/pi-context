@@ -165,6 +165,47 @@ describe("flow telemetry", () => {
     }]);
   });
 
+  test("ignores custom reminder and failed assistant message_end samples after travel", () => {
+    const reminder = {
+      role: "custom",
+      customType: "acm:context-usage-reminder",
+      details: {
+        kind: "context-usage-reminder",
+        level: 50,
+        tokens: 180_000,
+        usagePercent: 45,
+        pressurePercent: 45,
+        workingBudgetTokens: 400_000,
+      },
+    };
+    const events = [
+      assistantUsage(220_000),
+      travel({ status: "applied", open: true }),
+      { type: "message_end", message: reminder },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          usage: { input: 0, cacheRead: 0, output: 0, totalTokens: 0 },
+          stopReason: "error",
+        },
+      },
+      assistantUsage(45_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "successful_travel",
+      preTokens: 220_000,
+      postTokens: 45_000,
+    }]);
+  });
+
   test("does not start a fresh cycle for an aborted or retrying compaction", () => {
     for (const event of [
       { type: "compaction_end", result: { summary: "discarded" }, aborted: true, willRetry: false },

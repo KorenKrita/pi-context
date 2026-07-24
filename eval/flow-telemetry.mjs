@@ -206,8 +206,11 @@ function compactBoundarySamples(readings, boundaries) {
     // context sample for both boundaries.
     const after = readings.find((reading) => (
       reading.eventIndex > boundary.eventIndex
-      && reading.cycle > boundary.cycle
+      && reading.cycle === boundary.cycle + 1
       && reading.eventType === "message_end"
+      && reading.messageRole === "assistant"
+      && reading.stopReason !== "error"
+      && reading.stopReason !== "aborted"
     )) ?? null;
     return {
       ...boundary,
@@ -247,6 +250,7 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
 
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
     const event = events[eventIndex];
+    const message = event?.message ?? event;
     const usage = eventUsage(event);
     const activeTokens = activeTokensFromUsage(usage);
     if (activeTokens !== null && hardContextWindow !== null && workingBudgetTokens !== null) {
@@ -257,6 +261,8 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
         hardUsagePercent: activeTokens / hardContextWindow * 100,
         pressurePercent: activeTokens / workingBudgetTokens * 100,
         eventType: event?.type ?? "unknown",
+        messageRole: message?.role ?? null,
+        stopReason: message?.stopReason ?? null,
       });
     }
 
@@ -271,6 +277,8 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
           hardUsagePercent: reminder.hardUsagePercent ?? reminder.tokens / hardContextWindow * 100,
           pressurePercent: reminder.pressurePercent ?? reminder.tokens / workingBudgetTokens * 100,
           eventType: event?.type ?? "context-usage-reminder",
+          messageRole: message?.role ?? null,
+          stopReason: message?.stopReason ?? null,
         });
       }
     }
@@ -312,7 +320,6 @@ export function collectFlowTelemetry({ events = [], report = {}, sessionEntries 
       }
     }
 
-    const message = event?.message ?? event;
     if (message?.customType === "acm:post-travel-continuation" && typeof message?.details?.currentUserTurnOpen === "boolean") {
       currentUserTurnOpenReceipts.push({ eventIndex, toolCallId: message.details.toolCallId ?? null, value: message.details.currentUserTurnOpen, source: "continuation_message" });
     }
