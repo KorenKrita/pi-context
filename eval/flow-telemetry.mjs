@@ -39,8 +39,13 @@ export function activeTokensFromUsage(usage) {
     if (value !== null) return value;
   }
   const input = finiteNumber(usage.inputTokens ?? usage.input ?? usage.promptTokens);
-  const cache = finiteNumber(usage.cacheReadTokens ?? usage.cacheRead);
-  if (input !== null || cache !== null) return (input ?? 0) + (cache ?? 0);
+  const cacheRead = finiteNumber(usage.cacheReadTokens ?? usage.cacheRead);
+  // Freshly sent context is reported as cacheWrite (cache miss), so it must be
+  // counted as active prompt context, not dropped to input + cacheRead.
+  const cacheWrite = finiteNumber(usage.cacheWriteTokens ?? usage.cacheWrite ?? usage.cacheCreationTokens);
+  if (input !== null || cacheRead !== null || cacheWrite !== null) {
+    return (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+  }
   for (const key of ["totalTokens", "total"]) {
     const value = finiteNumber(usage[key]);
     if (value !== null) return value;

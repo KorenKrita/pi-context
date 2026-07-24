@@ -498,6 +498,11 @@
         <td>把空内容、全零 usage 的 <code>stopReason:length</code> 识别为 provider run error，而不是模型 task failure。</td>
         <td>新 core-2x2 的 Sol 400K/1M 曾被持久化为 task failure，但原始 RPC 事件分别含 4/9 次 <code>content=[]</code>、input/output/cache/reasoning/total 全零且带 responseId 的 length completion；短 <code>directed-checkpoint</code> 复现中一次在首个模型响应发生，一次在成功 checkpoint 后的确认回合发生，证明它不是 Saffron 长任务、16K 正常耗尽或 checkpoint mutation 失败。<code>PiRpcDriver</code> 现在统一拒绝该形态并返回 <code>provider_empty_length_response</code>；long-flow/matrix 分类为 run_error、跳过 verifier/judge，并只允许从 fresh workspace 原样重跑整个 cell。错误携带该 turn 的 raw events，report 在停止前保留 partial tool/assistant evidence，但不执行 after-turn host actions。正常有内容或非零 usage 的 length 仍保留为 outcome-bearing turn。短 directed-checkpoint scorer 还要求 tool result 之后出现可见 checkpoint 确认，避免工具调用成功却缺失交付时误报 PASS。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Flow telemetry 的 active-token 提取（<code>activeTokensFromUsage</code>）必须把首次写入缓存的 prompt（<code>cacheWrite</code>）计入 active context，而不是只算 <code>input + cacheRead</code>。</td>
+        <td>SAFFRON smoke（1M 窗口、注入约 235K evidence packet）显示注入包以 cache miss 形式到达：折叠轮 usage 为 <code>{input:2, cacheRead:7692, cacheWrite:332136, output:3409, totalTokens:343239}</code>。旧提取只算 <code>input + cacheRead = 7694</code>，把该轮真实约 340K active prompt 低估成约 7.7K，使遥测把峰值压力报成约 9%（真实约 86% = 343K / 400K working budget），并一度导致误判“包没注入”。修复=求和中加入 <code>cacheWrite</code>（别名 <code>cacheWriteTokens</code>/<code>cacheCreationTokens</code>）。采用该根因修复而非先前 surface 的 <code>usageBeforeTokens</code> 补丁：它可证明正确（<code>2+7692+332136+3409=343239=totalTokens</code>，三项互斥、和即 prompt），对所有高压轮次通用，且仍只用真实 usage 字段、不引入字符估算。新增 flow-telemetry 单测锁定该形态返回 339830。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

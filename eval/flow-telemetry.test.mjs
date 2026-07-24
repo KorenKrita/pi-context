@@ -49,6 +49,15 @@ describe("flow telemetry", () => {
     expect(activeTokensFromUsage({ totalTokens: 17 })).toBe(17);
   });
 
+  test("counts freshly cached prompt tokens (cacheWrite) as active context", () => {
+    // A large first-time context arrives as a cache write (miss); it must count
+    // as active prompt, not be dropped to input + cacheRead.
+    expect(
+      activeTokensFromUsage({ input: 2, output: 3409, cacheRead: 7692, cacheWrite: 332136, totalTokens: 343239 }),
+    ).toBe(339830);
+    expect(activeTokensFromUsage({ inputTokens: 100, cacheWriteTokens: 50 })).toBe(150);
+  });
+
   test("keeps working-budget pressure equal while hard-window usage differs", () => {
     const events = [assistantUsage(120_000), settled()];
     const constrained = collectFlowTelemetry({ events, report: report({ turns: [{ phase: "P1" }] }), contextWindow: 400_000 });
