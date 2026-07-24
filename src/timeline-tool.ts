@@ -20,7 +20,7 @@ import {
   sanitizeTerminalText,
   type LabelMaps,
 } from "./lib.js";
-import { rebuildAcmContextPacket } from "./context-packet.js";
+import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
@@ -54,24 +54,20 @@ function formatTimelineAliases(labels: readonly string[], rawArchiveAliases: Rea
   const preferred = labels.at(-1);
   if (!preferred) return "";
   const remaining = labels.length - 1;
-  const preferredText = rawArchiveAliases.has(preferred)
-    ? `${boundedTimelineValue(preferred)} [raw archive]`
-    : boundedTimelineValue(preferred);
+  const hasRawArchive = labels.some((label) => rawArchiveAliases.has(label));
+  const preferredText = boundedTimelineValue(preferred);
+  const rawArchiveMarker = hasRawArchive
+    ? rawArchiveAliases.has(preferred) ? " [raw archive]" : " [raw archive on this entry]"
+    : "";
   return remaining > 0
-    ? `${preferredText} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
-    : preferredText;
+    ? `${preferredText}${rawArchiveMarker} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
+    : `${preferredText}${rawArchiveMarker}`;
 }
 
 function collectRawArchiveAliases(entries: readonly SessionEntry[]): Set<string> {
-  const aliases = new Set<string>();
-  for (const entry of entries) {
-    if (entry.type !== "branch_summary" || typeof entry.details !== "object" || entry.details === null) continue;
-    const details = entry.details as Record<string, unknown>;
-    if (details.kind !== "acm_travel" || details.handoffVersion !== 1) continue;
-    const alias = details.backupCurrentHeadAs;
-    if (typeof alias === "string" && alias.length > 0) aliases.add(alias);
-  }
-  return aliases;
+  return new Set(collectTrustedAcmTravelTransactions(entries)
+    .map((transaction) => transaction.details.backupCurrentHeadAs)
+    .filter((alias): alias is string => typeof alias === "string" && alias.length > 0));
 }
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -144,12 +140,13 @@ function collectListings(
 function formatCheckpointLabels(listing: CheckpointListing): string {
   const preferred = listing.matchedLabels.at(-1) ?? listing.labels.at(-1) ?? "checkpoint";
   const remaining = Math.max(0, listing.labels.length - 1);
-  const preferredText = listing.rawArchiveLabels.includes(preferred)
-    ? `${boundedTimelineValue(preferred)} [raw archive]`
-    : boundedTimelineValue(preferred);
+  const preferredText = boundedTimelineValue(preferred);
+  const rawArchiveMarker = listing.rawArchiveLabels.length > 0
+    ? listing.rawArchiveLabels.includes(preferred) ? " [raw archive]" : " [raw archive on this entry]"
+    : "";
   return remaining === 0
-    ? preferredText
-    : `${preferredText} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
+    ? `${preferredText}${rawArchiveMarker}`
+    : `${preferredText}${rawArchiveMarker} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
 }
 
 function searchTree(
@@ -180,6 +177,13 @@ function searchTree(
     pushTreeChildrenPreOrder(stack, node.children);
   }
   return { matches, truncated };
+}
+
+function prioritizeSearchAliases(labels: readonly string[], query: string): string[] {
+  const normalized = query.toLowerCase();
+  const unmatched = labels.filter((label) => !label.toLowerCase().includes(normalized));
+  const matched = labels.filter((label) => label.toLowerCase().includes(normalized));
+  return matched.length > 0 ? [...unmatched, ...matched] : [...labels];
 }
 
 function renderTree(
@@ -544,7 +548,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
-          lines.push(`  ${match.entry.id}${match.labels.length ? ` (checkpoint: ${formatTimelineAliases(match.labels, rawArchiveAliases)})` : ""} [${displayRole(match.entry)}] ${body}`);
+          const displayLabels = prioritizeSearchAliases(match.labels, params.query);
+          lines.push(`  ${match.entry.id}${displayLabels.length ? ` (checkpoint: ${formatTimelineAliases(displayLabels, rawArchiveAliases)})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {

@@ -168,7 +168,7 @@ pi -e /path/to/pi-context/src/index.ts \
 - persistent context rebuild 和 settled-boundary live AgentSession sync 状态。
 - travel target 的 protocol status/repairs/defects、surviving open-user、assistant tool-batch、old-summary 与 off-path warnings；无效 tool-call identity 的 target 会在任何 mutation 前被拒绝，其余 warning 不冒充语义 verdict。
 
-`acm_timeline` 会把 travel transaction 创建的恢复 alias 标为 `[raw archive]`。这类 alias 指向 travel 前的原始路径，通常会恢复或扩大历史，只用于有明确返回路线的 restore/rehydrate；fold/rebase 应选择待移除 sediment 之前的 clean ancestor，不能因 alias 名像“已完成里程碑”就把 raw archive 当压缩基底。
+`acm_timeline` 只在 trusted ACM summary 与 unique finalized applied receipt 精确匹配时，把 transaction backup alias 标为 `[raw archive]`；foreign/native summary details 不会改变 alias 类型。同一 entry 有多个 alias 时，只要任一 alias 是 raw archive，active/search/tree/checkpoints 都保留节点级标记，search 还会优先显示命中的 alias。这类 alias 指向 travel 前的原始路径，通常会恢复或扩大历史，只用于有明确返回路线的 restore/rehydrate；fold/rebase 应选择待移除 sediment 之前的 clean ancestor，不能因 alias 名像“已完成里程碑”就把 raw archive 当压缩基底。
 
 Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。省略 `target` 时，名称会落在 checkpoint 调用前最新的 protocol-complete session leaf 上——通常是已完成的 tool result，而不是它前面的 assistant tool-call turn，因此恢复不会把已经完成的工具伪装成 `[Interrupted by context travel]`。语义由 checkpoint 名称表达，物理节点负责忠实恢复；显式 `target` 仍可标记任意历史节点并对非 USER/AI 节点给出 warning。
 

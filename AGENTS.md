@@ -96,7 +96,7 @@ Host Bridge 不保存跨操作的全局 rollback registry。backup rollback proo
 
 HUD 包含 official/cached usage、active node count、active summary depth、off-path summary count、nearest checkpoint distance、context refresh 与 settled-boundary live AgentSession sync diagnostics。
 
-checkpoint view 额外显示 `root` structural candidate、每个候选 travel 后的 projected summary depth，并把由 `backupCurrentHeadAs` 创建的 alias 标为 `[raw archive]`。Raw archive alias 指向 pre-travel 原始路径，通常用于 restore/rehydrate 且可能扩大 context，不得把它当 fold/rebase base；后两者仍应选择 sediment 之前的 clean ancestor。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。Schema 不拒绝大的 caller limit，但每次调用使用 context-window-derived entry + character budgets 约束 rebuild/output work，动态 alias/query 在呈现层截断且 node ID 放在前面，details 返回 requested/effective limits、entry/character budget 与 truncation evidence；需要更多结果时用 filter/query 缩小，而不是一次展开整棵大 session。
+checkpoint view 额外显示 `root` structural candidate、每个候选 travel 后的 projected summary depth，并只把 trusted ACM summary + unique finalized applied receipt transaction 中的 `backupCurrentHeadAs` alias 标为 `[raw archive]`；foreign/native/marker-like details 不得获得该类型。Raw archive alias 指向 pre-travel 原始路径，通常用于 restore/rehydrate 且可能扩大 context，不得把它当 fold/rebase base；后两者仍应选择 sediment 之前的 clean ancestor。同一 entry 有多个 alias 时，任一 raw alias 都必须在 active/search/tree/checkpoints 保留节点级 raw marker，search 优先显示实际命中的 alias。这些都是 topology evidence，不是 rebase safety verdict；语义完整性只能由 agent 的 cold-start 检查判断。Schema 不拒绝大的 caller limit，但每次调用使用 context-window-derived entry + character budgets 约束 rebuild/output work，动态 alias/query 在呈现层截断且 node ID 放在前面，details 返回 requested/effective limits、entry/character budget 与 truncation evidence；需要更多结果时用 filter/query 缩小，而不是一次展开整棵大 session。
 
 ## Travel transaction
 

@@ -492,7 +492,7 @@ Travel backup 保存的是可直接恢复的 raw continuation leaf：使用紧�
 新 Opus 4.8 / 400K formal cell 在 P8 target=`evidence-packet-classified`，实际从约 115K 增至 301K、messages 43→78、summary depth 1→2；judge 归因为 `anchor-gravity-wrong-target`。同矩阵 Opus 1M 正确使用 root rebase 与 checkpoint round-trip rehydrate，说明 archive target 本身不能被一刀切拒绝。
 
 **当前解决方式**:
-Tool schema、canonical guidance 与 advanced target selection 把 transaction backup 明确定义为 raw archive origin：只用于 deliberate restore/rehydrate，fold/rebase 选择 sediment 之前的 clean ancestor。Timeline 从 persisted trusted travel summary 的 `backupCurrentHeadAs` 重建 alias 类型，在 active/search/tree/checkpoint views 标记 `[raw archive]`，checkpoint view 同时展示预计 usage/message/depth 与“not a fold/rebase base”说明。
+Tool schema、canonical guidance 与 advanced target selection 把 transaction backup 明确定义为 raw archive origin：只用于 deliberate restore/rehydrate，fold/rebase 选择 sediment 之前的 clean ancestor。Timeline 复用 Context Packet 的 trusted transaction evidence，只有 canonical/fromHook/full provenance summary 与 unique finalized applied receipt 匹配时才从 `backupCurrentHeadAs` 重建 alias 类型；foreign/native details 不生效。同一 entry 有任意 raw alias 时，active/search/tree/checkpoint views 均保留节点级 `[raw archive]` marker，search 优先展示实际匹配 alias，checkpoint view 同时展示预计 usage/message/depth 与“not a fold/rebase base”说明。
 
 **边界**:
 Runtime 不按 token increase 或 off-path 自动拒绝，因为合法 rehydrate 的结构效果本来就是恢复历史并可能扩张。是否需要进一步引入显式 travel intent，必须由后续同任务行为证据决定。

@@ -8,6 +8,7 @@ import {
   countActiveSummaryDepth,
   projectSummaryDepthAfterTravel,
 } from "../src/lib.js";
+import { ACM_CONTINUATION_MARKER } from "../src/context-packet.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { GUIDANCE_CUES } from "../src/generated-guidance.js";
 
@@ -168,12 +169,14 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });
 
-  test("checkpoint view marks travel backups as raw archive origins rather than fold bases", async () => {
+  test("all timeline views preserve a raw archive marker when a later ordinary alias exists", async () => {
     const root = message("root", null, "root");
     const archived = message("archived", "root", "raw packet");
     const rawLabel = label("label-raw", "archived", "archived", "raw-before-fold");
+    const semanticLabel = label("label-semantic", "label-raw", "archived", "later-semantic");
     const folded = {
-      ...summary("summary-1", "root", "current handoff"),
+      ...summary("summary-1", "root", `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: folded\nEvidence: none\nExternal: none\nExclusions: none\nRecover: raw-before-fold\nNEXT: continue`),
+      fromHook: true,
       details: {
         kind: "acm_travel",
         handoffVersion: 1,
@@ -185,25 +188,86 @@ describe("semantic rebase evidence", () => {
         backupCurrentHeadAs: "raw-before-fold",
       },
     } as SessionEntry;
-    const current = message("current", "summary-1", "current");
-    const entries = [root, archived, rawLabel, folded, current];
-    const branch = [root, folded, current];
+    const receipt = {
+      id: "receipt-1",
+      type: "message",
+      parentId: "summary-1",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "travel-1",
+        toolName: "acm_travel",
+        content: [{ type: "text", text: "Travel complete" }],
+        details: {
+          mutationStatus: "applied",
+          persistentMutationApplied: true,
+          handoffFormat: "structured-v1",
+          summaryEntryId: "summary-1",
+          resultingLeafId: "summary-1",
+          originId: "old-head",
+          targetId: "root",
+        },
+        isError: false,
+        timestamp: 3,
+      },
+    } as SessionEntry;
+    const current = message("current", "label-semantic", "current");
+    const entries = [root, archived, rawLabel, semanticLabel, folded, receipt, current];
+    const branch = [root, archived, rawLabel, semanticLabel, current];
     const tool = captureTimelineTool();
+    const context = makeContext(
+      entries,
+      [node(root, [
+        node(archived, [node(rawLabel, [node(semanticLabel, [node(current)])])]),
+        node(folded, [node(receipt)]),
+      ])],
+      branch,
+    );
 
+    const checkpoints = await tool.execute("timeline-raw-checkpoints", { view: "checkpoints", limit: 50 }, undefined, undefined, context);
+    const active = await tool.execute("timeline-raw-active", { view: "active", limit: 50 }, undefined, undefined, context);
+    const search = await tool.execute("timeline-raw-search", { view: "search", query: "raw-before-fold", limit: 50 }, undefined, undefined, context);
+    const tree = await tool.execute("timeline-raw-tree", { view: "tree", limit: 50 }, undefined, undefined, context);
+
+    expect(checkpoints.content[0].text).toContain("later-semantic [raw archive on this entry]");
+    expect(checkpoints.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
+    expect(active.content[0].text).toContain("later-semantic [raw archive on this entry]");
+    expect(search.content[0].text).toContain("raw-before-fold [raw archive]");
+    expect(tree.content[0].text).toContain("later-semantic [raw archive on this entry]");
+  });
+
+  test("foreign summary details cannot classify an ordinary alias as raw archive", async () => {
+    const root = message("root", null, "root");
+    const ordinary = message("ordinary", "root", "ordinary checkpoint");
+    const ordinaryLabel = label("label-ordinary", "ordinary", "ordinary", "ordinary-checkpoint");
+    const forged = {
+      ...summary("foreign-summary", "root", "foreign summary without ACM marker"),
+      details: {
+        kind: "acm_travel",
+        handoffVersion: 1,
+        toolCallId: "foreign-travel",
+        currentUserTurnOpen: false,
+        originId: "foreign-origin",
+        target: "root",
+        targetId: "root",
+        backupCurrentHeadAs: "ordinary-checkpoint",
+      },
+    } as SessionEntry;
+    const current = message("current", "label-ordinary", "current");
+    const entries = [root, ordinary, ordinaryLabel, forged, current];
+    const branch = [root, ordinary, ordinaryLabel, current];
+    const tool = captureTimelineTool();
     const result = await tool.execute(
-      "timeline-raw-archive",
+      "timeline-foreign-summary",
       { view: "checkpoints", limit: 50 },
       undefined,
       undefined,
-      makeContext(
-        entries,
-        [node(root, [node(archived, [node(rawLabel)]), node(folded, [node(current)])])],
-        branch,
-      ),
+      makeContext(entries, [node(root, [node(ordinary, [node(ordinaryLabel, [node(current)])]), node(forged)])], branch),
     );
 
-    expect(result.content[0].text).toContain("raw-before-fold [raw archive]");
-    expect(result.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
+    expect(result.content[0].text).toContain("ordinary-checkpoint");
+    expect(result.content[0].text).not.toContain("[raw archive]");
+    expect(result.content[0].text).not.toContain("raw archive origin — restore/rehydrate only");
   });
 
   test("HUD exposes cached_exhausted and stops presenting persistence refresh as pending", async () => {

@@ -13,6 +13,22 @@ export type AcmProtocolNormalization = {
   summaryEntryId: string;
 };
 
+export interface TrustedAcmTravelSummaryDetails {
+  toolCallId: string;
+  currentUserTurnOpen: boolean;
+  originId: string;
+  target: string;
+  targetId: string;
+  backupCurrentHeadAs: string | null;
+}
+
+export interface TrustedAcmTravelTransaction {
+  summaryEntryId: string;
+  details: TrustedAcmTravelSummaryDetails;
+  receiptIdentity: string;
+  normalization: AcmProtocolNormalization;
+}
+
 export interface AcmContextPacket {
   messages: AgentMessage[];
   protocol: {
@@ -57,9 +73,53 @@ function receiptIdentity(message: AgentMessage): string | undefined {
   }
 }
 
-function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
+function trustedTravelSummaryDetails(entry: SessionEntry | undefined): TrustedAcmTravelSummaryDetails | undefined {
+  if (
+    entry?.type !== "branch_summary"
+    || entry.fromHook !== true
+    || typeof entry.summary !== "string"
+    || !entry.summary.startsWith(ACM_CONTINUATION_MARKER)
+  ) return undefined;
+  const details = record(entry.details);
+  const toolCallId = typeof details?.toolCallId === "string" && details.toolCallId.trim().length > 0
+    ? details.toolCallId
+    : undefined;
+  const originId = typeof details?.originId === "string" && details.originId.length > 0
+    ? details.originId
+    : undefined;
+  const target = typeof details?.target === "string" && details.target.length > 0
+    ? details.target
+    : undefined;
+  const targetId = typeof details?.targetId === "string" && details.targetId.length > 0
+    ? details.targetId
+    : undefined;
+  const rawBackup = details?.backupCurrentHeadAs;
+  const backupCurrentHeadAs = rawBackup === null || typeof rawBackup === "string"
+    ? rawBackup
+    : undefined;
+  if (
+    details?.kind !== "acm_travel"
+    || details.handoffVersion !== 1
+    || typeof details.currentUserTurnOpen !== "boolean"
+    || !toolCallId
+    || !originId
+    || !target
+    || !targetId
+    || backupCurrentHeadAs === undefined
+  ) return undefined;
+  return {
+    toolCallId,
+    currentUserTurnOpen: details.currentUserTurnOpen,
+    originId,
+    target,
+    targetId,
+    backupCurrentHeadAs,
+  };
+}
+
+export function collectTrustedAcmTravelTransactions(entries: readonly SessionEntry[]): TrustedAcmTravelTransaction[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const trusted = new Map<string, AcmProtocolNormalization[]>();
+  const transactions: TrustedAcmTravelTransaction[] = [];
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
     const message = entry.message;
@@ -75,31 +135,35 @@ function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<str
       || receipt.resultingLeafId !== summaryEntryId
       || entry.parentId !== summaryEntryId
     ) continue;
-    const summary = byId.get(summaryEntryId);
+    const provenance = trustedTravelSummaryDetails(byId.get(summaryEntryId));
     if (
-      summary?.type !== "branch_summary"
-      || typeof summary.summary !== "string"
-      || !summary.summary.startsWith(ACM_CONTINUATION_MARKER)
-    ) continue;
-    const provenance = record(summary.details);
-    if (
-      provenance?.kind !== "acm_travel"
-      || provenance.handoffVersion !== 1
+      !provenance
       || receipt.originId !== provenance.originId
       || receipt.targetId !== provenance.targetId
-      || typeof provenance.toolCallId !== "string"
-      || provenance.toolCallId.trim().length === 0
       || provenance.toolCallId !== message.toolCallId
     ) continue;
     const identity = receiptIdentity(message);
     if (!identity) continue;
-    const candidates = trusted.get(identity) ?? [];
-    candidates.push({
-      kind: "removed_applied_acm_travel_receipt",
-      toolCallId: message.toolCallId,
+    transactions.push({
       summaryEntryId,
+      details: provenance,
+      receiptIdentity: identity,
+      normalization: {
+        kind: "removed_applied_acm_travel_receipt",
+        toolCallId: message.toolCallId,
+        summaryEntryId,
+      },
     });
-    trusted.set(identity, candidates);
+  }
+  return transactions;
+}
+
+function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
+  const trusted = new Map<string, AcmProtocolNormalization[]>();
+  for (const transaction of collectTrustedAcmTravelTransactions(entries)) {
+    const candidates = trusted.get(transaction.receiptIdentity) ?? [];
+    candidates.push(transaction.normalization);
+    trusted.set(transaction.receiptIdentity, candidates);
   }
   return trusted;
 }

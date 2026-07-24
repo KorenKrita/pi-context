@@ -188,6 +188,7 @@ describe("ACM context packet", () => {
         parentId: "root",
         timestamp: new Date(2).toISOString(),
         fromId: "root",
+        fromHook: true,
         summary,
         details: {
           kind: "acm_travel",
@@ -288,6 +289,7 @@ describe("ACM context packet", () => {
           parentId: "root",
           timestamp: new Date(2).toISOString(),
           fromId: "root",
+          fromHook: true,
           summary,
           details: {
             kind: "acm_travel",
@@ -355,6 +357,7 @@ describe("ACM context packet", () => {
         parentId: "root",
         timestamp: new Date(2).toISOString(),
         fromId: "root",
+        fromHook: true,
         summary,
         details: {
           kind: "acm_travel",
@@ -418,6 +421,7 @@ describe("ACM context packet", () => {
         parentId: "root",
         timestamp: new Date(2).toISOString(),
         fromId: "root",
+        fromHook: true,
         summary,
         details: {
           kind: "acm_travel",
