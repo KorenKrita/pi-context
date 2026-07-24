@@ -486,7 +486,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Transition telemetry 的 pre/post token sample 只接受相邻 cycle 中正 token 的 assistant <code>message_end</code>。</td>
-        <td>新 core-2x2 的两个 Sol session 暴露 compaction 前最后一条 lifecycle reading 可能是 <code>stopReason:length</code> 且 usage=0；旧 collector 因此把实际约 86K/203K 的 pre-context 记为 0，并把压缩误报成扩张。每条 reading/boundary 现记录由 <code>agent_settled</code> 划分的 turn ID；pre 取同 turn/cycle 最后一条正 token、non-error/non-aborted assistant completion。Post 只在同一 settled turn 的下一 cycle 内跳过 error/aborted retry；若第一条 non-error completion 为零 usage则报告 unknown，不跨过 settled/后续用户 phase；custom reminder 同样不算。</td>
+        <td>新 core-2x2 的两个 Sol session 暴露 compaction 前最后一条 lifecycle reading 可能是 <code>stopReason:length</code> 且 usage=0；旧 collector 因此把实际约 86K/203K 的 pre-context 记为 0，并把压缩误报成扩张。每条 reading/boundary 现记录由 <code>agent_settled</code> 划分的 turn ID；pre 取 boundary 所属 cycle 最后一条正 token、non-error/non-aborted assistant completion，因为 native compaction 可在该 turn settled 后才发事件。Post 才限制在 boundary 同一 settled turn 的下一 cycle内；若第一条 non-error completion 为零 usage则报告 unknown，不跨过 settled/后续用户 phase；custom reminder 同样不算。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>

@@ -285,6 +285,27 @@ describe("flow telemetry", () => {
     }]);
   });
 
+  test("keeps the last valid pre sample when compaction fires after settlement", () => {
+    const events = [
+      assistantUsage(220_000),
+      settled(),
+      { type: "compaction_end", result: { summary: "compacted" }, aborted: false, willRetry: false },
+      assistantUsage(40_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }, { phase: "P2" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "compaction",
+      preTokens: 220_000,
+      postTokens: 40_000,
+    }]);
+  });
+
   test("does not skip a failed transition turn and use the next user phase", () => {
     const events = [
       assistantUsage(220_000),

@@ -206,7 +206,6 @@ function compactBoundarySamples(readings, boundaries) {
     const before = [...readings].reverse().find((reading) => (
       reading.eventIndex < boundary.eventIndex
       && reading.cycle === boundary.cycle
-      && reading.settledTurn === boundary.settledTurn
       && usableAssistantReading(reading)
     )) ?? null;
     // A successful travel increments the telemetry cycle before the
