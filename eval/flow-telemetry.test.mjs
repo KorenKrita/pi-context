@@ -129,6 +129,7 @@ describe("flow telemetry", () => {
       assistantUsage(220_000),
       { type: "compaction_start", reason: "manual" },
       { type: "compaction_end", reason: "manual", result: { summary: "compacted" }, aborted: false, willRetry: false },
+      { type: "message_start", message: { role: "assistant", usage: { input: 0, cacheRead: 0, output: 0, totalTokens: 0 } } },
       assistantUsage(40_000),
       settled(),
     ];
@@ -141,6 +142,27 @@ describe("flow telemetry", () => {
       postTokens: 40_000,
     }]);
     expect(telemetry.coverage.compactionBoundaryObserved).toBe(true);
+  });
+
+  test("uses the first completed post-travel prompt instead of the originating stale turn_end", () => {
+    const events = [
+      assistantUsage(220_000),
+      travel({ status: "applied", open: true }),
+      { type: "turn_end", usage: { input: 220_000, cacheRead: 0, output: 1, totalTokens: 220_001 } },
+      assistantUsage(45_000),
+      settled(),
+    ];
+    const telemetry = collectFlowTelemetry({
+      events,
+      report: report({ turns: [{ phase: "P1" }] }),
+      contextWindow: 400_000,
+    });
+
+    expect(telemetry.boundaries).toMatchObject([{
+      kind: "successful_travel",
+      preTokens: 220_000,
+      postTokens: 45_000,
+    }]);
   });
 
   test("does not start a fresh cycle for an aborted or retrying compaction", () => {

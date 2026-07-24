@@ -197,7 +197,18 @@ function collectModelIntegrity(events, sessionEntries, target) {
 function compactBoundarySamples(readings, boundaries) {
   return boundaries.map((boundary) => {
     const before = [...readings].reverse().find((reading) => reading.eventIndex < boundary.eventIndex) ?? null;
-    const after = readings.find((reading) => reading.eventIndex > boundary.eventIndex) ?? null;
+    // A successful travel increments the telemetry cycle before the
+    // originating assistant run emits its final turn_end. That turn_end still
+    // describes the pre-travel prompt, so treating it as the post-boundary
+    // sample makes every travel look like a no-op. Compaction can similarly be
+    // followed by usage-less message_start/update events. The first completed
+    // assistant message in a later cycle is the first real post-transition
+    // context sample for both boundaries.
+    const after = readings.find((reading) => (
+      reading.eventIndex > boundary.eventIndex
+      && reading.cycle > boundary.cycle
+      && reading.eventType === "message_end"
+    )) ?? null;
     return {
       ...boundary,
       preTokens: before?.activeTokens ?? null,
