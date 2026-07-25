@@ -50,9 +50,10 @@ describe("ACM tool description contract", () => {
   test("presents rehydration as a first-class travel direction", () => {
     expect(generatedGuidance).toContain("rehydrate an archived branch");
     expect(generatedGuidance).toContain("Rehydrate only when one exact missing detail is actually needed");
-    expect(generatedGuidance).toContain("raw archive alias");
-    expect(generatedGuidance).toContain("never as a fold or rebase base");
+    // Raw-archive semantics now live in one home: the travel target schema
+    // description, echoed factually by the timeline checkpoints cue.
     expect(travelTool).toContain("never as a fold/rebase base");
+    expect(generatedGuidance).toContain("not fold/rebase bases");
     expect(timelineTool).toContain("[raw archive]");
   });
 

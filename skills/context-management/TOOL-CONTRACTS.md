@@ -5,15 +5,15 @@ This file is the single source of truth for generated ACM tool descriptions, pro
 ## Tool descriptions
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Save point: attach a semantic label to a recoverable session state without changing the active context. Never blocks or folds anything — it makes recovery, forks, and bold compression cheap. Use before a risky attempt, at a validated baseline, before a fork in strategy, when parking a front, or before raw history is folded away. Names are unique and case-sensitive across the whole session tree ('root' is reserved); name the state a future search should find. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.
+Save point: attach a semantic label to a recoverable session state without changing the active context. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-Orient: inspect the session tree and context economics through one view — `active` (default; the spine the model actually sees), `checkpoints` (save points with projected post-travel summary depth), `search` (find labels, node IDs, or content across the whole tree), or `tree` (topology, when ancestry or branch ownership matters). The HUD reports usage, ACM pressure, summary depth, and sync state. Timeline reports facts; which fold, target, or cadence they justify stays your judgment.
+Orient: inspect the session tree and context economics through one view — `active` (default; the spine the model actually sees), `checkpoints` (save points with projected post-travel summary depth), `search` (find labels, node IDs, or content across the whole tree), or `tree` (topology, when ancestry or branch ownership matters). The HUD reports usage, ACM pressure, summary depth, and sync state.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone — carrying knowns, open unknowns, the hot set, and one executable NEXT. Target the last clean node before the material being folded; for a rebase, prefer the earliest base whose projected summary depth does not grow. A raw archive alias created by `backupCurrentHeadAs` points to the pre-travel origin and normally restores or expands history: use it only for deliberate rehydrate/restore, never as a fold or rebase base. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
+Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## Prompt snippets
@@ -33,18 +33,16 @@ Fold, rebase, or rehydrate the working set through a cold-start handoff
 ## Prompt guidelines
 
 <!-- ACM:GUIDELINE_CHECKPOINT:START -->
-acm_checkpoint is cheap and never mutates context: save before risk, forks, baselines, and folds. Names are recovery cues, not workflow states.
+acm_checkpoint is cheap and never mutates context; names are recovery cues, not workflow states.
 <!-- ACM:GUIDELINE_CHECKPOINT:END -->
 
 <!-- ACM:GUIDELINE_TIMELINE:START -->
-acm_timeline reports facts — spine, save points, summary depth, usage. Judgment about folding, targets, and cadence stays with the agent.
+acm_timeline reports facts — spine, save points, summary depth, usage; what they justify stays your judgment.
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-acm_travel is a normal working move — fold finished process into a handoff as readily as you save a checkpoint; only an explicit user request to hold travel suspends it, and only for the scope the user names.
 An acm_travel fold is context hygiene, not the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
-Run acm_travel alone in its assistant tool batch, and read its result before building on the new context.
-acm_travel may use a raw archive alias as `target` only when intentionally restoring/rehydrating its raw history; a fold or rebase must target a clean ancestor before the sediment instead.
+Read acm_travel's result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
