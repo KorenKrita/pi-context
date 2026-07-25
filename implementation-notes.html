@@ -546,7 +546,7 @@
       <tr>
         <td>agent-resolved</td>
         <td>Showroom paired replay 必须把复制后的 session header <code>cwd</code> 重绑定到各 arm 的隔离 workspace；涉及文件修改的 outcome 还必须由 final-workspace assertion 直接判定。</td>
-        <td>N1 supplement 暴露旧 runner 虽以 arm workspace 启动 Pi，但复制的 journal header 仍指向 <code>base/workspace</code>：on 实际改写 base，随后 off 从已污染的 base 复制起步；旧 arm 目录分别只有 4/12 与 12/12 个 <code>retryLimit: 3</code>，因此旧 N1 pass/pass 不可采信。<code>run-pair.mjs</code> 现只改复制 session 的 header <code>cwd</code>，保持其余 prefix 不变；judge 对 N1 的 12 个声明文件逐一要求完整配置项 <code>retryLimit: 3,</code>，路径被限制在 arm workspace，声明文件缺失也直接 fail。commit <code>1d429775</code> 的隔离重跑证明 base 保持 4/12，on/off 各自达到 12/12，三份 session cwd 互异，两臂都 completed 且 workspace gate 通过；exact Pi <code>0.81.1</code> host fixture 另行固定 <code>SessionManager.open(path, sessionDir)</code> 在无 override 时采用持久化 header cwd 的 load-bearing 契约。</td>
+        <td>N1 supplement 暴露旧 runner 虽以 arm workspace 启动 Pi，但复制的 journal header 仍指向 <code>base/workspace</code>：on 实际改写 base，随后 off 从已污染的 base 复制起步；旧 arm 目录分别只有 4/12 与 12/12 个 <code>retryLimit: 3</code>，因此旧 N1 pass/pass 不可采信。<code>run-pair.mjs</code> 现只改复制 session 的 header <code>cwd</code>，保持其余 prefix 不变；judge 对 N1 的 12 个声明文件逐一要求完整配置项 <code>retryLimit: 3,</code>，路径被限制在 arm workspace，声明文件缺失也直接 fail。commit <code>1d429775</code> 的隔离重跑证明 base 保持 4/12，on/off 各自达到 12/12，三份 session cwd 互异，两臂都 completed 且 workspace gate 通过；exact Pi <code>0.81.1</code> host fixture 另行固定 <code>SessionManager.open(path, sessionDir)</code> 在无 override 时采用持久化 header cwd 的 load-bearing 契约。目标保留用户任务声明的 <code>3</code>，不改成初始态从未出现的人工值：初始已有 4/12 正确配置是合法 no-op，assay 应判最终 12/12 的用户 outcome，而不是强迫重写本来正确的文件；其余 8 个非目标初值仍使 cwd 隔离回归稳定失败。</td>
       </tr>
       <tr>
         <td>agent-resolved</td>
