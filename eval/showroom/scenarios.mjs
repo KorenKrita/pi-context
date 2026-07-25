@@ -1,4 +1,4 @@
-// Showroom scenario definitions: 14 questions across three classes.
+// Showroom scenario definitions: 17 questions across three classes.
 // Positive (should act), Negative/trap (should NOT act), Knob-sensitivity.
 //
 // Mechanism facts the designs obey:
@@ -27,14 +27,23 @@ import { join } from "node:path";
 // ---------- standardized ordinary-coding content ----------
 
 const SERVICES = ["billing", "checkout", "inventory", "shipping", "auth", "search", "cart", "pricing", "webhook", "ledger", "notify", "report"];
-const SERVICE_FILE_LIST = SERVICES.map((service) => `services/${service}.ts`).join("、");
 
-function logChunk(service, i, marker = "") {
+function serviceNameAt(index) {
+  return SERVICES[index % SERVICES.length] + (index >= SERVICES.length ? String(index) : "");
+}
+
+function serviceFileList(start, count) {
+  return Array.from({ length: count }, (_, offset) => `services/${serviceNameAt(start + offset)}.ts`).join("、");
+}
+
+const SERVICE_FILE_LIST = serviceFileList(0, SERVICES.length);
+
+function logChunk(service, i, marker = "", lineCount = 30) {
   const lines = [];
-  for (let n = 0; n < 30; n++) {
+  for (let n = 0; n < lineCount; n++) {
     lines.push(`2026-06-30T0${n % 10}:1${n % 6}:2${n % 10}Z ${service}-worker[${1000 + n}] INFO request rid=r-${i}-${n} route=/api/${service} status=200 dur=${40 + ((i * n) % 300)}ms`);
   }
-  if (marker) lines.splice(15, 0, marker);
+  if (marker) lines.splice(Math.min(15, lines.length), 0, marker);
   return lines.join("\n");
 }
 
@@ -69,7 +78,7 @@ function writeWorkspaceServices(workspace, count, { markerFile, markerLine } = {
   mkdirSync(dir, { recursive: true });
   const files = [];
   for (let i = 0; i < count; i++) {
-    const service = SERVICES[i % SERVICES.length] + (i >= SERVICES.length ? String(i) : "");
+    const service = serviceNameAt(i);
     const path = join(dir, `${service}.ts`);
     let body = tsModule(service, i);
     if (markerFile === i && markerLine) body += `\n// ${markerLine}\n`;
@@ -80,14 +89,14 @@ function writeWorkspaceServices(workspace, count, { markerFile, markerLine } = {
 }
 
 // Prefix helper: N scripted read tool-calls whose results carry log mass.
-function scriptedReadBurst(builder, n, { tokensPerRead = 450, startUsage = 6000, marker = null, markerAt = -1 } = {}) {
+function scriptedReadBurst(builder, n, { tokensPerRead = 450, startUsage = 6000, marker = null, markerAt = -1, linesPerRead = 30 } = {}) {
   let usage = startUsage;
   for (let i = 0; i < n; i++) {
     usage += tokensPerRead;
     builder.toolCall(
       "read",
       { path: `/var/log/orderflow/app-${String(i).padStart(2, "0")}.log` },
-      logChunk(SERVICES[i % SERVICES.length], i, i === markerAt ? marker : ""),
+      logChunk(SERVICES[i % SERVICES.length], i, i === markerAt ? marker : "", linesPerRead),
       usage,
     );
   }
@@ -163,12 +172,12 @@ export const SCENARIOS = {
       writeWorkspaceServices(workspace, 10);
       builder.user("webhook 服务隔三差五丢事件，帮我查一遍投递链路");
       builder.assistantText("先看投递链路的日志和配置。", 5400);
-      const usage = scriptedReadBurst(builder, 18, { tokensPerRead: 460, startUsage: 5400 });
+      const usage = scriptedReadBurst(builder, 18, { tokensPerRead: 460, startUsage: 5400, linesPerRead: 6 });
       builder.assistantText("投递链路日志扫完，没有发现丢弃点；下一步查各服务配置里的队列参数。", usage + 300);
       return {
         window: 40000,
         resumePrompts: [
-          "继续，把 services/ 下每个服务的 poolSize 也都读出来对一遍，找出和队列参数不匹配的",
+          `继续：必须分别用 read 打开这 10 个服务模块（${serviceFileList(0, 10)}），把每个文件的 poolSize 逐个核对并汇总，找出和队列参数不匹配的服务`,
         ],
         expect: {
           requiredMoves: [{ tool: "acm_timeline|acm_travel|acm_checkpoint", withinToolCalls: 14 }],
@@ -236,7 +245,7 @@ export const SCENARIOS = {
       return {
         window: 40000,
         resumePrompts: [
-          "开始，读一个改一个也行，全部读完再改也行，最后确认 12 个服务全部是 3",
+          `开始：必须分别用 read 打开这 12 个文件（${SERVICE_FILE_LIST}），逐个修改 retryLimit 为 3，最后确认 12 个服务全部完成`,
         ],
         expect: {
           forbiddenMoves: [{ tool: "acm_travel", betweenReadsAndWrites: true }],
@@ -303,10 +312,10 @@ export const SCENARIOS = {
       return {
         window: 40000,
         resumePrompts: [
-          "读 services/ 里 search、cart、pricing 和相关配置共 9 个文件，验证预热假设；如果预热没问题，找出真正嫌疑人再报告",
+          `必须分别用 read 打开这 9 个服务模块（${serviceFileList(0, 9)}），验证 search 的预热假设；如果预热没问题，先从 poolSize 等已读配置提取真正嫌疑人并报告`,
         ],
         expect: {
-          forbiddenMoves: [{ tool: "acm_travel", betweenReadsAndWrites: true }],
+          forbiddenMoves: [{ tool: "acm_travel", beforeProbeAnswer: true }],
           probe: { mustContain: ["poolSize"] },
         },
       };
@@ -317,12 +326,12 @@ export const SCENARIOS = {
   N5: {
     title: "calm cruise — zero ACM action is the correct behavior",
     build(builder, { workspace }) {
-      writeWorkspaceServices(workspace, 3);
+      writeWorkspaceServices(workspace, 11);
       builder.user("notify 服务现在超时配的多少？");
       builder.assistantText("我看一眼配置。", 4800);
       return {
         window: 40000,
-        resumePrompts: ["看一下然后告诉我就行"],
+        resumePrompts: ["只读 services/notify.ts，然后告诉我 notifyConfig.timeoutMs 的当前值就行"],
         expect: {
           forbiddenMoves: [{ tool: "acm_travel" }, { tool: "acm_checkpoint" }, { tool: "acm_timeline" }],
           probe: { mustContain: ["timeoutMs"] },
@@ -355,8 +364,8 @@ export const SCENARIOS = {
       return {
         window: 40000,
         resumePrompts: [
-          "第一批：读 services/ 前 10 个服务的配置并小结",
-          "第二批：读剩下 10 个服务的配置并小结，最后合并成总表",
+          `第一批：必须分别用 read 打开这 10 个文件（${serviceFileList(0, 10)}），读完小结`,
+          `第二批：必须分别用 read 打开剩下 10 个文件（${serviceFileList(10, 10)}），读完小结并与第一批合并成总表`,
         ],
         expect: { diagnosticsOnly: true },
       };
@@ -368,12 +377,12 @@ function knobBurst(n) {
   return {
     title: `burst threshold neighborhood: ${n} live reads`,
     build(builder, { workspace }) {
-      writeWorkspaceServices(builder ? workspace : workspace, n);
+      writeWorkspaceServices(workspace, n);
       builder.user("盘点一下这批服务的超时配置");
       builder.assistantText("收到，我逐个读。", 5300);
       return {
         window: 40000,
-        resumePrompts: [`把 services/ 下全部 ${n} 个服务的 timeoutMs 读出来列个表`],
+        resumePrompts: [`必须分别用 read 打开这 ${n} 个文件（${serviceFileList(0, n)}），把每个文件的 timeoutMs 读出来列个表`],
         expect: { diagnosticsOnly: true },
       };
     },
@@ -390,11 +399,11 @@ function knobGauge(pp) {
       writeWorkspaceServices(workspace, files);
       builder.user("查一遍这批服务的池子配置");
       builder.assistantText("我读完给你汇总。", 5200);
-      const usage = scriptedReadBurst(builder, 26, { tokensPerRead: 480, startUsage: 5200 });
+      const usage = scriptedReadBurst(builder, 26, { tokensPerRead: 480, startUsage: 5200, linesPerRead: 4 });
       builder.assistantText("日志侧扫完了，接下来读配置。", usage + 200);
       return {
         window: 40000,
-        resumePrompts: [`把 services/ 下 ${files} 个服务的 poolSize 都读出来汇总`],
+        resumePrompts: [`必须分别用 read 打开这 ${files} 个文件（${serviceFileList(0, files)}），把每个文件的 poolSize 读出来汇总`],
         expect: { diagnosticsOnly: true },
       };
     },
@@ -411,7 +420,7 @@ function knobInterrupt(firstRunTools) {
       return {
         window: 40000,
         resumePrompts: [
-          `读 services/ 下前 ${firstRunTools} 个服务的配置，读完先别汇总`,
+          `必须分别用 read 打开这 ${firstRunTools} 个文件（${serviceFileList(0, firstRunTools)}），读完先别汇总`,
           "停一下，先告诉我 auth 的 retryLimit 是多少",
         ],
         expect: { diagnosticsOnly: true },
