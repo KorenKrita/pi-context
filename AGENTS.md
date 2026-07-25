@@ -191,6 +191,14 @@ Exact advanced pointers 必须经过 Pi `getCommands()` availability selector：
 
 canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、receipt。这些词都借用模型已有先验；不要新造没有预训练先验的术语（旧词 anchor gravity 已因此删除，target 选择直接用白话表述）。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 
+### 强弱模型分层
+
+Judgment Contract 的模型期望分两层，guidance 文本按强模型写，弱模型靠结构保底：
+
+- **道（CORE）按强模型写**：判断过程、move 组合与 cadence 留给模型自主发挥；不为弱模型在 CORE 里增加步骤化规则、阈值或固定流程。给强模型的文本以判断语义为主，反例只留行为层面的（如 results-only report），不列举流程错误。
+- **弱模型的 floor 靠结构，不靠更多散文**：schema 约束（minLength、pattern、additionalProperties、七槽必填）、result cues（就地、就时的下一步提示）、context nudge（分档提醒）与 runtime 的机械安全（rollback、evidence、indeterminate 区分）共同构成弱模型能稳定完成正收益 move 的保底。弱模型理解不了的东西，加更多 CORE 散文也没用；若发现 floor 不足，优先加强结构面（schema/cue/nudge/runtime 拦截），不加长教义。
+- **层间不串到对方的家**：道的修改必须可追溯到 judgment contract；结构面的修改不引入新教义，只陈述机械事实与即时 affordance。
+
 ## Tool prompt 与 TUI 呈现
 
 三个 ACM 工具都必须显式提供 `promptSnippet`、以工具名开头的 `promptGuidelines`、`renderShell: "self"`、`renderCall` 和 `renderResult`；prompt metadata 全部来自 generated guidance（`PROMPT_SNIPPETS` / `PROMPT_GUIDELINES`），只保留每个工具最关键的触发/安全门，不复制完整 CORE。
