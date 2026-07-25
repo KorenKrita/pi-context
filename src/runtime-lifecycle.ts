@@ -501,9 +501,25 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (!append.ok) ctx.ui.notify(`Could not create pre-compaction checkpoint: ${append.message}`, "warning");
   });
 
-  pi.on("session_compact", (_event, ctx: ExtensionContext) => {
+  pi.on("session_compact", (event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
     runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
+    // Host bug mitigation: on overflow recovery (willRetry) the host re-reads
+    // agent.state.messages after this event but only strips a trailing assistant
+    // whose stopReason is "error". A "length"-stopped trailing assistant (zero-
+    // output overflow, the very case the host classified as overflow) survives and
+    // agentLoopContinue crashes with "Cannot continue from message role:
+    // assistant". Prune every trailing assistant so the retry tail is continuable;
+    // session history is untouched.
+    if (event.willRetry) {
+      const prune = runtime.liveAgentSessions.pruneNonContinuableTail(ctx.sessionManager);
+      if (prune.status === "unavailable") {
+        ctx.ui.notify(
+          `ACM could not verify the overflow-retry context tail (${prune.message}); if this retry fails with "Cannot continue from message role: assistant", resume the session to recover.`,
+          "warning",
+        );
+      }
+    }
   });
   // When the user summarizes an abandoned branch during manual /tree navigation
   // without custom instructions, shape the native summary as a cold-start handoff

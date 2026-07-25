@@ -55,12 +55,28 @@ interface InstallationState {
   readonly outcomes: WeakMap<object, AgentSessionSyncOutcome>;
 }
 
+export type AgentSessionTailPruneOutcome =
+  | { status: "pruned"; removedCount: number; messageCount: number }
+  | { status: "noop"; message: string }
+  | AgentSessionUnavailableOutcome;
+
 export interface LiveAgentSessionAdapter {
   readonly installation: AgentSessionAdapterInstallationOutcome;
   schedule(sessionManager: object, toolCallId: string, preferredLeafId?: string): AgentSessionSyncOutcome;
   apply(sessionManager: object, toolCallId: string): AgentSessionSyncOutcome;
   getStatus(sessionManager: object): AgentSessionSyncOutcome;
   clear(sessionManager: object): void;
+  /**
+   * Defensive host-crash mitigation: before an overflow-recovery retry the host
+   * continues from `agent.state.messages`, but its own recovery path only strips a
+   * trailing assistant whose stopReason is "error". A trailing assistant with any
+   * other stopReason (e.g. "length" with zero output, which the host itself
+   * classified as overflow) makes agentLoopContinue throw
+   * "Cannot continue from message role: assistant". Pruning every trailing
+   * assistant message restores a continuable tail; the pruned messages remain in
+   * the session history, only the live retry context is trimmed.
+   */
+  pruneNonContinuableTail(sessionManager: object): AgentSessionTailPruneOutcome;
 }
 
 export interface LiveAgentSessionAdapterOptions {
@@ -208,6 +224,7 @@ export function createLiveAgentSessionAdapter(
       apply: () => installation,
       getStatus: () => installation,
       clear: () => undefined,
+      pruneNonContinuableTail: () => installation,
     };
   }
 
@@ -337,6 +354,24 @@ export function createLiveAgentSessionAdapter(
     },
     getStatus(sessionManager) {
       return state.outcomes.get(sessionManager) ?? initialStatus;
+    },
+    pruneNonContinuableTail(sessionManager) {
+      const session = state.sessions.get(sessionManager)?.deref();
+      if (!session) {
+        return { status: "noop", message: "No live AgentSession is associated with this SessionManager" };
+      }
+      const inspected = inspectLiveSession(session, sessionManager);
+      if (!inspected.ok) return inspected.outcome;
+      const messages = inspected.session.agent.state.messages;
+      let removedCount = 0;
+      while (messages.length > 0 && messages[messages.length - 1]?.role === "assistant") {
+        messages.pop();
+        removedCount += 1;
+      }
+      if (removedCount === 0) {
+        return { status: "noop", message: "The live context tail is already continuable" };
+      }
+      return { status: "pruned", removedCount, messageCount: messages.length };
     },
     clear(sessionManager) {
       state.pending.delete(sessionManager);

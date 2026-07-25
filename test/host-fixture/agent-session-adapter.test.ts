@@ -204,6 +204,43 @@ describe("live AgentSession capability adapter", () => {
     expect(first.getStatus(manager)).toMatchObject({ status: "pending" });
     expect(second.apply(manager, "second")).toMatchObject({ status: "applied" });
   });
+
+  test("prunes a non-continuable assistant tail before an overflow-recovery retry", () => {
+    const sessionManager = SessionManager.inMemory();
+    const now = Date.now();
+    const agent = new Agent({
+      initialState: {
+        messages: [
+          { role: "user", content: "resume prompt", timestamp: now },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "partial" }],
+            api: "anthropic-messages",
+            provider: "test",
+            model: "test",
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            stopReason: "length",
+            timestamp: now,
+          },
+        ] as AgentMessage[],
+      },
+    });
+    const HostClass = createHostClass();
+    const session = new (HostClass as any)(sessionManager, agent);
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    session.getContextUsage();
+
+    expect(adapter.pruneNonContinuableTail(sessionManager)).toEqual({ status: "pruned", removedCount: 1, messageCount: 1 });
+    expect(agent.state.messages.map((m: AgentMessage) => m.role)).toEqual(["user"]);
+    // Second call: tail already continuable.
+    expect(adapter.pruneNonContinuableTail(sessionManager)).toMatchObject({ status: "noop" });
+  });
+
+  test("prune reports noop without an associated live AgentSession", () => {
+    const HostClass = createHostClass();
+    const adapter = createLiveAgentSessionAdapter({ AgentSessionClass: HostClass });
+    expect(adapter.pruneNonContinuableTail(SessionManager.inMemory())).toMatchObject({ status: "noop" });
+  });
 });
 
 test("settlement rebuilds from the current active leaf after it advances during the deferred run", () => {
