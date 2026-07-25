@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   areTriggersDisabled,
+  markBurstCued,
   buildBurstCueSuffix,
   buildGaugeSuffix,
   buildRunBoundaryCue,
@@ -22,13 +23,17 @@ import { AcmSessionRuntime } from "../src/runtime";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 describe("read burst detection", () => {
-  test("fires once at the threshold and never again in the same run", () => {
+  test("stays armed until delivery is confirmed, then never fires again in the run", () => {
     const state = createTriggerRunState();
     for (let call = 1; call < READ_BURST_THRESHOLD; call++) {
       expect(recordToolCompletion(state, "read")).toEqual({ kind: "none" });
     }
     expect(recordToolCompletion(state, "grep")).toEqual({ kind: "burst", burstLength: READ_BURST_THRESHOLD });
-    // Continued reading in the same run stays silent — one burst cue per run.
+    // Undelivered (e.g. error result, tier arbitration): the cue re-fires on
+    // the next read completion instead of being silently consumed.
+    expect(recordToolCompletion(state, "read")).toEqual({ kind: "burst", burstLength: READ_BURST_THRESHOLD + 1 });
+    // Confirmed delivery disarms for the rest of the run.
+    markBurstCued(state);
     for (let call = 0; call < READ_BURST_THRESHOLD * 2; call++) {
       expect(recordToolCompletion(state, "find")).toEqual({ kind: "none" });
     }
@@ -176,7 +181,7 @@ describe("ACM_TRIGGERS_DISABLED kill switch", () => {
         expect(runtime.recordTriggerToolCompletion(session, "read")).toEqual({ kind: "none" });
       }
       // gauge: far above floor + delta
-      expect(runtime.takeGaugeEmission(session, 55)).toBeUndefined();
+      expect(runtime.peekGaugeEmission(session, 55)).toBeUndefined();
       // boundary: no state accumulated, and even direct probing yields nothing
       expect(runtime.takeRunBoundaryCue(session)).toBeUndefined();
     } finally {

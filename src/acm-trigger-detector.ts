@@ -115,6 +115,12 @@ export type ToolCompletionTrigger =
  * Record one tool completion and classify whether it crosses a burst
  * threshold. ACM tool results are counted for run activity but never trigger
  * suffix injection themselves.
+ *
+ * Crossing the threshold does NOT disarm the burst cue: the caller owns
+ * delivery (tier arbitration, ACM/error exemptions, content shape) and must
+ * call markBurstCued only after the suffix is actually attached. An armed
+ * cue therefore re-fires on the next read completion instead of being
+ * silently consumed by an undeliverable result.
  */
 export function recordToolCompletion(state: TriggerRunState, toolName: string): ToolCompletionTrigger {
   state.runToolCount += 1;
@@ -135,10 +141,14 @@ export function recordToolCompletion(state: TriggerRunState, toolName: string): 
   }
   state.readBurstLength += 1;
   if (!state.burstCuedInRun && state.readBurstLength >= READ_BURST_THRESHOLD) {
-    state.burstCuedInRun = true;
     return { kind: "burst", burstLength: state.readBurstLength };
   }
   return { kind: "none" };
+}
+
+/** Disarm the burst cue for this run — call only after actual suffix delivery. */
+export function markBurstCued(state: TriggerRunState): void {
+  state.burstCuedInRun = true;
 }
 
 /**
@@ -154,6 +164,11 @@ export function shouldEmitGauge(state: TriggerRunState, pressurePercent: number)
   return pressurePercent - base >= GAUGE_DELTA_PP;
 }
 
+/**
+ * Consume the gauge baseline — call only after the suffix is actually
+ * attached. Moving the baseline on an undeliverable result would silently
+ * swallow the emission (same failure mode as an early-disarmed burst cue).
+ */
 export function markGaugeEmitted(state: TriggerRunState, pressurePercent: number): number {
   const base = state.lastGaugePercent ?? GAUGE_SILENCE_FLOOR_PP;
   state.lastGaugePercent = pressurePercent;

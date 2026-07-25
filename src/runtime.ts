@@ -17,7 +17,9 @@ import {
 import {
   areTriggersDisabled,
   createTriggerRunState,
+  GAUGE_SILENCE_FLOOR_PP,
   markBoundaryCued,
+  markBurstCued,
   markGaugeEmitted,
   recordToolCompletion,
   resetRunCounters,
@@ -498,21 +500,37 @@ export class AcmSessionRuntime {
     return state;
   }
 
-  /** Record a finalized tool completion; returns a burst trigger when a threshold is crossed. */
+  /**
+   * Record a finalized tool completion; returns a burst trigger when the
+   * threshold is crossed. The trigger stays armed until confirmBurstCueDelivered:
+   * delivery can fail on tier arbitration, ACM/error exemptions, or content
+   * shape, and a consumed-but-undelivered cue would silence the whole run.
+   */
   recordTriggerToolCompletion(session: object, toolName: string): ToolCompletionTrigger {
     if (areTriggersDisabled()) return { kind: "none" };
     return recordToolCompletion(this.triggerState(session), toolName);
   }
 
+  /** Disarm the burst cue after its suffix was actually attached to a result. */
+  confirmBurstCueDelivered(session: object): void {
+    markBurstCued(this.triggerState(session));
+  }
+
   /**
-   * Gauge cadence check against the current pressure. Consuming the emission
-   * moves the baseline so the next gauge requires another full delta.
+   * Gauge cadence check against the current pressure. Read-only: the baseline
+   * moves in confirmGaugeDelivered, only after the suffix is actually attached.
    */
-  takeGaugeEmission(session: object, pressurePercent: number): { deltaPp: number } | undefined {
+  peekGaugeEmission(session: object, pressurePercent: number): { deltaPp: number } | undefined {
     if (areTriggersDisabled()) return undefined;
     const state = this.triggerState(session);
     if (!shouldEmitGauge(state, pressurePercent)) return undefined;
-    return { deltaPp: markGaugeEmitted(state, pressurePercent) };
+    const base = state.lastGaugePercent ?? GAUGE_SILENCE_FLOOR_PP;
+    return { deltaPp: pressurePercent - base };
+  }
+
+  /** Move the gauge baseline after its suffix was actually attached. */
+  confirmGaugeDelivered(session: object, pressurePercent: number): void {
+    markGaugeEmitted(this.triggerState(session), pressurePercent);
   }
 
   /**

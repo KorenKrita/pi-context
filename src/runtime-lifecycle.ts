@@ -149,15 +149,18 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   // Pressure for trigger cadence: actual provider usage once a travel owns
   // provider delivery, native usage otherwise — same authority order as the
-  // tier reminders.
+  // tier reminders. Native usage is also the fallback while a provider epoch
+  // has not yet observed a turn_end (a single long run never updates cached
+  // provider usage, and a gauge that goes blind mid-run defeats its purpose).
   const currentTriggerPressure = (ctx: ExtensionContext) => {
     const session = ctx.sessionManager;
-    if (runtime.shouldObserveNativeContextUsage(session)) {
-      const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
-      return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
+    if (!runtime.shouldObserveNativeContextUsage(session)) {
+      const cached = runtime.getUsage(session);
+      const providerPressure = calculateContextUsagePressure(cached?.tokens, cached?.contextWindow, cached?.percent);
+      if (providerPressure) return providerPressure;
     }
-    const cached = runtime.getUsage(session);
-    return calculateContextUsagePressure(cached?.tokens, cached?.contextWindow, cached?.percent);
+    const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
   };
 
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
@@ -184,17 +187,23 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } catch {
         // The cue degrades to burst facts only; save-point lookup is best-effort.
       }
-      return appendSuffixPatch(event.content, buildBurstCueSuffix({
+      const patch = appendSuffixPatch(event.content, buildBurstCueSuffix({
         burstLength: trigger.burstLength,
         nearestCheckpointName: savePoint.name,
         stepsSinceCheckpoint: savePoint.stepsBack,
       }));
+      // Disarm only on actual delivery; an undeliverable result (no text part)
+      // leaves the cue armed for the next read completion.
+      if (patch) runtime.confirmBurstCueDelivered(session);
+      return patch;
     }
     const pressure = currentTriggerPressure(ctx);
     if (!pressure) return;
-    const emission = runtime.takeGaugeEmission(session, pressure.pressurePercent);
+    const emission = runtime.peekGaugeEmission(session, pressure.pressurePercent);
     if (!emission) return;
-    return appendSuffixPatch(event.content, buildGaugeSuffix(pressure, emission.deltaPp));
+    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, emission.deltaPp));
+    if (patch) runtime.confirmGaugeDelivered(session, pressure.pressurePercent);
+    return patch;
   });
 
   pi.on("agent_end", (event, ctx: ExtensionContext) => {
