@@ -95,6 +95,9 @@ function buildScenario(scenario, seed, dir) {
   execFileSync("node", [join(HERE, "build-scenario.mjs"), "--scenario", scenario, "--out", dir, "--seed", String(seed)], { stdio: ["ignore", "pipe", "inherit"] });
 }
 
+// Pi 0.81.1 resumes relative built-in tools from the persisted session header
+// cwd via SessionManager.open()/getCwd(), not from the spawning process cwd.
+// Keep the exact-host fixture for this contract when advancing the Pi pin.
 export function copySessionForWorkspace(sourcePath, targetPath, workspace) {
   const lines = readFileSync(sourcePath, "utf8").trimEnd().split("\n");
   const header = JSON.parse(lines[0]);

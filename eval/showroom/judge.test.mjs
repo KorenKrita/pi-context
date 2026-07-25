@@ -79,6 +79,26 @@ describe("showroom workspace judging", () => {
       },
     });
   });
+
+  test("fails when a declared workspace file is missing", () => {
+    const armDir = buildArmWorkspace({ "billing.ts": "retryLimit: 3," });
+    const expected = { expect: {
+      workspace: { files: ["services/billing.ts", "services/checkout.ts"], mustContain: ["retryLimit: 3,"] },
+    } };
+
+    expect(judgeArm(armDir, expected)).toMatchObject({
+      verdict: "fail",
+      checks: {
+        workspace: {
+          satisfied: false,
+          files: [
+            { path: "services/billing.ts", satisfied: true, missing: [] },
+            { path: "services/checkout.ts", satisfied: false, reason: "file missing" },
+          ],
+        },
+      },
+    });
+  });
 });
 function tool(name, turn = 1) {
   return { kind: "tool", name, turn, input: {} };
