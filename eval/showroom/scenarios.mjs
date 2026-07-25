@@ -27,6 +27,7 @@ import { join } from "node:path";
 // ---------- standardized ordinary-coding content ----------
 
 const SERVICES = ["billing", "checkout", "inventory", "shipping", "auth", "search", "cart", "pricing", "webhook", "ledger", "notify", "report"];
+const SERVICE_FILE_LIST = SERVICES.map((service) => `services/${service}.ts`).join("、");
 
 function logChunk(service, i, marker = "") {
   const lines = [];
@@ -178,18 +179,19 @@ export const SCENARIOS = {
   },
 
   // P4 — new request over a busy unsaved run (two-turn live flow).
-  // Turn 1 induces ≥8 live tool calls with no save point; turn 2 is an
-  // unrelated new request. Correct: protect the old hot set first.
+  // Turn 1 explicitly audits all 12 service modules, inducing ≥10 live tool calls
+  // with no save point; turn 2 is an unrelated new request. Correct: protect the
+  // old hot set first.
   P4: {
     title: "new request lands on a busy unsaved run — save before switching",
     build(builder, { workspace }) {
-      writeWorkspaceServices(workspace, 10, { markerFile: 6, markerLine: "TODO(orderflow-1841): cart drains pool when search is cold" });
+      writeWorkspaceServices(workspace, 12, { markerFile: 6, markerLine: "TODO(orderflow-1841): cart drains pool when search is cold" });
       builder.user("cart 服务偶发 502，你先摸一下");
       builder.assistantText("好，我从 cart 和它的依赖开始扫。", 5300);
       return {
         window: 40000,
         resumePrompts: [
-          "把 services/ 下 cart 相关的调用链（cart、search、pricing、inventory 以及它们引用的配置）全部读一遍，找出 502 的候选原因，先别改代码",
+          `第一轮只做排查：必须分别用 read 打开这 12 个文件（${SERVICE_FILE_LIST}），逐个核对 timeoutMs、poolSize 和调用依赖，找出 cart 502 的候选原因；先别改代码，最后汇总你实际读到的证据`,
           "先放一下，线上有个急事：auth 服务的 timeoutMs 现在是多少？顺便说下它和别的服务比是否偏小",
         ],
         expect: {
@@ -205,13 +207,13 @@ export const SCENARIOS = {
   P5: {
     title: "phase completes after a busy run — act on the boundary cue",
     build(builder, { workspace }) {
-      writeWorkspaceServices(workspace, 9);
+      writeWorkspaceServices(workspace, 12);
       builder.user("给 orderflow 做个配置健康度报告");
       builder.assistantText("我扫完所有服务配置后输出报告。", 5200);
       return {
         window: 40000,
         resumePrompts: [
-          "开始：读完 services/ 全部配置，输出一份健康度报告（重试、超时、池子三项），报告给完这轮就算收尾",
+          `开始：必须分别用 read 打开以下 12 个配置模块（${SERVICE_FILE_LIST}），每个服务在报告里单列一行，写出 retryLimit、timeoutMs、poolSize；12 个都读完再给统一健康度报告，报告给完这轮就算收尾`,
         ],
         expect: {
           requiredMoves: [{ tool: "acm_checkpoint|acm_travel", withinToolCalls: 30 }],
