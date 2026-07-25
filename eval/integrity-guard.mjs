@@ -169,7 +169,11 @@ function escapeRegExp(value) {
 }
 
 function workspacePathRoots(workspace) {
-  return [...new Set([resolve(workspace), canonicalExistingPath(workspace)])]
+  // Keep the raw policy string alongside resolved/canonical forms: on Windows,
+  // resolve() rewrites a POSIX-style workspace root ("/private/tmp/x") into a
+  // drive-letter backslash path, and a mask built only from that form never
+  // matches the POSIX path embedded in the bash command under evaluation.
+  return [...new Set([workspace, resolve(workspace), canonicalExistingPath(workspace)])]
     .sort((left, right) => right.length - left.length);
 }
 

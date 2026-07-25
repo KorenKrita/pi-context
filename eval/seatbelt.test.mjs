@@ -13,7 +13,11 @@ test("formal agents-only evidence is kernel-enforced only on Darwin", () => {
     .toEqual({ required: true, supported: false, enabled: false, enforcement: "unsupported", formalEvidenceEligible: false, failureStatus: "agents_only_sandbox_unsupported" });
 });
 
-test("profile denies existing sibling workspaces, sibling runs, private state, and canonical aliases", () => {
+// Seatbelt profiles encode Darwin path semantics (/private aliases, POSIX
+// symlink realpaths); the harness never sandboxes on Windows.
+const testOnPosix = process.platform === "win32" ? test.skip : test;
+
+testOnPosix("profile denies existing sibling workspaces, sibling runs, private state, and canonical aliases", () => {
   const root = mkdtempSync(join(tmpdir(), "acm-seatbelt-profile-"));
   const tempRoot = join(root, "temp");
   const workspaceTarget = join(tempRoot, "current-target");

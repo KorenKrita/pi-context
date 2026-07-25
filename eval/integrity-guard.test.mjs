@@ -1,4 +1,11 @@
 import { describe, expect, test } from "bun:test";
+
+// The eval harness runs models only on POSIX hosts (Darwin formal evidence
+// requires macOS Seatbelt; Linux is the dev loop). These cases assert POSIX
+// absolute-path masking that node's resolve() legitimately rewrites into
+// drive-letter paths on win32, so they are scoped to the platforms where the
+// guard actually operates.
+const testOnPosix = process.platform === "win32" ? test.skip : test;
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -309,7 +316,7 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("allows configured workspace paths and ordinary URL literals in bash", () => {
+  testOnPosix("allows configured workspace paths and ordinary URL literals in bash", () => {
     for (const command of [
       "cd /private/tmp/saffron-workspace && find . -maxdepth 2 -type f",
       "ls /private/tmp/saffron-workspace>x",
@@ -366,7 +373,7 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("allows only exact /dev/null redirection paths", () => {
+  testOnPosix("allows only exact /dev/null redirection paths", () => {
     for (const command of [
       "command -v rg >/dev/null && echo rg-present",
       "git status 2>/dev/null",
@@ -382,7 +389,7 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("rewrites native temp paths to a stable workspace-local directory", () => {
+  testOnPosix("rewrites native temp paths to a stable workspace-local directory", () => {
     const root = mkdtempSync(join(tmpdir(), "acm-integrity-temp-rewrite-"));
     const workspace = join(root, "workspace");
     const otherWorkspace = join(root, "other-workspace");
@@ -432,7 +439,7 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("blocks parent, HOME, and eval-run escapes separated from an allowed workspace", () => {
+  testOnPosix("blocks parent, HOME, and eval-run escapes separated from an allowed workspace", () => {
     for (const [command, code] of [
       ["cd /private/tmp/saffron-workspace/..; pwd", "bash_parent_escape"],
       ["cd /private/tmp/saffron-workspace/..&&pwd", "bash_parent_escape"],
@@ -518,7 +525,7 @@ describe("measurement integrity tool-call gate", () => {
     }
   });
 
-  test("does not mask quoted heredoc bodies chained into later execution", () => {
+  testOnPosix("does not mask quoted heredoc bodies chained into later execution", () => {
     for (const command of [
       "cat > script.sh <<'SH' && sh script.sh\ncat /etc/passwd\nSH",
       "cat > script.sh <<'SH'; sh script.sh\ncat /etc/passwd\nSH",
