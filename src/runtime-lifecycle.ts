@@ -18,6 +18,35 @@ import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import {
+  buildBurstCueSuffix,
+  buildGaugeSuffix,
+  buildRunBoundaryCue,
+  findNearestSavePoint,
+  isAcmTool,
+} from "./acm-trigger-detector.js";
+
+type ToolResultEventContent = { type: "text"; text: string } | { type: string };
+
+/**
+ * Append a delimited ACM suffix to the last text part of a finalized tool
+ * result. Returns a tool_result patch, or undefined when the content shape
+ * offers no text part to extend (never invent one — the result is a receipt).
+ */
+function appendSuffixPatch<T extends ToolResultEventContent>(
+  content: readonly T[],
+  suffix: string,
+): { content: T[] } | undefined {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index]!;
+    if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
+      const patched = [...content];
+      patched[index] = { ...part, text: (part as { text: string }).text + suffix };
+      return { content: patched };
+    }
+  }
+  return undefined;
+}
 
 function isAppliedTravelReceipt(message: AgentMessage, toolCallId: string): boolean {
   if (
@@ -118,21 +147,92 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  pi.on("tool_result", (_event, ctx: ExtensionContext) => {
+  // Pressure for trigger cadence: actual provider usage once a travel owns
+  // provider delivery, native usage otherwise — same authority order as the
+  // tier reminders.
+  const currentTriggerPressure = (ctx: ExtensionContext) => {
+    const session = ctx.sessionManager;
+    if (runtime.shouldObserveNativeContextUsage(session)) {
+      const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
+      return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
+    }
+    const cached = runtime.getUsage(session);
+    return calculateContextUsagePressure(cached?.tokens, cached?.contextWindow, cached?.percent);
+  };
+
+  pi.on("tool_result", (event, ctx: ExtensionContext) => {
     // tool_result handlers are chained and later extensions may still replace
     // content/details/isError. Final travel authorization is therefore read
     // only from the finalized toolResult message on the next context event.
-    const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
-    if (!nudge) return;
-    pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
+    const session = ctx.sessionManager;
+    const trigger = runtime.recordTriggerToolCompletion(session, event.toolName);
+    const nudge = runtime.takePendingContextUsageNudge(session);
+    if (nudge) {
+      pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
+      // Arbitration: a full tier reminder supersedes any suffix on this result.
+      return;
+    }
+    // ACM tool results carry mutation receipts; never decorate them.
+    if (isAcmTool(event.toolName) || event.isError) return;
+    if (trigger.kind === "burst") {
+      let savePoint: { name: string | null; stepsBack: number | null } = { name: null, stepsBack: null };
+      try {
+        savePoint = findNearestSavePoint(
+          session.getBranch(),
+          buildLabelMaps(session.getEntries()),
+        );
+      } catch {
+        // The cue degrades to burst facts only; save-point lookup is best-effort.
+      }
+      return appendSuffixPatch(event.content, buildBurstCueSuffix({
+        burstLength: trigger.burstLength,
+        nearestCheckpointName: savePoint.name,
+        stepsSinceCheckpoint: savePoint.stepsBack,
+      }));
+    }
+    const pressure = currentTriggerPressure(ctx);
+    if (!pressure) return;
+    const emission = runtime.takeGaugeEmission(session, pressure.pressurePercent);
+    if (!emission) return;
+    return appendSuffixPatch(event.content, buildGaugeSuffix(pressure, emission.deltaPp));
   });
 
   pi.on("agent_end", (event, ctx: ExtensionContext) => {
     const lastAssistant = [...event.messages].reverse().find((message) => message.role === "assistant");
-    if (lastAssistant?.role !== "assistant" || lastAssistant.stopReason !== "stop") return;
+    if (lastAssistant?.role !== "assistant" || lastAssistant.stopReason !== "stop") {
+      return;
+    }
     const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
-    if (!nudge) return;
-    pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
+    if (nudge) {
+      pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
+      return;
+    }
+    // Phase-end boundary cue: substantial un-checkpointed work in this run.
+    // Fires at most once per reminder cycle (shared disarm with new-request).
+    const boundary = runtime.takeRunBoundaryCue(ctx.sessionManager);
+    if (!boundary) return;
+    pi.sendMessage({
+      customType: "acm:trigger-cue",
+      content: buildRunBoundaryCue("phase_end", boundary),
+      display: false,
+      details: { kind: "acm-trigger-cue", moment: "phase_end", runToolCount: boundary.runToolCount },
+    }, { deliverAs: "followUp" });
+  });
+
+  pi.on("before_agent_start", (_event, ctx: ExtensionContext) => {
+    // New-request boundary cue: the previous run left substantial
+    // un-checkpointed work and a new user request is about to supersede it.
+    // Hidden from the TUI; one line for the model, at most once per cycle.
+    const boundary = runtime.takeRunBoundaryCue(ctx.sessionManager);
+    if (!boundary) return;
+    return {
+      message: {
+        customType: "acm:trigger-cue",
+        content: buildRunBoundaryCue("new_request", boundary),
+        display: false,
+        details: { kind: "acm-trigger-cue", moment: "new_request", runToolCount: boundary.runToolCount },
+      },
+    };
   });
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {

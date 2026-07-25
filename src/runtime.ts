@@ -14,6 +14,17 @@ import {
   type AgentSessionSyncOutcome,
   type LiveAgentSessionAdapter,
 } from "./live-agent-session-adapter.js";
+import {
+  createTriggerRunState,
+  markBoundaryCued,
+  markGaugeEmitted,
+  recordToolCompletion,
+  resetRunCounters,
+  shouldCueRunBoundary,
+  shouldEmitGauge,
+  type ToolCompletionTrigger,
+  type TriggerRunState,
+} from "./acm-trigger-detector.js";
 
 interface DeferredTravelRefreshState {
   readonly providerPhase: ProviderDeliveryPhase;
@@ -114,6 +125,12 @@ export class AcmSessionRuntime {
     seededBaselineLevel?: 0 | ContextUsageNudgeLevel;
     pending?: PendingContextUsageNudge;
   }>();
+  /**
+   * Syntax-only interruption trigger state (read bursts, run activity, gauge
+   * cadence). Run counters reset at run boundaries; the gauge baseline resets
+   * with the reminder cycle. Per SessionManager, like all nudge state.
+   */
+  private readonly triggerStates = new WeakMap<object, TriggerRunState>();
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;
@@ -444,6 +461,8 @@ export class AcmSessionRuntime {
       highestReachedLevel: 0,
       baselinePending: true,
     });
+    // A context transition starts a fresh gauge cadence alongside the tier cycle.
+    this.triggerStates.delete(session);
   }
 
   /**
@@ -465,6 +484,50 @@ export class AcmSessionRuntime {
     this.deferredTravelRefresh.delete(session);
     this.cachedUsage.delete(session);
     this.contextUsageNudges.delete(session);
+    this.triggerStates.delete(session);
     this.liveAgentSessions.clear(session);
+  }
+
+  private triggerState(session: object): TriggerRunState {
+    let state = this.triggerStates.get(session);
+    if (!state) {
+      state = createTriggerRunState();
+      this.triggerStates.set(session, state);
+    }
+    return state;
+  }
+
+  /** Record a finalized tool completion; returns a burst trigger when a threshold is crossed. */
+  recordTriggerToolCompletion(session: object, toolName: string): ToolCompletionTrigger {
+    return recordToolCompletion(this.triggerState(session), toolName);
+  }
+
+  /**
+   * Gauge cadence check against the current pressure. Consuming the emission
+   * moves the baseline so the next gauge requires another full delta.
+   */
+  takeGaugeEmission(session: object, pressurePercent: number): { deltaPp: number } | undefined {
+    const state = this.triggerState(session);
+    if (!shouldEmitGauge(state, pressurePercent)) return undefined;
+    return { deltaPp: markGaugeEmitted(state, pressurePercent) };
+  }
+
+  /**
+   * Run-boundary judgment cue: substantial un-checkpointed work at a run
+   * boundary. Firing disarms the cue for the whole reminder cycle; only a
+   * real save-point action (or a cycle boundary) rearms it. At most one
+   * boundary reminder per cycle, shared across new-request and phase-end.
+   */
+  takeRunBoundaryCue(session: object): TriggerRunState | undefined {
+    const state = this.triggerStates.get(session);
+    if (!state) return undefined;
+    if (!shouldCueRunBoundary(state)) {
+      resetRunCounters(state);
+      return undefined;
+    }
+    const snapshot: TriggerRunState = { ...state };
+    markBoundaryCued(state);
+    resetRunCounters(state);
+    return snapshot;
   }
 }

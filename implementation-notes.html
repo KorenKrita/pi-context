@@ -523,6 +523,11 @@
         <td>Give a mid-sequence checkpoint-rollback failure exactly one full compensation replay before judging the outcome from observed aliases.</td>
         <td>An audit found <code>rollbackCheckpointLabel</code>'s clear-then-replay sequence could stop between <code>appendLabelChange</code> calls, leaving the alias journal partially restored with no recovery attempt. Because the replay converges to <code>priorAliases</code> when every call succeeds, one bounded retry is safe and idempotent; unbounded retries against a failing host were rejected. A compensated retry that verifies clean reports <code>applied</code>; a failed retry stays <code>indeterminate</code> and surfaces both <code>hostError</code> and <code>compensationError</code>, preserving the existing evidence contract.</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>确定性打断器系统：双通道（完整档位提醒留 hidden channel；仪表/burst 以定界后缀追加到普通工具结果）+ 五触发器（仪表 Δ≥8pp、burst ≥8 连读、跨档、新请求、阶段收尾），全部纯句法检测，语义判定留模型。</td>
+        <td>用户逐步收敛的决策：（1）「方向被否」无句法代理信号，不做（齐夫长尾留模型自发）；（2）边界 cue 必须对用户零打扰（display:false）且不得每轮必发——最终语义：每周期至多一发，触发即哑火，仅真实 save-point 行动或周期边界重新武装（「提醒不是闹钟贪睡」）；（3）burst 同理收为每 run 至多一发。agent-resolved 细节：「burst 结束后注入」物理不可行（tool_result patch 只能装饰正在定稿的结果），改为阈值穿越就地注入；新请求/阶段收尾共享同一哑火状态（同一「未保护工作」信号的两个出口）；后缀永久沉积在工具结果中是已知交换；阈值（8/8pp/8）是 assay 待测变量。见 AGENTS.md 「确定性打断器」节。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

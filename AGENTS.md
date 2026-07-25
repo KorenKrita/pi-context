@@ -130,7 +130,7 @@ rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不�
 
 ## Context usage nudge contract
 
-ACM context nudge 使用 Pi 公开的 hidden custom message channel，不修改工具结果：
+ACM context nudge 分双通道：完整档位提醒走 Pi 公开的 hidden custom message channel；一行式结构 cue（仪表/burst）以定界后缀追加到普通工具结果文本，`acm_*` 工具结果与 error 结果永不装饰：
 
 - 每次 `context` event 根据 `ctx.getContextUsage()` 观察 active tokens、hard context window 与 hard usage；
 - reminder 档位依据 `workingBudgetTokens = min(contextWindow, 400_000)` 和 `pressurePercent = tokens / workingBudgetTokens * 100` 分类；400K 及以下使用实际窗口，超过 400K 使用 400K cap；
@@ -143,6 +143,17 @@ ACM context nudge 使用 Pi 公开的 hidden custom message channel，不修改�
 - 明确成功的 `acm_travel`、`session_compact` 与手动 `/tree` 导航（`session_tree`）开启新周期；失败或 indeterminate travel 不重置；
 - transition 后忽略可能仍然陈旧的即时 usage，以第一条真实 post-transition assistant prompt usage 建立无提醒 baseline；但明确成功的 `acm_travel` 会用 travel 结果验证过的落点估值 seed 新周期的 highest reached level（落点及以下档位保持静默），第一条真实 usage 只负责清除 pending 并持久化 baseline entry（记录真实 tokens 与 seeded 档位）——同 turn 回爬不得吞掉落点以上、本周期从未提醒过的档位；compaction 与手动 `/tree` 无落点估值，保持采样建立；
 - reminder 只提高 ACM Judgment 的显著性，不把 pressure 转换成 summary/travel/rebase 许可；低 active context 是偏好，不得压过正确性、任务连续性、Representation Gain、cold start 与 recoverability。
+
+### 确定性打断器（syntax-only triggers）
+
+`src/acm-trigger-detector.ts` 为 nudge 系统提供纯句法打断器；host 只递结构事实与候选（判断题形态），语义裁决永远留给模型；检测器是烟雾报警器——高召回低精度，误报成本由模型判断兜住，不引入外源判定模型：
+
+- **压力仪表**：pressure ≥30% 且距本周期上次发射 ≥8pp 时，在当前工具结果尾部追加一行 `[ctx: N% · ↑Δpp · next tier in Mpp]`；<30% 完全沉默（巡航保护）；基准随发射移动（按变化发，不按状态发），周期边界重置；provider-active 时 pressure 来自实际 provider usage，与档位提醒同一 authority 顺序；
+- **read burst**：连续 ≥8 次读取类工具（`read`/`grep`/`find`/`glob`/`ls`）在阈值穿越那条结果上就地追加判断题后缀（含最近 save point 名称与距离，lookup 失败降级为纯 burst 事实）；每 run 至多一发；非读取工具与 ACM 工具打断连读计数；tool_result patch 只能装饰当前正在定稿的结果，「burst 结束后补注入」物理不可行，由跨档提醒与模型自发覆盖；
+- **run 边界 cue**（新请求/阶段收尾共享一个信号）：run 内工具完成数 ≥8 且无新 save point 时，`before_agent_start`（新请求压旧任务）或正常 `agent_end`（阶段收尾，pending tier reminder 优先）注入一行 hidden 判断题（`display: false`，`customType: "acm:trigger-cue"`）；**每周期至多一发**：触发即哑火，仅真实 save-point 行动（`acm_checkpoint`/`acm_travel` 完成）或周期边界重新武装——提醒是提醒，不是闹钟贪睡；
+- **仲裁**：同一条工具结果上 tier reminder > burst > gauge，至多一个后缀；tier reminder 发射时该结果不再装饰；
+- 后缀会永久留在持久化工具结果中（定稿后不再变，不破坏 prompt cache），这是「为激活付出少量永久 token」的已知交换；
+- 阈值（8 次 / 8pp / run 活动 8）是 assay 待测变量，不是定论；调参只动 `acm-trigger-detector.ts` 顶部常量，不动骨架。
 
 ## Post-mutation persistent observation 与 settled live sync
 
