@@ -147,11 +147,14 @@ function checkProbe(probe, facts) {
   return { satisfied: missing.length === 0, missing };
 }
 
-function checkHandoff(mustContain, facts) {
+export function checkHandoff(mustContain, facts) {
   const travels = facts.filter((f) => f.kind === "tool" && f.name === "acm_travel");
   if (travels.length === 0) return { applicable: false };
-  const summaries = travels.map((t) => String(t.input?.summary ?? "")).join("\n\n");
-  const missing = mustContain.filter((s) => !summaries.includes(s));
+  const handoffs = travels.map((travel) => {
+    const payload = travel.input?.handoff ?? travel.input?.summary ?? "";
+    return typeof payload === "string" ? payload : JSON.stringify(payload);
+  }).join("\n\n");
+  const missing = mustContain.filter((s) => !handoffs.includes(s));
   return { applicable: true, satisfied: missing.length === 0, missing };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkRequiredMove } from "./judge.mjs";
+import { checkHandoff, checkRequiredMove } from "./judge.mjs";
 
 function tool(name, turn = 1) {
   return { kind: "tool", name, turn, input: {} };
@@ -57,5 +57,25 @@ describe("showroom required-move judging", () => {
       satisfied: true,
       latency: { toolCallsAfterPrefix: 1, targetToolCalls: 3, withinTarget: true },
     });
+  });
+  test("reads required evidence from a structured travel handoff", () => {
+    const facts = [tool("acm_travel")];
+    facts[0].input = { handoff: { goal: "fix checkout", state: "ledger-writer crosses fsync" } };
+
+    expect(checkHandoff(["ledger-writer", "fsync"], facts)).toEqual({
+      applicable: true,
+      satisfied: true,
+      missing: [],
+    });
+  });
+
+  test("supports provider string fallback and legacy summary handoffs", () => {
+    const stringFallback = [tool("acm_travel")];
+    stringFallback[0].input = { handoff: '{"state":"shipping p99=1840ms"}' };
+    expect(checkHandoff(["shipping"], stringFallback)).toMatchObject({ satisfied: true });
+
+    const legacy = [tool("acm_travel")];
+    legacy[0].input = { summary: "legacy checkout handoff" };
+    expect(checkHandoff(["checkout"], legacy)).toMatchObject({ satisfied: true });
   });
 });
