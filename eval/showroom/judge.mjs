@@ -71,10 +71,10 @@ function toolMatches(spec, name) {
 /**
  * requiredMoves: { tool, withinToolCalls?, afterReads?, inTurn? }
  *
- * `withinToolCalls` is an assay latency target, not an outcome gate. A required
- * move counts when it happens before the task ends (after any semantic prefix
- * and in the required turn); a slow but present response stays outcome-bearing
- * and reports its latency here for calibration.
+ * `withinToolCalls` and `inTurn` are assay response diagnostics, not outcome
+ * gates. A required move counts when it happens before the task ends after any
+ * semantic prefix. Slow or early responses stay outcome-bearing while their
+ * timing and placement remain visible for calibration.
  */
 export function checkRequiredMove(move, facts) {
   const tools = facts.filter((f) => f.kind === "tool");
@@ -92,7 +92,6 @@ export function checkRequiredMove(move, facts) {
   for (let i = searchStart; i < tools.length; i++) {
     const fact = tools[i];
     if (!toolMatches(move.tool, fact.name)) continue;
-    if (typeof move.inTurn === "number" && fact.turn !== move.inTurn) continue;
     const toolCallsAfterPrefix = i - searchStart + 1;
     const latency = typeof move.withinToolCalls === "number"
       ? {
@@ -101,12 +100,19 @@ export function checkRequiredMove(move, facts) {
           withinTarget: toolCallsAfterPrefix <= move.withinToolCalls,
         }
       : { toolCallsAfterPrefix };
-    return { satisfied: true, at: { index: i, turn: fact.turn, name: fact.name }, latency };
+    return {
+      satisfied: true,
+      at: { index: i, turn: fact.turn, name: fact.name },
+      latency,
+      ...(typeof move.inTurn === "number"
+        ? { placement: { actualTurn: fact.turn, targetTurn: move.inTurn, inTargetTurn: fact.turn === move.inTurn } }
+        : {}),
+    };
   }
   const searched = tools.length - searchStart;
   return {
     satisfied: false,
-    reason: `no ${move.tool} before task end after searching ${searched} tool calls${typeof move.inTurn === "number" ? ` in turn ${move.inTurn}` : ""}`,
+    reason: `no ${move.tool} before task end after searching ${searched} tool calls`,
     ...(typeof move.withinToolCalls === "number"
       ? { latency: { observedToolCalls: searched, targetToolCalls: move.withinToolCalls, withinTarget: false } }
       : {}),

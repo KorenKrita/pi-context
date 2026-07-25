@@ -33,13 +33,18 @@ describe("showroom required-move judging", () => {
     });
   });
 
-  test("keeps turn placement as a semantic constraint", () => {
+  test("reports turn placement diagnostically instead of rejecting an early move", () => {
     const facts = [tool("acm_checkpoint", 1), tool("read", 2)];
 
     expect(checkRequiredMove(
       { tool: "acm_checkpoint", inTurn: 2, withinToolCalls: 4 },
       facts,
-    )).toMatchObject({ satisfied: false });
+    )).toEqual({
+      satisfied: true,
+      at: { index: 0, turn: 1, name: "acm_checkpoint" },
+      latency: { toolCallsAfterPrefix: 1, targetToolCalls: 4, withinTarget: true },
+      placement: { actualTurn: 1, targetTurn: 2, inTargetTurn: false },
+    });
   });
 
   test("reports a response inside the latency target", () => {
