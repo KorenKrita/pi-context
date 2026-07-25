@@ -1,145 +1,209 @@
+// Guidance-quality locks are deliberately sparse. Three categories only:
+//
+// 1. Structural invariants — document shape that runtime and hosts depend on
+//    (marker, canonical vocabulary, move set, seven handoff slots, one example).
+// 2. Load-bearing phrases — exact wording with measured behavioral effect;
+//    every lock cites its evidence inline. Do not add a phrase lock without
+//    evidence that the wording (not just the idea) carries the effect.
+// 3. Negative locks — machinery and pressure language that measurably harmed
+//    behavior and must not return.
+//
+// Decorative prose is intentionally unlocked: CORE wording may be refined
+// freely as long as the invariants above hold.
 import { describe, expect, test } from "bun:test";
-import { ACM_CORE, GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "../src/generated-guidance.js";
+import {
+	ACM_CORE,
+	ACM_CORE_MARKER,
+	GUIDANCE_CUES,
+	RECOVERY_GUIDANCE,
+	TOOL_DESCRIPTIONS,
+} from "../src/generated-guidance.js";
 
 const skillFile = (path: string) => Bun.file(new URL(`../skills/context-management/${path}`, import.meta.url)).text();
 
 describe("ACM guidance quality", () => {
-  test("grounds the doctrine in compression-as-intelligence and agent autonomy", () => {
-    expect(ACM_CORE).toContain("Compression is intelligence");
-    expect(ACM_CORE).toContain("**working set**, not a transcript");
-    expect(ACM_CORE).toContain("as ordinary as reading a file");
-    expect(ACM_CORE).toContain("only an explicit user request to hold travel");
-    expect(ACM_CORE).toContain("**hot set**");
-    expect(ACM_CORE).toContain("Honest uncertainty");
-    expect(ACM_CORE).toContain("Removing it deletes nothing");
-  });
+	describe("structural invariants", () => {
+		test("keeps the injection marker stable for host prompt detection", () => {
+			expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
+		});
 
-  test("offers the full move set including forward travel", () => {
-    for (const move of ["**Save**", "**Orient**", "**Fold**", "**Rebase**", "**Rehydrate**", "**Fork**"]) {
-      expect(ACM_CORE).toContain(move);
-    }
-    expect(ACM_CORE).toContain("cold start");
-    expect(ACM_CORE).toContain("anchor gravity");
-    expect(ACM_CORE).toContain("Mid-investigation travel can be valuable");
-    expect(ACM_CORE).toContain("Root is a candidate, never a default");
-    expect(ACM_CORE).toContain("travel back carrying the extract");
-    expect(ACM_CORE).toContain("as recoverable as a save");
-  });
+		test("keeps the canonical vocabulary present", () => {
+			const core = ACM_CORE.toLowerCase();
+			for (const term of ["working set", "hot set", "cold start", "handoff", "sediment", "thrash", "receipt"]) {
+				expect(core).toContain(term);
+			}
+		});
 
-  test("frames cadence as repeatable judgment between sediment and thrash", () => {
-    expect(ACM_CORE).toContain("Compress continuously");
-    expect(ACM_CORE).toContain("Fold in batches");
-    expect(ACM_CORE).toContain("**Sediment**");
-    expect(ACM_CORE).toContain("**Thrash**");
-    expect(ACM_CORE).toContain("around a third of the working budget");
-    expect(ACM_CORE).toContain("preferred outcome, not move authorization");
-    expect(ACM_CORE).toContain("signals to evaluate the working set");
-    expect(ACM_CORE).toContain("Compression Candidate");
-    expect(ACM_CORE).not.toContain("folding is the default, not an optional extra");
-    expect(ACM_CORE).not.toContain("Skip only when you can name why");
-    expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
-  });
+		test("offers the full move set", () => {
+			for (const move of ["**Save**", "**Orient**", "**Fold**", "**Rebase**", "**Rehydrate**", "**Fork**"]) {
+				expect(ACM_CORE).toContain(move);
+			}
+		});
 
-  test("keeps one structured cold-start handoff example carrying live cognition", () => {
-    for (const slot of ["\"goal\":", "\"state\":", "\"evidence\":", "\"external\":", "\"exclusions\":", "\"recover\":", "\"next\":"]) {
-      expect(ACM_CORE).toContain(slot);
-    }
-    expect(ACM_CORE).toContain("structured handoff with seven semantic fields");
-    expect(ACM_CORE).toContain("Runtime owns the durable text format");
-    expect(ACM_CORE).toContain("one concrete action a fresh agent could execute immediately");
-    expect(ACM_CORE).toContain("Two hypotheses");
-    expect(ACM_CORE).toContain("Hot:");
-    expect(ACM_CORE.split("```json").length - 1).toBe(1);
-  });
+		test("keeps exactly one full JSON handoff example with all seven slots", () => {
+			for (const slot of ["\"goal\":", "\"state\":", "\"evidence\":", "\"external\":", "\"exclusions\":", "\"recover\":", "\"next\":"]) {
+				expect(ACM_CORE).toContain(slot);
+			}
+			// One worked example pins the format; contrasts stay prose so the
+			// format anchor is unambiguous.
+			expect(ACM_CORE.split("```json").length - 1).toBe(1);
+			// The example must model live cognition (open hypotheses + hot set),
+			// not a results-only report.
+			expect(ACM_CORE).toContain("Two hypotheses");
+			expect(ACM_CORE).toContain("Hot:");
+		});
+	});
 
-  test("result cues give concrete direction without forcing a rebase", () => {
-    expect(GUIDANCE_CUES.checkpoint).toContain("activation foothold");
-    expect(GUIDANCE_CUES.checkpoint).toContain("timeline");
-    expect(GUIDANCE_CUES.travel).toContain("Execute NEXT directly");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("the next fold would stack another");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("a rebase check is worthwhile");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Rebase only if");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start handoff");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("earliest safe base");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("replace competing layers");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("better net effect than continuing or making a local fold");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Root is a candidate, never a default");
-    expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
-  });
+	describe("load-bearing phrases", () => {
+		test("fold reads as safe as a save", () => {
+			// Evidence: eval/PHASE1-LOG.md — fold-as-safe symmetry with the save
+			// agents already trust drove the Phase 1 fold-adoption gains.
+			expect(ACM_CORE).toContain("as recoverable as a save");
+		});
 
-  test("never reintroduces mandatory workflow machinery", () => {
-    expect(ACM_CORE).not.toContain("preflight");
-    expect(ACM_CORE).not.toContain("Normal state transitions");
-    expect(ACM_CORE).not.toContain("Required transition");
-    expect(ACM_CORE).not.toContain("Fold gate");
-    expect(ACM_CORE).not.toContain("-paused");
-    expect(ACM_CORE).not.toContain("`<chain>-start`");
-    expect(ACM_CORE).not.toContain("first action");
-  });
+		test("cold start keeps obligations alive through mid-work folds", () => {
+			// Evidence: eval/PHASE10-LOG.md — v4.1 added the obligation clause;
+			// mid-obligation folds then kept the task alive in every strong run.
+			expect(ACM_CORE).toContain("obligations survive");
+			expect(ACM_CORE).toContain("Mid-investigation travel can be valuable");
+		});
 
-  test("keeps receipt discipline and external-state honesty", () => {
-    expect(ACM_CORE).toContain("only its matching result is fact");
-    expect(ACM_CORE).toContain("applied, not applied, or indeterminate");
-    expect(ACM_CORE).toContain("Travel rewrites conversation context only");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("alone in its assistant tool batch");
-    expect(TOOL_DESCRIPTIONS.travel).toContain("The result is the only fact");
-  });
+		test("cadence stays judgment, never gauge- or move-authorization", () => {
+			// Evidence: docs/acm-judgment-contract.md — Effect First; the cruise
+			// level and the five checks are user-decided contract semantics.
+			expect(ACM_CORE).toContain("around a third of the working budget");
+			expect(ACM_CORE).toContain("preferred outcome, not move authorization");
+			for (const check of ["Compression Candidate", "Compressibility", "Attention effect", "Recovery value", "Transition effect"]) {
+				expect(ACM_CORE).toContain(check);
+			}
+			// Evidence: docs/acm-judgment-contract.md cadence doctrine pair.
+			expect(ACM_CORE).toContain("Compress continuously");
+			expect(ACM_CORE).toContain("Fold in batches");
+			// Evidence: eval/PHASE10-LOG.md — cross-model runs land at different
+			// batch sizes inside the healthy band; no universal cadence.
+			expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
+		});
 
-  test("keeps off-path recovery bounded around the handoff return pointer", () => {
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("Execute this handoff's NEXT directly");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("For a bounded rehydration lookup");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("return pointer named by the handoff");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("carry the extracted detail back");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("use that pointer as the next `target`, not `backupCurrentHeadAs`");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("do not substitute an older fold base");
-    expect(RECOVERY_GUIDANCE.restoredHistory).toContain("intentionally becomes the new working set");
-    expect(RECOVERY_GUIDANCE.restoredHistory).not.toContain("verified return pointer");
-  });
+		test("autonomy pauses only on explicit user request", () => {
+			// Contract: AGENTS.md — agent owns ACM by default; only an explicit
+			// user request pauses travel, and only for the named scope.
+			expect(ACM_CORE).toContain("explicit user request to hold travel");
+		});
 
-  test("routes one advanced condition at a time and reroutes on state change", async () => {
-    const skill = await skillFile("SKILL.md");
-    expect(skill).toContain("CORE owns the normal path");
-    expect(skill).toContain("Advanced Target Selection");
-    expect(skill).toContain("Archive Recovery");
-    expect(skill).toContain("Exceptional Recovery");
-    expect(skill).toContain("Load one reference at a time");
-    expect(skill).toContain("observable condition changes");
-    expect(skill).toContain("replace the active reference");
-    expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`context-management` Skill");
-    expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`references/target-selection.md`");
-    expect(RECOVERY_GUIDANCE.rollbackFailed).not.toContain("context-management");
-    expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`context-management` Skill");
-    expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`references/exceptional-recovery.md`");
-  });
+		test("NEXT is defined by executability", () => {
+			// Evidence: eval/evidence/acm-optimization-next-2026-07-21.md — NEXT
+			// executability was the paired-eval axis; this is the definition.
+			expect(ACM_CORE).toContain("one concrete action a fresh agent could execute immediately");
+		});
 
-  test("locates advanced Skill references from the advertised Skill location", () => {
-    for (const pointer of [GUIDANCE_CUES.advancedTargetPointer, GUIDANCE_CUES.advancedExceptionalPointer]) {
-      expect(pointer).toContain("available Skills list");
-      expect(pointer).toContain("`location`");
-      expect(pointer).toContain("not a cwd-relative path");
-      expect(pointer).toContain("router first");
-      expect(pointer).toContain("relative to the Skill directory");
-      expect(pointer).not.toContain("/Users/");
-    }
-  });
+		test("root is a rebase candidate, never a default", () => {
+			// Contract: AGENTS.md semantic-rebase section.
+			expect(ACM_CORE).toContain("Root is a candidate, never a default");
+		});
 
-  test("keeps target and recovery criteria factual and checkable", async () => {
-    const target = await skillFile("references/target-selection.md");
-    const archive = await skillFile("references/archive-recovery.md");
-    const exceptional = await skillFile("references/exceptional-recovery.md");
+		test("trusted handoff: execute NEXT, no post-travel verification ritual", () => {
+			// Evidence: docs/acm-judgment-contract.md Trusted Handoff — applied
+			// travel is trusted state, not something to re-verify.
+			expect(GUIDANCE_CUES.travel).toContain("Execute NEXT directly");
+			expect(RECOVERY_GUIDANCE.restoredHistory).toContain("Execute this handoff's NEXT directly");
+		});
 
-    expect(target).toContain("tree topology orders them");
-    expect(target).toContain("must precede at least one active `branch_summary`");
-    expect(target).toContain("projected summary depth must not grow");
-    expect(target).toContain("every surviving item has one authoritative home");
-    expect(archive).toContain("Rehydration round trip");
-    expect(archive).toContain("trust the returned handoff and resume the original action directly");
-    expect(archive).toContain("return to the Skill router and replace this reference");
-    expect(exceptional).toContain("Backup rollback failure");
-    expect(exceptional).toContain("branch creation was not applied");
-    expect(exceptional).toContain("Indeterminate branch mutation");
-    expect(exceptional).toContain("mutation may have landed");
-    expect(exceptional).toContain("Low-yield fold");
-    expect(exceptional).toContain("travel is never required merely to record completion");
-  });
+		test("rebase cue stays a recognition cue", () => {
+			// Contract: AGENTS.md — stacked summaries are a recognition cue, not
+			// a required transition.
+			expect(GUIDANCE_CUES.rebaseCheck).toContain("a rebase check is worthwhile");
+		});
+
+		test("rehydration return uses target, never the backup alias", () => {
+			// Contract: AGENTS.md — a backup alias restores raw history; the
+			// return pointer goes in `target`, and the return must not silently
+			// become a different fold base.
+			expect(RECOVERY_GUIDANCE.restoredHistory).toContain("use that pointer as the next `target`, not `backupCurrentHeadAs`");
+			expect(RECOVERY_GUIDANCE.restoredHistory).toContain("do not substitute an older fold base");
+		});
+
+		test("receipt discipline and external-state honesty", () => {
+			// Contract: AGENTS.md mutation outcomes — applied / not_applied /
+			// indeterminate; travel never rolls back external side effects.
+			expect(ACM_CORE).toContain("applied, not applied, or indeterminate");
+			expect(ACM_CORE).toContain("Travel rewrites conversation context only");
+			// Travel must run alone so its receipt is unambiguous.
+			expect(TOOL_DESCRIPTIONS.travel).toContain("alone in its assistant tool batch");
+		});
+	});
+
+	describe("negative locks", () => {
+		test("mandatory workflow machinery must not return", () => {
+			// Evidence: pre-Phase1 preflight/state-machine guidance measurably
+			// suppressed autonomous travel; removed and locked out.
+			for (const banned of ["preflight", "Normal state transitions", "Required transition", "Fold gate", "-paused", "`<chain>-start`", "first action"]) {
+				expect(ACM_CORE).not.toContain(banned);
+			}
+		});
+
+		test("fold-pressure language must not return", () => {
+			// Evidence: eval/PHASE10-LOG.md — v4 default-fold pressure caused
+			// mid-obligation folds that dropped the task; removed in v4.1.
+			expect(ACM_CORE).not.toContain("folding is the default, not an optional extra");
+			expect(ACM_CORE).not.toContain("Skip only when you can name why");
+		});
+
+		test("cues never order a rebase or a verification ritual", () => {
+			expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
+			// Evidence: docs/acm-judgment-contract.md Trusted Handoff — the old
+			// "verified return pointer" wording invited re-verification.
+			expect(RECOVERY_GUIDANCE.restoredHistory).not.toContain("verified return pointer");
+		});
+
+		test("rollback-failure recovery stays self-contained", () => {
+			// Rollback failure needs immediate factual guidance, not a Skill
+			// routing detour.
+			expect(RECOVERY_GUIDANCE.rollbackFailed).not.toContain("context-management");
+		});
+	});
+
+	describe("advanced routing", () => {
+		test("routes one reference at a time from the Skill router", async () => {
+			const skill = await skillFile("SKILL.md");
+			for (const section of ["Advanced Target Selection", "Archive Recovery", "Exceptional Recovery"]) {
+				expect(skill).toContain(section);
+			}
+			expect(skill).toContain("Load one reference at a time");
+			expect(skill).toContain("replace the active reference");
+			expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`context-management` Skill");
+			expect(GUIDANCE_CUES.advancedTargetPointer).toContain("`references/target-selection.md`");
+			expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`context-management` Skill");
+			expect(GUIDANCE_CUES.advancedExceptionalPointer).toContain("`references/exceptional-recovery.md`");
+		});
+
+		test("resolves references from the advertised Skill location", () => {
+			for (const pointer of [GUIDANCE_CUES.advancedTargetPointer, GUIDANCE_CUES.advancedExceptionalPointer]) {
+				// Regression guard: references were once resolved cwd-relative
+				// and via a baked-in absolute path.
+				expect(pointer).toContain("`location`");
+				expect(pointer).toContain("not a cwd-relative path");
+				expect(pointer).toContain("router first");
+				expect(pointer).not.toContain("/Users/");
+			}
+		});
+
+		test("keeps reference criteria factual and checkable", async () => {
+			const target = await skillFile("references/target-selection.md");
+			const archive = await skillFile("references/archive-recovery.md");
+			const exceptional = await skillFile("references/exceptional-recovery.md");
+
+			// Rebase base selection stays a checkable topology criterion.
+			expect(target).toContain("must precede at least one active `branch_summary`");
+			expect(target).toContain("projected summary depth must not grow");
+			expect(target).toContain("every surviving item has one authoritative home");
+			expect(archive).toContain("Rehydration round trip");
+			// Evidence: docs/acm-judgment-contract.md Trusted Handoff.
+			expect(archive).toContain("trust the returned handoff and resume the original action directly");
+			for (const condition of ["Backup rollback failure", "Indeterminate branch mutation", "Low-yield fold"]) {
+				expect(exceptional).toContain(condition);
+			}
+			// Anti-thrash: completion alone never justifies a fold.
+			expect(exceptional).toContain("travel is never required merely to record completion");
+		});
+	});
 });
