@@ -18,15 +18,15 @@
 // separate pass (judge.mjs) so re-judging never reruns models.
 
 import { mkdirSync, writeFileSync, readFileSync, cpSync, existsSync, rmSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync, execFileSync } from "node:child_process";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECKOUT = join(HERE, "..", "..");
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     seed: 7,
     thinking: "high",
@@ -49,6 +49,7 @@ function parseArgs(argv) {
   if (!out.scenario || !out.model) {
     throw new Error("usage: run-pair.mjs --scenario <ID> --model <provider/model> [--arm on|off|both]");
   }
+  out.out = resolve(out.out);
   return out;
 }
 
@@ -197,4 +198,4 @@ function main() {
   process.stdout.write(JSON.stringify(summary) + "\n");
 }
 
-main();
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main();

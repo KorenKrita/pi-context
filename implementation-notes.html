@@ -538,6 +538,11 @@
         <td>Showroom <code>requiredMoves</code> 只以任务结束前是否发生作为 outcome gate；<code>withinToolCalls</code> 与 <code>inTurn</code> 都降为 timing/placement diagnostics，<code>afterReads</code> 仍是语义前缀。</td>
         <td>Haiku 校准中 P2 on 臂在 cue 后较晚 checkpoint、off 臂全程零 ACM，旧 8-call 窗口把真实处理效应误判为 fail；扩容后的 P4 on 臂在新请求前已提前 checkpoint，旧 <code>inTurn: 2</code> 同样把更安全的早响应误判为 fail。新 judge 保留 <code>withinTarget</code> 与 <code>inTargetTurn</code> 事实但不让延迟决定 outcome；不存在 required move 仍 fail。P4/P5 live prompt 均明确逐个 read 12 个普通服务模块，校准达到 P4 on/off 21/19、P5 on/off 13/12 个 turn-1 tool calls；task 文本不暴露 ACM 或触发阈值。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Showroom runner 在进入 arm cwd 之前把 <code>--out</code> 规范化为绝对路径。</td>
+        <td><code>run-pair.mjs</code> 会把 <code>PI_CODING_AGENT_DIR</code> 指向 <code>&lt;out&gt;/.harness</code>，随后以 arm 目录作为 Pi cwd。显式传入相对 <code>--out</code> 时，旧实现让该环境变量在 arm cwd 下二次相对解析，导致 harness 中明明存在的模型被报为 <code>Model ... not found</code>；Opus 全量首批五题因此全部是 infrastructure run_error，已作废且不进入 evidence。入口现立即 <code>resolve()</code>，单测锁定参数语义，并用相对 out 的真实 Haiku arm 验证生成的 <code>agentDir</code> 为绝对路径且 completed=true。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
