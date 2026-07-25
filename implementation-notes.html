@@ -543,6 +543,16 @@
         <td>Showroom runner 在进入 arm cwd 之前把 <code>--out</code> 规范化为绝对路径。</td>
         <td><code>run-pair.mjs</code> 会把 <code>PI_CODING_AGENT_DIR</code> 指向 <code>&lt;out&gt;/.harness</code>，随后以 arm 目录作为 Pi cwd。显式传入相对 <code>--out</code> 时，旧实现让该环境变量在 arm cwd 下二次相对解析，导致 harness 中明明存在的模型被报为 <code>Model ... not found</code>；Opus 全量首批五题因此全部是 infrastructure run_error，已作废且不进入 evidence。入口现立即 <code>resolve()</code>，单测锁定参数语义，并用相对 out 的真实 Haiku arm 验证生成的 <code>agentDir</code> 为绝对路径且 completed=true。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Showroom paired replay 必须把复制后的 session header <code>cwd</code> 重绑定到各 arm 的隔离 workspace；涉及文件修改的 outcome 还必须由 final-workspace assertion 直接判定。</td>
+        <td>N1 supplement 暴露旧 runner 虽以 arm workspace 启动 Pi，但复制的 journal header 仍指向 <code>base/workspace</code>：on 实际改写 base，随后 off 从已污染的 base 复制起步；旧 arm 目录分别只有 4/12 与 12/12 个 <code>retryLimit: 3</code>，因此旧 N1 pass/pass 不可采信。<code>run-pair.mjs</code> 现只改复制 session 的 header <code>cwd</code>，保持其余 prefix 不变；judge 对 N1 的 12 个声明文件逐一要求完整配置项 <code>retryLimit: 3,</code>，路径被限制在 arm workspace。commit <code>1d429775</code> 的隔离重跑证明 base 保持 4/12，on/off 各自达到 12/12，三份 session cwd 互异，两臂都 completed 且 workspace gate 通过。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>把 source-selected 的 17 场景 Opus 4.8 merge 作为本轮 showroom 权威校准结果，但不把跨三个 product commit 的拼接伪装成单 commit 因果估计。</td>
+        <td>权威 compact artifact 为 <code>eval/evidence/showroom-opus48-calibration-2026-07-25.json</code>，本地展开副本为 <code>eval/.runs/showroom/opus48-authoritative-1d429775/merged-summary.json</code>：未受影响题取 base <code>88f58c62</code>，修复后的 P3/N4/N5 与七个 K 题取 supplement <code>8adacd2e</code>，N1 取隔离重跑 <code>1d429775</code>。17/17 场景、34/34 arms 均 completed、零 run_error；10 个 outcome 中 on=10 pass/0 fail，off=6 pass/4 fail，七个 K 题只作 diagnostics。P4 是 binary ceiling（两臂 pass，但 on 15 tools/turn 1，off 24 tools/turn 2）；K1 在 7→9 reads 显示 treatment burst 边界，K2/K3 受两臂自发 ACM 混淆而不能归因，K4 证明 save-point 会重新武装干预；最终 N1 两臂都正确完成，但 on 62 tools/3 次 travel、off 21 tools/1 次 checkpoint，属于显著 overhead evidence 而非 outcome failure。该单 seed merge 用于校准机制与 judge，不外推为总体效果。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
