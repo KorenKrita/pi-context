@@ -18,6 +18,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 function parseArgs(argv) {
   const out = { arms: ["on", "off"] };
@@ -67,8 +68,15 @@ function toolMatches(spec, name) {
   return spec.split("|").includes(name);
 }
 
-/** requiredMoves: { tool, withinToolCalls?, afterReads?, inTurn? } */
-function checkRequiredMove(move, facts) {
+/**
+ * requiredMoves: { tool, withinToolCalls?, afterReads?, inTurn? }
+ *
+ * `withinToolCalls` is an assay latency target, not an outcome gate. A required
+ * move counts when it happens before the task ends (after any semantic prefix
+ * and in the required turn); a slow but present response stays outcome-bearing
+ * and reports its latency here for calibration.
+ */
+export function checkRequiredMove(move, facts) {
   const tools = facts.filter((f) => f.kind === "tool");
   let searchStart = 0;
   if (typeof move.afterReads === "number") {
@@ -81,14 +89,28 @@ function checkRequiredMove(move, facts) {
       return { satisfied: false, reason: `prefix condition unmet: only ${reads}/${move.afterReads} reads happened` };
     }
   }
-  const windowEnd = typeof move.withinToolCalls === "number" ? searchStart + move.withinToolCalls : tools.length;
-  for (let i = searchStart; i < Math.min(windowEnd, tools.length); i++) {
+  for (let i = searchStart; i < tools.length; i++) {
     const fact = tools[i];
     if (!toolMatches(move.tool, fact.name)) continue;
     if (typeof move.inTurn === "number" && fact.turn !== move.inTurn) continue;
-    return { satisfied: true, at: { index: i, turn: fact.turn, name: fact.name } };
+    const toolCallsAfterPrefix = i - searchStart + 1;
+    const latency = typeof move.withinToolCalls === "number"
+      ? {
+          toolCallsAfterPrefix,
+          targetToolCalls: move.withinToolCalls,
+          withinTarget: toolCallsAfterPrefix <= move.withinToolCalls,
+        }
+      : { toolCallsAfterPrefix };
+    return { satisfied: true, at: { index: i, turn: fact.turn, name: fact.name }, latency };
   }
-  return { satisfied: false, reason: `no ${move.tool} within tool calls ${searchStart}..${windowEnd - 1}${typeof move.inTurn === "number" ? ` in turn ${move.inTurn}` : ""}` };
+  const searched = tools.length - searchStart;
+  return {
+    satisfied: false,
+    reason: `no ${move.tool} before task end after searching ${searched} tool calls${typeof move.inTurn === "number" ? ` in turn ${move.inTurn}` : ""}`,
+    ...(typeof move.withinToolCalls === "number"
+      ? { latency: { observedToolCalls: searched, targetToolCalls: move.withinToolCalls, withinTarget: false } }
+      : {}),
+  };
 }
 
 /** forbiddenMoves: { tool, betweenReadsAndWrites?, beforeProbeAnswer?, inTurn? } */
@@ -207,4 +229,4 @@ function main() {
   process.stdout.write(JSON.stringify(report, null, 2) + "\n");
 }
 
-main();
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) main();
