@@ -190,6 +190,79 @@ describe("Host Bridge exception containment", () => {
     expect(mutations).toBe(2);
   });
 
+  test("recovers to applied when a mid-sequence rollback failure is compensated on retry", () => {
+    const entry = userEntry("entry-1");
+    const entries: SessionEntry[] = [
+      entry,
+      labelEntry("label-keeper", entry.id, "keeper"),
+      labelEntry("label-temp", entry.id, "temporary"),
+    ];
+    let mutations = 0;
+    const session = {
+      appendLabelChange: (targetId: string, label: string | undefined) => {
+        mutations++;
+        // First replay: clear succeeds, restoring "keeper" fails mid-sequence.
+        if (mutations === 2) throw new Error("transient journal write failure");
+        entries.push(labelEntry(`label-${mutations}`, targetId, label));
+      },
+      getEntries: () => [...entries],
+    };
+
+    const result = rollbackCheckpointLabel(session as never, {
+      targetId: entry.id,
+      name: "temporary",
+      labelEntryId: "label-temp",
+      priorAliases: ["keeper"],
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      state: "applied",
+      value: { targetId: entry.id, label: "temporary", restoredAliases: ["keeper"] },
+    });
+    // clear + failed keeper, then compensating clear + keeper.
+    expect(mutations).toBe(4);
+  });
+
+  test("reports both errors as indeterminate when the rollback compensation retry also fails", () => {
+    const entry = userEntry("entry-1");
+    const entries: SessionEntry[] = [
+      entry,
+      labelEntry("label-keeper", entry.id, "keeper"),
+      labelEntry("label-temp", entry.id, "temporary"),
+    ];
+    let mutations = 0;
+    const session = {
+      appendLabelChange: (targetId: string, label: string | undefined) => {
+        mutations++;
+        // Both replays fail while restoring "keeper": journal is left cleared.
+        if (mutations === 2 || mutations === 4) throw new Error(`keeper restore failed (${mutations})`);
+        entries.push(labelEntry(`label-${mutations}`, targetId, label));
+      },
+      getEntries: () => [...entries],
+    };
+
+    const result = rollbackCheckpointLabel(session as never, {
+      targetId: entry.id,
+      name: "temporary",
+      labelEntryId: "label-temp",
+      priorAliases: ["keeper"],
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      state: "indeterminate",
+      error: "host_operation_failed",
+      details: {
+        targetId: entry.id,
+        label: "temporary",
+        expectedAliases: ["keeper"],
+        aliasesAfter: [],
+        hostError: "keeper restore failed (2)",
+        compensationError: "keeper restore failed (4)",
+      },
+    });
+    expect(mutations).toBe(4);
+  });
+
   test("enforces the structural root reservation at the host mutation boundary", () => {
     const result = prevalidateCheckpointLabel({} as never, "entry-1", "ROOT");
     expect(result).toMatchObject({

@@ -97,6 +97,7 @@ export interface LabelRollbackFailureDetails {
   aliasesBefore?: string[];
   aliasesAfter?: string[];
   hostError?: string;
+  compensationError?: string;
   cause?: string;
 }
 
@@ -421,12 +422,24 @@ export function rollbackCheckpointLabel(
     };
   }
 
+  // The clear-then-replay sequence converges to priorAliases when every call
+  // succeeds, so a mid-sequence failure gets exactly one full compensation retry
+  // before the outcome is judged from the observed aliases.
   let hostError: string | undefined;
-  try {
+  let compensationError: string | undefined;
+  const replayPriorState = (): void => {
     append(token.targetId, undefined);
     for (const alias of token.priorAliases) append(token.targetId, alias);
+  };
+  try {
+    replayPriorState();
   } catch (error) {
     hostError = error instanceof Error ? error.message : String(error);
+    try {
+      replayPriorState();
+    } catch (retryError) {
+      compensationError = retryError instanceof Error ? retryError.message : String(retryError);
+    }
   }
   let aliasesAfter: string[];
   try {
@@ -440,6 +453,7 @@ export function rollbackCheckpointLabel(
         expectedAliases: token.priorAliases,
         aliasesBefore,
         ...(hostError === undefined ? {} : { hostError }),
+        ...(compensationError === undefined ? {} : { compensationError }),
         cause,
       }),
       state: "indeterminate",
@@ -459,6 +473,7 @@ export function rollbackCheckpointLabel(
         aliasesBefore,
         aliasesAfter,
         ...(hostError === undefined ? {} : { hostError }),
+        ...(compensationError === undefined ? {} : { compensationError }),
       },
     ),
     state: "indeterminate",
