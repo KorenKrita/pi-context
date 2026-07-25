@@ -175,7 +175,7 @@ adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 仍最
 
 ## Live AgentSession synchronization
 
-Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_travel` 不能直接复用 Pi 的原生 tree navigation。runtime 仅在可观察的 `AgentSession` lifecycle seam 与可替换 `agent.state.messages` 都存在时启用 adapter；其唯一职责是在 settled boundary 将 latest verified active leaf 的 Context Packet 写入 native live state。
+Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_travel` 不能直接复用 Pi 的原生 tree navigation。runtime 仅在可观察的 `AgentSession` lifecycle seam 与可替换 `agent.state.messages` 都存在时启用 adapter；adapter 只负责两类明确的 live-state 操作：在 settled boundary 将 latest verified active leaf 的 Context Packet 写入 native live state，以及在 host 已判定 overflow recovery `willRetry`、且 await `session_compact` 的窄窗口中移除不可续写的 trailing assistant messages。
 
 `src/live-agent-session-adapter.ts` 的约束：
 
@@ -184,11 +184,12 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 - 按 SessionManager object identity 索引；不使用 working directory、model、session path 或 global current-session；
 - 只保存 WeakMap/WeakRef，允许 session GC；安装 marker process-wide 且幂等；
 - travel 先 schedule 完整 `{ toolCallId, preferredLeafId }` ticket；matching `tool_execution_end` 只确认 pair，不 apply replacement；
-- `agent_settled` 是唯一 apply boundary：它从**最新** verified active leaf rebuild，不能裁剪 pre-travel AgentSession array，也不能在 originating run 或 automatic retry 中提前替换；`agent_end` error/aborted 不是替换许可；
+- `agent_settled` 是 travel replacement 的唯一 apply boundary：它从**最新** verified active leaf rebuild，不能裁剪 pre-travel AgentSession array，也不能在 originating run 或 automatic retry 中提前替换；`agent_end` error/aborted 不是替换许可；
+- 唯一例外是 host 自己已决定 automatic overflow retry 且 await `session_compact` 的边界：adapter 可只从 live array 尾部移除 `role === "assistant"` 的不可续写消息，session history 保持不变。Pi `0.81.1` 的 host 只移除 `stopReason === "error"`，但其 silent-overflow 判定也会产生 `stopReason === "length"`、output 0；不修复会让 `agentLoopContinue` 抛 `Cannot continue from message role: assistant`；
 - 后续 travel 仅覆盖同一 manager 的旧 pending ticket；不匹配 completion 不得消费 pending 或覆盖诊断；
 - unavailable/failed live sync 不回滚已验证 travel；persistent context rebuild 继续生效，并提示 reload。
 
-公开 outcome：`unavailable`、`pending`、`applied`、`failed`、`skipped`。如果未来 Pi 提供 tool-context 可调用的官方 atomic navigation/refresh interface，应删除这个 capability-probed adapter，改用官方接口；不要扩展成通用 private-access framework。
+同步公开 outcome：`unavailable`、`pending`、`applied`、`failed`、`skipped`；overflow-retry 尾部修复另行返回 `pruned`、`noop` 或 `unavailable`，只供 lifecycle handler 记录/降级。若未来 Pi 提供 tool-context 可调用的官方 atomic navigation/refresh interface 或修复 automatic overflow retry，应删除对应 capability-probed replacement/repair，而不是维护双路径；不要扩展成通用 private-access framework。
 
 ## Guidance ownership
 

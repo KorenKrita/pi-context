@@ -528,6 +528,16 @@
         <td>确定性打断器系统：双通道（完整档位提醒留 hidden channel；仪表/burst 以定界后缀追加到普通工具结果）+ 五触发器（仪表 Δ≥8pp、burst ≥8 连读、跨档、新请求、阶段收尾），全部纯句法检测，语义判定留模型。</td>
         <td>用户逐步收敛的决策：（1）「方向被否」无句法代理信号，不做（齐夫长尾留模型自发）；（2）边界 cue 必须对用户零打扰（display:false）且不得每轮必发——最终语义：每周期至多一发，触发即哑火，仅真实 save-point 行动或周期边界重新武装（「提醒不是闹钟贪睡」）；（3）burst 同理收为每 run 至多一发。agent-resolved 细节：「burst 结束后注入」物理不可行（tool_result patch 只能装饰正在定稿的结果），改为阈值穿越就地注入；新请求/阶段收尾共享同一哑火状态（同一「未保护工作」信号的两个出口）；后缀永久沉积在工具结果中是已知交换；阈值（8/8pp/8）是 assay 待测变量。见 AGENTS.md 「确定性打断器」节。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>在 Pi <code>0.81.1</code> 的 awaited <code>session_compact</code> 窄窗口中，修复 automatic overflow retry 的不可续写 assistant 尾部。</td>
+        <td>P1 showroom 复现证明：hidden reminder steer 会让窗口边缘 completion 稳定呈现 <code>stopReason=length</code>、output 0；<code>pi-ai</code> 将其判为 overflow 且 <code>willRetry=true</code>，但 host 在 compaction rebuild 后只移除 <code>stopReason=error</code> 的 assistant，随后 <code>agentLoopContinue</code> 抛 <code>Cannot continue from message role: assistant</code>。adapter 只在 host 已决定 retry 且 await handler 的时序中移除 live array 尾部 assistant；session history、tree 与非-retry compaction 均不变，capability unavailable 时提示 resume recovery。端到端 seed 7 / 40K clamp 从稳定 exit 1 变为经过两次 overflow retry 后 exit 0。若 host 修复该 cleanup，应删除 workaround。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Showroom <code>requiredMoves</code> 只以任务结束前是否发生作为 outcome gate；<code>withinToolCalls</code> 与 <code>inTurn</code> 都降为 timing/placement diagnostics，<code>afterReads</code> 仍是语义前缀。</td>
+        <td>Haiku 校准中 P2 on 臂在 cue 后较晚 checkpoint、off 臂全程零 ACM，旧 8-call 窗口把真实处理效应误判为 fail；扩容后的 P4 on 臂在新请求前已提前 checkpoint，旧 <code>inTurn: 2</code> 同样把更安全的早响应误判为 fail。新 judge 保留 <code>withinTarget</code> 与 <code>inTargetTurn</code> 事实但不让延迟决定 outcome；不存在 required move 仍 fail。P4/P5 live prompt 均明确逐个 read 12 个普通服务模块，校准达到 P4 on/off 21/19、P5 on/off 13/12 个 turn-1 tool calls；task 文本不暴露 ACM 或触发阈值。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
