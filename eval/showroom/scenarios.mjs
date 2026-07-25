@@ -18,6 +18,7 @@
 //     requiredMoves   [{ tool, afterReads?, withinToolCalls?, inTurn? }]
 //     forbiddenMoves  [{ tool, betweenReadsAndWrites?, beforeProbeAnswer? }]
 //     probe           { mustContain: [...] } checked on final assistant text
+//     workspace       { files: [...], mustContain: [...] } checked on each arm's final workspace
 //     handoffMustContain  strings that must appear in any travel summary
 //     diagnosticsOnly    true → no verdict, record facts only
 
@@ -250,6 +251,10 @@ export const SCENARIOS = {
         expect: {
           forbiddenMoves: [{ tool: "acm_travel", betweenReadsAndWrites: true }],
           probe: { mustContain: ["12"] },
+          workspace: {
+            files: SERVICES.map((service) => `services/${service}.ts`),
+            mustContain: ["retryLimit: 3,"],
+          },
         },
       };
     },

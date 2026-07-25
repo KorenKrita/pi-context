@@ -95,6 +95,14 @@ function buildScenario(scenario, seed, dir) {
   execFileSync("node", [join(HERE, "build-scenario.mjs"), "--scenario", scenario, "--out", dir, "--seed", String(seed)], { stdio: ["ignore", "pipe", "inherit"] });
 }
 
+export function copySessionForWorkspace(sourcePath, targetPath, workspace) {
+  const lines = readFileSync(sourcePath, "utf8").trimEnd().split("\n");
+  const header = JSON.parse(lines[0]);
+  if (header.type !== "session") throw new Error(`expected session header in ${sourcePath}`);
+  lines[0] = JSON.stringify({ ...header, cwd: resolve(workspace) });
+  writeFileSync(targetPath, lines.join("\n") + "\n");
+}
+
 function runArm({ armDir, arm, expected, model, thinking, agentDir }) {
   const sessionPath = join(armDir, "session.jsonl");
   const workspace = join(armDir, "workspace");
@@ -163,8 +171,9 @@ function main() {
   const baseDir = join(scenarioDir, "base");
   mkdirSync(scenarioDir, { recursive: true });
 
-  // Build the scripted prefix once, then copy per arm so both arms replay
-  // byte-identical prefixes and isolated workspaces.
+  // Build the scripted prefix once, then copy per arm. The journal content is
+  // identical except that each session header is rebound to its isolated arm
+  // workspace; otherwise resumed tools keep operating in base/workspace.
   if (!existsSync(join(baseDir, "session.jsonl"))) {
     buildScenario(args.scenario, args.seed, baseDir);
   }
@@ -185,7 +194,7 @@ function main() {
     const armDir = join(scenarioDir, arm);
     rmSync(armDir, { recursive: true, force: true });
     mkdirSync(armDir, { recursive: true });
-    cpSync(join(baseDir, "session.jsonl"), join(armDir, "session.jsonl"));
+    copySessionForWorkspace(join(baseDir, "session.jsonl"), join(armDir, "session.jsonl"), join(armDir, "workspace"));
     cpSync(join(baseDir, "workspace"), join(armDir, "workspace"), { recursive: true });
     cpSync(join(baseDir, "expected.json"), join(armDir, "expected.json"));
     const turns = runArm({ armDir, arm, expected, model: args.model, thinking: args.thinking, agentDir });

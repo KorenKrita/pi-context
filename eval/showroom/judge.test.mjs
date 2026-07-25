@@ -1,6 +1,85 @@
-import { describe, expect, test } from "bun:test";
-import { checkHandoff, checkRequiredMove } from "./judge.mjs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkHandoff, checkRequiredMove, judgeArm } from "./judge.mjs";
+const roots = [];
 
+afterEach(() => {
+  while (roots.length > 0) rmSync(roots.pop(), { recursive: true, force: true });
+});
+
+function buildArmWorkspace(fileContents) {
+  const armDir = mkdtempSync(join(tmpdir(), "showroom-judge-"));
+  roots.push(armDir);
+  mkdirSync(join(armDir, "workspace", "services"), { recursive: true });
+  for (const [name, content] of Object.entries(fileContents)) {
+    writeFileSync(join(armDir, "workspace", "services", name), content);
+  }
+  writeFileSync(join(armDir, "transcript.json"), JSON.stringify({
+    turns: [{
+      turn: 1,
+      exitStatus: 0,
+      timedOut: false,
+      events: [{
+        type: "message_end",
+        message: { role: "assistant", content: [{ type: "text", text: "12 services complete" }] },
+      }],
+    }],
+  }));
+  return armDir;
+}
+
+describe("showroom workspace judging", () => {
+  test("gates the verdict on every declared file's final content", () => {
+    const armDir = buildArmWorkspace({
+      "billing.ts": "export const config = {\n  retryLimit: 3,\n};",
+      "checkout.ts": "export const config = {\n  retryLimit: 30,\n};",
+    });
+    const expected = { expect: {
+      probe: { mustContain: ["12"] },
+      workspace: {
+        files: ["services/billing.ts", "services/checkout.ts"],
+        mustContain: ["retryLimit: 3,"],
+      },
+    } };
+
+    expect(judgeArm(armDir, expected)).toMatchObject({
+      verdict: "fail",
+      checks: {
+        probe: { satisfied: true },
+        workspace: {
+          satisfied: false,
+          files: [
+            { path: "services/billing.ts", satisfied: true, missing: [] },
+            { path: "services/checkout.ts", satisfied: false, missing: ["retryLimit: 3,"] },
+          ],
+        },
+      },
+    });
+
+    writeFileSync(join(armDir, "workspace", "services", "checkout.ts"), "export const config = {\n  retryLimit: 3,\n};");
+    expect(judgeArm(armDir, expected)).toMatchObject({
+      verdict: "pass",
+      checks: { workspace: { satisfied: true } },
+    });
+  });
+
+  test("rejects assertions that escape the arm workspace", () => {
+    const armDir = buildArmWorkspace({ "billing.ts": "retryLimit: 3" });
+    const expected = { expect: { workspace: { files: ["../outside.ts"], mustContain: [] } } };
+
+    expect(judgeArm(armDir, expected)).toMatchObject({
+      verdict: "fail",
+      checks: {
+        workspace: {
+          satisfied: false,
+          files: [{ path: "../outside.ts", satisfied: false, reason: "path escapes workspace" }],
+        },
+      },
+    });
+  });
+});
 function tool(name, turn = 1) {
   return { kind: "tool", name, turn, input: {} };
 }

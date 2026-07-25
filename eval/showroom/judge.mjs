@@ -17,7 +17,7 @@
 //   diagnostics  — scenario is diagnosticsOnly: facts recorded, no verdict
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 function parseArgs(argv) {
@@ -147,6 +147,33 @@ function checkProbe(probe, facts) {
   return { satisfied: missing.length === 0, missing };
 }
 
+/** workspace: { files: string[], mustContain: string[] } */
+export function checkWorkspace(workspace, workspaceRoot) {
+  if (!Array.isArray(workspace.files) || workspace.files.length === 0) {
+    return { satisfied: false, reason: "workspace assertion has no files", files: [] };
+  }
+
+  const root = resolve(workspaceRoot);
+  const files = workspace.files.map((path) => {
+    const absolute = resolve(root, path);
+    const fromRoot = relative(root, absolute);
+    if (!fromRoot || fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+      return { path, satisfied: false, reason: "path escapes workspace" };
+    }
+    if (!existsSync(absolute)) return { path, satisfied: false, reason: "file missing" };
+
+    try {
+      const content = readFileSync(absolute, "utf8");
+      const missing = (workspace.mustContain ?? []).filter((text) => !content.includes(text));
+      return { path, satisfied: missing.length === 0, missing };
+    } catch (error) {
+      return { path, satisfied: false, reason: `file unreadable: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  });
+
+  return { satisfied: files.every((file) => file.satisfied), files };
+}
+
 export function checkHandoff(mustContain, facts) {
   const travels = facts.filter((f) => f.kind === "tool" && f.name === "acm_travel");
   if (travels.length === 0) return { applicable: false };
@@ -177,7 +204,7 @@ function collectDiagnostics(facts) {
   };
 }
 
-function judgeArm(armDir, expected) {
+export function judgeArm(armDir, expected) {
   const transcriptPath = join(armDir, "transcript.json");
   if (!existsSync(transcriptPath)) return { verdict: "missing", reason: "no transcript.json" };
   const transcript = JSON.parse(readFileSync(transcriptPath, "utf8"));
@@ -191,7 +218,7 @@ function judgeArm(armDir, expected) {
 
   if (expect.diagnosticsOnly) return { verdict: "diagnostics", diagnostics };
 
-  const checks = { requiredMoves: [], forbiddenViolations: [], probe: null, handoff: null };
+  const checks = { requiredMoves: [], forbiddenViolations: [], probe: null, handoff: null, workspace: null };
   let pass = true;
 
   for (const move of expect.requiredMoves ?? []) {
@@ -209,6 +236,10 @@ function judgeArm(armDir, expected) {
   if (expect.probe) {
     checks.probe = checkProbe(expect.probe, facts);
     if (!checks.probe.satisfied) pass = false;
+  }
+  if (expect.workspace) {
+    checks.workspace = checkWorkspace(expect.workspace, join(armDir, "workspace"));
+    if (!checks.workspace.satisfied) pass = false;
   }
   if (expect.handoffMustContain) {
     checks.handoff = checkHandoff(expect.handoffMustContain, facts);

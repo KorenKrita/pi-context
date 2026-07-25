@@ -50,7 +50,10 @@ describe("showroom live scenario sizing", () => {
     const n1 = build("N1");
     expect(readdirSync(join(n1.workspace, "services")).length).toBe(12);
     for (const path of servicePaths(0, 12)) expect(n1.expected.resumePrompts[0]).toContain(path);
-
+    expect(n1.expected.expect.workspace).toEqual({
+      files: servicePaths(0, 12),
+      mustContain: ["retryLimit: 3,"],
+    });
     const n4 = build("N4");
     for (const path of servicePaths(0, 9)) expect(n4.expected.resumePrompts[0]).toContain(path);
     expect(n4.expected.expect.forbiddenMoves).toEqual([{ tool: "acm_travel", beforeProbeAnswer: true }]);
