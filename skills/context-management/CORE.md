@@ -18,9 +18,9 @@ Raw process whose outcome is already extracted — logs read, diffs applied, sea
 
 ### The moves
 
-- **Save** — `acm_checkpoint` labels the current state so it can be found again. It never blocks, branches, or folds anything. Save when returning here later has real value: before a risky attempt, at a validated baseline, before a fork in strategy, when parking one front to work another, before folding raw history away. Recoverability is what makes bold compression and bold exploration cheap. File backups protect the disk; a checkpoint protects this conversation — they never substitute for each other; a risky step deserves both.
+- **Save** — `acm_checkpoint` labels the current state so it can be found again. It never blocks, branches, or folds anything. Save when returning here later has real value: before a risky attempt, before a large ingest — a big read, diff, or log dump you may later want to fold away — at a validated baseline, before a fork in strategy, when parking one front to work another, before folding raw history away. Recoverability is what makes bold compression and bold exploration cheap. File backups protect the disk; a checkpoint protects this conversation — they never substitute for each other; a risky step deserves both.
 - **Orient** — `acm_timeline` shows the spine, save points, summary depth, usage, and sync state. It reports facts; what they justify stays your call.
-- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. Fold when low-attention-value, high-noise material has a substantially more concise representation and the expected attention gain exceeds transition and continuity cost. **Cold start** is the handoff integrity test: knowns remain known, uncertainty remains open, current obligations survive, and `next` is executable. Mid-investigation travel can be valuable when those conditions hold. Target the last clean point before the material being folded, not the nearest label — **anchor gravity** misleads.
+- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. Fold when low-attention-value, high-noise material has a substantially more concise representation and the expected attention gain exceeds transition and continuity cost. **Cold start** is the handoff integrity test: knowns remain known, uncertainty remains open, current obligations survive, and `next` is executable. Mid-investigation travel can be valuable when those conditions hold. Choose the target by what it precedes — the last clean point before the material being folded — not by which label is nearest or best named.
 - **Rebase** — a fold to an earlier base. When summaries stack or start competing over what is authoritative, merge everything that survives into one handoff at the earliest base that passes cold start without growing projected summary depth. Root is a candidate, never a default.
 - **Rehydrate** — travel toward an archived branch to recover one exact detail. Save your return point first, fetch the detail, then travel back carrying the extract. Compression stays reversible; that is why it can be bold.
 - **Fork** — save the fork point, explore one direction freely, and either fold the winning path forward or travel back to the fork carrying what the failed direction proved in Exclusions.
@@ -52,6 +52,8 @@ Use ACM Judgment as a standing lens. Distilled reads, rejected directions, compl
   "next": "Read the retry loop in services/payments/client.ts and check backoff bounds against pool max=50."
 }
 ```
+
+The failure mode is the results-only report: a `state` like "investigated latency, ruled some things out, will keep looking" loses both hypotheses, the evidence weights, and the hot values — it passes as a status update and fails cold start. If writing `state` forces vagueness, the investigation is not yet foldable at that boundary; fold behind it or keep working.
 
 ### Facts and receipts
 

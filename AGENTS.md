@@ -189,7 +189,7 @@ Pi extension tool context没有 command-only `navigateTree()`，因此 `acm_trav
 
 Exact advanced pointers 必须经过 Pi `getCommands()` availability selector：只有当前 session 实际提供 `skill:context-management` 时，timeline/rebase、name collision、rollback/indeterminate/refresh-exhausted 等 observable condition 才追加对应 reference pointer；不可用时只返回 base recovery facts，不向模型暴露不存在的 Skill/path 并要求它自行搜索。
 
-canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、anchor gravity、receipt。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
+canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、receipt。这些词都借用模型已有先验；不要新造没有预训练先验的术语（旧词 anchor gravity 已因此删除，target 选择直接用白话表述）。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 
 ## Tool prompt 与 TUI 呈现
 

@@ -72,7 +72,7 @@ Before deciding whether or how to retry, read the available Skills list and use 
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-`checkpoints` lists save points with projected post-travel depth and marks raw archive origins. Choose a target by what it precedes, not by how recent or well named it is — anchor gravity misleads. Raw archive origins are restore/rehydrate targets, not fold/rebase bases.
+`checkpoints` lists save points with projected post-travel depth and marks raw archive origins. Choose a target by what it precedes, not by how recent or well named it is. Raw archive origins are restore/rehydrate targets, not fold/rebase bases.
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
