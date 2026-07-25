@@ -518,6 +518,11 @@
         <td>证据纪律：每阶段渲染紧凑工具事实汇总（call 数、read/edit、写入文件），rubric 要求任何 data-loss / recoverability / task 受损断言必须对得上该工具记录；无记录支撑的负面断言不得作为扣分依据。</td>
         <td>exprlang smoke 中 judge 幻觉“P3 丢失”，而工具记录并无对应删改。把确定性工具事实喂入语义 judge，落实“确定性优先、LLM 只判语义残差”的仪器设计。与 D1 同一 commit <code>8babb0f1</code>。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>Give a mid-sequence checkpoint-rollback failure exactly one full compensation replay before judging the outcome from observed aliases.</td>
+        <td>An audit found <code>rollbackCheckpointLabel</code>'s clear-then-replay sequence could stop between <code>appendLabelChange</code> calls, leaving the alias journal partially restored with no recovery attempt. Because the replay converges to <code>priorAliases</code> when every call succeeds, one bounded retry is safe and idempotent; unbounded retries against a failing host were rejected. A compensated retry that verifies clean reports <code>applied</code>; a failed retry stays <code>indeterminate</code> and surfaces both <code>hostError</code> and <code>compensationError</code>, preserving the existing evidence contract.</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
