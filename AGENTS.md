@@ -153,7 +153,8 @@ ACM context nudge 分双通道：完整档位提醒走 Pi 公开的 hidden custo
 - **run 边界 cue**（新请求/阶段收尾共享一个信号）：run 内工具完成数 ≥8 且无新 save point 时，`before_agent_start`（新请求压旧任务）或正常 `agent_end`（阶段收尾，pending tier reminder 优先）注入一行 hidden 判断题（`display: false`，`customType: "acm:trigger-cue"`）；**每周期至多一发**：触发即哑火，仅真实 save-point 行动（`acm_checkpoint`/`acm_travel` 完成）或周期边界重新武装——提醒是提醒，不是闹钟贪睡；
 - **仲裁**：同一条工具结果上 tier reminder > burst > gauge，至多一个后缀；tier reminder 发射时该结果不再装饰；
 - 后缀会永久留在持久化工具结果中（定稿后不再变，不破坏 prompt cache），这是「为激活付出少量永久 token」的已知交换；
-- 阈值（8 次 / 8pp / run 活动 8）是 assay 待测变量，不是定论；调参只动 `acm-trigger-detector.ts` 顶部常量，不动骨架。
+- 阈值（8 次 / 8pp / run 活动 8）是 assay 待测变量，不是定论；调参只动 `acm-trigger-detector.ts` 顶部常量，不动骨架；
+- **配对实验 kill switch**：`ACM_TRIGGERS_DISABLED=1` 时三个打断器表面（gauge/burst/run 边界 cue）在 runtime 消费点全部静默，构成配对回放的对照臂；档位提醒（30/50/70）属于触发器之前的 baseline 契约，不受该开关影响。开关按调用时读取环境，不缓存。
 
 ## Post-mutation persistent observation 与 settled live sync
 
@@ -250,7 +251,8 @@ bun run verify:acm
 
 - **样板间**是 agent 确定性构建的标准场景：脚本化前缀（合成工具调用+标准化内容）推进到一个建题时即确定 ground truth 的决策点。场景任务是普通 coding 负载；不得使用 ACM/元工具开发类任务（自指语境污染行为分布），不得在建题 prompt 中描述触发器检测条件（防出题-实现过拟合）。
 - **骨架参数**来自真实 session 的分布统计（`eval/skeleton/`）：`extract-skeleton.mjs` 只读扫描本机 Pi sessions，按内容剔除 ACM 开发类会话（cwd + 工具输入路径匹配，非按目录），只输出分布事实（burst 长度、每 run 工具数、读写比、user 打断节奏），不含任何会话内容。样板间场景尺寸必须以 `skeleton-params.json` 的分位数定标，不得拍脑袋。
-- **配对条件**：同一前缀跑触发器开/关两遍（唯一实验变量），同 seed 同模型同 checkout。
+- **配对条件**：同一前缀跑触发器开/关两遍（唯一实验变量 `ACM_TRIGGERS_DISABLED`），同 seed 同模型同 checkout。
+- **机制三件**（`eval/showroom/`）：`build-scenario.mjs` 确定性构建 v3 JSONL 前缀 + workspace + expected.json；`run-pair.mjs` 派生 harness agent dir（复制 models.json 并 clamp 每个模型的 contextWindow/maxTokens 制造便宜压力，`PI_CODING_AGENT_DIR` 指向它，packages 清空，本 checkout 的 extension 用 `-e` 显式加载，session 存储隔离到 arm 目录），每 arm 保存 `pi --mode json` 原始事件流 transcript.json；`judge.mjs` 独立判卷（重判不重跑），只计入完成的 tool execution，streamed toolCall 无 completion 不算 move。Pi 无 window override 环境变量；window 收缩只能走 models.json clamp。
 - **题库三类**：正例（该动）、负例/陷阱（不该动——hot set 活跃的长读取、临近收尾的高压力、fold 会折断未兑现承诺）、参数敏感题（burst/Δpp/武装阈值的邻域版本）。全正例题库无效：测不出误报代价。
 - **判卷是对答案不是语义评分**：每题带 expected 清单（期望 move 类型、K 步窗口、任务连续性探针答案、禁止动作），judge 只核对 transcript 事实。语义判定仅允许在明确标注置信度的最小 rubric 内出现。outcome 优先于调用率：move 正确性、任务连续性先裁决，调用率/token/summary depth 只作 diagnostics。
 - **评测安全件复用**：`eval/seatbelt.mjs`（Bash 子进程 Seatbelt）、`eval/exclusive-lock.mjs`（exclusive lock receipt）、`eval/integrity-guard.mjs`（canonical path gate 与 provenance 验证）。任何 sandbox/lock/provenance mismatch 都是 `infrastructure_invalid`，不得进入 paired verdict，不归因模型。

@@ -15,6 +15,7 @@ import {
   type LiveAgentSessionAdapter,
 } from "./live-agent-session-adapter.js";
 import {
+  areTriggersDisabled,
   createTriggerRunState,
   markBoundaryCued,
   markGaugeEmitted,
@@ -499,6 +500,7 @@ export class AcmSessionRuntime {
 
   /** Record a finalized tool completion; returns a burst trigger when a threshold is crossed. */
   recordTriggerToolCompletion(session: object, toolName: string): ToolCompletionTrigger {
+    if (areTriggersDisabled()) return { kind: "none" };
     return recordToolCompletion(this.triggerState(session), toolName);
   }
 
@@ -507,6 +509,7 @@ export class AcmSessionRuntime {
    * moves the baseline so the next gauge requires another full delta.
    */
   takeGaugeEmission(session: object, pressurePercent: number): { deltaPp: number } | undefined {
+    if (areTriggersDisabled()) return undefined;
     const state = this.triggerState(session);
     if (!shouldEmitGauge(state, pressurePercent)) return undefined;
     return { deltaPp: markGaugeEmitted(state, pressurePercent) };
@@ -519,6 +522,7 @@ export class AcmSessionRuntime {
    * boundary reminder per cycle, shared across new-request and phase-end.
    */
   takeRunBoundaryCue(session: object): TriggerRunState | undefined {
+    if (areTriggersDisabled()) return undefined;
     const state = this.triggerStates.get(session);
     if (!state) return undefined;
     if (!shouldCueRunBoundary(state)) {

@@ -45,6 +45,17 @@ export const GAUGE_DELTA_PP = 8;
 /** Gauge suffixes stay silent below the cruise-protection floor. */
 export const GAUGE_SILENCE_FLOOR_PP = 30;
 
+/**
+ * Paired-eval kill switch. When ACM_TRIGGERS_DISABLED=1 every deterministic
+ * interrupter (gauge suffix, burst cue, run-boundary cues) stays silent so a
+ * control run differs from the treatment run by exactly one variable. Tier
+ * reminders (30/50/70) are part of the pre-trigger baseline contract and are
+ * NOT covered by this switch. Read at call time so tests can toggle it.
+ */
+export function areTriggersDisabled(env: Record<string, string | undefined> = process.env): boolean {
+  return env["ACM_TRIGGERS_DISABLED"] === "1";
+}
+
 export function isReadBurstTool(toolName: string): boolean {
   return READ_BURST_TOOLS.has(toolName);
 }

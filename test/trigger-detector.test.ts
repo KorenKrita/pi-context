@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  areTriggersDisabled,
   buildBurstCueSuffix,
   buildGaugeSuffix,
   buildRunBoundaryCue,
@@ -17,6 +18,7 @@ import {
 } from "../src/acm-trigger-detector";
 import { calculateContextUsagePressure } from "../src/context-usage-nudge";
 import { buildLabelMaps } from "../src/label-journal";
+import { AcmSessionRuntime } from "../src/runtime";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 describe("read burst detection", () => {
@@ -153,5 +155,39 @@ describe("nearest save point fact", () => {
       .toContain("no save point on this spine");
     expect(buildBurstCueSuffix({ burstLength: 9, nearestCheckpointName: "scan-done", stepsSinceCheckpoint: 4 }))
       .toContain("nearest save point 'scan-done' 4 step(s) back");
+  });
+});
+
+describe("ACM_TRIGGERS_DISABLED kill switch", () => {
+  test("reads the environment at call time", () => {
+    expect(areTriggersDisabled({})).toBe(false);
+    expect(areTriggersDisabled({ ACM_TRIGGERS_DISABLED: "0" })).toBe(false);
+    expect(areTriggersDisabled({ ACM_TRIGGERS_DISABLED: "" })).toBe(false);
+    expect(areTriggersDisabled({ ACM_TRIGGERS_DISABLED: "1" })).toBe(true);
+  });
+
+  test("silences all three runtime trigger surfaces without touching tier reminders", async () => {
+    process.env["ACM_TRIGGERS_DISABLED"] = "1";
+    try {
+      const runtime = new AcmSessionRuntime();
+      const session = {};
+      // burst: 10 reads would normally cross READ_BURST_THRESHOLD=8
+      for (let i = 0; i < 10; i++) {
+        expect(runtime.recordTriggerToolCompletion(session, "read")).toEqual({ kind: "none" });
+      }
+      // gauge: far above floor + delta
+      expect(runtime.takeGaugeEmission(session, 55)).toBeUndefined();
+      // boundary: no state accumulated, and even direct probing yields nothing
+      expect(runtime.takeRunBoundaryCue(session)).toBeUndefined();
+    } finally {
+      delete process.env["ACM_TRIGGERS_DISABLED"];
+    }
+  });
+
+  test("re-enables cleanly when the variable is cleared", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    for (let i = 0; i < 7; i++) runtime.recordTriggerToolCompletion(session, "read");
+    expect(runtime.recordTriggerToolCompletion(session, "read")).toMatchObject({ kind: "burst", burstLength: 8 });
   });
 });
