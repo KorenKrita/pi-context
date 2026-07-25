@@ -202,50 +202,14 @@ bun run typecheck
 bun run test:host
 ```
 
-真实模型行为评估与 CI 分离。Runner 支持 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env`；除 raw-control 外，相关模式在首个 prompt 前验证当前 checkout 的 Skill provenance。固定 Saffron 400K/1M 矩阵使用 agents-only：保留真实 global/project AGENTS，只加载当前 checkout product/Skill 与 measurement guard，并要求 Darwin Bash tool Seatbelt、built-in file canonical path gate、exclusive lock 和完整 runtime provenance：
+真实模型行为评测与 CI 分离，采用**样板间配对回放**：确定性构建的标准场景推进到 ground truth 已知的决策点，同一前缀以触发器开/关配对运行，判卷只核对 transcript 事实。样板间尺寸由真实 session 的分布统计定标：
 
 ```bash
-bun eval/run.mjs \
-  --env product-isolated \
-  --id structured-handoff-continuation-and-skill \
-  --model local-responses/gpt-5.6-sol \
-  --thinking high
-
-bun eval/run-flow.mjs \
-  --environment-mode raw-control \
-  --flow cadence-research-flow \
-  --model local-responses/gpt-5.6-sol \
-  --thinking high \
-  --context-window 40000
-
-# 预览聚焦的 Opus 4.8 + Sol 2×2；不会发送模型任务
-bun run eval:saffron -- --profile core-2x2
-
-# 预览完整四模型 × 400K/1M 矩阵
-bun run eval:saffron -- --profile full
-
-bun eval/run.mjs \
-  --env product-isolated \
-  --id advanced-pointer-routing \
-  --model local-openai/deepseek-v4-flash \
-  --thinking high
+# 只读扫描本机 Pi sessions，输出骨架分布参数（不含会话内容）
+bun run eval:skeleton > eval/skeleton/skeleton-params.json
 ```
 
-仓库内的 [`pi-context-eval` Codex plugin](plugins/pi-context-eval/) 封装了正式矩阵的 immutable checkout、secret seed、续跑、失败分类与证据报告流程。仓库同时提供 local marketplace；安装后请开启新会话，以便 Codex 加载新 Skill：
-
-```bash
-codex plugin marketplace add "$(git rev-parse --show-toplevel)"
-codex plugin add pi-context-eval@personal
-```
-
-不安装 plugin 时也可直接读取 [`SKILL.md`](plugins/pi-context-eval/skills/pi-context-eval/SKILL.md) 执行。详细状态可以用附带的 helper 查看：
-
-```bash
-python3 plugins/pi-context-eval/skills/pi-context-eval/scripts/matrix_status.py \
-  eval/.runs/saffron-agents-matrix-<timestamp>-<sha>
-```
-
-Controlled strong/weak matrices and their scope limits are recorded in [`eval/evidence/`](eval/evidence/)；这些是独立 outcome evidence，不会被塞进每次 deterministic CI。
+题库、配对 runner 与判卷器见 `eval/`；评测契约详见 [`AGENTS.md`](AGENTS.md)。历史 controlled evidence 存档在 [`eval/evidence/`](eval/evidence/)，是独立 outcome receipt，不进入每次 deterministic CI。
 
 开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
 

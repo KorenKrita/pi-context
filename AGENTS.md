@@ -246,15 +246,17 @@ bun run verify:acm
 
 `verify:acm` 必须覆盖 generated-guidance check、全部 root tests、production TypeScript typecheck，以及 host fixture。不得退回只跑 guidance tests 的不完整 gate。
 
-行为 eval 与 deterministic gate 分离：
+行为 eval 与 deterministic gate 分离。行为评测采用**样板间配对回放**（showroom paired replay），不回放真实 session：
 
-- `eval/run.mjs` 与 `eval/run-flow.mjs` 使用 `raw-control`、`core-only`、`product-isolated`、`agents-only`、`full-env` 五种显式环境；raw-control 禁用 ACM extension/CORE/Skill，用于同 commit paired outcome；agents-only 保留真实 global/project AGENTS，只加载 checkout product/Skill 与独立 measurement guard，Darwin formal evidence 还必须让模型控制的 Bash 子进程进入 tool Seatbelt、让内建 file tools 通过 canonical path gate，并保留完成的 exclusive lock receipt 和 `formalEvidenceEligible=true`；
-- 每个 run 在首个模型 prompt 前通过 `get_commands` 验证 `skill:context-management` availability 与 current-checkout realpath provenance，失败标记 `infrastructure_invalid` 且不归因模型；
-- report 必须记录 model、thinking level、environment、product commit、experimental variable 与 Skill provenance；
-- 每个 flow turn 必须按 raw event 顺序交错保留 visible assistant segments 与 tools；terminal assistant `stopReason` 为 `error`/`aborted` 或不存在时标记 `run_error` 并跳过 outcome judge；`stopReason:length` 且 assistant content 为空、input/output/cache/reasoning/total usage 全零的 provider completion 同样是 `run_error(provider_empty_length_response)`，不是输出预算耗尽或 task failure。普通有内容/usage 的 length 仍是 outcome-bearing model turn。不能把 provider transport failure 当 completed task，也不能把 travel 错排到先前已交付答案之前；transition telemetry 的 pre sample 取 boundary 所属 cycle 最后一条 activeTokens > 0 的 assistant `message_end`（compaction 可发生在该 turn settled 后），post sample 额外要求与 boundary 同一 `agent_settled` turn ID；custom lifecycle、零 usage、error/aborted 均不算，无有效落点时报告 unknown，不得越过 settled/user phase、伪造 0 或跳到其他 cycle；
-- outcome 优先于调用率：首调、first useful action、reread/stale replay、任务连续性与结果先裁决，Skill read/token/summary depth 只作 diagnostics；
-- 随机模型运行不进入每次 CI；晋级用的 controlled evidence 以 compact artifact 存入 `eval/evidence/`，并注明样本与外推边界。
-- 固定 Saffron 400K/1M runner 使用 agents-only、同 seed、同 Pi/checkout/model/effort/cap，仅改变 hard context window；`full` profile 顺序执行四个 model pair，`core-2x2` profile 只执行 Opus 4.8 与 Sol 两个 pair，未选模型不得作为 pending cell 让聚焦矩阵永久保持 partial。任何 sandbox/lock/provenance mismatch 都是 `infrastructure_invalid`，不得进入 paired verdict。
+- **样板间**是 agent 确定性构建的标准场景：脚本化前缀（合成工具调用+标准化内容）推进到一个建题时即确定 ground truth 的决策点。场景任务是普通 coding 负载；不得使用 ACM/元工具开发类任务（自指语境污染行为分布），不得在建题 prompt 中描述触发器检测条件（防出题-实现过拟合）。
+- **骨架参数**来自真实 session 的分布统计（`eval/skeleton/`）：`extract-skeleton.mjs` 只读扫描本机 Pi sessions，按内容剔除 ACM 开发类会话（cwd + 工具输入路径匹配，非按目录），只输出分布事实（burst 长度、每 run 工具数、读写比、user 打断节奏），不含任何会话内容。样板间场景尺寸必须以 `skeleton-params.json` 的分位数定标，不得拍脑袋。
+- **配对条件**：同一前缀跑触发器开/关两遍（唯一实验变量），同 seed 同模型同 checkout。
+- **题库三类**：正例（该动）、负例/陷阱（不该动——hot set 活跃的长读取、临近收尾的高压力、fold 会折断未兑现承诺）、参数敏感题（burst/Δpp/武装阈值的邻域版本）。全正例题库无效：测不出误报代价。
+- **判卷是对答案不是语义评分**：每题带 expected 清单（期望 move 类型、K 步窗口、任务连续性探针答案、禁止动作），judge 只核对 transcript 事实。语义判定仅允许在明确标注置信度的最小 rubric 内出现。outcome 优先于调用率：move 正确性、任务连续性先裁决，调用率/token/summary depth 只作 diagnostics。
+- **评测安全件复用**：`eval/seatbelt.mjs`（Bash 子进程 Seatbelt）、`eval/exclusive-lock.mjs`（exclusive lock receipt）、`eval/integrity-guard.mjs`（canonical path gate 与 provenance 验证）。任何 sandbox/lock/provenance mismatch 都是 `infrastructure_invalid`，不得进入 paired verdict，不归因模型。
+- report 必须记录 model、thinking level、product commit、experimental variable；provider transport failure（`stopReason` error/aborted/空 length 全零 usage）标记 `run_error` 跳过 outcome judge，不得当 completed task。
+- 随机模型运行不进入每次 CI；晋级用的 controlled evidence 以 compact artifact 存入 `eval/evidence/`，并注明样本与外推边界。历史 evidence artifact 是 receipt，保留存档；产生它们的旧五环境 runner/matrix 已删除，其结论不再自动外推到新 guidance。
+- 触发器阈值（burst、Δpp、武装阈值、哑火语义）是待测变量：参数敏感题的结果是调整 `src/acm-trigger-detector.ts` 顶部常量的唯一合法证据来源。
 
 host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、protocol-complete automatic checkpoint anchoring、successful shrinking travel、finalized receipt ordering（后置 handler 改 error 不 cutover、无重复 NEXT steer）、trusted applied receipt normalization、in-flight tool pair、originating-run 与 automatic-retry tool continuity、matching `tool_execution_end` 不 apply、provider-before-settled cutover、`agent_settled` 从 latest active leaf apply、`agent_end` error 不 release、persistent rebuild/cache cursor/fallback/cached exhaustion、provider actual usage authority、native compaction accounting、repeated travel with a new raw backup、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 
