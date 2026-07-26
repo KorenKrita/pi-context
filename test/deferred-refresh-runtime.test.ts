@@ -254,8 +254,6 @@ describe("deferred post-travel context delivery", () => {
     });
     const stale = [{ role: "user" as const, content: "204K raw origin history", timestamp: 1 }];
 
-    runtime.resetContextUsageNudgeCycle(session);
-    runtime.seedContextUsageNudgeBaseline(session, 0);
     runtime.deferPostTravelRefresh(session, "cache-cutover", entry.id);
     await fixture.emit("tool_result", {
       toolName: "acm_travel",
@@ -310,10 +308,7 @@ describe("deferred post-travel context delivery", () => {
       contextWindow: 100_000,
       percent: 20,
     });
-    expect(fixture.appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
-    });
+    expect(fixture.appendedEntries).toEqual([]);
   });
 
   test("falls back to current protocol-valid messages on cached prefix drift so later user and tool work are not lost", async () => {
@@ -636,8 +631,6 @@ describe("deferred post-travel context delivery", () => {
       percent: 1,
     });
 
-    runtime.resetContextUsageNudgeCycle(session);
-    runtime.seedContextUsageNudgeBaseline(session, 30);
     runtime.deferPostTravelRefresh(session, "rebuild-retry-call", "traveled-leaf");
     runtime.markProviderCutoverReady(session, "rebuild-retry-call");
     await fixture.emit("agent_settled");
@@ -666,14 +659,7 @@ describe("deferred post-travel context delivery", () => {
         usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
       },
     });
-    expect(fixture.appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({
-        kind: "context-usage-baseline",
-        highestReachedLevel: 30,
-        tokens: 20_000,
-      }),
-    });
+    expect(fixture.appendedEntries).toEqual([]);
   });
 
   test("refuses an invalid persisted packet without consuming the settled delivery retry", async () => {

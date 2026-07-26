@@ -51,9 +51,10 @@
 | `src/travel-target-facts.ts` | mutation 前的 target protocol/topology facts 与 warning classification；只把 invalid identity 作为固定 hard floor |
 | `src/travel-coordinator.ts` | 单次 backup → branch → verify → compensate transaction |
 | `src/host-bridge.ts` | readonly SessionManager 到公开 mutation/build capability 的唯一 guarded seam |
-| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation、context nudge 与 settled sync state |
-| `src/runtime-lifecycle.ts` | context rebuild、hidden nudge delivery、tool end/settled sync、usage、compaction、manual tree navigation、session cleanup |
-| `src/context-usage-nudge.ts` | 30/50/70 档位分类与分级 ACM reminder 文案 |
+| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、tool-call correlation、gauge cycle 与 settled sync state |
+| `src/runtime-lifecycle.ts` | context rebuild、gauge suffix decoration、tool end/settled sync、usage、compaction、manual tree navigation、session cleanup |
+| `src/context-gauge.ts` | 双针仪表格式化与里程表显示节奏（整数位变化即显示） |
+| `src/context-pressure.ts` | working-budget pressure 计算（400K cap policy）与格式化 |
 | `src/live-agent-session-adapter.ts` | capability-probed live AgentSession association 与 settled-boundary message replacement |
 | `src/lib.ts` / `label-journal.ts` / `entry-resolution.ts` / `tool-protocol.ts` | 可测试的 domain logic |
 | `src/generated-guidance.ts` | 从 canonical guidance 派生的 runtime strings |
@@ -128,34 +129,19 @@ rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不�
 - runtime 只报告 summary depth、projected depth 和 deltas，不自动判断或执行 rebase
 - runtime 不以 checkpoint 后缀、固定阶段名或固定调用顺序推断语义状态；cue 选择不得依赖名称后缀
 
-## Context usage nudge contract
+## Context gauge contract
 
-ACM context nudge 分双通道：完整档位提醒走 Pi 公开的 hidden custom message channel；一行式结构 cue（仪表/burst）以定界后缀追加到普通工具结果文本，`acm_*` 工具结果与 error 结果永不装饰：
+感知层是仪表盘，不是教练：一个常驻双针仪表后缀，只报数字，永不措辞。所有带措辞的 cue（burst 判断题、run 边界提醒、30/50/70 档位提醒）已整体退役（2026-07-27 用户决定，宪法第 2 条）——对顺从模型不存在"纯事实的措辞"，任何措辞注入都会被读成行动指令（P1：注入即指令）。信号要么恒定存在，要么不存在；判断语义只属于 CORE。
 
-- 每次 `context` event 根据 `ctx.getContextUsage()` 观察 active tokens、hard context window 与 hard usage；
-- reminder 档位依据 `workingBudgetTokens = min(contextWindow, 400_000)` 和 `pressurePercent = tokens / workingBudgetTokens * 100` 分类；400K 及以下使用实际窗口，超过 400K 使用 400K cap；
-- `usagePercent` 始终表示 hard-window usage，不得静默改为 working-budget pressure；message details、baseline state 与 timeline dashboard 分别暴露 `pressurePercent`、`workingBudgetTokens` 和 `policy`；
-- 进入更高档位时只保留一个 pending reminder，档位固定为 30% / 50% / 70%；
-- `tool_result` 消费 pending 并通过 `pi.sendMessage(..., { deliverAs: "steer" })` 发送；
-- 若本次 run 没有后续 tool boundary，只在正常 `agent_end`（最后 assistant `stopReason === "stop"`）通过 `followUp` 兜底；
-- custom message 使用 `display: false`，对 agent 可见但不在 Pi TUI 中展示，并明确标注为 ACM 自动提醒、不是用户请求；
-- 普通 usage 回落不降低本周期 highest reached level；一次跳档只发送当前最高档；
-- 明确成功的 `acm_travel`、`session_compact` 与手动 `/tree` 导航（`session_tree`）开启新周期；失败或 indeterminate travel 不重置；
-- transition 后忽略可能仍然陈旧的即时 usage，以第一条真实 post-transition assistant prompt usage 建立无提醒 baseline；但明确成功的 `acm_travel` 会用 travel 结果验证过的落点估值 seed 新周期的 highest reached level（落点及以下档位保持静默），第一条真实 usage 只负责清除 pending 并持久化 baseline entry（记录真实 tokens 与 seeded 档位）——同 turn 回爬不得吞掉落点以上、本周期从未提醒过的档位；compaction 与手动 `/tree` 无落点估值，保持采样建立；
-- reminder 只提高 ACM Judgment 的显著性，不把 pressure 转换成 summary/travel/rebase 许可；低 active context 是偏好，不得压过正确性、任务连续性、Representation Gain、cold start 与 recoverability。
-- **reminder 正文是事实，不是分档论证**：三档共用同一段文本（档位穿越 + 数字 + 一句「这是事实，不是 move 许可」），不再按 30/50/70 递进劝导，70 档也不再标注 `Final reminder`。分档散文曾使 nudge 成为与 CORE 竞争的第四个 guidance owner，并重新引入 FM-08 的动作梯度（压力升高被读成 travel 许可升高）；仪表后缀上线后，分档散文的边际信息量为零，只剩梯度。判断语义只属于 CORE，本通道只负责让弱模型也能结构化地拿到压力事实。
-
-### 确定性打断器（syntax-only triggers）
-
-`src/acm-trigger-detector.ts` 为 nudge 系统提供纯句法打断器；host 只递结构事实与候选（判断题形态），语义裁决永远留给模型；检测器是烟雾报警器——高召回低精度，误报成本由模型判断兜住，不引入外源判定模型：
-
-- **压力仪表**：pressure ≥30% 且距本周期上次发射 ≥8pp 时，在当前工具结果尾部追加一行 `[ctx: N% · ↑Δpp · next tier in Mpp]`；<30% 完全沉默（巡航保护）；基准随发射移动（按变化发，不按状态发），周期边界重置；provider-active 时 pressure 来自实际 provider usage，与档位提醒同一 authority 顺序；
-- **read burst**：连续 ≥8 次读取类工具（`read`/`grep`/`find`/`glob`/`ls`）在阈值穿越那条结果上就地追加判断题后缀（含最近 save point 名称与距离，lookup 失败降级为纯 burst 事实）；每 run 至多一发；非读取工具与 ACM 工具打断连读计数；tool_result patch 只能装饰当前正在定稿的结果，「burst 结束后补注入」物理不可行，由跨档提醒与模型自发覆盖；
-- **run 边界 cue**（新请求/阶段收尾共享一个信号）：run 内工具完成数 ≥8 且无新 save point 时，`before_agent_start`（新请求压旧任务）或正常 `agent_end`（阶段收尾，pending tier reminder 优先）注入一行 hidden 判断题（`display: false`，`customType: "acm:trigger-cue"`）；**每周期至多一发**：触发即哑火，仅真实 save-point 行动（`acm_checkpoint`/`acm_travel` 完成）或周期边界重新武装——提醒是提醒，不是闹钟贪睡；
-- **仲裁**：同一条工具结果上 tier reminder > burst > gauge，至多一个后缀；tier reminder 发射时该结果不再装饰；
-- 后缀会永久留在持久化工具结果中（定稿后不再变，不破坏 prompt cache），这是「为激活付出少量永久 token」的已知交换；
-- 阈值（8 次 / 8pp / run 活动 8）是 assay 待测变量，不是定论；调参只动 `acm-trigger-detector.ts` 顶部常量，不动骨架；
-- **配对实验 kill switch**：`ACM_TRIGGERS_DISABLED=1` 时三个打断器表面（gauge/burst/run 边界 cue）在 runtime 消费点全部静默，构成配对回放的对照臂；档位提醒（30/50/70）属于触发器之前的 baseline 契约，不受该开关影响。开关按调用时读取环境，不缓存。
+- **形态**：普通工具结果尾部追加一行定界后缀。`policy === "400k-cap"` 时为 `\n[ctx N% budget · M% window]`（N=working-budget pressure，M=hard-window usage），否则 `\n[ctx N% window]`；N/M 取 `Math.floor`；
+- **压力口径**：`workingBudgetTokens = min(contextWindow, 400_000)`；`pressurePercent = tokens / workingBudgetTokens * 100`；`usagePercent` 始终表示 hard-window usage，不得静默改为 working-budget pressure（`src/context-pressure.ts`）；
+- **显示节奏（里程表）**：整数位变化即显示，双向都算；数字不变时沉默——恒定信号 + 变化驱动，无阈值、无档位、无梯度；
+- **cycle 重置点**：明确成功的 `acm_travel`、`session_compact`、手动 `/tree` 导航（`session_tree`）、`session_start`；重置后首个可装饰结果必显示（重建锚点）；
+- **豁免**：`acm_*` 工具结果与 error 结果永不装饰；
+- **provider authority**：provider-active 阶段 pressure 只采用最近一次实际 provider `turn_end` usage，`ctx.getContextUsage()` 仅作 native estimate 展示；
+- **kill switch**：`ACM_GAUGE_DISABLED=1` 时仪表静默，按调用时读取环境，不缓存；
+- 后缀永久留在持久化工具结果中（定稿后不再变，不破坏 prompt cache），这是「为持续本体感受付出少量永久 token」的已知交换；
+- turn_end 不再持久化任何 usage baseline entry；gauge 状态是易失的，重置点即重建。
 
 ## Post-mutation persistent observation 与 settled live sync
 
@@ -166,11 +152,11 @@ ACM context nudge 分双通道：完整档位提醒走 Pi 公开的 hidden custo
 3. 成功后标记 rebuilt
 4. 失败最多跨 turn 重试 3 次，并提供 actionable recovery guidance
 
-adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 仍最多跨后续 turn 重试 3 次并给出 actionable recovery guidance。`session_start` 会清理易失 runtime state，再扫描 active branch 上最近一个 cycle boundary（任意 `branch_summary` 或 native `compaction`——travel、手动 `/tree` summarize 与其他扩展的 fold 在 live 路径上都重置周期，restore 必须与之对齐）之后的记录：`acm:context-usage-state` custom entry 记录第一条真实 post-transition usage 已建立的 baseline 及当时最高档位，`acm:context-usage-reminder` custom message 记录后续已发送档位。baseline entry 通过 `pi.appendEntry()` 持久化且不进入 LLM context；两类记录共同恢复当前周期的 `baselinePending` 与 highest reached level。`session_shutdown` 只清理对应 SessionManager。`session_compact` 清理 host/runtime state 后立即开启一个等待真实 post-compaction usage baseline 的新提醒周期。
+adapter unavailable/failed 不回滚已验证 travel，persistent rebuild 仍最多跨后续 turn 重试 3 次并给出 actionable recovery guidance。`session_start` 清理易失 runtime state 并重置 gauge cycle（gauge 状态是易失的，无持久化恢复）。`session_shutdown` 只清理对应 SessionManager。`session_compact` 清理 host/runtime state 并重置 gauge cycle。
 
 ## Manual tree navigation
 
-手动 `/tree` 导航绕过 `acm_travel`，host 自己重建 live messages，因此 `session_tree` handler 必须清空该 SessionManager 的易失 runtime state（refresh target、live sync ticket、cached usage、nudge state）并开启 baseline-only 提醒周期。
+手动 `/tree` 导航绕过 `acm_travel`，host 自己重建 live messages，因此 `session_tree` handler 必须清空该 SessionManager 的易失 runtime state（refresh target、live sync ticket、cached usage、gauge cycle）。
 
 `session_before_tree` handler 在用户选择 plain "Summarize"（`userWantsSummary === true` 且无非空 `customInstructions`、`entriesToSummarize` 非空）时，以 `replaceInstructions: true` 注入 `TREE_SUMMARY_INSTRUCTIONS`，让 native branch summary 也生成七槽 handoff 形态；`buildTreeSummaryInstructions()` 会附加 abandoned branch tip 的 node ID 作为 Recover pointer 事实（summarizer 看不到 node ID）。用户提供的 instructions 永远优先；handler 不设置 `cancel`、`summary` 或 `label`，不做其他干预。
 
@@ -205,13 +191,9 @@ Exact advanced pointers 必须经过 Pi `getCommands()` availability selector：
 
 canonical 词汇固定为 working set、save point、handoff、hot set、cold start、fold、rebase、rehydrate、fork、sediment、thrash、receipt。这些词都借用模型已有先验；不要新造没有预训练先验的术语（旧词 anchor gravity 已因此删除，target 选择直接用白话表述）。checkpoint 创建 recoverability；travel 执行 fold/rebase/rehydrate；三者都复用同一 travel mutation contract。不得重新引入 mandatory preflight、transition 表或后缀驱动的状态机。
 
-### 强弱模型分层
+### 模型期望
 
-Judgment Contract 的模型期望分两层，guidance 文本按强模型写，弱模型靠结构保底：
-
-- **道（CORE）按强模型写**：判断过程、move 组合与 cadence 留给模型自主发挥；不为弱模型在 CORE 里增加步骤化规则、阈值或固定流程。给强模型的文本以判断语义为主，反例只留行为层面的（如 results-only report），不列举流程错误。
-- **弱模型的 floor 靠结构，不靠更多散文**：schema 约束（minLength、pattern、additionalProperties、七槽必填）、result cues（就地、就时的下一步提示）、context nudge（分档提醒）与 runtime 的机械安全（rollback、evidence、indeterminate 区分）共同构成弱模型能稳定完成正收益 move 的保底。弱模型理解不了的东西，加更多 CORE 散文也没用；若发现 floor 不足，优先加强结构面（schema/cue/nudge/runtime 拦截），不加长教义。
-- **层间不串到对方的家**：道的修改必须可追溯到 judgment contract；结构面的修改不引入新教义，只陈述机械事实与即时 affordance。
+guidance 只面向强模型（2026-07-27 用户决定，宪法第 1 条：本项目只服务 KorenKrita + 强模型组合，弱模型支持已放弃）。CORE 按强模型写：判断过程、move 组合与 cadence 留给模型自主发挥，不加步骤化规则、阈值或固定流程；schema 约束与 runtime 机械安全（rollback、evidence、indeterminate 区分）保护的是操作正确性，不承担教学职责。道的修改必须可追溯到 judgment contract；结构面的修改不引入新教义，只陈述机械事实。
 
 ## Tool prompt 与 TUI 呈现
 
@@ -251,7 +233,7 @@ bun run verify:acm
 
 行为评测已退役（2026-07-27，用户决定）：跑真实模型的评测装置（showroom 样板间、longrun 配对、skeleton 骨架提取、cost model、评测安全件）已整体删除。理由：维护成本远超产出，迭代判据改为设计讨论与人工使用体感。完整装置与全部历史证据保留在 git tag `eval-archive`（commit 133ff9b6）；历史 evidence 是当时 checkout 的 receipt，其结论不自动外推到当前 guidance。
 
-- 触发器阈值（burst、Δpp、武装阈值、哑火语义）的常量在 `src/acm-trigger-detector.ts` 顶部；调整需在 commit message 或 implementation-notes 中记录动机。
+- gauge 的形态与节奏契约见「Context gauge contract」；改动需在 commit message 或 implementation-notes 中记录动机。
 
 host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、protocol-complete automatic checkpoint anchoring、successful shrinking travel、finalized receipt ordering（后置 handler 改 error 不 cutover、无重复 NEXT steer）、trusted applied receipt normalization、in-flight tool pair、originating-run 与 automatic-retry tool continuity、matching `tool_execution_end` 不 apply、provider-before-settled cutover、`agent_settled` 从 latest active leaf apply、`agent_end` error 不 release、persistent rebuild/cache cursor/fallback/cached exhaustion、provider actual usage authority、native compaction accounting、repeated travel with a new raw backup、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 

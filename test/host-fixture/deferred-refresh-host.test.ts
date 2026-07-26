@@ -243,15 +243,12 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     expect(analyzeToolProtocol(secondProvider.messages).status).toBe("complete");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
-    // A provider-active turn establishes the post-travel baseline before the
-    // native replacement arrives.
+    // A provider-active turn is recorded as live usage only; turn_end no
+    // longer persists any baseline entry.
     await emit(fixture.handlers, "turn_end", {
       message: { role: "assistant", usage: { input: 133_000, cacheRead: 0, cacheWrite: 0 } },
     }, fixture.context);
-    expect(fixture.appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 133_000 }),
-    });
+    expect(fixture.appendedEntries).toEqual([]);
 
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
     expect(liveSession.agent.state.messages).toEqual(rebuild(branch.sessionManager));
@@ -347,10 +344,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       },
     }, fixture.context);
 
-    expect(fixture.appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
-    });
+    expect(fixture.appendedEntries).toEqual([]);
   });
 
   test("repairs a branchWithSummary orphan in the outgoing same-run packet without settling", async () => {

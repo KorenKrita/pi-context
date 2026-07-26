@@ -1,13 +1,5 @@
 import type { UsageLike } from "./lib.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-  classifyContextUsageNudgeLevel,
-  type ContextUsageNudgeLevel,
-  type ContextUsagePressure,
-  type PendingContextUsageNudge,
-  type PersistedContextUsageBaselineState,
-  type RestoredContextUsageNudgeState,
-} from "./context-usage-nudge.js";
 import { ContextRefreshRegistry } from "./lib.js";
 import {
   createLiveAgentSessionAdapter,
@@ -15,19 +7,12 @@ import {
   type LiveAgentSessionAdapter,
 } from "./live-agent-session-adapter.js";
 import {
-  areTriggersDisabled,
-  createTriggerRunState,
-  GAUGE_SILENCE_FLOOR_PP,
-  markBoundaryCued,
-  markBurstCued,
-  markGaugeEmitted,
-  recordToolCompletion,
-  resetRunCounters,
-  shouldCueRunBoundary,
-  shouldEmitGauge,
-  type ToolCompletionTrigger,
-  type TriggerRunState,
-} from "./acm-trigger-detector.js";
+  createGaugeState,
+  isGaugeDisabled,
+  markGaugeShown,
+  shouldShowGauge,
+  type GaugeState,
+} from "./context-gauge.js";
 
 interface DeferredTravelRefreshState {
   readonly providerPhase: ProviderDeliveryPhase;
@@ -121,19 +106,11 @@ export class AcmSessionRuntime {
    * parallel sessions must not inherit one another's settlement gate.
    */
   private readonly deferredTravelRefresh = new WeakMap<object, DeferredTravelRefreshState>();
-  private readonly contextUsageNudges = new WeakMap<object, {
-    highestReachedLevel: 0 | ContextUsageNudgeLevel;
-    baselinePending?: boolean;
-    /** Landing tier seeded by a successful travel; wins over the first real sample when the baseline is established. */
-    seededBaselineLevel?: 0 | ContextUsageNudgeLevel;
-    pending?: PendingContextUsageNudge;
-  }>();
   /**
-   * Syntax-only interruption trigger state (read bursts, run activity, gauge
-   * cadence). Run counters reset at run boundaries; the gauge baseline resets
-   * with the reminder cycle. Per SessionManager, like all nudge state.
+   * Constant-gauge odometer state. Reset on every context transition (travel,
+   * compaction, manual /tree). Per SessionManager, like all runtime state.
    */
-  private readonly triggerStates = new WeakMap<object, TriggerRunState>();
+  private readonly gaugeStates = new WeakMap<object, GaugeState>();
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;
@@ -247,7 +224,7 @@ export class AcmSessionRuntime {
     this.refreshTargets.delete(session);
     this.liveAgentSessions.clear(session);
     this.cachedUsage.delete(session);
-    this.contextUsageNudges.set(session, { highestReachedLevel: 0, baselinePending: true });
+    this.gaugeStates.delete(session);
     this.deferredTravelRefresh.set(session, {
       ...deferred,
       providerPhase: "receipt_rejected",
@@ -415,70 +392,10 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
 
-  observeContextUsage(
-    session: object,
-    pressure: ContextUsagePressure,
-    establishBaseline = false,
-  ): PersistedContextUsageBaselineState | undefined {
-    const state = this.contextUsageNudges.get(session) ?? { highestReachedLevel: 0 as const };
-    const level = classifyContextUsageNudgeLevel(pressure.pressurePercent);
-    if (state.baselinePending) {
-      if (!establishBaseline) return undefined;
-      // A travel-seeded landing tier wins over the first real sample: same-turn
-      // regrowth after a shallow fold must not consume tiers the cycle never
-      // reminded about. Unseeded cycles (compaction, manual /tree) keep the
-      // sampled level, preserving their quiet period.
-      state.highestReachedLevel = state.seededBaselineLevel ?? level;
-      delete state.seededBaselineLevel;
-      state.baselinePending = false;
-      delete state.pending;
-      this.contextUsageNudges.set(session, state);
-      return {
-        kind: "context-usage-baseline",
-        highestReachedLevel: state.highestReachedLevel,
-        ...pressure,
-      };
-    }
-    if (level !== 0 && level > state.highestReachedLevel) {
-      state.highestReachedLevel = level;
-      state.pending = { level, ...pressure };
-    }
-    this.contextUsageNudges.set(session, state);
-    return undefined;
-  }
-
-  takePendingContextUsageNudge(session: object): PendingContextUsageNudge | undefined {
-    const state = this.contextUsageNudges.get(session);
-    if (!state?.pending) return undefined;
-    const pending = state.pending;
-    delete state.pending;
-    return pending;
-  }
-
-  restoreContextUsageNudgeState(session: object, state: RestoredContextUsageNudgeState): void {
-    this.contextUsageNudges.set(session, { ...state });
-  }
-
-  resetContextUsageNudgeCycle(session: object): void {
-    this.contextUsageNudges.set(session, {
-      highestReachedLevel: 0,
-      baselinePending: true,
-    });
-    // A context transition starts a fresh gauge cadence alongside the tier cycle.
-    this.triggerStates.delete(session);
-  }
-
-  /**
-   * Seed the pending cycle's baseline tier from a successful travel's verified
-   * landing estimate. The first real post-transition usage still establishes
-   * (and persists) the baseline, but the seeded tier — not that sample's tier —
-   * becomes highestReachedLevel, so tiers above the landing point stay armed.
-   */
-  seedContextUsageNudgeBaseline(session: object, landingLevel: 0 | ContextUsageNudgeLevel): void {
-    const state = this.contextUsageNudges.get(session);
-    if (!state?.baselinePending) return;
-    state.seededBaselineLevel = landingLevel;
-    this.contextUsageNudges.set(session, state);
+  resetGaugeCycle(session: object): void {
+    // A context transition (travel, compaction, manual /tree) starts a fresh
+    // odometer: the first post-transition reading always shows once.
+    this.gaugeStates.delete(session);
   }
 
   clear(session: object): void {
@@ -486,70 +403,31 @@ export class AcmSessionRuntime {
     this.refreshTargets.delete(session);
     this.deferredTravelRefresh.delete(session);
     this.cachedUsage.delete(session);
-    this.contextUsageNudges.delete(session);
-    this.triggerStates.delete(session);
+    this.gaugeStates.delete(session);
     this.liveAgentSessions.clear(session);
   }
 
-  private triggerState(session: object): TriggerRunState {
-    let state = this.triggerStates.get(session);
+  private gaugeState(session: object): GaugeState {
+    let state = this.gaugeStates.get(session);
     if (!state) {
-      state = createTriggerRunState();
-      this.triggerStates.set(session, state);
+      state = createGaugeState();
+      this.gaugeStates.set(session, state);
     }
     return state;
   }
 
   /**
-   * Record a finalized tool completion; returns a burst trigger when the
-   * threshold is crossed. The trigger stays armed until confirmBurstCueDelivered:
-   * delivery can fail on tier arbitration, ACM/error exemptions, or content
-   * shape, and a consumed-but-undelivered cue would silence the whole run.
+   * Odometer check against the current pressure. Read-only: the baseline
+   * moves in confirmGaugeShown, only after the suffix is actually attached
+   * (moving it on an undeliverable result would silently swallow the tick).
    */
-  recordTriggerToolCompletion(session: object, toolName: string): ToolCompletionTrigger {
-    if (areTriggersDisabled()) return { kind: "none" };
-    return recordToolCompletion(this.triggerState(session), toolName);
+  shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
+    if (isGaugeDisabled()) return false;
+    return shouldShowGauge(this.gaugeState(session), pressurePercent);
   }
 
-  /** Disarm the burst cue after its suffix was actually attached to a result. */
-  confirmBurstCueDelivered(session: object): void {
-    markBurstCued(this.triggerState(session));
-  }
-
-  /**
-   * Gauge cadence check against the current pressure. Read-only: the baseline
-   * moves in confirmGaugeDelivered, only after the suffix is actually attached.
-   */
-  peekGaugeEmission(session: object, pressurePercent: number): { deltaPp: number } | undefined {
-    if (areTriggersDisabled()) return undefined;
-    const state = this.triggerState(session);
-    if (!shouldEmitGauge(state, pressurePercent)) return undefined;
-    const base = state.lastGaugePercent ?? GAUGE_SILENCE_FLOOR_PP;
-    return { deltaPp: pressurePercent - base };
-  }
-
-  /** Move the gauge baseline after its suffix was actually attached. */
-  confirmGaugeDelivered(session: object, pressurePercent: number): void {
-    markGaugeEmitted(this.triggerState(session), pressurePercent);
-  }
-
-  /**
-   * Run-boundary judgment cue: substantial un-checkpointed work at a run
-   * boundary. Firing disarms the cue for the whole reminder cycle; only a
-   * real save-point action (or a cycle boundary) rearms it. At most one
-   * boundary reminder per cycle, shared across new-request and phase-end.
-   */
-  takeRunBoundaryCue(session: object): TriggerRunState | undefined {
-    if (areTriggersDisabled()) return undefined;
-    const state = this.triggerStates.get(session);
-    if (!state) return undefined;
-    if (!shouldCueRunBoundary(state)) {
-      resetRunCounters(state);
-      return undefined;
-    }
-    const snapshot: TriggerRunState = { ...state };
-    markBoundaryCued(state);
-    resetRunCounters(state);
-    return snapshot;
+  /** Move the odometer after its suffix was actually attached. */
+  confirmGaugeShown(session: object, pressurePercent: number): void {
+    markGaugeShown(this.gaugeState(session), pressurePercent);
   }
 }

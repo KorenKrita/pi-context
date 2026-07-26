@@ -21,7 +21,7 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
-import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-usage-nudge.js";
+import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";

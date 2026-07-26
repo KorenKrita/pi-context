@@ -72,7 +72,7 @@ root → summary A → summary B → summary C → current work
 
 既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
 
-Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，绝不切换 provider 或 native context。`tool_result` 是可被后置 extension 改写的 interception seam，因此也不授权切换；下一次 `context` 只在 event messages 或 persisted branch 中找到 matching、non-error、`mutationStatus: applied` 的 finalized `toolResult` 后，才把 provider phase 从 `pending_tool_result` 置为 `ready`，从最新 active leaf 重建 protocol-valid Context Packet 并立即交给 provider；finalized error 或缺少可信 applied evidence 的 receipt 会进入 `receipt_rejected`，同时取消 persistent cutover 和尚未应用的 native replacement ticket。若 finalized receipt 缺失或 `agent_settled` 暂时无法读取它，provider 与 native ticket 都保持 pending，不得把“不可观察”当成成功。可信 handoff 投影、`currentUserTurnOpen`、later-user priority 与后续 tool work 都来自这次 packet；正常 cutover 不再额外发送 NEXT steer，避免重复 authority、额外 run 或改变 idle 状态。成功包会缓存稳定 source cursor；后续 rebuild 失败时，仅在 source/cached prefix 可验证时合并 post-cutover tail 并重新校验 protocol。prefix drift 或 invalid tail 会把 delivery 降为显式 `fallback` 并使用当前 protocol-valid provider messages，绝不继续把旧 cache 标为 active。persistent rebuild 最多尝试三次；有安全 cache 时进入 `cached_exhausted`，停止自动读取和 warning，等待新 travel、lifecycle reset 或 reload 重新建立周期；该状态继续交付已验证 cache，因此后续真实 provider `turn_end` usage 仍是 reminder/HUD 的权威样本。originating assistant run 及其 automatic retry/tool loop 仍保留当前 native live messages；仅在 idle `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession。每次 travel 会先清除上一 provider epoch 的 usage；provider-active 阶段的 reminder pressure 只采用最近一次实际 provider `turn_end` usage，`ctx.getContextUsage()` 仅作为 native AgentSession estimate 展示，不驱动 nudge。native unavailable/failed 不回滚已验证 tree 或 provider packet。`indeterminate` mutation 只登记 persistent observation refresh，不创建 live-sync ticket、settled replacement、成功 receipt 或新的 reminder cycle；明确失败或 `not_applied` 两者都不登记 refresh/sync。
+Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，绝不切换 provider 或 native context。`tool_result` 是可被后置 extension 改写的 interception seam，因此也不授权切换；下一次 `context` 只在 event messages 或 persisted branch 中找到 matching、non-error、`mutationStatus: applied` 的 finalized `toolResult` 后，才把 provider phase 从 `pending_tool_result` 置为 `ready`，从最新 active leaf 重建 protocol-valid Context Packet 并立即交给 provider；finalized error 或缺少可信 applied evidence 的 receipt 会进入 `receipt_rejected`，同时取消 persistent cutover 和尚未应用的 native replacement ticket。若 finalized receipt 缺失或 `agent_settled` 暂时无法读取它，provider 与 native ticket 都保持 pending，不得把“不可观察”当成成功。可信 handoff 投影、`currentUserTurnOpen`、later-user priority 与后续 tool work 都来自这次 packet；正常 cutover 不再额外发送 NEXT steer，避免重复 authority、额外 run 或改变 idle 状态。成功包会缓存稳定 source cursor；后续 rebuild 失败时，仅在 source/cached prefix 可验证时合并 post-cutover tail 并重新校验 protocol。prefix drift 或 invalid tail 会把 delivery 降为显式 `fallback` 并使用当前 protocol-valid provider messages，绝不继续把旧 cache 标为 active。persistent rebuild 最多尝试三次；有安全 cache 时进入 `cached_exhausted`，停止自动读取和 warning，等待新 travel、lifecycle reset 或 reload 重新建立周期；该状态继续交付已验证 cache，因此后续真实 provider `turn_end` usage 仍是 gauge/HUD 的权威样本。originating assistant run 及其 automatic retry/tool loop 仍保留当前 native live messages；仅在 idle `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession。每次 travel 会先清除上一 provider epoch 的 usage；provider-active 阶段的 gauge pressure 只采用最近一次实际 provider `turn_end` usage，`ctx.getContextUsage()` 仅作为 native AgentSession estimate 展示，不驱动 gauge。native unavailable/failed 不回滚已验证 tree 或 provider packet。`indeterminate` mutation 只登记 persistent observation refresh，不创建 live-sync ticket、settled replacement、成功 receipt 或新的 gauge cycle；明确失败或 `not_applied` 两者都不登记 refresh/sync。
 
 如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority 与 tool receipt 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
 
@@ -98,27 +98,25 @@ Timeline 会提供事实证据：
 
 Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase.
 
-## ACM 上下文占用提醒
+## 上下文仪表（gauge）
 
-扩展会在 active context 的 ACM working-budget pressure 首次进入 **30% / 50% / 70%** 档位时，通过 Pi 的 hidden custom message 向 agent 发送分级 ACM 提醒。工作预算按以下策略计算：
+感知层是一个常驻双针仪表：普通工具结果尾部的一行定界后缀，只报数字，永不措辞。带措辞的分级提醒与判断题 cue 已退役——任何措辞注入都会被顺从模型读成行动指令，判断语义只属于 CORE。
 
 ```text
-workingBudgetTokens = min(contextWindow, 400K)
-pressurePercent = activeTokens / workingBudgetTokens × 100
+[ctx 41% budget · 12% window]   # 窗口 > 400K（400k-cap policy）：双针
+[ctx 41% window]                # 窗口 ≤ 400K：单针
 ```
 
-物理窗口不超过 400K 时沿用实际窗口；超过 400K 时统一使用 400K 工作预算。因此 200K、350K 模型的触发节奏不变，1M 模型在 120K / 200K / 280K active tokens 时分别触发 30% / 50% / 70%。真实 hard-window usage 仍单独保留，reminder details 与 `acm_timeline` dashboard 会同时展示 hard usage 和 ACM pressure，避免把工作预算误读成模型窗口容量。
-- **30%**：离开舒适巡航区，重新运行 ACM Judgment：是否存在低价值高噪声的 Compression Candidate，未来仍需的信息能否显著更简练地表示；有未来返回价值时 checkpoint 是近似免费的 recovery option，topology evidence 有帮助时查看 timeline；
-- **50%**：显式比较 Candidate、Compressibility、Attention effect、Recovery value 与 Transition effect，再从 continue、checkpoint、timeline、travel、rebase、rehydrate 中选择整体任务净效果最好的 move；
-- **70%**：当前周期最后一次提醒，提高 attention interference 的权重但保持同一判断过程；存在正净收益就行动，当前 raw detail 仍是最佳 working set 时继续正确工作，并允许 native compaction 处理真正的长任务。
+- 压力口径：`workingBudgetTokens = min(contextWindow, 400K)`，`pressurePercent = activeTokens / workingBudgetTokens × 100`；hard-window usage 单独保留，仪表与 `acm_timeline` dashboard 同时展示两针，避免把工作预算误读成模型窗口容量。
+- 显示节奏（里程表）：整数位变化即显示，双向都算；数字不变时沉默。无阈值、无档位、无梯度。
+- 周期重置：明确成功的 `acm_travel`、原生 compaction、手动 `/tree` 导航、session 启动；重置后首个可装饰结果必显示。
+- 豁免：`acm_*` 工具结果与 error 结果永不装饰。`ACM_GAUGE_DISABLED=1` 静默仪表。
 
-提醒对 agent 可见、在 TUI 中隐藏，并明确不是用户的新要求。它只建议根据当前任务要求判断 travel 是否合适，不自动执行 summary、fold、rebase 或 travel。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
-
-同一上下文周期只提醒更高的新档位：普通 usage 回落不会重新触发旧档。一次采样跨越多个档位时只发送当前最高档。明确成功的 `acm_travel`、Pi 原生 compaction 或手动 `/tree` 导航才开启新周期；transition 后先用下一次真实 LLM prompt usage 建立无提醒基线，再继续观察后续增长。Session resume/reload 会从 active branch 中已持久化的 ACM reminder 恢复本周期最高档位，不会仅因重载而重复提醒。
+仪表是事实，不是 move 授权；它只提供模型天生缺失的上下文本体感受。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
 
 ## 手动 `/tree` 导航协同
 
-用户手动通过 Pi 原生 `/tree` 跳转分支时，扩展保持一致的 ACM 语义：跳转后清空该会话的易失 runtime 状态并开启新的提醒周期；当用户选择 "Summarize"（且未提供自定义指令）时，注入七槽 handoff 形态的 summarization 指令，让 native branch summary 与 `acm_travel` 的 handoff 使用同一 cold-start 词汇。用户提供的自定义指令始终优先。
+用户手动通过 Pi 原生 `/tree` 跳转分支时，扩展保持一致的 ACM 语义：跳转后清空该会话的易失 runtime 状态并重置 gauge 周期；当用户选择 "Summarize"（且未提供自定义指令）时，注入七槽 handoff 形态的 summarization 指令，让 native branch summary 与 `acm_travel` 的 handoff 使用同一 cold-start 词汇。用户提供的自定义指令始终优先。
 
 ## `/context` 面板
 

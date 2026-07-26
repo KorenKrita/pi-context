@@ -350,10 +350,7 @@ describe("deferred live synchronization fallback", () => {
         usage: { input: 20_000, cacheRead: 0, cacheWrite: 0 },
       },
     }, context);
-    expect(appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
-    });
+    expect(appendedEntries).toEqual([]);
   });
 
   test("cached exhaustion stops persistent reads but still records actual provider turn usage", async () => {
@@ -412,10 +409,7 @@ describe("deferred live synchronization fallback", () => {
       contextWindow: 100_000,
       percent: 20,
     });
-    expect(appendedEntries).toContainEqual({
-      customType: "acm:context-usage-state",
-      data: expect.objectContaining({ kind: "context-usage-baseline", tokens: 20_000 }),
-    });
+    expect(appendedEntries).toEqual([]);
 
     Object.defineProperty(sessionManager, "getEntries", {
       configurable: true,

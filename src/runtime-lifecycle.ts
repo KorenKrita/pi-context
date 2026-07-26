@@ -6,25 +6,14 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
-import {
-  buildContextUsageNudgeMessage,
-  calculateContextUsagePressure,
-  CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE,
-  restoreContextUsageNudgeState,
-} from "./context-usage-nudge.js";
+import { calculateContextUsagePressure } from "./context-pressure.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
-import {
-  buildBurstCueSuffix,
-  buildGaugeSuffix,
-  buildRunBoundaryCue,
-  findNearestSavePoint,
-  isAcmTool,
-} from "./acm-trigger-detector.js";
+import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -147,12 +136,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  // Pressure for trigger cadence: actual provider usage once a travel owns
-  // provider delivery, native usage otherwise — same authority order as the
-  // tier reminders. Native usage is also the fallback while a provider epoch
-  // has not yet observed a turn_end (a single long run never updates cached
-  // provider usage, and a gauge that goes blind mid-run defeats its purpose).
-  const currentTriggerPressure = (ctx: ExtensionContext) => {
+  // Gauge pressure: actual provider usage once a travel owns provider
+  // delivery, native usage otherwise. Native usage is also the fallback while
+  // a provider epoch has not yet observed a turn_end (a single long run never
+  // updates cached provider usage, and a gauge that goes blind mid-run
+  // defeats its purpose).
+  const currentGaugePressure = (ctx: ExtensionContext) => {
     const session = ctx.sessionManager;
     if (!runtime.shouldObserveNativeContextUsage(session)) {
       const cached = runtime.getUsage(session);
@@ -167,82 +156,22 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // tool_result handlers are chained and later extensions may still replace
     // content/details/isError. Final travel authorization is therefore read
     // only from the finalized toolResult message on the next context event.
+    //
+    // The constant gauge is the only decoration: two numbers, no wording.
+    // ACM tool results carry mutation receipts with their own usage line and
+    // are never decorated; error results stay clean receipts too.
     const session = ctx.sessionManager;
-    const trigger = runtime.recordTriggerToolCompletion(session, event.toolName);
-    const nudge = runtime.takePendingContextUsageNudge(session);
-    if (nudge) {
-      pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "steer" });
-      // Arbitration: a full tier reminder supersedes any suffix on this result.
-      return;
-    }
-    // ACM tool results carry mutation receipts; never decorate them.
     if (isAcmTool(event.toolName) || event.isError) return;
-    if (trigger.kind === "burst") {
-      let savePoint: { name: string | null; stepsBack: number | null } = { name: null, stepsBack: null };
-      try {
-        savePoint = findNearestSavePoint(
-          session.getBranch(),
-          buildLabelMaps(session.getEntries()),
-        );
-      } catch {
-        // The cue degrades to burst facts only; save-point lookup is best-effort.
-      }
-      const patch = appendSuffixPatch(event.content, buildBurstCueSuffix({
-        burstLength: trigger.burstLength,
-        nearestCheckpointName: savePoint.name,
-        stepsSinceCheckpoint: savePoint.stepsBack,
-      }));
-      // Disarm only on actual delivery; an undeliverable result (no text part)
-      // leaves the cue armed for the next read completion.
-      if (patch) runtime.confirmBurstCueDelivered(session);
-      return patch;
-    }
-    const pressure = currentTriggerPressure(ctx);
+    const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
-    const emission = runtime.peekGaugeEmission(session, pressure.pressurePercent);
-    if (!emission) return;
-    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, emission.deltaPp));
-    if (patch) runtime.confirmGaugeDelivered(session, pressure.pressurePercent);
+    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
+    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure));
+    // Move the odometer only on actual delivery; an undeliverable result (no
+    // text part) leaves the tick armed for the next tool completion.
+    if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
     return patch;
   });
 
-  pi.on("agent_end", (event, ctx: ExtensionContext) => {
-    const lastAssistant = [...event.messages].reverse().find((message) => message.role === "assistant");
-    if (lastAssistant?.role !== "assistant" || lastAssistant.stopReason !== "stop") {
-      return;
-    }
-    const nudge = runtime.takePendingContextUsageNudge(ctx.sessionManager);
-    if (nudge) {
-      pi.sendMessage(buildContextUsageNudgeMessage(nudge), { deliverAs: "followUp" });
-      return;
-    }
-    // Phase-end boundary cue: substantial un-checkpointed work in this run.
-    // Fires at most once per reminder cycle (shared disarm with new-request).
-    const boundary = runtime.takeRunBoundaryCue(ctx.sessionManager);
-    if (!boundary) return;
-    pi.sendMessage({
-      customType: "acm:trigger-cue",
-      content: buildRunBoundaryCue("phase_end", boundary),
-      display: false,
-      details: { kind: "acm-trigger-cue", moment: "phase_end", runToolCount: boundary.runToolCount },
-    }, { deliverAs: "followUp" });
-  });
-
-  pi.on("before_agent_start", (_event, ctx: ExtensionContext) => {
-    // New-request boundary cue: the previous run left substantial
-    // un-checkpointed work and a new user request is about to supersede it.
-    // Hidden from the TUI; one line for the model, at most once per cycle.
-    const boundary = runtime.takeRunBoundaryCue(ctx.sessionManager);
-    if (!boundary) return;
-    return {
-      message: {
-        customType: "acm:trigger-cue",
-        content: buildRunBoundaryCue("new_request", boundary),
-        display: false,
-        details: { kind: "acm-trigger-cue", moment: "new_request", runToolCount: boundary.runToolCount },
-      },
-    };
-  });
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
     // A settled notification can race a queued continuation or retry. Do not
@@ -294,11 +223,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } else if (finalizedReceipt.status === "rejected" || finalizedReceipt.status === "untrusted") {
         runtime.rejectProviderCutover(sessionManager, pendingTravelToolCallId);
       }
-    }
-    const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
-    const pressure = calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
-    if (pressure && runtime.shouldObserveNativeContextUsage(sessionManager)) {
-      runtime.observeContextUsage(sessionManager, pressure);
     }
     // A same-run context event may occur after acm_travel while the model is
     // deciding its next action. Preserve that valid tool batch only until its
@@ -469,18 +393,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         percent: pressure.usagePercent,
       });
       runtime.markProviderUsageObserved(ctx.sessionManager);
-      const baseline = runtime.observeContextUsage(ctx.sessionManager, pressure, true);
-      if (baseline) {
-        try {
-          pi.appendEntry(CONTEXT_USAGE_NUDGE_STATE_CUSTOM_TYPE, baseline);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          ctx.ui.notify(
-            `Could not persist the post-transition context reminder baseline: ${message}. Reload may re-establish the baseline.`,
-            "warning",
-          );
-        }
-      }
     }
   });
 
@@ -503,7 +415,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("session_compact", (event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
-    runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
     // Host bug mitigation: on overflow recovery (willRetry) the host re-reads
     // agent.state.messages after this event but only strips a trailing assistant
     // whose stopReason is "error". A "length"-stopped trailing assistant (zero-
@@ -539,17 +450,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   // must not survive onto the newly selected branch.
   pi.on("session_tree", (_event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
-    runtime.resetContextUsageNudgeCycle(ctx.sessionManager);
   });
   pi.on("session_start", (_event, ctx: ExtensionContext) => {
-    const sessionManager = ctx.sessionManager;
-    runtime.clear(sessionManager);
-    const getBranch = (sessionManager as { getBranch?: () => readonly unknown[] }).getBranch;
-    const branch = typeof getBranch === "function" ? getBranch.call(sessionManager) : [];
-    runtime.restoreContextUsageNudgeState(
-      sessionManager,
-      restoreContextUsageNudgeState(branch),
-    );
+    // A fresh session starts a fresh odometer: the first reading after resume
+    // always shows once. No persisted gauge state exists by design.
+    runtime.clear(ctx.sessionManager);
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
 }

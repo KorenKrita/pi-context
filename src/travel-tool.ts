@@ -34,7 +34,6 @@ import {
   hasOpenUserTurnAtAssistant,
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
-import { calculateContextUsagePressure, classifyContextUsageNudgeLevel } from "./context-usage-nudge.js";
 import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
@@ -550,7 +549,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      runtime.resetContextUsageNudgeCycle(sessionManager);
+      runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
       const activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
@@ -643,13 +642,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
       const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
-      // Seed the new reminder cycle's baseline from the travel's own landing
-      // estimate: tiers at or below the landing point stay quiet, tiers above it
-      // stay armed even if same-turn regrowth inflates the first real sample.
-      const landingPressure = calculateContextUsagePressure(estimatedUsageAfter?.tokens, estimatedUsageAfter?.contextWindow, estimatedUsageAfter?.percent);
-      if (landingPressure) {
-        runtime.seedContextUsageNudgeBaseline(sessionManager, classifyContextUsageNudgeLevel(landingPressure.pressurePercent));
-      }
       const usageDelta = calculateUsageDelta(usageBefore, estimatedUsageAfter);
       const structuralMessageDelta = messagesAfter - messagesBefore;
       const structuralMessageDirection = classifyStructuralMessageDirection(messagesBefore, messagesAfter);

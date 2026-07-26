@@ -623,6 +623,11 @@
         <td>整体退役跑真实模型的评测装置</td>
         <td>2026-07-27 用户决定：showroom 样板间、longrun 配对、skeleton 骨架提取、cost-model、评测安全件（seatbelt/exclusive-lock/integrity-guard）全部从工作树删除（commit <code>a392f761</code>）。动机：装置维护成本持续超过其信号产出——场景前提反复被校准推翻（D1/D3 窗口假设、P5 cue 时机），且用户判断该迭代流程自己无法持续执行。替代迭代模式：设计讨论 + 用户日常使用体感；deterministic gate（<code>verify:acm</code>）保留为唯一硬性门槛。完整装置与历史证据可经 git tag <code>eval-archive</code>（<code>133ff9b6</code>）恢复；docs 中的 <code>eval/...</code> 证据指针已加归档注。</td>
       </tr>
+      <tr>
+        <td><span class="label user-decided">user-decided</span></td>
+        <td>感知层退役三类措辞 cue，改为常驻双针仪表</td>
+        <td>2026-07-27 设计会（宪法第 2 条：感知层=仪表盘，只报数字永不措辞）：删除 read-burst 判断题、run 边界提醒、30/50/70 档位提醒及其持久化 baseline 机制（<code>src/acm-trigger-detector.ts</code>、<code>src/context-usage-nudge.ts</code> 整模块删除）；新增 <code>src/context-gauge.ts</code>（双针仪表 <code>[ctx N% budget · M% window]</code>，里程表节奏=整数位变化即显示）与 <code>src/context-pressure.ts</code>（压力计算平移，无行为变化）。理由：P1 注入即指令——对顺从模型不存在纯事实的措辞，信号要么恒定要么不存在；P2 时机被触发劫持——sol 实验中 burst cue 开火时刻与 premature fold 时刻高度重合。kill switch 从 <code>ACM_TRIGGERS_DISABLED</code> 改为 <code>ACM_GAUGE_DISABLED</code>。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
