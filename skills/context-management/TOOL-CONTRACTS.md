@@ -37,12 +37,11 @@ acm_checkpoint is cheap and never mutates context; names are recovery cues, not 
 <!-- ACM:GUIDELINE_CHECKPOINT:END -->
 
 <!-- ACM:GUIDELINE_TIMELINE:START -->
-acm_timeline reports facts — spine, save points, summary depth, usage; what they justify stays your judgment.
+Choose the acm_timeline view by the question: current spine → active, return points → checkpoints, an exact buried detail → search, ancestry or branch ownership → tree.
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
 An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
-Read acm_travel's result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues

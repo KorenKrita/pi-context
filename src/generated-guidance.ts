@@ -19,8 +19,8 @@ export const PROMPT_SNIPPETS = {
 
 export const PROMPT_GUIDELINES = {
   "checkpoint": "acm_checkpoint is cheap and never mutates context; names are recovery cues, not workflow states.",
-  "timeline": "acm_timeline reports facts — spine, save points, summary depth, usage; what they justify stays your judgment.",
-  "travel": "An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.\nRead acm_travel's result before building on the new context."
+  "timeline": "Choose the acm_timeline view by the question: current spine → active, return points → checkpoints, an exact buried detail → search, ancestry or branch ownership → tree.",
+  "travel": "An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it."
 } as const;
 
 export const GUIDANCE_CUES = {
