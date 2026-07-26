@@ -9,11 +9,11 @@ export const StructuredHandoffSchema = Type.Object({
   }),
   state: Type.String({
     minLength: 1,
-    description: "The compact authoritative state for future self: settled knowns, honest unknowns, active hypotheses, surviving fronts, and exact hot values needed next. Multiline text is allowed.",
+    description: "Live cognition for future self, not a report: settled knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the exact hot values needed next. If writing this forces vagueness, the fold is not yet earned. Multiline text is allowed.",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT. When State already carries the facts needed next, do not point back to folded material merely to reread it. Write 'none' when empty.",
+    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT: a pointer here licenses one bounded spot-check of a load-bearing claim, not a re-derivation. Write 'none' when empty.",
   }),
   external: Type.String({
     minLength: 1,
@@ -21,15 +21,15 @@ export const StructuredHandoffSchema = Type.Object({
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Rejected or closed directions that should not regain authority. Write 'none' when empty.",
+    description: "Rejected or closed directions that should not regain authority — what a dead end proved rides here, so the lesson survives the fold. Write 'none' when empty.",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread. Write 'none' when empty.",
+    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread; the folded path stays one travel away. Write 'none' when empty.",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The first real task action future self should take directly from this handoff. Do not revalidate the handoff merely because travel occurred.",
+    description: "The first real task action future self should take directly from this handoff — one concrete action, executable immediately. Do not revalidate the handoff merely because travel occurred.",
   }),
 }, { additionalProperties: false });
 

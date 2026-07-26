@@ -8,7 +8,7 @@ export const ACM_CORE = "## Agentic Context Management CORE\n\nCompression is in
 export const TOOL_DESCRIPTIONS = {
   "checkpoint": "Save point: attach a semantic label to a recoverable session state without changing the active context. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.",
   "timeline": "Orient: inspect the session tree and context economics through one view — `active` (default; the spine the model actually sees), `checkpoints` (save points with projected post-travel summary depth), `search` (find labels, node IDs, or content across the whole tree), or `tree` (topology, when ancestry or branch ownership matters). The HUD reports usage, ACM pressure, summary depth, and sync state.",
-  "travel": "Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate."
+  "travel": "Rewrite the working set through one recoverable transition: fold an extraction-complete stretch into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. Fold only what you can already restate without reaching back; the handoff must pass cold start — a fresh agent could continue from it and its pointers alone, sounding like the same person. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate."
 } as const;
 
 export const PROMPT_SNIPPETS = {
@@ -20,7 +20,7 @@ export const PROMPT_SNIPPETS = {
 export const PROMPT_GUIDELINES = {
   "checkpoint": "acm_checkpoint is cheap and never mutates context; names are recovery cues, not workflow states.",
   "timeline": "acm_timeline reports facts — spine, save points, summary depth, usage; what they justify stays your judgment.",
-  "travel": "An acm_travel fold is context hygiene, not the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.\nRead acm_travel's result before building on the new context."
+  "travel": "An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.\nRead acm_travel's result before building on the new context."
 } as const;
 
 export const GUIDANCE_CUES = {

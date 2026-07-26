@@ -13,7 +13,7 @@ Orient: inspect the session tree and context economics through one view — `act
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Rewrite the working set through one recoverable transition: fold finished process into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. The handoff must pass cold start — a fresh agent could continue from it and its pointers alone. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
+Rewrite the working set through one recoverable transition: fold an extraction-complete stretch into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. Fold only what you can already restate without reaching back; the handoff must pass cold start — a fresh agent could continue from it and its pointers alone, sounding like the same person. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## Prompt snippets
@@ -41,7 +41,7 @@ acm_timeline reports facts — spine, save points, summary depth, usage; what th
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-An acm_travel fold is context hygiene, not the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
+An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
 Read acm_travel's result before building on the new context.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 

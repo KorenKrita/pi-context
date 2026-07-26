@@ -22,7 +22,10 @@ function handoff(overrides: Partial<HandoffInput> = {}): HandoffInput {
 describe("canonical handoff", () => {
   test("keeps Evidence optional and non-blocking for NEXT", () => {
     expect(StructuredHandoffSchema.properties.evidence.description).toContain("never a verification checklist or a prerequisite to NEXT");
-    expect(StructuredHandoffSchema.properties.evidence.description).toContain("do not point back to folded material merely to reread it");
+    // v1 doctrine: a pointer licenses one bounded spot-check of a
+    // load-bearing claim, never a re-derivation of folded material.
+    expect(StructuredHandoffSchema.properties.evidence.description).toContain("one bounded spot-check");
+    expect(StructuredHandoffSchema.properties.evidence.description).toContain("not a re-derivation");
   });
 
   test("renders multiline fields without exposing continuation lines as new slots", () => {
