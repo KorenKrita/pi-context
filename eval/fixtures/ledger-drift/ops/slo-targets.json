@@ -1,0 +1,22 @@
+{
+  "note": "Authoritative per-tier SLO targets. Service config must derive from these.",
+  "tiers": {
+    "critical": { "retryLimit": 4, "timeoutMs": 800, "poolSize": 30 },
+    "standard": { "retryLimit": 2, "timeoutMs": 2000, "poolSize": 15 },
+    "batch": { "retryLimit": 1, "timeoutMs": 15000, "poolSize": 5 }
+  },
+  "assignments": {
+    "billing": "critical",
+    "checkout": "critical",
+    "ledger": "critical",
+    "auth": "critical",
+    "inventory": "standard",
+    "shipping": "standard",
+    "cart": "standard",
+    "pricing": "standard",
+    "search": "standard",
+    "webhook": "standard",
+    "notify": "batch",
+    "report": "batch"
+  }
+}
