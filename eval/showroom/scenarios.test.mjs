@@ -68,25 +68,40 @@ describe("showroom live scenario sizing", () => {
     expect(p3.toolCalls).toHaveLength(18);
     expect(Math.max(...p3.toolCalls.map((call) => call.result.split("\n").length))).toBeLessThanOrEqual(6);
     for (const path of servicePaths(0, 10)) expect(p3.expected.resumePrompts[0]).toContain(path);
-
-    const k2 = build("K2-low");
-    expect(k2.toolCalls).toHaveLength(26);
-    expect(Math.max(...k2.toolCalls.map((call) => call.result.split("\n").length))).toBeLessThanOrEqual(4);
-    for (const path of servicePaths(0, 7)) expect(k2.expected.resumePrompts[0]).toContain(path);
   });
 
   test("knob prompts enumerate exactly the intended reads in each phase", () => {
-    const k1 = build("K1-7");
-    expect(readdirSync(join(k1.workspace, "services"))).toHaveLength(7);
-    for (const path of servicePaths(0, 7)) expect(k1.expected.resumePrompts[0]).toContain(path);
-
-    const k3 = build("K3-24");
-    expect(readdirSync(join(k3.workspace, "services"))).toHaveLength(24);
-    for (const path of servicePaths(0, 24)) expect(k3.expected.resumePrompts[0]).toContain(path);
+    const k1 = build("K1-9");
+    expect(readdirSync(join(k1.workspace, "services"))).toHaveLength(9);
+    for (const path of servicePaths(0, 9)) expect(k1.expected.resumePrompts[0]).toContain(path);
 
     const k4 = build("K4");
     expect(readdirSync(join(k4.workspace, "services"))).toHaveLength(20);
     for (const path of servicePaths(0, 10)) expect(k4.expected.resumePrompts[0]).toContain(path);
     for (const path of servicePaths(10, 10)) expect(k4.expected.resumePrompts[1]).toContain(path);
+  });
+
+  test("hard positives demand more than one ACM move across turns", () => {
+    // D1: front one is parked in turn 1, then must still be answerable in turn 2.
+    const d1 = build("D1");
+    expect(d1.expected.resumePrompts).toHaveLength(2);
+    for (const path of servicePaths(0, 12)) expect(d1.expected.resumePrompts[0]).toContain(path);
+    expect(d1.expected.expect.requiredMoves).toEqual([
+      { tool: "acm_checkpoint|acm_travel", inTurn: 1, withinToolCalls: 14 },
+    ]);
+    expect(d1.expected.expect.probe.mustContain).toContain("ack_timeout");
+
+    // D2: three phases, so the third fold is a rebase rather than a new layer.
+    const d2 = build("D2");
+    expect(d2.expected.resumePrompts).toHaveLength(3);
+    expect(d2.expected.expect.requiredMoves).toEqual([{ tool: "acm_travel", inTurn: 3 }]);
+    // Both phases' conclusions must survive the consolidation.
+    expect(d2.expected.expect.probe.mustContain).toEqual(["ledger-writer", "poolSize"]);
+
+    // D3: the exact value is planted in the prefix, then folded away by turn 1.
+    const d3 = build("D3");
+    expect(d3.toolCalls).toHaveLength(26);
+    expect(d3.toolCalls.some((call) => call.result.includes("p99=1840ms"))).toBe(true);
+    expect(d3.expected.expect.probe.mustContain).toEqual(["1840", "zt"]);
   });
 });

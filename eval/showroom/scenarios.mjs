@@ -1,5 +1,5 @@
-// Showroom scenario definitions: 17 questions across three classes.
-// Positive (should act), Negative/trap (should NOT act), Knob-sensitivity.
+// Showroom scenario definitions: 15 questions across four classes.
+// Positive (should act), Hard positive (multi-move), Negative/trap (should NOT act), Knob-sensitivity.
 //
 // Mechanism facts the designs obey:
 // - Trigger runtime state is volatile: a resumed session starts with fresh
@@ -345,19 +345,135 @@ export const SCENARIOS = {
     },
   },
 
+  // ============ HARD POSITIVE: multi-move ACM (should act, and act well) ============
+  //
+  // The bank saturated at 10/10 on Opus 4.8, which left positive product
+  // changes nowhere to show up. These three need more than one correct move,
+  // and their probes gate on information that only survives if the moves were
+  // done well — so the outcome gate itself has headroom again.
+  //
+  // Note on `inTurn`: it is a placement DIAGNOSTIC, not a gate (see judge.mjs).
+  // These scenarios therefore never rely on turn placement for their verdict;
+  // the gate is always the probe/handoff content that a mistimed or careless
+  // move would destroy.
+
+  // D1 — two interleaved fronts: the user parks the log hunt and switches to a
+  // config task, then comes back. A single fold cannot serve both; the correct
+  // shape is save the parked front before switching so it survives the second
+  // front's mass, and keep the parked conclusion answerable at the end.
+  D1: {
+    title: "two interleaved fronts — park one front without losing it",
+    build(builder, { workspace }) {
+      writeWorkspaceServices(workspace, 12);
+      builder.user("webhook 丢事件的事查得怎么样了？日志在 /var/log/orderflow/");
+      builder.assistantText("正在逐段看投递日志。", 5400);
+      const usage = scriptedReadBurst(builder, 22, {
+        tokensPerRead: 430,
+        startUsage: 5400,
+        marker: "2026-06-30T04:20:00Z webhook-worker[1301] WARN delivery dropped rid=r-17-9 reason=ack_timeout retry_budget=0",
+        markerAt: 17,
+      });
+      builder.assistantText(
+        "投递链路看完了：丢事件集中在 ack_timeout 且 retry_budget=0 的请求上，还没定结论。",
+        usage + 300,
+      );
+      return {
+        window: 40000,
+        resumePrompts: [
+          `webhook 先放一放，换个活：必须分别用 read 打开这 12 个文件（${SERVICE_FILE_LIST}），把每个文件的 timeoutMs 列成表`,
+          "回到 webhook 那个事：你当时看到的丢事件特征是什么？直接告诉我结论",
+        ],
+        expect: {
+          // Parking a live front before a second front's mass lands is the move.
+          requiredMoves: [{ tool: "acm_checkpoint|acm_travel", inTurn: 1, withinToolCalls: 14 }],
+          // The parked conclusion must survive whatever was done to the context.
+          probe: { mustContain: ["ack_timeout", "retry_budget"] },
+        },
+      };
+    },
+  },
+
+  // D2 — stacked summaries: the live run is told to fold twice across two
+  // phases, so by phase three the correct move is a rebase to the earliest
+  // base rather than a third stacked layer. Judged on the final handoff still
+  // carrying both phases' conclusions.
+  D2: {
+    title: "summaries stacking across three phases — rebase instead of layering",
+    build(builder, { workspace }) {
+      writeWorkspaceServices(workspace, 12);
+      builder.user("orderflow 全链路体检，分三阶段做：日志、配置、结论");
+      builder.assistantText("收到，第一阶段先把日志跑完。", 5300);
+      const usage = scriptedReadBurst(builder, 24, {
+        tokensPerRead: 440,
+        startUsage: 5300,
+        marker: "2026-06-30T03:14:00Z billing-worker[1099] WARN pool exhausted waiters=41 holder=ledger-writer fsync_barrier=1",
+        markerAt: 19,
+      });
+      builder.assistantText(
+        `第一阶段结论：${PROBE_ROOT_CAUSE}。证据是 app-19.log 的 pool exhausted（waiters=41）。`,
+        usage + 350,
+      );
+      return {
+        window: 40000,
+        resumePrompts: [
+          "第一阶段完了，收抾一下现场再进第二阶段",
+          `第二阶段：必须分别用 read 打开这 12 个文件（${SERVICE_FILE_LIST}），找出 poolSize 最小的服务，完了再收抾一次现场`,
+          "第三阶段：把两个阶段的结论合成一份体检结论告诉我，并把现场整理到最简洁的状态",
+        ],
+        expect: {
+          requiredMoves: [{ tool: "acm_travel", inTurn: 3 }],
+          // Both phases must survive the final consolidation.
+          probe: { mustContain: ["ledger-writer", "poolSize"] },
+          handoffMustContain: ["ledger-writer"],
+        },
+      };
+    },
+  },
+
+  // D3 — rehydrate round trip: the exact value the user finally asks for was
+  // folded away by the model's own earlier cleanup. Recovering one detail and
+  // coming back is the designed move; guessing or re-deriving it is not.
+  D3: {
+    title: "an exact value was folded away — recover the detail, then continue",
+    build(builder, { workspace }) {
+      writeWorkspaceServices(workspace, 12);
+      builder.user("shipping 上游到底有多慢？日志在 /var/log/orderflow/");
+      builder.assistantText("我把上游延迟分布扫一遍。", 5500);
+      const usage = scriptedReadBurst(builder, 26, {
+        tokensPerRead: 450,
+        startUsage: 5500,
+        marker: "2026-06-30T05:00:00Z shipping-worker[1200] INFO upstream p99=1840ms carrier=zt route=/api/shipping",
+        markerAt: 21,
+      });
+      builder.assistantText("上游延迟扫完了，具体数字在 app-21.log 里。", usage + 300);
+      return {
+        window: 40000,
+        resumePrompts: [
+          "先把排查现场收抾干净，接下来要改代码了",
+          "改之前先确认：你刚才看到的 shipping 上游 p99 具体是多少 ms？承载它的 carrier 是哪个？要准确数字，不要估",
+        ],
+        expect: {
+          requiredMoves: [{ tool: "acm_travel", inTurn: 1 }],
+          // The exact folded value must come back, not a re-derived guess.
+          probe: { mustContain: ["1840", "zt"] },
+        },
+      };
+    },
+  },
+
   // ============ KNOB SENSITIVITY (diagnostics only) ============
 
-  // K1 — burst threshold neighborhood: 7 vs 9 files (8 is P2).
-  "K1-7": knobBurst(7),
+  // K1 — burst threshold neighborhood: 9 live reads against the 8 threshold.
+  // (K1-7 retired: no arm acted at 7, so it measured nothing.)
   "K1-9": knobBurst(9),
 
-  // K2 — gauge delta neighborhood: live read mass adding ~7pp vs ~9pp.
-  "K2-low": knobGauge(7),
-  "K2-high": knobGauge(9),
-
-  // K3 — arming threshold: interrupt after a 7-tool vs 24-tool first run.
-  "K3-7": knobInterrupt(7),
-  "K3-24": knobInterrupt(24),
+  // K2 (gauge delta) and K3 (arming threshold) were retired after the
+  // 2026-07-25 calibration: K2 saw both arms act at high AND low load, so it
+  // could not distinguish the treatment at all, and K3 saw no arm act at 7
+  // tools and both arms act at 24 — neither bracketed a boundary. Threshold
+  // evidence comes from eval/skeleton/skeleton-params.json instead, which is a
+  // real-session distribution (burst P95 = 8) at near-zero cost. K1-7 was
+  // retired for the same reason: no arm acted, so it measured nothing.
 
   // K4 — dormancy semantics: second burst in the same cycle gets no cue.
   K4: {
@@ -388,46 +504,6 @@ function knobBurst(n) {
       return {
         window: 40000,
         resumePrompts: [`必须分别用 read 打开这 ${n} 个文件（${serviceFileList(0, n)}），把每个文件的 timeoutMs 读出来列个表`],
-        expect: { diagnosticsOnly: true },
-      };
-    },
-  };
-}
-
-function knobGauge(pp) {
-  // At a 40K window, 1pp = 400 tokens. Live reads of ~N files with big/small
-  // filler shift the delta across/below the 8pp gauge step.
-  const files = pp >= 8 ? 10 : 7;
-  return {
-    title: `gauge delta neighborhood: ~${pp}pp live growth`,
-    build(builder, { workspace }) {
-      writeWorkspaceServices(workspace, files);
-      builder.user("查一遍这批服务的池子配置");
-      builder.assistantText("我读完给你汇总。", 5200);
-      const usage = scriptedReadBurst(builder, 26, { tokensPerRead: 480, startUsage: 5200, linesPerRead: 4 });
-      builder.assistantText("日志侧扫完了，接下来读配置。", usage + 200);
-      return {
-        window: 40000,
-        resumePrompts: [`必须分别用 read 打开这 ${files} 个文件（${serviceFileList(0, files)}），把每个文件的 poolSize 读出来汇总`],
-        expect: { diagnosticsOnly: true },
-      };
-    },
-  };
-}
-
-function knobInterrupt(firstRunTools) {
-  return {
-    title: `interrupt arming neighborhood: first run ≈${firstRunTools} tools`,
-    build(builder, { workspace }) {
-      writeWorkspaceServices(workspace, Math.max(10, firstRunTools));
-      builder.user("orderflow 例行体检");
-      builder.assistantText("说范围我就开扫。", 5200);
-      return {
-        window: 40000,
-        resumePrompts: [
-          `必须分别用 read 打开这 ${firstRunTools} 个文件（${serviceFileList(0, firstRunTools)}），读完先别汇总`,
-          "停一下，先告诉我 auth 的 retryLimit 是多少",
-        ],
         expect: { diagnosticsOnly: true },
       };
     },

@@ -64,7 +64,7 @@ describe("evidence row shape", () => {
   });
 
   test("a diagnostics arm marks the row as diagnostics, not an outcome", () => {
-    const row = buildRow("K1-7", SCENARIOS["K1-7"], verdict("diagnostics", "diagnostics"));
+    const row = buildRow("K1-9", SCENARIOS["K1-9"], verdict("diagnostics", "diagnostics"));
     expect(row[1]).toBe("diagnostics");
   });
 
@@ -78,7 +78,7 @@ describe("evidence row shape", () => {
     const rows = [
       buildRow("P1", SCENARIOS.P1, verdict("pass", "fail")),
       buildRow("P2", SCENARIOS.P2, verdict("pass", "pass")),
-      buildRow("K1-7", SCENARIOS["K1-7"], verdict("diagnostics", "diagnostics")),
+      buildRow("K1-9", SCENARIOS["K1-9"], verdict("diagnostics", "diagnostics")),
     ];
     const summary = summarizeRows(rows);
     expect(summary).toEqual({
