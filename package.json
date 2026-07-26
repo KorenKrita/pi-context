@@ -21,6 +21,8 @@
     "typecheck": "tsc --noEmit",
     "eval:skeleton": "node eval/skeleton/extract-skeleton.mjs",
     "eval:showroom": "node eval/showroom/run-all.mjs",
+    "eval:longrun": "node eval/longrun/run-pair.mjs",
+    "eval:longrun:settle": "node eval/longrun/settle.mjs",
     "verify:acm": "bun scripts/generate-guidance.mjs --check && bun run test && bun run typecheck && bun run test:host"
   },
   "keywords": [

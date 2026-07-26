@@ -59,22 +59,20 @@ const SERVICES = Object.freeze([
 // ---------------------------------------------------------------------------
 // Phase 1 — SURVEY: read the logs. Grouped so each turn adds real token mass.
 
-const SURVEY_GROUPS = Object.freeze([
-  ["billing", "checkout"],
-  ["inventory", "shipping"],
-  ["auth", "search"],
-  ["cart", "pricing"],
-  ["webhook", "ledger"],
-  ["notify", "report"],
-]);
+// One log per turn, not two. A smoke run reading two logs per turn grew the
+// prompt by ~27K tokens per turn and would have crossed a 200K window before
+// the settling turn, firing native compaction in both arms — the exact
+// pollution this scenario exists to avoid. Six of the twelve services are
+// surveyed in depth; turn 7 covers the rest from the authoritative files.
+const SURVEY_SERVICES = Object.freeze(["billing", "checkout", "inventory", "shipping", "search", "ledger"]);
 
 function surveyTurns() {
-  const turns = SURVEY_GROUPS.map((group, index) => ({
+  const turns = SURVEY_SERVICES.map((service) => ({
     phase: "survey",
     prompt:
-      `读 ops/logs/${group[0]}.log 和 ops/logs/${group[1]}.log，逐条看完整文件。` +
-      `报告这两个服务的实际请求耗时分布、错误率，以及日志里 pool_in_use 达到的最大值。` +
-      (index === 2
+      `读 ops/logs/${service}.log，逐条看完整文件。` +
+      `报告这个服务的实际请求耗时分布、错误率，以及日志里 pool_in_use 达到的最大值。` +
+      (service === "search"
         ? `如果日志里出现过容量相关的故障，把发生时间和处置方式一并说明。`
         : `只报告日志里能读到的事实，不要推测。`),
   }));
