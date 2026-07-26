@@ -1,196 +1,97 @@
 # pi-context
 
-让 Pi agent 主动维护自己的上下文，而不是等窗口耗尽后被动压缩。
+让 Pi agent 自己整理自己的记忆。
 
-`pi-context` 是由 KorenKrita 维护的第三方 Pi 扩展。核心理念是**压缩即智能**：理解一段过程，就是能把它说得更短而不丢失关键信息。扩展让 agent 能够：
+## 它解决什么问题
 
-- **Save** — 在高风险操作、验证过的 baseline、策略分叉前建立可恢复的语义 save point；
-- **Orient** — 查看当前会话 spine、历史分支、checkpoint 与上下文占用；
-- **Fold** — 把已经提炼完的过程折叠成可通过 cold start 检验的 handoff；
-- **Rebase** — 在 summary 堆叠或竞争时合并到更早的安全基底，重新获得浅层、低负载的 working set；
-- **Rehydrate / Fork** — travel 到归档分支取回精确细节再返回，或从 save point 分叉探索后折回；
-- 明确成功的 travel 会同步持久会话树、下一轮模型上下文与 live AgentSession：下一次 `context` 验证 finalized persisted `toolResult` 后，立即把最新可信 Context Packet 交给 provider；native `AgentSession` 仍只在 `agent_settled` 同步，不打断当前 run 的 tool-call 连续性。`indeterminate` mutation 仅重建并观察实际 active tree，不宣称同步成功。
+跟 agent 做一个长任务时，对话历史会越堆越长。里面大部分是"过程"——读过的日志、试错的弯路、已经修完的报错。这些内容任务早就消化完了，却还一直占着模型的注意力，让它越来越贵、越来越钝。
 
-Guidance 采用道/术/度分层：always-on CORE 注入判断力与 cadence 偏好，工具描述和 result cue 携带机制，advanced Skill 只在复杂场景按需加载。没有强制 preflight、固定 transition 表或后缀状态机——agent 自主判断何时压缩。
+Pi 自带的办法是 compaction：窗口快满时自动把历史压成一段摘要。它的问题是**单向**——压掉的细节永远回不来，时机和质量你都控制不了。
 
-## 为什么需要它
+`pi-context` 换一种思路：给 agent 三个工具，让它像人整理行李一样，**自己决定**什么时候把哪段过程收起来。收起来的东西不是删了，而是放进会话树的档案里——哪天需要哪个细节，随时能回去取。
 
-长任务的问题不只是 token 数量。
-
-即使每个阶段都做了局部摘要，summary 仍可能一层层堆在 active spine 上：
-
-```text
-root → summary A → summary B → summary C → current work
-```
-
-这些历史 handoff 会持续占用上下文和注意力。`pi-context` 不把压缩当作单纯的 token 操作，而是按**语义边界**管理 working set：保留下一步真正需要的内容，把已完成过程移到可恢复的 archive。
+一句话：**Pi 原生 compaction 是有损压缩，pi-context 是可逆收纳。**
 
 ## 三个工具
 
-| Tool | 作用 |
+| 工具 | 一句话 |
 |---|---|
-| `acm_checkpoint` | 给会话节点建立唯一、可恢复的语义 save point |
-| `acm_timeline` | 查看 active spine、checkpoint catalog、全文搜索、完整树和 summary depth |
-| `acm_travel` | 将已提炼的过程折叠为七槽 handoff、把累计 summaries rebase 到最早安全基底，或 rehydrate 归档分支 |
+| `acm_checkpoint` | 存档点。给当前状态起个名字，之后随时能回来。 |
+| `acm_timeline` | 地图。查看当前对话的主干、所有存档点、搜索整棵历史树。 |
+| `acm_travel` | 收纳。把一段已经消化完的过程折叠成一份简短的交接单，历史原文留在树里。 |
 
-扩展会通过 Pi 的公开 prompt hook 注入精简的 always-on CORE。复杂的 target selection、archive round trip 和异常恢复按需从 advanced Skill 加载，不会把整套 playbook 常驻在上下文里。
+安装后不需要手动调用。agent 会在合适的时机自己用；你也可以直接说"存个档"、"看看时间线"、"回到刚才那个点"。
 
-### `acm_travel` v3 structured handoff
+## 交接单（handoff）
 
-`3.0.0` 将 agent-facing travel 参数从自由字符串 `summary` 改为 required structured `handoff`。Runtime 负责验证字段并生成持久化的七槽文本，模型不再手写 header、顺序、冒号或 line-start grammar。
-
-旧调用：
+折叠不是删除，是把一段过程换成它的精华。`acm_travel` 要求 agent 写一份七个字段的交接单，写给"折叠之后的自己"：
 
 ```json
 {
-  "target": "parser-baseline",
-  "summary": "Goal: ...\nState: ...\nEvidence: ...\nExternal: none\nExclusions: none\nRecover: parser-raw\nNEXT: ..."
+  "goal": "完成 parser 迁移并保持现有行为。",
+  "state": "实现已完成，测试通过；仍需更新 README 示例。",
+  "evidence": "bun test；src/parser.ts；test/parser.test.ts",
+  "external": "src/parser.ts 已修改，尚未提交。",
+  "exclusions": "不再尝试 recursive-descent 方案。",
+  "recover": "parser-raw",
+  "next": "更新 README 中的 parser 示例。"
 }
 ```
 
-新调用：
+- **goal / state / next** 必须有真实内容：目标是什么、现在什么状态、下一步做什么。
+- **evidence / external / exclusions / recover** 是辅助信息：证据在哪、改过哪些文件、放弃过哪些方向、想回头时去哪——没有就写 `none`。
 
-```json
-{
-  "target": "parser-baseline",
-  "handoff": {
-    "goal": "完成 parser migration 并保持现有行为。",
-    "state": "实现已完成，测试通过；仍需更新 README 示例。",
-    "evidence": "bun test；src/parser.ts；test/parser.test.ts",
-    "external": "src/parser.ts 已修改，尚未提交。",
-    "exclusions": "不再尝试 recursive-descent 方案。",
-    "recover": "parser-raw",
-    "next": "更新 README 中的 parser 示例。"
-  },
-  "backupCurrentHeadAs": "parser-raw"
-}
-```
+合格标准只有一条：一个完全不知道前情的新 agent，只靠这张单子就能无缝接着干。写不出来这样的单子，说明这段过程还没消化完，还不到折叠的时候。
 
-七个字段都必须存在。`goal`、`state`、`next` 必须包含真实内容；其余字段为空时显式写 `none`。字段值可以多行，没有人为 handoff 长度上限。`backupCurrentHeadAs` 成功时，runtime 会把 raw archive alias 确定性地写入持久 handoff 的 `Recover`。
+## 仪表
 
-首选 wire shape 始终是上面的 nested object。少数 provider 会把 nested tool argument 整体序列化成 JSON string；runtime 也接受**同一个七字段对象的精确 JSON 编码**作为兼容 fallback，再走完全相同的字段验证与 canonicalization。普通自由文本、旧七行 DSL 或任意 `summary` 字符串仍不是有效 handoff。
-
-既有 session 中的 `branch_summary.summary` 仍作为 opaque historical text 使用，无需迁移或重写；breaking change 只影响新的 `acm_travel` tool call payload。
-
-Travel 明确成功后，runtime 会登记 per-SessionManager persistent refresh 与 live-sync ticket。matching `tool_execution_end` 只确认本次 tool pair，绝不切换 provider 或 native context。`tool_result` 是可被后置 extension 改写的 interception seam，因此也不授权切换；下一次 `context` 只在 event messages 或 persisted branch 中找到 matching、non-error、`mutationStatus: applied` 的 finalized `toolResult` 后，才把 provider phase 从 `pending_tool_result` 置为 `ready`，从最新 active leaf 重建 protocol-valid Context Packet 并立即交给 provider；finalized error 或缺少可信 applied evidence 的 receipt 会进入 `receipt_rejected`，同时取消 persistent cutover 和尚未应用的 native replacement ticket。若 finalized receipt 缺失或 `agent_settled` 暂时无法读取它，provider 与 native ticket 都保持 pending，不得把“不可观察”当成成功。可信 handoff 投影、`currentUserTurnOpen`、later-user priority 与后续 tool work 都来自这次 packet；正常 cutover 不再额外发送 NEXT steer，避免重复 authority、额外 run 或改变 idle 状态。成功包会缓存稳定 source cursor；后续 rebuild 失败时，仅在 source/cached prefix 可验证时合并 post-cutover tail 并重新校验 protocol。prefix drift 或 invalid tail 会把 delivery 降为显式 `fallback` 并使用当前 protocol-valid provider messages，绝不继续把旧 cache 标为 active。persistent rebuild 最多尝试三次；有安全 cache 时进入 `cached_exhausted`，停止自动读取和 warning，等待新 travel、lifecycle reset 或 reload 重新建立周期；该状态继续交付已验证 cache，因此后续真实 provider `turn_end` usage 仍是 gauge/HUD 的权威样本。originating assistant run 及其 automatic retry/tool loop 仍保留当前 native live messages；仅在 idle `agent_settled` 时，adapter 才从最新已验证 active branch 重建并替换 native AgentSession。每次 travel 会先清除上一 provider epoch 的 usage；provider-active 阶段的 gauge pressure 只采用最近一次实际 provider `turn_end` usage，`ctx.getContextUsage()` 仅作为 native AgentSession estimate 展示，不驱动 gauge。native unavailable/failed 不回滚已验证 tree 或 provider packet。`indeterminate` mutation 只登记 persistent observation refresh，不创建 live-sync ticket、settled replacement、成功 receipt 或新的 gauge cycle；明确失败或 `not_applied` 两者都不登记 refresh/sync。
-
-如果 travel 发生在一个仍未给出 visible assistant response 的 user turn 内，runtime 还会持久记录 `currentUserTurnOpen`，并在 handoff authority 与 tool receipt 中明确“State 不是交付、当前用户仍等着结果”。这只使用 session topology 的可观察事实，不尝试猜测答案语义。
-
-## Semantic rebase
-
-普通 fold 压缩一个局部阶段；rebase 处理长期累积的 summary depth。
-
-agent 会在以下时机主动检查 rebase：
-
-- 下一次 fold 会继续叠加 summary；
-- 一个稳定 chain 或 subchain 已结束；
-- 同一 session 即将开始新目标；
-- context pressure 上升。
-
-rebase 不等于强制跳到 `root`。agent 会从最早候选开始执行 **cold start** 检查：如果一个全新的 agent 只依赖当前 snapshot 和直接 evidence pointers 就能执行 `NEXT`，该基底才安全。root 是理想候选，不是默认答案。
-
-Timeline 会提供事实证据：
-
-- 当前 active summary depth；
-- root structural candidate；
-- 每个 checkpoint travel 后的 projected summary depth；
-- usage、message count 与 branch topology。
-
-Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行 rebase.
-
-## 上下文仪表（gauge）
-
-感知层是一个常驻双针仪表：普通工具结果尾部的一行定界后缀，只报数字，永不措辞。带措辞的分级提醒与判断题 cue 已退役——任何措辞注入都会被顺从模型读成行动指令，判断语义只属于 CORE。
+每个工具结果的末尾会带一行小字：
 
 ```text
-[ctx 41% budget · 12% window]   # 窗口 > 400K（400k-cap policy）：双针
-[ctx 41% window]                # 窗口 ≤ 400K：单针
+[ctx 41% budget · 12% window]
 ```
 
-- 压力口径：`workingBudgetTokens = min(contextWindow, 400K)`，`pressurePercent = activeTokens / workingBudgetTokens × 100`；hard-window usage 单独保留，仪表与 `acm_timeline` dashboard 同时展示两针，避免把工作预算误读成模型窗口容量。
-- 显示节奏（里程表）：整数位变化即显示，双向都算；数字不变时沉默。无阈值、无档位、无梯度。
-- 周期重置：明确成功的 `acm_travel`、原生 compaction、手动 `/tree` 导航、session 启动；重置后首个可装饰结果必显示。
-- 豁免：`acm_*` 工具结果与 error 结果永不装饰。`ACM_GAUGE_DISABLED=1` 静默仪表。
+左边是注意力预算的占用（预算 = 模型窗口和 400K 取小），右边是物理窗口的占用。数字变了才显示，不变就沉默。
 
-仪表是事实，不是 move 授权；它只提供模型天生缺失的上下文本体感受。正确性、任务连续性和可恢复性优先；真正的长任务继续增长并进入 Pi 原生 compaction 是可接受的。
-
-## 手动 `/tree` 导航协同
-
-用户手动通过 Pi 原生 `/tree` 跳转分支时，扩展保持一致的 ACM 语义：跳转后清空该会话的易失 runtime 状态并重置 gauge 周期；当用户选择 "Summarize"（且未提供自定义指令）时，注入七槽 handoff 形态的 summarization 指令，让 native branch summary 与 `acm_travel` 的 handoff 使用同一 cold-start 词汇。用户提供的自定义指令始终优先。
+它只报数，从不建议做什么——什么时候整理，是 agent 自己的判断。设 `ACM_GAUGE_DISABLED=1` 可以关掉。
 
 ## 安装
-
-这个 fork 当前是 **GitHub-only package**，并通过 `package.json` 的 `private` 标记阻止误发布到 npm。未带 scope 的 npm 包名 `pi-context` 属于上游项目；不要用 `npm install pi-context` 安装本 fork。
-
-### 本地安装
-
-```bash
-pi install .
-```
-
-### GitHub
 
 ```bash
 pi install git:github.com/KorenKrita/pi-context
 ```
 
-也可以临时直接加载 source-first 入口。只加载 `src/index.ts` 时，Pi 会注册三个 ACM tools 和 always-on CORE，但不会读取该项目 `package.json` 中声明的 advanced Skill；若要与 package 安装暴露相同的资源，再加 skills 目录：
+或者在仓库目录里本地安装：
+
+```bash
+pi install .
+```
+
+> 本 fork 只发布在 GitHub。npm 上未带 scope 的 `pi-context` 是上游项目，不要用 `npm install` 装这个 fork。
+
+也可以不安装、临时加载（加上 skills 目录才有进阶指引）：
 
 ```bash
 pi -e /path/to/pi-context/src/index.ts --skill /path/to/pi-context/skills
 ```
 
-安装后无需手动调用命令。Agent 会依据 CORE 的压缩判断持续整合观察、按语义批次主动 fold；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
-
-## 可观察性与恢复
-
-每次操作都会返回可核对的结构事实：
-
-- resolved target 与 entry ID；
-- checkpoint aliases；
-- branch summary leaf；
-- backup checkpoint outcome；
-- message、token、percentage-point 与 summary-depth delta；
-- persistent context rebuild 和 settled-boundary live AgentSession sync 状态。
-- travel target 的 protocol status/repairs/defects、surviving open-user、assistant tool-batch、old-summary 与 off-path warnings；无效 tool-call identity 的 target 会在任何 mutation 前被拒绝，其余 warning 不冒充语义 verdict。
-
-`acm_timeline` 只在 trusted ACM summary 与 unique finalized applied receipt 精确匹配时，把 transaction backup alias 标为 `[raw archive]`；foreign/native summary details 不会改变 alias 类型。同一 entry 有多个 alias 时，只要任一 alias 是 raw archive，active/search/tree/checkpoints 都保留节点级标记，search 还会优先显示命中的 alias。这类 alias 指向 travel 前的原始路径，通常会恢复或扩大历史，只用于有明确返回路线的 restore/rehydrate；fold/rebase 应选择待移除 sediment 之前的 clean ancestor，不能因 alias 名像“已完成里程碑”就把 raw archive 当压缩基底。
-
-Checkpoint 名称在整棵会话树中大小写敏感且必须唯一；同一节点可以拥有多个 alias。省略 `target` 时，名称会落在 checkpoint 调用前最新的 protocol-complete session leaf 上——通常是已完成的 tool result，而不是它前面的 assistant tool-call turn，因此恢复不会把已经完成的工具伪装成 `[Interrupted by context travel]`。语义由 checkpoint 名称表达，物理节点负责忠实恢复；显式 `target` 仍可标记任意历史节点并对非 USER/AI 节点给出 warning。
-
-Travel 后由宿主持久化的孤立 receipt 只有在 packet 中存在唯一完整 message match，且它与 trusted ACM branch summary 的 entry、origin、target、必需的 tool-call provenance 精确匹配，并明确携带 non-error、无 domain error 的 `mutationStatus: applied` 时，才会作为安全 normalization 从 provider packet 移除。该 normalization 不把 packet 降级为 repaired，因此后续 `backupCurrentHeadAs` 仍可保存完整 raw origin；同 ID foreign/identical duplicate、untrusted receipt、普通 missing result、duplicate、reorder 或 invalid identity 仍按 repair/invalid 处理。异常 mutation 明确区分 `not_applied`、`applied` 和 `indeterminate`，避免把未知状态伪装成成功或失败。
-
 ## 安全边界
 
-- Travel 只改变 Pi 会话树和后续模型上下文。
-- 它不会回滚文件、进程、浏览器、Git commit 或远端服务。
-- 扩展不会取消、替换或延迟 Pi 原生 compaction。
-- 如果当前任务仍依赖不可压缩的中间推理，agent 会保留 working set 或接受 native compaction，而不是为了降低数字强行 rebase。
-- Host 不支持 live synchronization 时，持久 branch 和公开 Context Packet rebuild 仍然保留；结果会给出明确恢复指引。
+- Travel 只改变 Pi 的会话树和之后发给模型的上下文，**不会**回滚文件、进程、Git 提交或任何外部系统。
+- 折叠永远可逆：原始历史留在树里，一次 travel 就能回去。
+- 扩展不取消、不替换 Pi 原生 compaction——真正超长的任务照样可以让原生机制兜底。
+- 每次操作都返回可核对的事实回执（改了哪个节点、深度变化、同步状态）；不确定的结果如实标注 `indeterminate`，不伪装成功。
 
-## 验证
-
-Pi 的 git package 安装路径使用 npm，因此根目录以 `package-lock.json` 作为依赖复现契约；测试与 source build 使用 Bun。CI 固定 Node `24.16.0`、npm `11.13.0` 和 Bun `1.3.14`。
+## 开发与验证
 
 ```bash
 npm ci --ignore-scripts
 bun run verify:acm
 ```
 
-`bun test` 只运行根目录 unit/guidance suite；`bunfig.toml` 会排除需要独立依赖与 source build 的 `test/host-fixture/`。完整 gate 会依次检查 generated guidance、全部根测试、TypeScript，以及使用自身 frozen `bun.lock` 的真实 Pi `0.82.1` host fixture。
+完整 gate 覆盖：生成文本一致性检查、全部单元测试、TypeScript 类型检查、以及在真实 Pi `0.82.1` 上运行的 host fixture。
 
-Focused checks：
-
-```bash
-bun test
-bun run test:guidance
-bun run typecheck
-bun run test:host
-```
-
-真实模型行为评测装置已退役并从工作树删除（历史装置与证据见 git tag `eval-archive`）。
-
-开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
+架构细节、host 兼容性契约与维护规则见 [`AGENTS.md`](AGENTS.md)；判断语义的正典在 [`docs/acm-judgment-contract.md`](docs/acm-judgment-contract.md)。
 
 ## 致谢
 

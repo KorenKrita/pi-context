@@ -658,6 +658,11 @@
         <td>Pi host 升级 0.81.1 → 0.82.1 并启用 constrainedSampling</td>
         <td>API 面对比：ExtensionAPI 成员、事件面、AgentSession/SessionManager 公开方法均无变化（monkey patch 与 host contract 不受影响），host fixture 66 测试在 0.82.1 上全绿。0.82 新增 ToolDefinition.constrainedSampling；三个 ACM 工具启用 <code>{ type: "json_schema", strict: "prefer" }</code>——capable provider 上 provider 端 strict schema 保护七字段 handoff 完整性（P3 的结构面加固），不支持处静默回退。0.82.1 其余新特性（Opus 5、OpenRouter 登录、bash session env、RPC streaming）与本扩展无交集。</td>
       </tr>
+      <tr>
+        <td><span class="label user-decided">user-decided</span></td>
+        <td>README 重写为人话版，v0 文档退役</td>
+        <td>2026-07-27 用户要求「不要那么多术语，让人简单清楚看明白；文档注重质量而不是数量」。README 从 200 行术语密文重写为 ~100 行人话版（一句话定位「让 Pi agent 自己整理自己的记忆」、compaction=有损压缩 vs pi-context=可逆收纳的对比、交接单人话解释、七字段例子保留）；travel 事务的维护者细节已在 AGENTS.md「Post-mutation persistent observation」段有完整归宿，README 不再重复。docs/ 收敛为两份：acm-judgment-contract.md（判断语义正典 v1）+ acm-failure-mechanisms.md（活的失败机制注册表）。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
