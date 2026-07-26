@@ -1,5 +1,8 @@
 # ACM Guidance Audit v0
 
+> **注（2026-07-27）**：文中 `eval/...` 证据指针指向已退役并删除的评测装置；这些文件保留在 git tag `eval-archive`，可用 `git show eval-archive:<path>` 查看。
+
+
 ## 状态与范围
 
 本审计使用 `writing-great-skills` 的 Predictability、leading word、context pointer、information hierarchy、single source of truth、duplication、sediment、no-op、negation 与 sprawl 框架，检查：

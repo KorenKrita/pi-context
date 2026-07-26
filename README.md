@@ -202,14 +202,7 @@ bun run typecheck
 bun run test:host
 ```
 
-真实模型行为评测与 CI 分离，采用**样板间配对回放**：确定性构建的标准场景推进到 ground truth 已知的决策点，同一前缀以触发器开/关配对运行，判卷只核对 transcript 事实。样板间尺寸由真实 session 的分布统计定标：
-
-```bash
-# 只读扫描本机 Pi sessions，输出骨架分布参数（不含会话内容）
-bun run eval:skeleton > eval/skeleton/skeleton-params.json
-```
-
-题库、配对 runner 与判卷器见 `eval/`；评测契约详见 [`AGENTS.md`](AGENTS.md)。历史 controlled evidence 存档在 [`eval/evidence/`](eval/evidence/)，是独立 outcome receipt，不进入每次 deterministic CI。
+真实模型行为评测装置已退役并从工作树删除（历史装置与证据见 git tag `eval-archive`）。
 
 开发架构、Pi host compatibility、版本升级流程和维护契约见 [`AGENTS.md`](AGENTS.md)。
 

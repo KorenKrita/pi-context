@@ -1,8 +1,0 @@
-{
-  "name": "saffron-cutover-fixture",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node verify.mjs"
-  }
-}

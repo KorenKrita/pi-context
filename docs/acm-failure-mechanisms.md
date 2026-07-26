@@ -1,5 +1,8 @@
 # ACM Failure Mechanism Registry v0
 
+> **注（2026-07-27）**：文中 `eval/...` 证据指针指向已退役并删除的评测装置；这些文件保留在 git tag `eval-archive`，可用 `git show eval-archive:<path>` 查看。
+
+
 ## 目的
 
 本 registry 把真实使用与 eval 中观察到的坏结果还原为可单独验证的底层机制。现实任务无需完整复现；只有机制需要形成可控 analogue。

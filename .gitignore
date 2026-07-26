@@ -2,5 +2,3 @@ node_modules/
 bun.lock
 !test/host-fixture/bun.lock
 .DS_Store
-eval/.harness/
-eval/.runs/
