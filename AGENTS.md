@@ -202,6 +202,8 @@ self-shell 默认视图应紧凑展示调用意图和可判定 evidence；`expan
 
 ## 测试与验证
 
+测试哲学（用户确认，2026-07-27）：少而狠的行为契约测试。每个测试锁一个用户可见行为或安全边界，失败时能立刻知道哪个行为坏了；不锁实现字符串（源码 toContain 镜像）、不为凑数写测试、不保留与已删机制配套的测试。pass 数量不是质量指标。
+
 依赖与 runner 契约：
 
 - 根目录提交 npm `package-lock.json`，因为 Pi 的 git package 安装会执行 `npm install --omit=dev`；不要删除或用未提交的 root `bun.lock` 取代它。
