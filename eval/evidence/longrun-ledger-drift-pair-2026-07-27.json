@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "evidence": "longrun-ledger-drift-first-pair",
+  "recordedAt": "2026-07-26T16:09:06.569Z",
+  "productCommit": "28721417",
+  "scenario": {
+    "id": "ledger-drift-30",
+    "turns": 30,
+    "settlesAtTurn": 8,
+    "window": 400000,
+    "outcomeGate": "eval/fixtures/ledger-drift/verify.mjs"
+  },
+  "pairs": {
+    "gpt-5.6-sol@medium": {
+      "on": {
+        "arm": "on",
+        "model": "local-responses/gpt-5.6-sol",
+        "thinking": "medium",
+        "turnsRun": 30,
+        "completed": true,
+        "billedTotal": 7.221239000000001,
+        "billedByCategory": {
+          "input": 5.897114999999999,
+          "output": 0.6293400000000002,
+          "cacheRead": 0.6947840000000002,
+          "cacheWrite": 0,
+          "total": 7.221239000000001
+        },
+        "tokensByCategory": {
+          "input": 1179423,
+          "output": 20978,
+          "cacheRead": 1389568,
+          "cacheWrite": 0
+        },
+        "outcomeDelivered": true,
+        "peakPromptTokens": 67337,
+        "promptAtSettlingTurn": 27029,
+        "acm": {
+          "calls": [
+            {
+              "turn": 6,
+              "phase": "survey",
+              "tool": "acm_travel"
+            },
+            {
+              "turn": 7,
+              "phase": "survey",
+              "tool": "acm_checkpoint"
+            },
+            {
+              "turn": 7,
+              "phase": "survey",
+              "tool": "acm_timeline"
+            },
+            {
+              "turn": 7,
+              "phase": "survey",
+              "tool": "acm_checkpoint"
+            }
+          ],
+          "callCount": 4,
+          "travelCount": 1,
+          "firstFoldAfterTurn": 5,
+          "foldTurns": [
+            6
+          ]
+        },
+        "foldTiming": {
+          "deviation": 3,
+          "observedFoldAfterRequest": 5,
+          "optimalFoldAfterRequest": 8,
+          "excessCost": 0.275949,
+          "observedTotal": 0.700395,
+          "optimalTotal": 0.424446,
+          "premature": true,
+          "verdict": "premature",
+          "theoreticalSavings": 0.12118649999999997
+        },
+        "modelSpec": {
+          "contextTokens": 27029,
+          "requests": 30,
+          "deltaTokens": 603,
+          "foldedTokens": 4054,
+          "settledAtRequest": 8,
+          "recoveryTokens": 20272
+        }
+      },
+      "off": {
+        "arm": "off",
+        "model": "local-responses/gpt-5.6-sol",
+        "thinking": "medium",
+        "turnsRun": 30,
+        "completed": true,
+        "billedTotal": 18.417406999999994,
+        "billedByCategory": {
+          "input": 14.478285000000001,
+          "output": 0.7091699999999996,
+          "cacheRead": 3.2299520000000004,
+          "cacheWrite": 0,
+          "total": 18.417406999999994
+        },
+        "tokensByCategory": {
+          "input": 2895657,
+          "output": 23639,
+          "cacheRead": 6459904,
+          "cacheWrite": 0
+        },
+        "outcomeDelivered": true,
+        "peakPromptTokens": 122837,
+        "promptAtSettlingTurn": 89647,
+        "acm": {
+          "calls": [],
+          "callCount": 0,
+          "travelCount": 0,
+          "firstFoldAfterTurn": null,
+          "foldTurns": []
+        },
+        "foldTiming": {
+          "deviation": 8,
+          "observedFoldAfterRequest": null,
+          "optimalFoldAfterRequest": 8,
+          "excessCost": 0.3625132499999999,
+          "observedTotal": 1.6188224999999998,
+          "optimalTotal": 1.25630925,
+          "premature": false,
+          "verdict": "missed",
+          "theoreticalSavings": 0.3625132499999999
+        },
+        "modelSpec": {
+          "contextTokens": 89647,
+          "requests": 30,
+          "deltaTokens": 1179,
+          "foldedTokens": 13447,
+          "settledAtRequest": 8,
+          "recoveryTokens": 67235
+        }
+      },
+      "paired": {
+        "billedDelta": -11.196167999999993,
+        "billedRatio": 0.39208771354186844,
+        "outcomeMatch": true,
+        "onDeviation": 3,
+        "offDeviation": 8
+      }
+    },
+    "deepseek-v4-flash@max": {
+      "on": {
+        "arm": "on",
+        "model": "local-openai/deepseek-v4-flash",
+        "thinking": "max",
+        "turnsRun": 30,
+        "completed": true,
+        "billedTotal": 0.04724622560000001,
+        "billedByCategory": {
+          "input": 0.017982160000000004,
+          "output": 0.00765828,
+          "cacheRead": 0.021605785600000003,
+          "cacheWrite": 0,
+          "total": 0.04724622560000001
+        },
+        "tokensByCategory": {
+          "input": 128444,
+          "output": 27351,
+          "cacheRead": 7716352,
+          "cacheWrite": 0
+        },
+        "outcomeDelivered": true,
+        "peakPromptTokens": 117890,
+        "promptAtSettlingTurn": 91053,
+        "acm": {
+          "calls": [],
+          "callCount": 0,
+          "travelCount": 0,
+          "firstFoldAfterTurn": null,
+          "foldTurns": []
+        },
+        "foldTiming": {
+          "deviation": 0,
+          "observedFoldAfterRequest": null,
+          "optimalFoldAfterRequest": null,
+          "excessCost": 0,
+          "observedTotal": 0.009007739999999998,
+          "optimalTotal": 0.009007739999999998,
+          "premature": false,
+          "verdict": "optimal",
+          "theoreticalSavings": -0.008634684800000002
+        },
+        "modelSpec": {
+          "contextTokens": 91053,
+          "requests": 30,
+          "deltaTokens": 1044,
+          "foldedTokens": 13658,
+          "settledAtRequest": 8,
+          "recoveryTokens": 68290
+        }
+      }
+    }
+  },
+  "findings": [
+    "sol on-arm cost 39.2% of off-arm ($7.2212 vs $18.4174) with both arms delivering the outcome.",
+    "The saving is dominated by input tokens, not cacheRead: off billed 2,895,657 input tokens against on 1,179,423 (2.45x). In this harness sol shows a near 1:1 input:cacheRead ratio, so an unfolded prefix is re-billed at full input price nearly every turn.",
+    "off did 1.6x the work: 123 tool calls / 67 reads versus 77 / 29. Attention decay in a long unfolded context shows up as repeated file reads, a cost the analytic model does not price at all.",
+    "The analytic model predicted only $0.36 of savings for 30 turns and understated the real result by 31x, because it assumed history is billed at cacheRead. That assumption holds for deepseek but not for sol here.",
+    "on folded at turn 6, three turns before the settling point, scoring premature with $0.2759 of excess. That penalty is noise against $11.20 of savings.",
+    "deepseek-v4-flash never called an ACM tool across 30 turns and still delivered the outcome for $0.0472; its own break-even sits at request 66, so declining to fold was correct and was scored optimal."
+  ],
+  "limitations": [
+    "Every fact this scenario needs lives in a file, so the off arm can compensate by re-reading. It cannot measure the failure mode where information exists only in conversation history and recovery requires travel.",
+    "The harness runs pi -p, so the model cannot ask the user. The common production failure of re-asking the user instead of consulting history is structurally unobservable here.",
+    "One pair per model; no repeat runs, so run-to-run variance is unmeasured.",
+    "The 15% retained-fraction assumption in the cost model remains uncalibrated; the observed fold reduced the prompt from 89.6K (off at turn 8) to 27.0K (on at turn 8), i.e. roughly 30%."
+  ]
+}
