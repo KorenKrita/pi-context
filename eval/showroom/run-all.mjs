@@ -138,6 +138,49 @@ export function summarizeRows(rows) {
 }
 
 /**
+ * Thrash detection — the paired overhead judgement the outcome gate cannot make.
+ *
+ * N1 in the 2026-07-25 calibration is the motivating case: both arms passed,
+ * but the treated arm burned 62 tool calls across 3 travel attempts against the
+ * control's 21. A pass/fail gate records that as a footnote, so the cost of
+ * over-triggering never shows up as a signal. These thresholds turn the
+ * paired numbers into an explicit red flag while leaving the verdict alone:
+ * overhead is reported, never silently converted into a task failure.
+ */
+export const THRASH_TOOL_CALL_RATIO = 2;
+export const THRASH_REREAD_FLOOR = 3;
+
+export function detectThrash(scores) {
+  const { on, off, delta } = scores;
+  if (!on) return null;
+  const flags = [];
+
+  // Overhead only means something against a control that did the same work.
+  if (delta && typeof delta.toolCallRatio === "number" && delta.toolCallRatio >= THRASH_TOOL_CALL_RATIO) {
+    flags.push({
+      kind: "paired_overhead",
+      detail: `treated arm used ${on.toolCalls} tool calls vs control ${off.toolCalls} (ratio ${delta.toolCallRatio})`,
+    });
+  }
+  // Folding and then re-ingesting the same material inside the window.
+  const rereads = on.postFoldReread ?? {};
+  if (typeof rereads.maxRereads === "number" && rereads.maxRereads >= THRASH_REREAD_FLOOR) {
+    flags.push({
+      kind: "post_fold_reread",
+      detail: `${rereads.maxRereads} read-class calls within ${on.postFoldReread.folds} fold window(s)`,
+    });
+  }
+  // Repeated folds where the control needed none at all.
+  if (delta && on.acmCalls >= 3 && delta.acmCalls >= 2) {
+    flags.push({
+      kind: "repeated_acm_attempts",
+      detail: `${on.acmCalls} ACM calls vs control ${off.acmCalls}`,
+    });
+  }
+  return flags.length > 0 ? { flagged: true, flags } : null;
+}
+
+/**
  * Continuous scoring stays out of the flat rows on purpose: rows are the
  * at-a-glance gate table, while the score block is the AB instrument. Kept as
  * a nested object so a saturated gate (10/10 pass) still produces comparable
@@ -155,6 +198,8 @@ export function collectScores(id, verdict) {
       toolCallRatio: off.toolCalls > 0 ? Number((on.toolCalls / off.toolCalls).toFixed(2)) : null,
     };
   }
+  const thrash = detectThrash(entry);
+  if (thrash) entry.thrash = thrash;
   return entry;
 }
 
@@ -220,7 +265,15 @@ function main() {
     maxTokens: args.maxTokens,
     arm: args.arm,
     runRoot: outRoot,
-    summary: { ...summarizeRows(rows), requested: args.scenarios.length, completed: rows.length, failures },
+    summary: {
+      ...summarizeRows(rows),
+      requested: args.scenarios.length,
+      completed: rows.length,
+      failures,
+      // Surfaced at the top level: an all-pass sweep with thrash flags is a
+      // different result from a clean all-pass sweep.
+      thrashFlagged: Object.entries(scores).filter(([, s]) => s.thrash).map(([id]) => id),
+    },
     rowFields: ROW_FIELDS,
     rows,
     scores,

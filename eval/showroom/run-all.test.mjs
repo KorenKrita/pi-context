@@ -114,3 +114,48 @@ describe("score aggregation", () => {
     expect(scores.delta.toolCallRatio).toBeNull();
   });
 });
+
+describe("thrash detection", () => {
+  const armScore = (toolCalls, acmCalls, postFoldReread) => ({
+    score: { toolCalls, acmCalls, ...(postFoldReread ? { postFoldReread } : {}) },
+  });
+
+  test("flags the real N1 pattern: both arms pass but treated arm burns 3x the calls", () => {
+    // Actual numbers from eval/evidence/showroom-opus48-calibration-2026-07-25.json.
+    const scores = collectScores("N1", { arms: { on: armScore(62, 3), off: armScore(21, 1) } });
+
+    expect(scores.thrash.flagged).toBe(true);
+    expect(scores.thrash.flags.map((f) => f.kind)).toEqual(["paired_overhead", "repeated_acm_attempts"]);
+  });
+
+  test("flags folding followed by re-ingesting the same material", () => {
+    const scores = collectScores("P1", {
+      arms: {
+        on: armScore(12, 1, { folds: 1, maxRereads: 4, totalRereads: 4 }),
+        off: armScore(11, 0),
+      },
+    });
+
+    expect(scores.thrash.flags.map((f) => f.kind)).toEqual(["post_fold_reread"]);
+  });
+
+  test("a proportionate treated arm is not flagged", () => {
+    const scores = collectScores("P4", {
+      arms: {
+        on: armScore(15, 1, { folds: 1, maxRereads: 1, totalRereads: 1 }),
+        off: armScore(24, 1),
+      },
+    });
+
+    expect(scores.thrash).toBeUndefined();
+  });
+
+  test("overhead is reported without touching the verdict", () => {
+    const verdict = { arms: { on: { verdict: "pass", ...armScore(62, 3) }, off: { verdict: "pass", ...armScore(21, 1) } } };
+    const row = buildRow("N1", SCENARIOS.N1, verdict);
+
+    expect(collectScores("N1", verdict).thrash.flagged).toBe(true);
+    expect(row[2]).toBe("pass");
+    expect(row[3]).toBe("pass");
+  });
+});
