@@ -628,6 +628,11 @@
         <td>感知层退役三类措辞 cue，改为常驻双针仪表</td>
         <td>2026-07-27 设计会（宪法第 2 条：感知层=仪表盘，只报数字永不措辞）：删除 read-burst 判断题、run 边界提醒、30/50/70 档位提醒及其持久化 baseline 机制（<code>src/acm-trigger-detector.ts</code>、<code>src/context-usage-nudge.ts</code> 整模块删除）；新增 <code>src/context-gauge.ts</code>（双针仪表 <code>[ctx N% budget · M% window]</code>，里程表节奏=整数位变化即显示）与 <code>src/context-pressure.ts</code>（压力计算平移，无行为变化）。理由：P1 注入即指令——对顺从模型不存在纯事实的措辞，信号要么恒定要么不存在；P2 时机被触发劫持——sol 实验中 burst cue 开火时刻与 premature fold 时刻高度重合。kill switch 从 <code>ACM_TRIGGERS_DISABLED</code> 改为 <code>ACM_GAUGE_DISABLED</code>。</td>
       </tr>
+      <tr>
+        <td><span class="label user-decided">user-decided</span></td>
+        <td>删除 /context TUI 面板</td>
+        <td>2026-07-27 用户明确「从来没用过」：删除 <code>src/context.ts</code>、<code>src/utils.ts</code>（其唯一消费者）、两个配套测试与 host-fixture 构建/验证清单条目；<code>pi.extensions</code> 收敛为单入口 <code>./src/index.ts</code>。仓库专注原则：没有不需要存在的东西。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>

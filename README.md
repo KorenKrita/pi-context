@@ -118,10 +118,6 @@ Runtime 不会伪装成能判断语义完整性，也不会自动批准或执行
 
 用户手动通过 Pi 原生 `/tree` 跳转分支时，扩展保持一致的 ACM 语义：跳转后清空该会话的易失 runtime 状态并重置 gauge 周期；当用户选择 "Summarize"（且未提供自定义指令）时，注入七槽 handoff 形态的 summarization 指令，让 native branch summary 与 `acm_travel` 的 handoff 使用同一 cold-start 词汇。用户提供的自定义指令始终优先。
 
-## `/context` 面板
-
-Pi 版本保留独有的 `/context` 命令，用于查看当前上下文的分类占用、校准后的 token 估算和 compaction-aware 消息构成。该面板仅在 TUI mode 可用；RPC、JSON 与 print mode 会跳过 terminal UI。它是诊断界面，不会修改会话树。
-
 ## 安装
 
 这个 fork 当前是 **GitHub-only package**，并通过 `package.json` 的 `private` 标记阻止误发布到 npm。未带 scope 的 npm 包名 `pi-context` 属于上游项目；不要用 `npm install pi-context` 安装本 fork。
@@ -138,18 +134,10 @@ pi install .
 pi install git:github.com/KorenKrita/pi-context
 ```
 
-也可以临时直接加载 source-first 入口。只加载 `src/index.ts` 时，Pi 会注册三个 ACM tools 和 always-on CORE，但不会读取该项目 `package.json` 中声明的 `/context` 扩展或 advanced Skill：
+也可以临时直接加载 source-first 入口。只加载 `src/index.ts` 时，Pi 会注册三个 ACM tools 和 always-on CORE，但不会读取该项目 `package.json` 中声明的 advanced Skill；若要与 package 安装暴露相同的资源，再加 skills 目录：
 
 ```bash
-pi -e /path/to/pi-context/src/index.ts
-```
-
-若要让临时运行与 package 安装暴露相同的资源，请显式加载两个 extension 和 skills 目录：
-
-```bash
-pi -e /path/to/pi-context/src/index.ts \
-  -e /path/to/pi-context/src/context.ts \
-  --skill /path/to/pi-context/skills
+pi -e /path/to/pi-context/src/index.ts --skill /path/to/pi-context/skills
 ```
 
 安装后无需手动调用命令。Agent 会依据 CORE 的压缩判断持续整合观察、按语义批次主动 fold；你也可以直接要求它创建 checkpoint、查看 timeline 或恢复某个 archive。
@@ -189,7 +177,7 @@ npm ci --ignore-scripts
 bun run verify:acm
 ```
 
-`bun test` 只运行根目录 unit/guidance suite；`bunfig.toml` 会排除需要独立依赖与 source build 的 `test/host-fixture/`。完整 gate 会依次检查 generated guidance、全部根测试、TypeScript，以及使用自身 frozen `bun.lock` 的真实 Pi `0.81.1` host fixture；该 fixture 还会通过 exact `ExtensionRunner` 加载 `/context` 并使用 exact `pi-tui` 渲染面板。
+`bun test` 只运行根目录 unit/guidance suite；`bunfig.toml` 会排除需要独立依赖与 source build 的 `test/host-fixture/`。完整 gate 会依次检查 generated guidance、全部根测试、TypeScript，以及使用自身 frozen `bun.lock` 的真实 Pi `0.81.1` host fixture。
 
 Focused checks：
 

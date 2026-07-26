@@ -14,7 +14,6 @@
 | `acm_timeline` | 输出 active path / checkpoints / search / tree 单一视图及 context HUD |
 | `acm_travel` | 通过七槽 handoff 创建 summary continuation branch（fold / rebase / rehydrate） |
 
-`src/context.ts` 另行注册 Pi 独有的 `/context` TUI 命令，与 ACM 工具职责分离；非 TUI mode 必须在进入 custom terminal UI 前给出 warning 并返回。
 
 ## 技术栈与版本契约
 
@@ -60,7 +59,6 @@
 | `src/generated-guidance.ts` | 从 canonical guidance 派生的 runtime strings |
 | `src/prompt-registration.ts` | idempotent ACM CORE prompt segment |
 
-`src/context.ts` 和 `src/utils.ts` 属于 `/context` TUI，不应吸收 ACM tree mutation 或 live synchronization 逻辑。
 
 ## Host Bridge
 
@@ -235,6 +233,6 @@ bun run verify:acm
 
 - gauge 的形态与节奏契约见「Context gauge contract」；改动需在 commit message 或 implementation-notes 中记录动机。
 
-host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、`/context` 的 exact `ExtensionRunner` 注册与 `pi-tui` 渲染、adapter capability/installation、protocol-complete automatic checkpoint anchoring、successful shrinking travel、finalized receipt ordering（后置 handler 改 error 不 cutover、无重复 NEXT steer）、trusted applied receipt normalization、in-flight tool pair、originating-run 与 automatic-retry tool continuity、matching `tool_execution_end` 不 apply、provider-before-settled cutover、`agent_settled` 从 latest active leaf apply、`agent_end` error 不 release、persistent rebuild/cache cursor/fallback/cached exhaustion、provider actual usage authority、native compaction accounting、repeated travel with a new raw backup、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
+host fixture 必须覆盖 exact Pi version、canonical CORE prompt injection（`before_agent_start` 幂等注入与 generated prompt metadata 注册）、manual tree navigation（`session_before_tree` instructions merge 与 `session_tree` 周期重置）、adapter capability/installation、protocol-complete automatic checkpoint anchoring、successful shrinking travel、finalized receipt ordering（后置 handler 改 error 不 cutover、无重复 NEXT steer）、trusted applied receipt normalization、in-flight tool pair、originating-run 与 automatic-retry tool continuity、matching `tool_execution_end` 不 apply、provider-before-settled cutover、`agent_settled` 从 latest active leaf apply、`agent_end` error 不 release、persistent rebuild/cache cursor/fallback/cached exhaustion、provider actual usage authority、native compaction accounting、repeated travel with a new raw backup、off-path restore、resume、lifecycle cleanup、multi-session/subagent isolation。
 
 不要使用 `console.log`；用户可见 warning 使用 `ctx.ui.notify()`。

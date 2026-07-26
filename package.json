@@ -45,8 +45,7 @@
   },
   "pi": {
     "extensions": [
-      "./src/index.ts",
-      "./src/context.ts"
+      "./src/index.ts"
     ],
     "skills": [
       "./skills"

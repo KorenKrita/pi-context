@@ -22,7 +22,6 @@ if (!declaredVersions.every((version) => version === supportedVersion)) {
 }
 const entrypoints = [
   { source: "../../src/index.ts", output: "index.js" },
-  { source: "../../src/context.ts", output: "context.js" },
   { source: "../../src/context-packet.ts", output: "context-packet.js" },
   { source: "../../src/handoff.ts", output: "handoff.js" },
   { source: "../../src/live-agent-session-adapter.ts", output: "live-agent-session-adapter.js" },
