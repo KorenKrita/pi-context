@@ -5,6 +5,7 @@ import {
   computePolicyCost,
   findBreakEvenRequests,
   foldingCurve,
+  scoreFoldTiming,
 } from "./cost-model.mjs";
 
 // Real per-million rates from ~/.pi/agent/models.json (2026-07-26).
@@ -14,6 +15,10 @@ const DEEPSEEK_V4_FLASH = Object.freeze({ input: 0.14, output: 0.28, cacheRead: 
 // The measured shape behind the showroom diagnosis: a 200K prompt, 3K new tokens
 // per request, and a fold that keeps 15% of the context.
 const SHAPE = Object.freeze({ contextTokens: 200_000, deltaTokens: 3_000, foldedTokens: 30_000 });
+
+// The same shape plus sediment semantics: conclusions settle at request 8, and a fold
+// before that forces a 60K rehydrate for every request still needing the raw material.
+const SETTLING = Object.freeze({ ...SHAPE, settledAtRequest: 8, recoveryTokens: 60_000 });
 
 test("sol savings match the verified data points that motivated this model", () => {
   // Locked: at 10 follow-up requests not folding wins by $0.34; at 30 folding wins by $1.36.
@@ -134,4 +139,85 @@ test("invalid inputs fail loudly instead of producing plausible numbers", () => 
     computePolicyCost({ ...SHAPE, price: SOL, requests: 3, foldAfterRequest: 4 }),
   ).toThrow(RangeError);
   expect(() => foldingCurve({ ...SHAPE, price: SOL }, [])).toThrow(TypeError);
+});
+
+test("the premature-fold penalty moves the optimum off request 0 onto the settling point", () => {
+  // Without the penalty the cheapest fold is always the earliest one, which would make
+  // "fold immediately" the model's advice no matter whether conclusions had settled.
+  const pureCost = compareFoldPolicies({ ...SHAPE, price: SOL, requests: 30 });
+  expect(pureCost.cheapestFoldAfterRequest).toBe(0);
+
+  const withPenalty = compareFoldPolicies({ ...SETTLING, price: SOL, requests: 30 });
+  expect(withPenalty.optimalFoldAfterRequest).toBe(8);
+  expect(withPenalty.savings).toBeCloseTo(0.8265, 4);
+
+  // The curve is a real valley: strictly falling up to the settling point, then rising.
+  const totals = withPenalty.candidates.map((candidate) => candidate.total);
+  for (let k = 1; k <= 8; k += 1) expect(totals[k]).toBeLessThan(totals[k - 1]);
+  for (let k = 9; k < totals.length; k += 1) expect(totals[k]).toBeGreaterThan(totals[k - 1]);
+});
+
+test("only folds before the settling point are flagged premature and charged recovery", () => {
+  const early = computePolicyCost({ ...SETTLING, price: SOL, requests: 30, foldAfterRequest: 3 });
+  expect(early.premature).toBe(true);
+  expect(early.recoveryEvents).toBe(5); // requests 4..8 still need the folded material
+  expect(early.recoveryCost).toBeCloseTo(1.5, 6); // 5 * 60000 tokens at $5/M
+
+  const onTime = computePolicyCost({ ...SETTLING, price: SOL, requests: 30, foldAfterRequest: 8 });
+  expect(onTime.premature).toBe(false);
+  expect(onTime.recoveryEvents).toBe(0);
+  expect(onTime.recoveryCost).toBe(0);
+
+  const late = computePolicyCost({ ...SETTLING, price: SOL, requests: 30, foldAfterRequest: 20 });
+  expect(late.premature).toBe(false);
+  expect(late.recoveryEvents).toBe(0);
+});
+
+test("fold timing scores as a computable deviation, not a judgement", () => {
+  const spec = { ...SETTLING, price: SOL, requests: 30 };
+
+  expect(scoreFoldTiming(spec, 8)).toMatchObject({ verdict: "optimal", deviation: 0, excessCost: 0 });
+
+  const tooEarly = scoreFoldTiming(spec, 0);
+  expect(tooEarly).toMatchObject({ verdict: "premature", deviation: 8, premature: true });
+  expect(tooEarly.excessCost).toBeCloseTo(1.864, 4);
+
+  const tooLate = scoreFoldTiming(spec, 20);
+  expect(tooLate).toMatchObject({ verdict: "late", deviation: 12, premature: false });
+  expect(tooLate.excessCost).toBeGreaterThan(0);
+
+  const missed = scoreFoldTiming(spec, null);
+  expect(missed).toMatchObject({ verdict: "missed", deviation: 8 });
+  expect(missed.excessCost).toBeCloseTo(0.8265, 4);
+});
+
+test("not folding is the correct answer when the scenario is too short to break even", () => {
+  // A weak model that never folds a 10-request scenario is behaving correctly, and the
+  // third dependent variable must not penalize it.
+  const shortSpec = { ...SETTLING, price: SOL, requests: 10 };
+  expect(compareFoldPolicies(shortSpec).optimalFoldAfterRequest).toBe(null);
+
+  const never = scoreFoldTiming(shortSpec, null);
+  expect(never).toMatchObject({ verdict: "optimal", deviation: 0, excessCost: 0 });
+
+  const folded = scoreFoldTiming(shortSpec, 8);
+  expect(folded.verdict).toBe("unnecessary");
+  expect(folded.excessCost).toBeGreaterThan(0);
+});
+
+test("recovery cost is bounded by the scenario length, not by the settling point alone", () => {
+  // Settling later than the scenario ends cannot charge recovery for requests never made.
+  const spec = { ...SHAPE, price: SOL, requests: 5, settledAtRequest: 20, recoveryTokens: 60_000 };
+  const folded = computePolicyCost({ ...spec, foldAfterRequest: 0 });
+  expect(folded.recoveryEvents).toBe(5);
+});
+
+test("settling inputs are validated like every other quantity", () => {
+  expect(() => compareFoldPolicies({ ...SHAPE, price: SOL, requests: 5, settledAtRequest: 1.5 })).toThrow(
+    TypeError,
+  );
+  expect(() => compareFoldPolicies({ ...SHAPE, price: SOL, requests: 5, recoveryTokens: -1 })).toThrow(
+    TypeError,
+  );
+  expect(() => scoreFoldTiming({ ...SETTLING, price: SOL, requests: 5 }, 9)).toThrow(RangeError);
 });

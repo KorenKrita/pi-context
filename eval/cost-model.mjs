@@ -60,6 +60,13 @@ function perMillion(tokens, rate) {
  *                                               policies, so it cancels in savings but is included
  *                                               in absolute totals when supplied.
  * @param {number} [spec.handoffOutputTokens]    Output tokens the fold itself writes (the handoff).
+ * @param {number} [spec.settledAtRequest]  Request index by which the raw material's conclusions are
+ *                                          extracted, i.e. the earliest point a fold loses nothing (S).
+ *                                          Folding before S is premature: material still needed is gone.
+ *                                          Default 0 — nothing to lose, pure-cost behaviour.
+ * @param {number} [spec.recoveryTokens]    Tokens one rehydrate/reread costs when a premature fold
+ *                                          removed material a later request still needs. Charged at
+ *                                          input price because recovery re-reads an uncached prefix.
  */
 function normalizeSpec(spec) {
   const {
@@ -70,6 +77,8 @@ function normalizeSpec(spec) {
     price,
     outputTokensPerRequest = 0,
     handoffOutputTokens = 0,
+    settledAtRequest = 0,
+    recoveryTokens = 0,
   } = spec ?? {};
 
   assertNonNegative("contextTokens", contextTokens);
@@ -78,6 +87,8 @@ function normalizeSpec(spec) {
   assertNonNegative("foldedTokens", foldedTokens);
   assertNonNegative("outputTokensPerRequest", outputTokensPerRequest);
   assertNonNegative("handoffOutputTokens", handoffOutputTokens);
+  assertRequestCount("settledAtRequest", settledAtRequest);
+  assertNonNegative("recoveryTokens", recoveryTokens);
   assertPrice(price);
 
   return {
@@ -88,6 +99,8 @@ function normalizeSpec(spec) {
     price,
     outputTokensPerRequest,
     handoffOutputTokens,
+    settledAtRequest,
+    recoveryTokens,
   };
 }
 
@@ -105,8 +118,15 @@ function normalizeSpec(spec) {
  *   foldedTokens at cacheWrite                                  — the new prefix is written once
  *   handoffOutputTokens at output                                — the handoff text
  *
+ * A fold before `settledAtRequest` is premature: each request in the gap still needs material the
+ * fold removed, so it pays one recovery of `recoveryTokens` at input price. This penalty is what
+ * keeps the optimum off request 0 — without it the cheapest fold is always the earliest one, which
+ * would make "fold immediately" the model's advice regardless of whether conclusions had settled.
+ * Cost is the only thing modeled here; an unrecovered premature fold would also risk the outcome,
+ * which this model deliberately does not price.
+ *
  * @param {object} spec normalizeSpec shape plus `foldAfterRequest` (null | number).
- * @returns {{ total: number, breakdown: { input: number, output: number, cacheRead: number, cacheWrite: number }, promptTokensByRequest: number[], foldAfterRequest: number|null }}
+ * @returns {{ total: number, breakdown: { input: number, output: number, cacheRead: number, cacheWrite: number }, promptTokensByRequest: number[], foldAfterRequest: number|null, recoveryEvents: number, recoveryCost: number, premature: boolean }}
  */
 export function computePolicyCost(spec) {
   const base = normalizeSpec(spec);
@@ -123,11 +143,17 @@ export function computePolicyCost(spec) {
   const breakdown = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const promptTokensByRequest = [];
 
+  let recoveryEvents = 0;
+  let recoveryCost = 0;
   if (foldAfterRequest !== null) {
     const reread = base.contextTokens + foldAfterRequest * base.deltaTokens;
     breakdown.input += perMillion(reread, base.price.input);
     breakdown.cacheWrite += perMillion(base.foldedTokens, base.price.cacheWrite);
     breakdown.output += perMillion(base.handoffOutputTokens, base.price.output);
+
+    recoveryEvents = Math.max(0, Math.min(base.settledAtRequest, base.requests) - foldAfterRequest);
+    recoveryCost = perMillion(recoveryEvents * base.recoveryTokens, base.price.input);
+    breakdown.input += recoveryCost;
   }
 
   for (let i = 1; i <= base.requests; i += 1) {
@@ -141,13 +167,25 @@ export function computePolicyCost(spec) {
   }
 
   const total = breakdown.input + breakdown.output + breakdown.cacheRead + breakdown.cacheWrite;
-  return { total, breakdown, promptTokensByRequest, foldAfterRequest };
+  return {
+    total,
+    breakdown,
+    promptTokensByRequest,
+    foldAfterRequest,
+    recoveryEvents,
+    recoveryCost,
+    premature: recoveryEvents > 0,
+  };
 }
 
 /**
  * Compare "never fold" against every single-fold timing and report the optimum.
  * `savings` is positive when folding is cheaper.
- * @returns {{ noFold: object, bestFold: object, optimalFoldAfterRequest: number|null, savings: number, foldIsCheaper: boolean, candidates: Array<{ foldAfterRequest: number, total: number }> }}
+ *
+ * `cheapestFoldAfterRequest` is always reported — it is the theoretical best timing among folds,
+ * even when never folding is cheaper still. `optimalFoldAfterRequest` stays null in that case
+ * because the optimal policy is then "do not fold".
+ * @returns {{ noFold: object, bestFold: object, optimalFoldAfterRequest: number|null, cheapestFoldAfterRequest: number, savings: number, foldIsCheaper: boolean, candidates: Array<{ foldAfterRequest: number, total: number, recoveryEvents: number, premature: boolean }> }}
  */
 export function compareFoldPolicies(spec) {
   const base = normalizeSpec(spec);
@@ -157,7 +195,12 @@ export function compareFoldPolicies(spec) {
   let bestFold = null;
   for (let k = 0; k <= base.requests; k += 1) {
     const candidate = computePolicyCost({ ...base, foldAfterRequest: k });
-    candidates.push({ foldAfterRequest: k, total: candidate.total });
+    candidates.push({
+      foldAfterRequest: k,
+      total: candidate.total,
+      recoveryEvents: candidate.recoveryEvents,
+      premature: candidate.premature,
+    });
     if (!bestFold || candidate.total < bestFold.total) bestFold = candidate;
   }
 
@@ -167,9 +210,74 @@ export function compareFoldPolicies(spec) {
     noFold,
     bestFold,
     optimalFoldAfterRequest: foldIsCheaper ? bestFold.foldAfterRequest : null,
+    cheapestFoldAfterRequest: bestFold.foldAfterRequest,
     savings,
     foldIsCheaper,
     candidates,
+  };
+}
+
+/**
+ * Score an observed run's fold timing against the theoretical optimum — the third dependent
+ * variable of the evaluation: "was the fold well-timed?" expressed as a computable distance
+ * rather than a judgement.
+ *
+ * `observedFoldAfterRequest` is null when the run never folded. Not folding is the correct answer
+ * whenever the optimal policy is not to fold, so that case scores a deviation of 0.
+ *
+ * @param {object} spec normalizeSpec shape.
+ * @param {number|null} observedFoldAfterRequest
+ * @returns {{ deviation: number, observedFoldAfterRequest: number|null, optimalFoldAfterRequest: number|null, excessCost: number, observedTotal: number, optimalTotal: number, premature: boolean, verdict: "optimal"|"premature"|"late"|"missed"|"unnecessary" }}
+ */
+export function scoreFoldTiming(spec, observedFoldAfterRequest) {
+  const base = normalizeSpec(spec);
+  const verdictSpace = compareFoldPolicies(base);
+  const optimal = verdictSpace.optimalFoldAfterRequest;
+  const optimalTotal = verdictSpace.foldIsCheaper
+    ? verdictSpace.bestFold.total
+    : verdictSpace.noFold.total;
+
+  if (observedFoldAfterRequest !== null) {
+    assertRequestCount("observedFoldAfterRequest", observedFoldAfterRequest);
+    if (observedFoldAfterRequest > base.requests) {
+      throw new RangeError(
+        `observedFoldAfterRequest (${observedFoldAfterRequest}) cannot exceed requests (${base.requests})`,
+      );
+    }
+  }
+
+  const observed =
+    observedFoldAfterRequest === null
+      ? verdictSpace.noFold
+      : computePolicyCost({ ...base, foldAfterRequest: observedFoldAfterRequest });
+
+  let verdict;
+  if (observedFoldAfterRequest === null) {
+    verdict = optimal === null ? "optimal" : "missed";
+  } else if (optimal === null) {
+    verdict = "unnecessary";
+  } else if (observedFoldAfterRequest === optimal) {
+    verdict = "optimal";
+  } else {
+    verdict = observedFoldAfterRequest < optimal ? "premature" : "late";
+  }
+
+  const deviation =
+    observedFoldAfterRequest === null || optimal === null
+      ? verdict === "optimal"
+        ? 0
+        : Math.abs((observedFoldAfterRequest ?? 0) - (optimal ?? 0)) || base.requests
+      : Math.abs(observedFoldAfterRequest - optimal);
+
+  return {
+    deviation,
+    observedFoldAfterRequest,
+    optimalFoldAfterRequest: optimal,
+    excessCost: observed.total - optimalTotal,
+    observedTotal: observed.total,
+    optimalTotal,
+    premature: observed.premature,
+    verdict,
   };
 }
 
@@ -248,13 +356,24 @@ function cliMain(argv) {
     cacheRead: Number(args["price-cache-read"] ?? 0.5),
     cacheWrite: Number(args["price-cache-write"] ?? 6.25),
   };
-  const spec = { contextTokens, deltaTokens, foldedTokens, price, requests: 1 };
+  const settledAtRequest = Number(args.settled ?? 0);
+  const recoveryTokens = Number(args.recovery ?? 0);
+  const spec = {
+    contextTokens,
+    deltaTokens,
+    foldedTokens,
+    price,
+    requests: 1,
+    settledAtRequest,
+    recoveryTokens,
+  };
 
   const breakEven = findBreakEvenRequests(spec);
   const rows = foldingCurve(spec, requestCounts);
 
   console.log(
     `context=${contextTokens} delta=${deltaTokens}/req folded=${Math.round(foldedTokens)} ` +
+      `settled=${settledAtRequest} recovery=${recoveryTokens} ` +
       `price(input/output/cacheRead/cacheWrite)=${price.input}/${price.output}/${price.cacheRead}/${price.cacheWrite} per M`,
   );
   console.log(
