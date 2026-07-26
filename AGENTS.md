@@ -143,6 +143,7 @@ ACM context nudge 分双通道：完整档位提醒走 Pi 公开的 hidden custo
 - 明确成功的 `acm_travel`、`session_compact` 与手动 `/tree` 导航（`session_tree`）开启新周期；失败或 indeterminate travel 不重置；
 - transition 后忽略可能仍然陈旧的即时 usage，以第一条真实 post-transition assistant prompt usage 建立无提醒 baseline；但明确成功的 `acm_travel` 会用 travel 结果验证过的落点估值 seed 新周期的 highest reached level（落点及以下档位保持静默），第一条真实 usage 只负责清除 pending 并持久化 baseline entry（记录真实 tokens 与 seeded 档位）——同 turn 回爬不得吞掉落点以上、本周期从未提醒过的档位；compaction 与手动 `/tree` 无落点估值，保持采样建立；
 - reminder 只提高 ACM Judgment 的显著性，不把 pressure 转换成 summary/travel/rebase 许可；低 active context 是偏好，不得压过正确性、任务连续性、Representation Gain、cold start 与 recoverability。
+- **reminder 正文是事实，不是分档论证**：三档共用同一段文本（档位穿越 + 数字 + 一句「这是事实，不是 move 许可」），不再按 30/50/70 递进劝导，70 档也不再标注 `Final reminder`。分档散文曾使 nudge 成为与 CORE 竞争的第四个 guidance owner，并重新引入 FM-08 的动作梯度（压力升高被读成 travel 许可升高）；仪表后缀上线后，分档散文的边际信息量为零，只剩梯度。判断语义只属于 CORE，本通道只负责让弱模型也能结构化地拿到压力事实。
 
 ### 确定性打断器（syntax-only triggers）
 

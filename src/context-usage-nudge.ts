@@ -143,27 +143,25 @@ export function restoreContextUsageNudgeState(entries: readonly unknown[]): Rest
   };
 }
 
+/**
+ * Tier reminders report the crossing as a fact and stop.
+ *
+ * They used to carry three tiers of escalating prose that told the model what
+ * to weigh and when to act. That made the nudge a fourth guidance owner
+ * competing with CORE, and it reintroduced the FM-08 action gradient: rising
+ * pressure reading as rising permission to travel, which CORE explicitly
+ * denies ("a preferred outcome, not move authorization"). Since the gauge
+ * suffix landed, per-tier prose adds no information the model does not already
+ * have — only gradient.
+ *
+ * What remains is the tier crossing, the numbers, and one sentence stating
+ * that judgment is unchanged. Judgment semantics stay in CORE; this channel
+ * exists so weaker models still get the pressure fact structurally.
+ */
 export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): ContextUsageNudgeMessage {
   const pressure = nudge.pressurePercent.toFixed(1);
   const hardUsage = nudge.usagePercent.toFixed(1);
-  const header = nudge.level === 70
-    ? "[ACM Context Reminder · 70% tier · Final reminder]"
-    : `[ACM Context Reminder · ${nudge.level}% tier]`;
-
-  const guidance = nudge.level === 30
-    ? [
-        "Working-budget pressure has left the comfortable cruise range. Run ACM Judgment: identify material whose attention value is lower than its noise or competition cost, and ask whether future-needed value can be represented substantially more concisely.",
-        "A useful acm_checkpoint is a near-free recovery option and activation foothold; acm_timeline can add topology evidence. Choose continue, save, orient, or travel only by expected net task effect — pressure alone is not move permission.",
-      ]
-    : nudge.level === 50
-      ? [
-          "Working-budget pressure is material. Explicitly compare Compression Candidate, Compressibility, Attention effect, Recovery value, and Transition effect; use acm_timeline when spine or target evidence would improve that judgment.",
-          "Choose continue, checkpoint, timeline, travel, rebase, or rehydrate according to the best expected task effect. Any handoff must preserve the hot set, honest uncertainty, current obligations, and direct pointers.",
-        ]
-      : [
-          "Working-budget pressure is high; attention is scarce. Run the same ACM Judgment now, giving extra weight to attention interference while preserving task continuity and future-self trust.",
-          "When a move has positive net effect, take it with a faithful handoff; when the current raw detail remains the best working set, continue correctly and let native compaction handle genuinely long work.",
-        ];
+  const header = `[ACM Context Reminder · ${nudge.level}% tier]`;
 
   return {
     customType: "acm:context-usage-reminder",
@@ -172,7 +170,7 @@ export function buildContextUsageNudgeMessage(nudge: PendingContextUsageNudge): 
       "",
       `ACM working-budget pressure has reached approximately ${pressure}% (${formatTokenCount(nudge.tokens)} / ${formatTokenCount(nudge.workingBudgetTokens)} working budget). Hard context usage is ${hardUsage}% (${formatTokenCount(nudge.tokens)} / ${formatTokenCount(nudge.contextWindow)} model window). This is an automated ACM notice, not a new user request.`,
       "",
-      ...guidance,
+      "This is a fact, not a move authorization: ACM Judgment is unchanged by the crossing. Continue if the working set is already the best representation of the task.",
     ].join("\n"),
     display: false,
     details: {
