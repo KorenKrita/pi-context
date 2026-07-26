@@ -9,10 +9,14 @@ The retired 15 showroom scenarios ran 1-3 turns. With real per-million prices
 an untouched prompt is billed at `cacheRead` while every fold invalidates the
 cache and re-bills the whole prompt at `input` price, so folding only pays off
 after enough follow-up requests. `eval/cost-model.mjs` computes where that
-crossing sits: **request 14** for `gpt-5.6-sol` and **request 59** for
-`deepseek-v4-flash` at a 200K/3K/15% shape. Every showroom scenario sat far
-left of both, so they could only ever measure folding overhead — and they did,
-reporting ACM as a pure cost item.
+crossing sits. On this scenario's measured shape it is **request 22** for
+`gpt-5.6-sol` and **request 66** for `deepseek-v4-flash`. Every showroom
+scenario sat far left of both, so they could only ever measure folding overhead
+— and they did, reporting ACM as a pure cost item.
+
+A weak model that never folds a 30-turn run is therefore behaving correctly:
+its own crossing is at 66. Confirming that folding actually saves money
+requires a model whose crossing the script clears.
 
 ## The three dependent variables
 
@@ -34,10 +38,19 @@ on 29 drifts.
 
 | Phase | Turns | What happens |
 | --- | --- | --- |
-| survey | 1-7 | Read 6 service logs in depth plus the SLO targets and incident reports. ~87K tokens of real log text exists in the fixture; ~13.6K enters the prompt per turn. |
+| survey | 1-7 | Read 6 service logs in depth plus the SLO targets and incident reports. ~87K tokens of real log text exists in the fixture; ~13.4K enters the prompt per turn. |
 | **settle** | **8** | Write the conclusions to `ops/reconciliation-plan.md`. |
 | apply | 9-24 | Reconcile the 12 configs, one file per turn, plus verification turns. |
 | regress | 25-30 | Answer questions whose facts were only ever visible during survey. |
+
+Measured on a completed 30-turn `deepseek-v4-flash` run: the prompt reaches
+91.1K at the settling turn and 117.9K at turn 30, so a 400K window never comes
+close to compaction. Apply-phase growth is only ~1.0K per turn because editing
+three constants produces little text — far below the 3K the cost model was first
+sketched with. That difference changes absolute dollars but **not** the
+break-even point, which stayed at request 22: per-request growth enters both
+policies symmetrically, so only the retained fraction, the price structure, and
+the settling turn move the crossing.
 
 ### Fold timing is objective, not annotated
 

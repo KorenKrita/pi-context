@@ -603,6 +603,21 @@
         <td>成本模型加入「过早折叠」惩罚项（<code>settledAtRequest</code> + <code>recoveryTokens</code>），第三项因变量取 <code>scoreFoldTiming</code> 的可算偏离量。</td>
         <td>纯计费下最优折叠点恒为第 0 次请求且候选成本严格单调递增（拖延时重读的上下文只会更大），于是模型给出的建议永远是「立刻折叠」，无法区分「及时折叠」与「乱折叠」，与 ACM 语义（须待结论沉淀完毕才能安全折叠）相悖。惩罚项的语义：<code>settledAtRequest</code>(S) 标记结论提取完成的请求序号，在 k&lt;S 折叠时，区间内每个仍需原始材料的请求付一次 <code>recoveryTokens</code> 的 rehydrate，按 input 全价计（recovery 重读的是未缓存前缀）。成本曲线由单调斜坡变为谷底落在 S 的 V 形；同时交叉点被推后（S=8、recovery=60K 时 sol 从第 14 推到第 22 次请求），这是选择 20–30 轮剧本时必须计入的事实。<code>scoreFoldTiming</code> 输出 deviation、excessCost 与 optimal/premature/late/missed/unnecessary 分类；剧本过短以致不该折叠时，「不折叠」记 optimal、deviation=0，因此正确拒绝折叠的弱模型不被惩罚。刻意不为「未恢复的过早折叠」定价 outcome 风险——该项由 outcome 因变量独立承担。commit <code>361e4870</code>。</td>
       </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>长剧本的 <code>settledAtRequest</code> 不再拍值，而是锢在一个可观测产物：第 8 轮写出 <code>ops/reconciliation-plan.md</code>。</td>
+        <td>上一条 open 项指出 S 属未校准参数且 <code>scoreFoldTiming</code> 的 optimal 点对它敏感。解法是让剧本自己造出锢点：探索段（1–7 轮）读日志，第 8 轮强制把结论写成磁盘文件，该文件存在与否是二值事实，对所有模型、所有 commit、两个臂完全相同，且语义正确（结论落盘 ⇒ 原始日志成为沉积物，且仍可从文件恢复）。实测确认：deepseek-v4-flash 跑满 30 轮后该文件确实存在且内容含豁免条目。另一条未校准参数 <code>recoveryTokens</code> 的风险同时被消除：单测锁住了它从 20K 到 200K 变化时最优点与 savings 完全不变，它只给「折早了」定价，不参与任何判定基准。commit <code>692fd98a</code>。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>两次低成本冗烟（deepseek，共 $0.08）在上强模型前拦下了一个会污染整轮实验的参数错误，并修正了成本模型的一项假设。</td>
+        <td>第一次（3 轮）测到 survey 每轮读 2 个日志时 prompt 每轮涨 <strong>27K</strong>，第 7 轮就会撞破 200K 窗口——在 S 之前触发 native compaction，正是本剧本为避开而建的污染。改为每轮读 1 个日志 + 窗口默认 400K 后，第二次（9 轮）测得 13.4K/轮、S 处 105K。随后跑满 30 轮得到完整曲线：S 处 91.1K、第 30 轮 117.9K，apply 段每轮仅涨 <strong>1.0K</strong>（改三个常量产出的文本就很少），远低于成本模型最初草拟的 3K。关键结构发现：<code>deltaTokens</code> 从 3000 降到 1044，sol 交叉点仍为第 22 次请求不变——每轮增量的 <code>i×D</code> 项对两策略对称，D 只影响绝对金额、不影响交叉位置；交叉点只由折叠留存比、价格结构、S 三者决定。因此「实测 delta 变小会把交叉点推到 30 轮之外」的担心被证伪，30 轮确实落在 sol 交叉点（22）右侧。commit <code>eb8494ad</code>。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>弱模型跑满 30 轮全程 <code>acmCalls=0</code>，结算仍判 <code>timing=optimal deviation=0</code>——这是正确行为而非 floor 失败。</td>
+        <td>deepseek-v4-flash 自己的交叉点在第 66 次请求（cacheRead 比 input 便宜 50×，折叠的全量重读相对更贵），30 轮剧本对它而言在交叉点左侧，不折叠就是最优策略。这也是上一轮废弃「弱模型先跑验证曲线」计划的原因：弱模型可以验管线正确性与 judge 是否误罚，但无法验证「折叠真的省钱」。弱模型这一轮同时证明了剧本可解：30/30 轮 exit=0、<code>verify.mjs</code> 12 services reconciled、<code>search.poolSize: 40</code> 豁免保住、回归段产出 <code>ops/handover.md</code>，共 $0.0472 / 6m43s。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
@@ -610,7 +625,8 @@
     <li><strong>open:</strong> 三个原先的 open 问题已由 2026-07-26 强弱双轮回答（量程部分成功、两个 thrash 判据不合格已修、弱模型 floor 未塔），但两轮 sweep 跑的是 <code>9663c5d8</code>，不含后续的 P5 第二阶段修复（<code>ab08a5f1</code>）、gate 语义修复（<code>1bcfc552</code>）与判据修复（<code>063ae55d</code>）。当前 evidence 的 verdict 与 flag 是离线重算而非原生产出，因此 P5 双臂 <code>move_missed</code> 仍属结构性伪信号。用当前 HEAD 跑一轮干净基线仍是待做项（用户本轮选择暂不重跑）。</li>
     <li><strong>open:</strong> 弱模型的 ceiling 问题未解：<code>firstAcmCallIndex</code> 反复落在最后一次工具调用（N1=32/33、N2=13/14、N4=15/16、P4=23/24、K1-9=9/10）——干完活收尾补一个 checkpoint 交差，响应了 cue 但没用在能改变注意力的位置。这是结构面问题（何时发 cue）而非散文问题。</li>
     <li><strong>open:</strong> 已确诊但未修的三条 gate 缺陷（用户本轮选择先看强模型轮）：D3 required move 的条件依赖（需拆两题）、任务本体失败与 ACM 失败混淆的隔离（弱模型 P1 双臂 <code>toolCalls=1</code> 就交差，现已正确记为 <code>fail</code> 但未单独分类）、单臂 <code>run_error</code> 污染配对统计（弱模型 P3 on=run_error 仍计入 on 统计）。</li>
-    <li><strong>open:</strong> <code>settledAtRequest</code> 与 <code>recoveryTokens</code> 目前由剧本作者标注，属未校准参数（与 8/8pp/8 阈值同类）。剧本一旦成型，S 应能由「结论何时提取完毕」的客观锚点（如探索段结束的脚本可判事件）导出，而非拍值；<code>recoveryTokens</code> 应由真实 rehydrate 的观测规模标定。在此之前 <code>scoreFoldTiming</code> 的 optimal 点位置对 S 敏感。</li>
+    <li><strong>open:</strong> 交叉点与最优点仍依赖一个未校准量：折叠后保留比 15%（<code>foldedTokens = 0.15 × contextTokens</code>）。S 已由可观测产物锢定、<code>recoveryTokens</code> 已证不影响判定基准，但保留比直接决定交叉点位置。它应由真实 travel 后的观测 prompt 规模标定；强模型配对跑一旦产生真实折叠，就应用它的 fold 后 prompt 回填该参数并重算交叉点。</li>
+    <li><strong>open:</strong> 30 轮在 sol 上的理论收益仅 $0.36（约占 30 轮总额 12%），信号存在但不厚，可被 on 臂额外工具调用的 output 成本吞掉。若需更厚信号需延至 40–45 轮（N=40 省 $0.79、N=60 省 $1.65），代价是强模型成本与时长同比例上升。先跑 30 轮的理由：它先回答「真实模型会不会在 S 附近折叠、outcome 是否仍达成」；若模型根本不折叠或折错时机，延长剧本也救不了，问题在产品侧。</li>
     <li><strong>open:</strong> 成本模型只考虑「至多折叠一次」。真实长剧本可能多次折叠（rebase 会叠加 summary 层），多折叠策略的最优时机序列尚未建模；20–30 轮剧本若出现两次以上 travel，第三项因变量需要扩展而非直接套用。</li>
     <li><strong>future evidence:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability, exact-pointer delivery, a healthy production-like flow and one same-commit raw-control pair are now recorded.</li>
     <li><strong>conditional user decision:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>

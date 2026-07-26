@@ -8,11 +8,12 @@
 // produced by the run itself. That keeps the billed usage authentic — the whole
 // point is to measure real dollars, and a synthetic prefix cannot be billed.
 //
-// The window is clamped to 400K rather than 40K. A smoke run measured ~13.6K
-// tokens of prompt growth per survey turn, putting the settling turn near 121K
-// and leaving headroom so native compaction never fires. A 40K clamp forced
-// compaction in both arms and masked the effect being measured; a 200K clamp
-// would have been crossed before the settling turn.
+// The window is clamped to 400K rather than 40K. A completed 30-turn run grows
+// ~13.4K per survey turn and only ~1.0K per apply turn, reaching 91.1K at the
+// settling turn and 117.9K at turn 30 — ample headroom, so native compaction
+// never fires. A 40K clamp forced compaction in both arms and masked the effect
+// being measured; a 200K clamp would have been crossed before the settling turn
+// at the growth rate an earlier two-logs-per-turn script produced.
 //
 // Usage:
 //   node run-pair.mjs --model <provider/model> [--thinking high]
