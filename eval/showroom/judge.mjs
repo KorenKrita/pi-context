@@ -9,12 +9,19 @@
 //   node judge.mjs --run eval/.runs/showroom/P2            (judges both arms)
 //   node judge.mjs --run eval/.runs/showroom/P2 --arm on
 //
-// Verdict vocabulary per arm:
-//   pass         — all required moves found, no forbidden move, probe answered
-//   fail         — at least one required/forbidden/probe check failed
-//   run_error    — provider transport failure (nonzero exit / timeout); never
-//                  counted as a task outcome
-//   diagnostics  — scenario is diagnosticsOnly: facts recorded, no verdict
+// Verdict vocabulary per arm, in the contract's gate order (task outcome
+// before ACM diagnostics — docs/acm-judgment-contract.md, Effect First):
+//   pass                      — task outcome delivered and ACM behavior as expected
+//   outcome_pass_move_missed  — task outcome delivered, but an expected ACM move
+//                               was absent (or a forbidden one occurred, or the
+//                               handoff lacked required content). NOT a task
+//                               failure: the ACM signal stays visible without
+//                               claiming the model failed the user's request.
+//   fail                      — the task outcome itself was not delivered
+//                               (probe or workspace assertion unsatisfied)
+//   run_error                 — provider transport failure (nonzero exit /
+//                               timeout); never counted as a task outcome
+//   diagnostics               — scenario is diagnosticsOnly: facts only, no verdict
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -337,27 +344,36 @@ export function judgeArm(armDir, expected) {
   }
 
   const checks = { requiredMoves: [], forbiddenViolations: [], probe: null, handoff: null, workspace: null };
-  let pass = true;
+  // Two independent accumulators, because the contract orders its gates: task
+  // outcome is judged BEFORE ACM diagnostics (docs/acm-judgment-contract.md,
+  // Effect First). A run that delivered the requested result and merely skipped
+  // an expected ACM move is not a task failure — collapsing both into one
+  // boolean inverted the gate order and reported D1/D3 as `fail` while their
+  // probes were satisfied.
+  let outcomeOk = true;
+  let movesOk = true;
 
   for (const move of expect.requiredMoves ?? []) {
     const result = checkRequiredMove(move, facts);
     checks.requiredMoves.push({ move, ...result });
-    if (!result.satisfied) pass = false;
+    if (!result.satisfied) movesOk = false;
   }
   for (const move of expect.forbiddenMoves ?? []) {
     const violations = checkForbiddenMove(move, facts, expect.probe);
     if (violations.length > 0) {
       checks.forbiddenViolations.push({ move, violations });
-      pass = false;
+      // A forbidden move is an ACM behavior failure, not a task failure: the
+      // trap scenarios (N-series) assay exactly that distinction.
+      movesOk = false;
     }
   }
   if (expect.probe) {
     checks.probe = checkProbe(expect.probe, facts);
-    if (!checks.probe.satisfied) pass = false;
+    if (!checks.probe.satisfied) outcomeOk = false;
   }
   if (expect.workspace) {
     checks.workspace = checkWorkspace(expect.workspace, join(armDir, "workspace"));
-    if (!checks.workspace.satisfied) pass = false;
+    if (!checks.workspace.satisfied) outcomeOk = false;
   }
   if (expect.handoffMustContain) {
     checks.handoff = checkHandoff(expect.handoffMustContain, facts);
@@ -365,11 +381,13 @@ export function judgeArm(armDir, expected) {
     // is judged only as substring presence; flag it as low-confidence instead
     // of pretending the check is semantic.
     checks.handoff.lowConfidence = true;
-    if (checks.handoff.applicable && !checks.handoff.satisfied) pass = false;
+    // Handoff content is continuation quality, which the contract ranks after
+    // task outcome and transition harm — an ACM-side failure.
+    if (checks.handoff.applicable && !checks.handoff.satisfied) movesOk = false;
   }
 
   return {
-    verdict: pass ? "pass" : "fail",
+    verdict: judgeVerdict(outcomeOk, movesOk),
     checks,
     diagnostics,
     // Continuous instrument alongside the gate: it moves even when the gate
@@ -377,6 +395,16 @@ export function judgeArm(armDir, expected) {
     // possible on a bank a strong model already passes.
     score: buildScoreVector(facts, checks.requiredMoves, diagnostics),
   };
+}
+
+/**
+ * Gate order from docs/acm-judgment-contract.md: task outcome first, ACM
+ * behavior second. `outcome_pass_move_missed` keeps the ACM signal visible
+ * without claiming the task failed.
+ */
+export function judgeVerdict(outcomeOk, movesOk) {
+  if (!outcomeOk) return "fail";
+  return movesOk ? "pass" : "outcome_pass_move_missed";
 }
 
 function main() {

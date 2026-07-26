@@ -119,10 +119,14 @@ export const ROW_FIELDS = [
 
 export function summarizeRows(rows) {
   const tally = (index) => {
-    const counts = { pass: 0, fail: 0, runError: 0 };
+    // outcomeDelivered counts every arm that satisfied the user's request,
+    // whether or not the expected ACM move happened; moveMissed is the ACM-side
+    // signal kept separate so a skipped move never reads as a task failure.
+    const counts = { pass: 0, moveMissed: 0, fail: 0, runError: 0, outcomeDelivered: 0 };
     for (const row of rows) {
       if (row[1] !== "outcome") continue;
-      if (row[index] === "pass") counts.pass++;
+      if (row[index] === "pass") { counts.pass++; counts.outcomeDelivered++; }
+      else if (row[index] === "outcome_pass_move_missed") { counts.moveMissed++; counts.outcomeDelivered++; }
       else if (row[index] === "fail") counts.fail++;
       else if (row[index] === "run_error") counts.runError++;
     }

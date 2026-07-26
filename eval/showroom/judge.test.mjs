@@ -2,7 +2,23 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildScoreVector, checkHandoff, checkRequiredMove, judgeArm, scoreHandoffs, scoreMoveLatency, scorePostFoldReread } from "./judge.mjs";
+import { buildScoreVector, checkHandoff, checkRequiredMove, judgeArm, judgeVerdict, scoreHandoffs, scoreMoveLatency, scorePostFoldReread } from "./judge.mjs";
+
+describe("gate order", () => {
+  // docs/acm-judgment-contract.md orders task outcome before ACM diagnostics.
+  test("a delivered outcome with a skipped move is not a task failure", () => {
+    expect(judgeVerdict(true, false)).toBe("outcome_pass_move_missed");
+  });
+
+  test("only an undelivered outcome fails, regardless of ACM behavior", () => {
+    expect(judgeVerdict(false, true)).toBe("fail");
+    expect(judgeVerdict(false, false)).toBe("fail");
+  });
+
+  test("both satisfied still passes", () => {
+    expect(judgeVerdict(true, true)).toBe("pass");
+  });
+});
 const roots = [];
 
 afterEach(() => {

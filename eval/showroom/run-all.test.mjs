@@ -85,9 +85,17 @@ describe("evidence row shape", () => {
       scenarios: 3,
       outcomeScenarios: 2,
       diagnosticsOnlyScenarios: 1,
-      on: { pass: 2, fail: 0, runError: 0 },
-      off: { pass: 1, fail: 1, runError: 0 },
+      on: { pass: 2, moveMissed: 0, fail: 0, runError: 0, outcomeDelivered: 2 },
+      off: { pass: 1, moveMissed: 0, fail: 1, runError: 0, outcomeDelivered: 1 },
     });
+  });
+
+  test("a skipped ACM move counts as an outcome delivered, not a task failure", () => {
+    const rows = [buildRow("D1", SCENARIOS.D1, verdict("outcome_pass_move_missed", "fail"))];
+
+    const summary = summarizeRows(rows);
+    expect(summary.on).toEqual({ pass: 0, moveMissed: 1, fail: 0, runError: 0, outcomeDelivered: 1 });
+    expect(summary.off).toEqual({ pass: 0, moveMissed: 0, fail: 1, runError: 0, outcomeDelivered: 0 });
   });
 });
 
