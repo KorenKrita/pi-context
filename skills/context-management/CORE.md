@@ -5,41 +5,53 @@ This file is the always-on model-facing projection of `docs/acm-judgment-contrac
 <!-- ACM:CORE:START -->
 ## Agentic Context Management CORE
 
-Compression is intelligence: to understand something is to be able to restate it shorter without losing what matters. Your context window is a **working set**, not a transcript — it should hold the best current representation of the task, not the history of how you reached it. The ACM tools (`acm_checkpoint`, `acm_timeline`, `acm_travel`) let you act on that understanding. They are yours to use autonomously, as ordinary as reading a file; only an explicit user request to hold travel pauses it, and only for the scope the user names.
+Compression is intelligence: to understand something is to be able to restate it shorter without losing what matters. Your context window is a **working set**, not a transcript — it holds the best current representation of the task, not the history of how you reached it.
+
+Folding exists for forward motion, not tidiness. You shed baggage at the right moment so the road ahead gets your full attention — never because history looks untidy. A fold is packing for the journey: what the next stretch needs goes into the handoff; everything else stays behind in the tree, one travel away.
+
+The ACM tools (`acm_checkpoint`, `acm_timeline`, `acm_travel`) are yours to use autonomously, as ordinary as reading a file; only an explicit user request to hold travel pauses them, and only for the scope the user names.
 
 ### What earns a place in the working set
 
 - Settled conclusions, decisions, and constraints.
-- Honest uncertainty: unknowns kept as unknowns, competing hypotheses with the evidence for each and the next test that would tell them apart.
-- The **hot set** — exact values, identifiers, snippets, and wording the next few steps will reuse verbatim.
+- Honest uncertainty: unknowns kept open, competing hypotheses with the evidence for each and the next test that would tell them apart.
+- The **hot set** — exact values, identifiers, snippets, and wording the next steps will reuse verbatim.
 - Pointers — paths, commands, commits, node IDs, checkpoints — to everything else.
 
-Raw process whose outcome is already extracted — logs read, diffs applied, searches concluded, dead ends understood — is **sediment**: it competes for attention without changing any future decision. Removing it deletes nothing; history stays in the session tree, reachable by pointer.
+Raw process whose outcome is fully extracted — logs read, diffs applied, searches concluded, dead ends understood — is **sediment**: it competes for attention without changing any future decision. Removing it deletes nothing; history stays in the session tree, reachable by pointer.
+
+### When a fold is earned
+
+**Extraction-complete is the bar.** Fold a stretch of history when you can already restate everything it settled — conclusions, live hypotheses with their evidence, exact hot values — without reaching back into it. If writing the handoff forces vagueness, the understanding is not finished, and folding now converts a half-built understanding into debt repaid as a wave of rereads. Fold behind the last settled boundary instead, or keep working until the extraction closes.
+
+The bar applies to the stretch being folded, not to the whole task. Mid-investigation travel can be valuable when the stretch is itself spent — a dead end whose lesson is banked, a detour that yielded its one number, a bulk ingest already distilled — even while the larger question stays open; `exclusions` carries what the dead end proved.
+
+Once the bar is met, lean into the fold. The regret is asymmetric: sediment taxes every later step it lingers through, while an earned fold costs one transition and stays recoverable. Deferring a fold you have already earned is drag, not caution. Recoverability, though, is insurance against accidents, not a license for half-done extraction — fold scraps you barely understood and you get **thrash**, immediately rereading what was just folded, paying for the fold and the reread both; and what you never extracted, you will not know to go back for.
+
+The working budget (the smaller of the model window and 400K) is information, not a deadline. The gauge on tool results — `[ctx N% budget · M% window]`, or `[ctx N% window]` where the window itself is the budget — is proprioception: pressure against your attention budget, room against the physical window. Numbers carry no instruction; running past a number to finish a clean extraction is right, folding dirty to stay under one is wrong. When genuinely long work outruns useful folding, native compaction remains an acceptable backstop.
 
 ### The moves
 
-- **Save** — `acm_checkpoint` labels the current state so it can be found again. It never blocks, branches, or folds anything. Save when returning here later has real value: before a risky attempt, before a large ingest — a big read, diff, or log dump you may later want to fold away — at a validated baseline, before a fork in strategy, when parking one front to work another, before folding raw history away. Recoverability is what makes bold compression and bold exploration cheap. File backups protect the disk; a checkpoint protects this conversation — they never substitute for each other; a risky step deserves both.
+- **Save** — `acm_checkpoint` labels the current state so it can be found again; it never blocks, branches, or folds anything. Save before a risky attempt, before a large ingest you may later fold away, at a validated baseline, at a fork in strategy, before folding raw history. Recoverability is what makes bold compression and bold exploration cheap. File backups protect the disk; a checkpoint protects this conversation — a risky step deserves both.
 - **Orient** — `acm_timeline` shows the spine, save points, summary depth, usage, and sync state. It reports facts; what they justify stays your call.
-- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. Fold when low-attention-value, high-noise material has a substantially more concise representation and the expected attention gain exceeds transition and continuity cost. **Cold start** is the handoff integrity test: knowns remain known, uncertainty remains open, current obligations survive, and `next` is executable. Mid-investigation travel can be valuable when those conditions hold. Choose the target by what it precedes — the last clean point before the material being folded — not by which label is nearest or best named.
+- **Fold** — `acm_travel` replaces lived process with its **handoff**, and is as recoverable as a save: the raw path stays in the tree behind a pointer, one travel away. Choose the target by what it precedes — the last clean point before the material being folded — not by which label is nearest or best named.
 - **Rebase** — a fold to an earlier base. When summaries stack or start competing over what is authoritative, merge everything that survives into one handoff at the earliest base that passes cold start without growing projected summary depth. Root is a candidate, never a default.
-- **Rehydrate** — travel toward an archived branch to recover one exact detail. Save your return point first, fetch the detail, then travel back carrying the extract. Compression stays reversible; that is why it can be bold.
-- **Fork** — save the fork point, explore one direction freely, and either fold the winning path forward or travel back to the fork carrying what the failed direction proved in Exclusions.
+- **Rehydrate** — travel toward an archived branch to recover one exact detail. Save your return point first, fetch the detail, then travel back carrying the extract.
+- **Fork** — save the fork point, explore one direction freely, and either fold the winning path forward or travel back to the fork carrying what the failed direction proved in `exclusions`.
 
-### Cadence
+### The tree is where answers live
 
-Compress continuously — integrate observations into conclusions as you work. Fold in batches — each travel costs a tool round-trip and one summary layer, so commit representation gains in meaningful units, not after every step.
+Everything this session ever knew — every fold, every abandoned branch, every earlier phase — remains in the tree. When you are missing something the session once held, the answer is in the tree: search the timeline, rehydrate the branch, reread the archived handoff. Do not ask the user to repeat what the session already knows, and do not rebuild from files what a handoff already settled. Asking again is a navigation failure, not caution.
 
-Two failure modes frame the healthy band. **Sediment**: a better representation exists but the raw process still occupies the working set. **Thrash**: folding tiny deltas, then immediately rereading what was just folded. Between them the band is wide, and different models legitimately choose different batch sizes inside it.
+### Boundaries are yours to notice
 
-ACM Judgment is independent of a full gauge: sediment can cloud attention at low usage, while high usage can still contain details whose attention value remains high. A comfortable cruise — around a third of the working budget (the smaller of the model window and 400K) — is a preferred outcome, not move authorization. Correctness, task continuity, Representation Gain, and cold start determine the result; native compaction remains available when genuinely long work outruns useful travel.
-
-Use ACM Judgment as a standing lens. Distilled reads, rejected directions, completed phases, new requests, possible return points, stacked summaries, missing archived details, and rising pressure are signals to evaluate the working set — not predetermined moves. Check for a Compression Candidate, Compressibility, Attention effect, Recovery value, and Transition effect; then choose the net-positive move or continue with the current working set.
+No cue will fire. The natural fold points are boundaries you can already feel: a request delivered, a phase settled, a strategy abandoned, a bulk read distilled, a new request arriving on top of finished work. At each boundary, ask what the road ahead needs from what just happened — then pack exactly that. Between boundaries, compress continuously — integrate observations into conclusions as you go — so that when the boundary arrives, the extraction is already closed. Fold in batches: commit representation gains in meaningful units, not after every step. Check the Compression Candidate, Compressibility, Attention effect, Recovery value, and Transition effect; then choose the net-positive move or continue with the current working set. Managing the context is overhead, not deliverable: no narration, no ceremony — the work itself stays the subject.
 
 ### The handoff
 
-`acm_travel` accepts a structured handoff with seven semantic fields: `goal`, `state`, `evidence`, `external`, `exclusions`, `recover`, and `next`. Supply every field; write `none` only for empty supporting fields. Runtime owns the durable text format.
+`acm_travel` takes a structured handoff with seven fields: `goal`, `state`, `evidence`, `external`, `exclusions`, `recover`, and `next`. Supply every field; write `none` only for an empty supporting field. Runtime owns the durable text format.
 
-`state` carries live cognition, not only results: knowns, unknowns, hypotheses, surviving fronts, and the hot set. `next` is one concrete action a fresh agent could execute immediately. A fold mid-investigation:
+**Cold start** is the integrity test: knowns remain known, uncertainty remains open, current obligations survive, and `next` is executable — one concrete action a fresh agent could execute immediately. And the survivor must still sound like the same person: same priorities, same suspicions, same next move. `state` therefore carries live cognition, not a report: knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the hot set. A fold mid-investigation:
 
 ```json
 {
@@ -53,9 +65,11 @@ Use ACM Judgment as a standing lens. Distilled reads, rejected directions, compl
 }
 ```
 
-The failure mode is the results-only report: a `state` like "investigated latency, ruled some things out, will keep looking" loses both hypotheses, the evidence weights, and the hot values — it passes as a status update and fails cold start. If writing `state` forces vagueness, the investigation is not yet foldable at that boundary; fold behind it or keep working.
+The failure mode is the results-only report: a `state` like "investigated latency, ruled some things out, will keep looking" loses the hypotheses, the evidence weights, and the hot values — it reads as a status update and fails cold start. A handoff you cannot write concretely is the extraction bar telling you the fold is not yet earned.
 
-### Facts and receipts
+### After the fold
 
-A tool call is a request; only its matching result is fact — applied, not applied, or indeterminate. Read the mutation receipt once. After an applied travel, trust the handoff as your authoritative current state and execute `next`; verify only uncertainty recorded in the handoff or facts changed by later independent activity. Travel rewrites conversation context only: files, processes, and external systems keep the state recorded in `external`.
+A tool call is a request; only its matching result is fact — applied, not applied, or indeterminate. Read the receipt once.
+
+After an applied travel, the handoff is your authoritative state: execute `next`. Do not re-derive what it settled — rereading folded material "to make sure" is the exact cost the fold existed to remove. If one specific claim is load-bearing and genuinely uncertain, verify that claim against its pointer: a bounded spot-check, not a re-derivation. Travel rewrites conversation context only: files, processes, and external systems keep the state recorded in `external`.
 <!-- ACM:CORE:END -->

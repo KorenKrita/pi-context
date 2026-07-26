@@ -56,32 +56,70 @@ describe("ACM guidance quality", () => {
 
 	describe("load-bearing phrases", () => {
 		test("fold reads as safe as a save", () => {
-			// Evidence: eval/PHASE1-LOG.md — fold-as-safe symmetry with the save
-			// agents already trust drove the Phase 1 fold-adoption gains.
+			// Evidence: eval-archive tag, PHASE1-LOG — fold-as-safe symmetry with
+			// the save agents already trust drove the Phase 1 fold-adoption gains.
 			expect(ACM_CORE).toContain("as recoverable as a save");
 		});
 
 		test("cold start keeps obligations alive through mid-work folds", () => {
-			// Evidence: eval/PHASE10-LOG.md — v4.1 added the obligation clause;
-			// mid-obligation folds then kept the task alive in every strong run.
+			// Evidence: eval-archive tag, PHASE10-LOG — v4.1 added the obligation
+			// clause; mid-obligation folds then kept the task alive in every
+			// strong run. v3 scopes the license to a spent stretch (dead end
+			// banked, detour paid out, ingest distilled), not the whole task.
 			expect(ACM_CORE).toContain("obligations survive");
 			expect(ACM_CORE).toContain("Mid-investigation travel can be valuable");
+			expect(ACM_CORE).toContain("when the stretch is itself spent");
+		});
+
+		test("the extraction bar gates every fold", () => {
+			// Contract: acm-judgment-contract.md v1 Travel — extraction-complete
+			// is the fold qualification; vague handoffs mean the fold is unearned.
+			// Evidence: sol-t30-pair (eval-archive) — a t6 fold before survey
+			// extraction closed triggered a 24-read rebuild wave.
+			expect(ACM_CORE).toContain("Extraction-complete is the bar");
+			expect(ACM_CORE).toContain("the extraction bar telling you the fold is not yet earned");
+			// Recoverability covers accidents, not half-done extraction.
+			expect(ACM_CORE).toContain("insurance against accidents, not a license");
+			expect(ACM_CORE).toContain("what you never extracted, you will not know to go back for");
+		});
+
+		test("above the bar, deferral is drag — the tool leans forward", () => {
+			// Contract: v1 北极星「度」条款 (user-decided 2026-07-27) — at the
+			// best-effect frontier, prefer active use; regret is asymmetric.
+			expect(ACM_CORE).toContain("lean into the fold");
+			expect(ACM_CORE).toContain("Deferring a fold you have already earned is drag, not caution");
 		});
 
 		test("cadence stays judgment, never gauge- or move-authorization", () => {
-			// Evidence: docs/acm-judgment-contract.md — Effect First; the cruise
-			// level and the five checks are user-decided contract semantics.
-			expect(ACM_CORE).toContain("around a third of the working budget");
-			expect(ACM_CORE).toContain("preferred outcome, not move authorization");
+			// Contract: v1 度 — the budget is information, not a deadline; no
+			// fixed percentage anchor may exist for a compliant model to chase.
+			expect(ACM_CORE).toContain("information, not a deadline");
+			expect(ACM_CORE).toContain("Numbers carry no instruction");
 			for (const check of ["Compression Candidate", "Compressibility", "Attention effect", "Recovery value", "Transition effect"]) {
 				expect(ACM_CORE).toContain(check);
 			}
-			// Evidence: docs/acm-judgment-contract.md cadence doctrine pair.
-			expect(ACM_CORE).toContain("Compress continuously");
+			// Contract: v1 边界自认 cadence pair.
+			expect(ACM_CORE).toContain("compress continuously");
 			expect(ACM_CORE).toContain("Fold in batches");
-			// Evidence: eval/PHASE10-LOG.md — cross-model runs land at different
-			// batch sizes inside the healthy band; no universal cadence.
-			expect(ACM_CORE).toContain("different models legitimately choose different batch sizes");
+		});
+
+		test("boundaries are self-noticed and the tree is the answer space", () => {
+			// Contract: v1 边界自认 — the perception layer is a gauge; no worded
+			// cue exists, so boundary sense is the model's own duty.
+			expect(ACM_CORE).toContain("No cue will fire");
+			// Contract: v1 树即答案空间 — re-asking the user for what the
+			// session already holds is the canonical navigation failure.
+			expect(ACM_CORE).toContain("Asking again is a navigation failure, not caution");
+		});
+
+		test("the survivor is the same person, and post-fold trust is bounded spot-checks", () => {
+			// Contract: v1 Trusted Handoff — live cognition survives the fold
+			// (北极星: not "like a different person after folding").
+			expect(ACM_CORE).toContain("still sound like the same person");
+			// Rereads to "make sure" are the cost the fold removed; one
+			// load-bearing claim may be spot-checked against its pointer.
+			expect(ACM_CORE).toContain("the exact cost the fold existed to remove");
+			expect(ACM_CORE).toContain("a bounded spot-check, not a re-derivation");
 		});
 
 		test("autonomy pauses only on explicit user request", () => {
@@ -91,7 +129,7 @@ describe("ACM guidance quality", () => {
 		});
 
 		test("NEXT is defined by executability", () => {
-			// Evidence: eval/evidence/acm-optimization-next-2026-07-21.md — NEXT
+			// Evidence: eval-archive tag, acm-optimization-next-2026-07-21 — NEXT
 			// executability was the paired-eval axis; this is the definition.
 			expect(ACM_CORE).toContain("one concrete action a fresh agent could execute immediately");
 		});
@@ -142,10 +180,18 @@ describe("ACM guidance quality", () => {
 		});
 
 		test("fold-pressure language must not return", () => {
-			// Evidence: eval/PHASE10-LOG.md — v4 default-fold pressure caused
-			// mid-obligation folds that dropped the task; removed in v4.1.
+			// Evidence: eval-archive tag, PHASE10-LOG — v4 default-fold pressure
+			// caused mid-obligation folds that dropped the task; removed in v4.1.
 			expect(ACM_CORE).not.toContain("folding is the default, not an optional extra");
 			expect(ACM_CORE).not.toContain("Skip only when you can name why");
+		});
+
+		test("numeric anchors a compliant model could chase must not return", () => {
+			// Contract: v1 度 — the 1/3-budget cruise anchor was removed because
+			// compliant models fold toward numbers; the gauge stays numbers-only
+			// and the doctrine stays timing-based (extraction bar), not level-based.
+			expect(ACM_CORE).not.toContain("around a third of the working budget");
+			expect(ACM_CORE).not.toContain("comfortable cruise");
 		});
 
 		test("cues never order a rebase or a verification ritual", () => {
