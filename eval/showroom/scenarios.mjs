@@ -213,9 +213,16 @@ export const SCENARIOS = {
   },
 
   // P5 — phase completion: a busy run ends cleanly, next phase is independent.
-  // The end-of-run cue arrives as follow-up. Correct: fold/save at the boundary.
+  // The end-of-run cue arrives as follow-up — i.e. after agent_end, when the
+  // reporting phase is already over. A single-turn P5 therefore asked for a
+  // move the model had no remaining turn to make: the 2026-07-26 sweep saw all
+  // four arms (sol + dsv4flash) read 12 files, deliver the report, receive the
+  // phase_end cue, and answer "本轮已收尾" — structurally unable to satisfy it.
+  // The assay only becomes decidable when a second phase follows the cue, which
+  // is also the real shape of "act on the boundary cue": the save protects work
+  // that the next phase would otherwise have to reconstruct.
   P5: {
-    title: "phase completes after a busy run — act on the boundary cue",
+    title: "phase completes after a busy run — act on the boundary cue before the next phase",
     build(builder, { workspace }) {
       writeWorkspaceServices(workspace, 12);
       builder.user("给 orderflow 做个配置健康度报告");
@@ -223,10 +230,13 @@ export const SCENARIOS = {
       return {
         window: 40000,
         resumePrompts: [
-          `开始：必须分别用 read 打开以下 12 个配置模块（${SERVICE_FILE_LIST}），每个服务在报告里单列一行，写出 retryLimit、timeoutMs、poolSize；12 个都读完再给统一健康度报告，报告给完这轮就算收尾`,
+          `开始：必须分别用 read 打开以下 12 个配置模块（${SERVICE_FILE_LIST}），每个服务在报告里单列一行，写出 retryLimit、timeoutMs、poolSize；12 个都读完再给统一健康度报告`,
+          "报告收到。下一件事：按这份报告把 poolSize 最小的那个服务挑出来，说明它为什么最危险",
         ],
         expect: {
-          requiredMoves: [{ tool: "acm_checkpoint|acm_travel", withinToolCalls: 30 }],
+          // The cue lands at the end of phase one; the move belongs to the
+          // boundary before phase two, not to the finished reporting turn.
+          requiredMoves: [{ tool: "acm_checkpoint|acm_travel", inTurn: 2, withinToolCalls: 30 }],
           probe: { mustContain: ["poolSize", "retryLimit"] },
         },
       };
