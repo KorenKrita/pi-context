@@ -108,3 +108,23 @@ describe("travel target facts", () => {
     ]);
   });
 });
+
+describe("resolveTargetId", () => {
+  test("marks the structural root off-path when the active branch starts at another top-level root", async () => {
+    const { resolveTargetId } = await import("../src/lib.js");
+    const firstRoot = user("root-a");
+    const activeRoot = user("root-b");
+    const node = (entry: SessionEntry) => ({ entry, children: [] });
+    const view = {
+      getEntries: () => [firstRoot, activeRoot],
+      getBranch: () => [activeRoot],
+    };
+
+    // Off-path root resolution feeds the off-path warning both checkpoint
+    // and travel surface before mutating toward foreign history.
+    expect(resolveTargetId(view, [node(firstRoot), node(activeRoot)], "root")).toEqual({
+      id: "root-a",
+      fromOffPath: true,
+    });
+  });
+});
