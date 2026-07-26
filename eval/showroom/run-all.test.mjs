@@ -133,7 +133,17 @@ describe("thrash detection", () => {
     const scores = collectScores("N1", { arms: { on: armScore(62, 3), off: armScore(21, 1) } });
 
     expect(scores.thrash.flagged).toBe(true);
-    expect(scores.thrash.flags.map((f) => f.kind)).toEqual(["paired_overhead", "repeated_acm_attempts"]);
+    expect(scores.thrash.flags.map((f) => f.kind)).toEqual(["paired_overhead"]);
+  });
+
+  test("using the tools at all is not thrash", () => {
+    // The retired repeated_acm_attempts shape: with triggers disabled the
+    // control's acmCalls is ~always 0, so an ACM-active treated arm fired the
+    // flag on N1/N2/N4/P4 in the 2026-07-26 sol-medium sweep. Proportionate
+    // work with several ACM calls must stay unflagged.
+    const scores = collectScores("N2", { arms: { on: armScore(20, 4), off: armScore(18, 0) } });
+
+    expect(scores.thrash).toBeUndefined();
   });
 
   test("flags folding followed by re-ingesting the same material", () => {

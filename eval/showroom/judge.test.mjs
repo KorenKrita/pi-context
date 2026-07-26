@@ -120,6 +120,10 @@ function tool(name, turn = 1) {
   return { kind: "tool", name, turn, input: {} };
 }
 
+function read(path, turn = 1) {
+  return { kind: "tool", name: "read", turn, input: { path } };
+}
+
 describe("showroom required-move judging", () => {
   test("counts a late required move before task end and reports latency diagnostically", () => {
     const facts = [
@@ -232,17 +236,36 @@ describe("continuous scoring vector", () => {
     expect(scoreMoveLatency([])).toEqual({ measured: 0 });
   });
 
-  test("counts reads in the window right after each fold — the Thrash signature", () => {
-    const facts = [
-      tool("read"),
+  test("counts only re-ingested archived targets, not post-fold work on new ones", () => {
+    // The false-positive shape from the 2026-07-26 sol-medium sweep: P1 folded
+    // the logs, then read package.json / Cargo.toml / README.md. Five reads in
+    // the window, zero of them the archived material.
+    const newTargets = [
+      read("/var/log/app-1.log"),
       travelWith({ goal: "g", state: "s", next: "n" }),
-      tool("read"), tool("read"), tool("bash"),
+      read("package.json"), read("Cargo.toml"), read("README.md"),
     ];
 
-    expect(scorePostFoldReread(facts)).toMatchObject({
+    expect(scorePostFoldReread(newTargets)).toMatchObject({
+      folds: 1,
+      maxRereads: 0,
+      totalRereads: 0,
+      // Kept visible: the model did keep working after the fold.
+      maxReadsAfterFold: 3,
+    });
+
+    // The real signature: going back to what the fold archived.
+    const revisited = [
+      read("/var/log/app-1.log"), read("/var/log/app-2.log"),
+      travelWith({ goal: "g", state: "s", next: "n" }),
+      read("/var/log/app-1.log"), read("/var/log/app-2.log"), read("fresh.ts"),
+    ];
+
+    expect(scorePostFoldReread(revisited)).toMatchObject({
       folds: 1,
       maxRereads: 2,
       totalRereads: 2,
+      maxReadsAfterFold: 3,
     });
   });
 

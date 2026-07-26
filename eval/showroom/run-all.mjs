@@ -178,21 +178,21 @@ export function detectThrash(scores) {
       detail: `treated arm used ${on.toolCalls} tool calls vs control ${off.toolCalls} (ratio ${delta.toolCallRatio})`,
     });
   }
-  // Folding and then re-ingesting the same material inside the window.
+  // Folding and then re-ingesting the ARCHIVED material inside the window.
+  // Read volume alone is not the signal: continuing to work after a fold is
+  // the intended behavior (see scorePostFoldReread).
   const rereads = on.postFoldReread ?? {};
   if (typeof rereads.maxRereads === "number" && rereads.maxRereads >= THRASH_REREAD_FLOOR) {
     flags.push({
       kind: "post_fold_reread",
-      detail: `${rereads.maxRereads} read-class calls within ${on.postFoldReread.folds} fold window(s)`,
+      detail: `${rereads.maxRereads} archived target(s) re-read within ${on.postFoldReread.folds} fold window(s)`,
     });
   }
-  // Repeated folds where the control needed none at all.
-  if (delta && on.acmCalls >= 3 && delta.acmCalls >= 2) {
-    flags.push({
-      kind: "repeated_acm_attempts",
-      detail: `${on.acmCalls} ACM calls vs control ${off.acmCalls}`,
-    });
-  }
+  // `repeated_acm_attempts` was removed after the 2026-07-26 sol-medium sweep:
+  // with ACM_TRIGGERS_DISABLED the control arm's acmCalls is ~always 0, so
+  // `delta.acmCalls >= 2` fired on N1/N2/N4/P4 merely because the treated arm
+  // used the tools at all. It measured whether the product was active, not
+  // whether it thrashed; paired_overhead carries the real overhead signal.
   return flags.length > 0 ? { flagged: true, flags } : null;
 }
 

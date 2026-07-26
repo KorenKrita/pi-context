@@ -257,26 +257,59 @@ function median(values) {
 }
 
 /**
- * Post-fold reread: how many read-class calls occur in the REREAD_WINDOW tool
- * calls right after a travel. Folding and then immediately re-ingesting the
- * same material is the Thrash signature, and it is invisible to a pass/fail
- * gate because the task can still succeed.
+ * Post-fold reread: after a fold, how much of the material the fold archived
+ * is re-ingested. Thrash is folding and then re-reading THE SAME material, so
+ * the measure is target overlap, not read volume.
+ *
+ * The first implementation only counted read-class calls in the window, which
+ * made it a 100% false-positive detector on the 2026-07-26 sol-medium sweep:
+ * P1, P2 and D1 all flagged while their post-fold reads were exploration of
+ * NEW targets (P1 read package.json / Cargo.toml / README.md, unrelated to the
+ * folded logs). Continuing to work after a fold is the intended behavior; only
+ * returning to the archived targets is the signature.
  */
 export const REREAD_WINDOW = 5;
+
+/** Read target identity: the argument that says what was ingested. */
+function readTarget(fact) {
+  const input = fact.input ?? {};
+  const raw = input.path ?? input.pattern ?? input.file ?? null;
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
 
 export function scorePostFoldReread(facts) {
   const tools = facts.filter((f) => f.kind === "tool");
   const windows = [];
   tools.forEach((fact, index) => {
     if (fact.name !== "acm_travel") return;
+    // Everything read before this fold is what the fold archived.
+    const archived = new Set(
+      tools.slice(0, index)
+        .filter((f) => READ_TOOLS.has(f.name))
+        .map(readTarget)
+        .filter((target) => target !== null),
+    );
     const after = tools.slice(index + 1, index + 1 + REREAD_WINDOW);
-    windows.push({ atIndex: index, reads: after.filter((f) => READ_TOOLS.has(f.name)).length, observed: after.length });
+    const readsAfter = after.filter((f) => READ_TOOLS.has(f.name));
+    const revisited = readsAfter.map(readTarget).filter((target) => target !== null && archived.has(target));
+    windows.push({
+      atIndex: index,
+      observed: after.length,
+      readsAfter: readsAfter.length,
+      archivedTargets: archived.size,
+      // Only re-ingesting an archived target counts as a reread.
+      rereads: revisited.length,
+      revisitedTargets: [...new Set(revisited)],
+    });
   });
   if (windows.length === 0) return { folds: 0 };
   return {
     folds: windows.length,
-    maxRereads: Math.max(...windows.map((w) => w.reads)),
-    totalRereads: windows.reduce((sum, w) => sum + w.reads, 0),
+    maxRereads: Math.max(...windows.map((w) => w.rereads)),
+    totalRereads: windows.reduce((sum, w) => sum + w.rereads, 0),
+    // Kept separate so "kept working after the fold" stays visible without
+    // being mistaken for thrash.
+    maxReadsAfterFold: Math.max(...windows.map((w) => w.readsAfter)),
     windows,
   };
 }
