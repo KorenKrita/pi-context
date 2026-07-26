@@ -149,14 +149,26 @@ export function summarizeRows(rows) {
  */
 export const THRASH_TOOL_CALL_RATIO = 2;
 export const THRASH_REREAD_FLOOR = 3;
+/**
+ * Absolute floor for the ratio judgement. A pure ratio has no scale: the
+ * 2026-07-26 dsv4flash sweep flagged D3 for "2 tool calls vs control 1",
+ * while the real overhead cases it exists to catch (N1 at 33 vs 20, and the
+ * motivating Opus N1 at 62 vs 21) live an order of magnitude higher. Below
+ * this floor a doubled ratio is noise, not thrash.
+ */
+export const THRASH_MIN_TOOL_CALLS = 12;
 
 export function detectThrash(scores) {
   const { on, off, delta } = scores;
   if (!on) return null;
   const flags = [];
 
-  // Overhead only means something against a control that did the same work.
-  if (delta && typeof delta.toolCallRatio === "number" && delta.toolCallRatio >= THRASH_TOOL_CALL_RATIO) {
+  // Overhead only means something against a control that did the same work,
+  // and only once the treated arm did enough work for a ratio to have scale.
+  if (delta
+    && typeof delta.toolCallRatio === "number"
+    && delta.toolCallRatio >= THRASH_TOOL_CALL_RATIO
+    && on.toolCalls >= THRASH_MIN_TOOL_CALLS) {
     flags.push({
       kind: "paired_overhead",
       detail: `treated arm used ${on.toolCalls} tool calls vs control ${off.toolCalls} (ratio ${delta.toolCallRatio})`,

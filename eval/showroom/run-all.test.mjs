@@ -150,6 +150,15 @@ describe("thrash detection", () => {
     expect(scores.thrash).toBeUndefined();
   });
 
+  test("a doubled ratio below the absolute floor is noise, not thrash", () => {
+    // Actual dsv4flash-max D3 false positive: 2 tool calls vs control 1 flagged
+    // paired_overhead at ratio 2, while N1 at 33 vs 20 (ratio 1.65) did not.
+    const scores = collectScores("D3", { arms: { on: armScore(2, 1), off: armScore(1, 0) } });
+
+    expect(scores.delta.toolCallRatio).toBe(2);
+    expect(scores.thrash).toBeUndefined();
+  });
+
   test("overhead is reported without touching the verdict", () => {
     const verdict = { arms: { on: { verdict: "pass", ...armScore(62, 3) }, off: { verdict: "pass", ...armScore(21, 1) } } };
     const row = buildRow("N1", SCENARIOS.N1, verdict);
