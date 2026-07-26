@@ -593,6 +593,16 @@
         <td>强弱两轮 sweep 不重跑模型，只用修复后的 judge/detector 离线重算判决。</td>
         <td>judge 与 detector 都是对 transcript 的纯函数，且 <code>judge.mjs</code> 设计上就保证 re-judging 不重跑模型（commit <code>a80a54d5</code>），所以修完判据后重算既安全又免费，还能直接用真实数据验证误报是否消失（这正是本轮确认 10→2 的手法）。归档于 <code>eval/evidence/showroom-strong-weak-pair-2026-07-26.json</code>（schemaVersion 3，记录 <code>productCommit=9663c5d8</code> 与 <code>rejudgedAt=063ae55d</code> 两个坐标）。结果：sol-medium on 12 pass/1 move_missed/0 fail vs off 9 pass/4 move_missed；dsv4flash-max on 7 pass/3 move_missed/2 fail/1 run_error vs off 6 pass/5 move_missed/2 fail。弱模型 floor 未塔（N1-N5 双臂全 pass），D 系列确实分出强弱（D1/D3 弱模型 move_missed、强模型 pass）。</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>废弃旧 15 场景作为改动正负向的判据，改为先用解析成本模型（<code>eval/cost-model.mjs</code>）算出剧本必须多长才可能显示折叠正向。</td>
+        <td>旧场景测的是同义反复：关掉触发器→模型不调工具→判 <code>move_missed</code>→记 on 臂赢；13 个 outcome 场景中 on/off 判决有差异仅 3/13(sol)、2/13(ds)，off 臂 <code>acmCalls=0</code> 占 9/15(sol)、11/15(ds)。更根本的是长度：真实分项单价（<code>~/.pi/agent/models.json</code>，sol input $5/M vs cacheRead $0.5/M；deepseek-v4-flash input $0.14/M vs cacheRead $0.0028/M）使未改动的 prompt 走 cacheRead 近乎免费，而每次 travel 使缓存失效、下次请求整个 prompt 按 input 全价重算。折叠因此是「用一次全量重读换永久更小的 prompt」，两条曲线有可计算的交叉点。实测（C=200K、D=3K/请求、F=15%C）：sol 交叉于第 14 次后续请求、deepseek-v4-flash 交叉于第 59 次；400K 同样交叉于 14（该 shape 下交叉点与上下文规模无关，只取决于折叠留存比与价格结构）。旧场景只有 1–3 轮，全部落在交叉点左侧，因此结构上只可能测到开销。用户据此定剧本长度按 sol 取 20–30 轮：弱模型在该长度上「不折叠」才是正确行为，这反而成为 judge 正确性的检验。commit <code>481e4d25</code>。</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>成本模型加入「过早折叠」惩罚项（<code>settledAtRequest</code> + <code>recoveryTokens</code>），第三项因变量取 <code>scoreFoldTiming</code> 的可算偏离量。</td>
+        <td>纯计费下最优折叠点恒为第 0 次请求且候选成本严格单调递增（拖延时重读的上下文只会更大），于是模型给出的建议永远是「立刻折叠」，无法区分「及时折叠」与「乱折叠」，与 ACM 语义（须待结论沉淀完毕才能安全折叠）相悖。惩罚项的语义：<code>settledAtRequest</code>(S) 标记结论提取完成的请求序号，在 k&lt;S 折叠时，区间内每个仍需原始材料的请求付一次 <code>recoveryTokens</code> 的 rehydrate，按 input 全价计（recovery 重读的是未缓存前缀）。成本曲线由单调斜坡变为谷底落在 S 的 V 形；同时交叉点被推后（S=8、recovery=60K 时 sol 从第 14 推到第 22 次请求），这是选择 20–30 轮剧本时必须计入的事实。<code>scoreFoldTiming</code> 输出 deviation、excessCost 与 optimal/premature/late/missed/unnecessary 分类；剧本过短以致不该折叠时，「不折叠」记 optimal、deviation=0，因此正确拒绝折叠的弱模型不被惩罚。刻意不为「未恢复的过早折叠」定价 outcome 风险——该项由 outcome 因变量独立承担。commit <code>361e4870</code>。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
@@ -600,6 +610,8 @@
     <li><strong>open:</strong> 三个原先的 open 问题已由 2026-07-26 强弱双轮回答（量程部分成功、两个 thrash 判据不合格已修、弱模型 floor 未塔），但两轮 sweep 跑的是 <code>9663c5d8</code>，不含后续的 P5 第二阶段修复（<code>ab08a5f1</code>）、gate 语义修复（<code>1bcfc552</code>）与判据修复（<code>063ae55d</code>）。当前 evidence 的 verdict 与 flag 是离线重算而非原生产出，因此 P5 双臂 <code>move_missed</code> 仍属结构性伪信号。用当前 HEAD 跑一轮干净基线仍是待做项（用户本轮选择暂不重跑）。</li>
     <li><strong>open:</strong> 弱模型的 ceiling 问题未解：<code>firstAcmCallIndex</code> 反复落在最后一次工具调用（N1=32/33、N2=13/14、N4=15/16、P4=23/24、K1-9=9/10）——干完活收尾补一个 checkpoint 交差，响应了 cue 但没用在能改变注意力的位置。这是结构面问题（何时发 cue）而非散文问题。</li>
     <li><strong>open:</strong> 已确诊但未修的三条 gate 缺陷（用户本轮选择先看强模型轮）：D3 required move 的条件依赖（需拆两题）、任务本体失败与 ACM 失败混淆的隔离（弱模型 P1 双臂 <code>toolCalls=1</code> 就交差，现已正确记为 <code>fail</code> 但未单独分类）、单臂 <code>run_error</code> 污染配对统计（弱模型 P3 on=run_error 仍计入 on 统计）。</li>
+    <li><strong>open:</strong> <code>settledAtRequest</code> 与 <code>recoveryTokens</code> 目前由剧本作者标注，属未校准参数（与 8/8pp/8 阈值同类）。剧本一旦成型，S 应能由「结论何时提取完毕」的客观锚点（如探索段结束的脚本可判事件）导出，而非拍值；<code>recoveryTokens</code> 应由真实 rehydrate 的观测规模标定。在此之前 <code>scoreFoldTiming</code> 的 optimal 点位置对 S 敏感。</li>
+    <li><strong>open:</strong> 成本模型只考虑「至多折叠一次」。真实长剧本可能多次折叠（rebase 会叠加 summary 层），多折叠策略的最优时机序列尚未建模；20–30 轮剧本若出现两次以上 travel，第三项因变量需要扩展而非直接套用。</li>
     <li><strong>future evidence:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability, exact-pointer delivery, a healthy production-like flow and one same-commit raw-control pair are now recorded.</li>
     <li><strong>conditional user decision:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>
   </ul>
