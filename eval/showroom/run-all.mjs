@@ -137,6 +137,27 @@ export function summarizeRows(rows) {
   };
 }
 
+/**
+ * Continuous scoring stays out of the flat rows on purpose: rows are the
+ * at-a-glance gate table, while the score block is the AB instrument. Kept as
+ * a nested object so a saturated gate (10/10 pass) still produces comparable
+ * numbers across models and across product commits.
+ */
+export function collectScores(id, verdict) {
+  const arm = (name) => verdict?.arms?.[name]?.score ?? null;
+  const on = arm("on");
+  const off = arm("off");
+  const entry = { on, off };
+  if (on && off) {
+    entry.delta = {
+      toolCalls: on.toolCalls - off.toolCalls,
+      acmCalls: on.acmCalls - off.acmCalls,
+      toolCallRatio: off.toolCalls > 0 ? Number((on.toolCalls / off.toolCalls).toFixed(2)) : null,
+    };
+  }
+  return entry;
+}
+
 function main() {
   const args = parseArgs(process.argv);
   const product = resolveProductCommit({ allowDirty: args.allowDirty });
@@ -145,13 +166,16 @@ function main() {
   mkdirSync(outRoot, { recursive: true });
 
   const rows = [];
+  const scores = {};
   const failures = [];
   for (const id of args.scenarios) {
     const scenarioDir = join(outRoot, id);
     const verdictPath = join(scenarioDir, "verdict.json");
     if (args.resume && existsSync(verdictPath)) {
       process.stderr.write(`[run-all] ${id}: resumed from existing verdict\n`);
-      rows.push(buildRow(id, SCENARIOS[id], JSON.parse(readFileSync(verdictPath, "utf8"))));
+      const verdict = JSON.parse(readFileSync(verdictPath, "utf8"));
+      rows.push(buildRow(id, SCENARIOS[id], verdict));
+      scores[id] = collectScores(id, verdict);
       continue;
     }
 
@@ -177,7 +201,9 @@ function main() {
       process.stderr.write(`[run-all] ${id}: judge failed (exit ${judged.status}), continuing\n`);
       continue;
     }
-    rows.push(buildRow(id, SCENARIOS[id], JSON.parse(readFileSync(verdictPath, "utf8"))));
+    const verdict = JSON.parse(readFileSync(verdictPath, "utf8"));
+    rows.push(buildRow(id, SCENARIOS[id], verdict));
+    scores[id] = collectScores(id, verdict);
   }
 
   const evidence = {
@@ -197,6 +223,7 @@ function main() {
     summary: { ...summarizeRows(rows), requested: args.scenarios.length, completed: rows.length, failures },
     rowFields: ROW_FIELDS,
     rows,
+    scores,
   };
   const evidencePath = join(outRoot, "evidence.json");
   writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));

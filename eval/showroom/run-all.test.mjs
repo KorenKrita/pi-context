@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { ROW_FIELDS, buildRow, parseArgs, resolveProductCommit, summarizeRows } from "./run-all.mjs";
+import { ROW_FIELDS, buildRow, collectScores, parseArgs, resolveProductCommit, summarizeRows } from "./run-all.mjs";
 import { SCENARIOS } from "./scenarios.mjs";
 
 const BASE_ARGV = ["node", "run-all.mjs", "--model", "local-claude/claude-opus-4-8"];
@@ -88,5 +88,29 @@ describe("evidence row shape", () => {
       on: { pass: 2, fail: 0, runError: 0 },
       off: { pass: 1, fail: 1, runError: 0 },
     });
+  });
+});
+
+describe("score aggregation", () => {
+  const armScore = (toolCalls, acmCalls) => ({ score: { toolCalls, acmCalls } });
+
+  test("pairs both arms and derives the on/off overhead ratio", () => {
+    const scores = collectScores("N1", { arms: { on: armScore(62, 3), off: armScore(21, 1) } });
+
+    expect(scores.delta).toEqual({ toolCalls: 41, acmCalls: 2, toolCallRatio: 2.95 });
+  });
+
+  test("omits the delta when an arm was not run", () => {
+    const scores = collectScores("P1", { arms: { on: armScore(11, 1) } });
+
+    expect(scores.on).toEqual({ toolCalls: 11, acmCalls: 1 });
+    expect(scores.off).toBeNull();
+    expect(scores.delta).toBeUndefined();
+  });
+
+  test("guards a zero-tool control arm instead of dividing by zero", () => {
+    const scores = collectScores("N2", { arms: { on: armScore(4, 0), off: armScore(0, 0) } });
+
+    expect(scores.delta.toolCallRatio).toBeNull();
   });
 });

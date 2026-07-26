@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkHandoff, checkRequiredMove, judgeArm } from "./judge.mjs";
+import { buildScoreVector, checkHandoff, checkRequiredMove, judgeArm, scoreHandoffs, scoreMoveLatency, scorePostFoldReread } from "./judge.mjs";
 const roots = [];
 
 afterEach(() => {
@@ -176,5 +176,77 @@ describe("showroom required-move judging", () => {
     const legacy = [tool("acm_travel")];
     legacy[0].input = { summary: "legacy checkout handoff" };
     expect(checkHandoff(["checkout"], legacy)).toMatchObject({ satisfied: true });
+  });
+});
+
+describe("continuous scoring vector", () => {
+  const travelWith = (handoff) => {
+    const fact = tool("acm_travel");
+    fact.input = { handoff };
+    return fact;
+  };
+
+  test("scores structural cold-start substance of every handoff", () => {
+    const full = {
+      goal: "fix checkout", state: "ledger-writer crosses fsync", evidence: "app-31.log",
+      external: "none", exclusions: "none", recover: "none", next: "read client.ts",
+    };
+    const score = scoreHandoffs([travelWith(full)]);
+
+    expect(score).toMatchObject({
+      travels: 1,
+      structuredRate: 1,
+      minFieldsPresent: 7,
+      minSubstantiveRequired: 3,
+    });
+  });
+
+  test("a results-only handoff scores lower without failing any gate", () => {
+    const vague = { goal: "keep looking", state: "ruled some things out", next: "none", external: "none" };
+    const score = scoreHandoffs([travelWith(vague)]);
+
+    // NEXT is `none`: three required fields, only two substantive.
+    expect(score.minSubstantiveRequired).toBe(2);
+    expect(score.minFieldsPresent).toBe(4);
+  });
+
+  test("reports zero travels instead of inventing a score", () => {
+    expect(scoreHandoffs([tool("read")])).toEqual({ travels: 0 });
+    expect(scorePostFoldReread([tool("read")])).toEqual({ folds: 0 });
+    expect(scoreMoveLatency([])).toEqual({ measured: 0 });
+  });
+
+  test("counts reads in the window right after each fold — the Thrash signature", () => {
+    const facts = [
+      tool("read"),
+      travelWith({ goal: "g", state: "s", next: "n" }),
+      tool("read"), tool("read"), tool("bash"),
+    ];
+
+    expect(scorePostFoldReread(facts)).toMatchObject({
+      folds: 1,
+      maxRereads: 2,
+      totalRereads: 2,
+    });
+  });
+
+  test("a saturated gate still yields comparable numbers", () => {
+    const facts = [tool("read"), travelWith({ goal: "g", state: "s", next: "n" })];
+    const requiredMoveChecks = [{
+      satisfied: true,
+      latency: { toolCallsAfterPrefix: 1, targetToolCalls: 3, withinTarget: true },
+    }];
+    const diagnostics = { toolCalls: 2, acmCalls: [{ turn: 1, name: "acm_travel" }], firstAcmCallIndex: 1, maxReadBurst: 1 };
+
+    const score = buildScoreVector(facts, requiredMoveChecks, diagnostics);
+
+    expect(score).toMatchObject({
+      toolCalls: 2,
+      acmCalls: 1,
+      firstAcmCallIndex: 1,
+      moveLatency: { measured: 1, satisfiedMoves: 1, totalMoves: 1, worstToolCallsAfterPrefix: 1, withinTargetCount: 1 },
+      handoff: { travels: 1, minSubstantiveRequired: 3 },
+      postFoldReread: { folds: 1, maxRereads: 0 },
+    });
   });
 });

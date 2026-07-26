@@ -185,6 +185,122 @@ export function checkHandoff(mustContain, facts) {
   return { applicable: true, satisfied: missing.length === 0, missing };
 }
 
+/**
+ * Continuous scoring vector — the AB instrument.
+ *
+ * pass/fail stays the outcome gate, but a boolean has no resolution: a strong
+ * model that already scores 10/10 cannot show improvement, and a small
+ * regression stays invisible until it flips a verdict. These are mechanical
+ * transcript measures (no semantic scoring) that move before the gate does,
+ * so the same bank can rank models and compare product changes.
+ */
+export const HANDOFF_FIELDS = ["goal", "state", "evidence", "external", "exclusions", "recover", "next"];
+
+function parseHandoffPayload(input) {
+  const payload = input?.handoff ?? input?.summary ?? null;
+  if (payload && typeof payload === "object") return payload;
+  if (typeof payload === "string") {
+    try {
+      const parsed = JSON.parse(payload);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch { return null; }
+  }
+  return null;
+}
+
+/**
+ * Cold-start substance of each travel handoff, judged structurally only:
+ * which of the seven fields are present, and which load-bearing fields carry
+ * something beyond a bare `none`. This measures whether the handoff has the
+ * shape a fresh agent can execute, never whether the prose is good.
+ */
+export function scoreHandoffs(facts) {
+  const travels = facts.filter((f) => f.kind === "tool" && f.name === "acm_travel");
+  if (travels.length === 0) return { travels: 0 };
+  const scored = travels.map((travel) => {
+    const handoff = parseHandoffPayload(travel.input);
+    if (!handoff) return { structured: false, fieldsPresent: 0, substantiveRequired: 0 };
+    const present = HANDOFF_FIELDS.filter((f) => typeof handoff[f] === "string" && handoff[f].trim().length > 0);
+    const substantive = ["goal", "state", "next"].filter((f) => {
+      const value = typeof handoff[f] === "string" ? handoff[f].trim().toLowerCase() : "";
+      return value.length > 0 && value !== "none";
+    });
+    return {
+      structured: true,
+      fieldsPresent: present.length,
+      substantiveRequired: substantive.length,
+      stateChars: typeof handoff.state === "string" ? handoff.state.trim().length : 0,
+    };
+  });
+  return {
+    travels: scored.length,
+    structuredRate: scored.filter((s) => s.structured).length / scored.length,
+    minFieldsPresent: Math.min(...scored.map((s) => s.fieldsPresent)),
+    minSubstantiveRequired: Math.min(...scored.map((s) => s.substantiveRequired)),
+    medianStateChars: median(scored.map((s) => s.stateChars ?? 0)),
+    perTravel: scored,
+  };
+}
+
+function median(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
+ * Post-fold reread: how many read-class calls occur in the REREAD_WINDOW tool
+ * calls right after a travel. Folding and then immediately re-ingesting the
+ * same material is the Thrash signature, and it is invisible to a pass/fail
+ * gate because the task can still succeed.
+ */
+export const REREAD_WINDOW = 5;
+
+export function scorePostFoldReread(facts) {
+  const tools = facts.filter((f) => f.kind === "tool");
+  const windows = [];
+  tools.forEach((fact, index) => {
+    if (fact.name !== "acm_travel") return;
+    const after = tools.slice(index + 1, index + 1 + REREAD_WINDOW);
+    windows.push({ atIndex: index, reads: after.filter((f) => READ_TOOLS.has(f.name)).length, observed: after.length });
+  });
+  if (windows.length === 0) return { folds: 0 };
+  return {
+    folds: windows.length,
+    maxRereads: Math.max(...windows.map((w) => w.reads)),
+    totalRereads: windows.reduce((sum, w) => sum + w.reads, 0),
+    windows,
+  };
+}
+
+/** Required-move responsiveness in tool calls after the scenario's prefix condition. */
+export function scoreMoveLatency(requiredMoveChecks) {
+  const latencies = requiredMoveChecks
+    .map((check) => check.latency?.toolCallsAfterPrefix)
+    .filter((value) => typeof value === "number");
+  if (latencies.length === 0) return { measured: 0 };
+  return {
+    measured: latencies.length,
+    satisfiedMoves: requiredMoveChecks.filter((c) => c.satisfied).length,
+    totalMoves: requiredMoveChecks.length,
+    worstToolCallsAfterPrefix: Math.max(...latencies),
+    withinTargetCount: requiredMoveChecks.filter((c) => c.latency?.withinTarget === true).length,
+  };
+}
+
+export function buildScoreVector(facts, requiredMoveChecks, diagnostics) {
+  return {
+    toolCalls: diagnostics.toolCalls,
+    acmCalls: diagnostics.acmCalls.length,
+    firstAcmCallIndex: diagnostics.firstAcmCallIndex,
+    maxReadBurst: diagnostics.maxReadBurst,
+    moveLatency: scoreMoveLatency(requiredMoveChecks),
+    handoff: scoreHandoffs(facts),
+    postFoldReread: scorePostFoldReread(facts),
+  };
+}
+
 /** Facts recorded for every arm regardless of verdict; diagnostics-only scenarios stop here. */
 function collectDiagnostics(facts) {
   const tools = facts.filter((f) => f.kind === "tool");
@@ -216,7 +332,9 @@ export function judgeArm(armDir, expected) {
   const expect = expected.expect;
   const diagnostics = collectDiagnostics(facts);
 
-  if (expect.diagnosticsOnly) return { verdict: "diagnostics", diagnostics };
+  if (expect.diagnosticsOnly) {
+    return { verdict: "diagnostics", diagnostics, score: buildScoreVector(facts, [], diagnostics) };
+  }
 
   const checks = { requiredMoves: [], forbiddenViolations: [], probe: null, handoff: null, workspace: null };
   let pass = true;
@@ -250,7 +368,15 @@ export function judgeArm(armDir, expected) {
     if (checks.handoff.applicable && !checks.handoff.satisfied) pass = false;
   }
 
-  return { verdict: pass ? "pass" : "fail", checks, diagnostics };
+  return {
+    verdict: pass ? "pass" : "fail",
+    checks,
+    diagnostics,
+    // Continuous instrument alongside the gate: it moves even when the gate
+    // is saturated, which is what makes AB comparison and model ranking
+    // possible on a bank a strong model already passes.
+    score: buildScoreVector(facts, checks.requiredMoves, diagnostics),
+  };
 }
 
 function main() {
