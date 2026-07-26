@@ -578,11 +578,28 @@
         <td>分档提醒保留通道但删除递进散文；三档共用同一段事实文本，70 档不再标 <code>Final reminder</code>。</td>
         <td>审计（<code>docs/acm-guidance-audit.md</code>）已指认 nudge 是事实上的第四个 guidance owner，FM-08 记录了其动作梯度，而 CORE 明确否定「压力即许可」（a preferred outcome, not move authorization）。仪表后缀上线后，分档散文的边际信息量为零，只剩梯度。未选择彻底删除通道：AGENTS.md:212 的强弱分层规则要求弱模型 floor 靠结构面（schema/cue/nudge），删通道会直接抽掉 floor。</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>gate 语义倒置改为新增 <code>outcome_pass_move_missed</code> 词汇，而不是把 required move 全面降为评分量。</td>
+        <td>D1/D3 在 probe satisfied 的情况下被判 <code>fail</code>，倒置了 <code>docs/acm-judgment-contract.md</code> 的 gate 顺序（task outcome 先于 ACM diagnostics）。现 outcome 检查（probe/workspace）与 ACM 检查（required/forbidden move、handoff 内容）分两个累加器；任务交付但缺 move 记为 <code>outcome_pass_move_missed</code>，summary 另报 <code>outcomeDelivered</code>。commit <code>1bcfc552</code>。已知代价：verdict 词汇变更，该 commit 之前的 evidence 的 pass/fail 数不再直接可比。</td>
+      </tr>
+      <tr>
+        <td>user-decided</td>
+        <td><code>post_fold_reread</code> 改为比对被折叠材料的重合度；<code>repeated_acm_attempts</code> 删除。</td>
+        <td>2026-07-26 sol-medium sweep 给出判决性证据：13 题中 10 题被 flag，全部是误报。（a）<code>post_fold_reread</code> 只数 fold 后窗口内的读取次数，从不比对读的是什么，于是「fold 完继续干活」与「重读旧料」不可区分——P1 被 flag 时读的是 <code>package.json</code>/<code>Cargo.toml</code>/<code>README.md</code>，与被折叠的日志无关。现记录 fold 前已读 path 集合，只统计重新读到的归档目标，并将 <code>maxReadsAfterFold</code> 单独保留以免 fold 后的正常工作被当作 thrash。（b）<code>repeated_acm_attempts</code> 在 <code>ACM_TRIGGERS_DISABLED</code> 下对照臂 <code>acmCalls</code> 几乎恒为 0，<code>delta.acmCalls ≥ 2</code> 使 N1/N2/N4/P4 仅因「模型真的用了工具」而开火，它测的是产品是否生效而非 thrash，已删。重算两转 sweep：flag 从 10 降到 2（sol P2/D2），且两个幸存者均为真阳性（各自重读了 fold 前已读过的文件）。commit <code>063ae55d</code>。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>强弱两轮 sweep 不重跑模型，只用修复后的 judge/detector 离线重算判决。</td>
+        <td>judge 与 detector 都是对 transcript 的纯函数，且 <code>judge.mjs</code> 设计上就保证 re-judging 不重跑模型（commit <code>a80a54d5</code>），所以修完判据后重算既安全又免费，还能直接用真实数据验证误报是否消失（这正是本轮确认 10→2 的手法）。归档于 <code>eval/evidence/showroom-strong-weak-pair-2026-07-26.json</code>（schemaVersion 3，记录 <code>productCommit=9663c5d8</code> 与 <code>rejudgedAt=063ae55d</code> 两个坐标）。结果：sol-medium on 12 pass/1 move_missed/0 fail vs off 9 pass/4 move_missed；dsv4flash-max on 7 pass/3 move_missed/2 fail/1 run_error vs off 6 pass/5 move_missed/2 fail。弱模型 floor 未塔（N1-N5 双臂全 pass），D 系列确实分出强弱（D1/D3 弱模型 move_missed、强模型 pass）。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
   <ul>
-    <li><strong>open:</strong> 重构后的评测回路尚未跑过一次真模型 sweep。三个 hard positive 能否真正拉低 on 臂天花板、三个 Thrash 阈值是否误报、以及删掉分档散文后弱模型 floor 是否下降，都需要 <code>bun run eval:showroom --model …</code> 在单 commit 上实测才能回答。强弱两个模型各一轮是最小证据集。</li>
+    <li><strong>open:</strong> 三个原先的 open 问题已由 2026-07-26 强弱双轮回答（量程部分成功、两个 thrash 判据不合格已修、弱模型 floor 未塔），但两轮 sweep 跑的是 <code>9663c5d8</code>，不含后续的 P5 第二阶段修复（<code>ab08a5f1</code>）、gate 语义修复（<code>1bcfc552</code>）与判据修复（<code>063ae55d</code>）。当前 evidence 的 verdict 与 flag 是离线重算而非原生产出，因此 P5 双臂 <code>move_missed</code> 仍属结构性伪信号。用当前 HEAD 跑一轮干净基线仍是待做项（用户本轮选择暂不重跑）。</li>
+    <li><strong>open:</strong> 弱模型的 ceiling 问题未解：<code>firstAcmCallIndex</code> 反复落在最后一次工具调用（N1=32/33、N2=13/14、N4=15/16、P4=23/24、K1-9=9/10）——干完活收尾补一个 checkpoint 交差，响应了 cue 但没用在能改变注意力的位置。这是结构面问题（何时发 cue）而非散文问题。</li>
+    <li><strong>open:</strong> 已确诊但未修的三条 gate 缺陷（用户本轮选择先看强模型轮）：D3 required move 的条件依赖（需拆两题）、任务本体失败与 ACM 失败混淆的隔离（弱模型 P1 双臂 <code>toolCalls=1</code> 就交差，现已正确记为 <code>fail</code> 但未单独分类）、单臂 <code>run_error</code> 污染配对统计（弱模型 P3 on=run_error 仍计入 on 统计）。</li>
     <li><strong>future evidence:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability, exact-pointer delivery, a healthy production-like flow and one same-commit raw-control pair are now recorded.</li>
     <li><strong>conditional user decision:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>
   </ul>

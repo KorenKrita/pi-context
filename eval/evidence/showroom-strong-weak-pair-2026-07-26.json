@@ -1,0 +1,2228 @@
+{
+  "schemaVersion": 3,
+  "recordedAt": "2026-07-26T14:12:55.618Z",
+  "title": "Showroom paired sweep: strong/weak pair on 9663c5d8, re-judged at 063ae55d",
+  "scope": "Two same-commit sweeps (product 9663c5d8). Verdicts and thrash flags recomputed with the fixed judge/detector at 063ae55d; model runs were not repeated. Raw sessions/transcripts stay under eval/.runs/showroom.",
+  "productCommit": "9663c5d8",
+  "rejudgedAt": "063ae55d",
+  "citable": true,
+  "caveats": [
+    "P5 predates the ab08a5f1 second-phase fix, so both arms record outcome_pass_move_missed for a structural reason, not a model behavior.",
+    "Verdict vocabulary changed at 1bcfc552 (outcome_pass_move_missed added); pass/fail counts are not directly comparable with pre-1bcfc552 evidence."
+  ],
+  "arms": {
+    "sol-medium": {
+      "model": "local-responses/gpt-5.6-sol",
+      "thinking": "medium",
+      "summary": {
+        "scenarios": 15,
+        "outcomeScenarios": 13,
+        "diagnosticsOnlyScenarios": 2,
+        "on": {
+          "pass": 12,
+          "moveMissed": 1,
+          "fail": 0,
+          "runError": 0,
+          "outcomeDelivered": 13
+        },
+        "off": {
+          "pass": 9,
+          "moveMissed": 4,
+          "fail": 0,
+          "runError": 0,
+          "outcomeDelivered": 13
+        },
+        "thrashFlagged": [
+          "P2",
+          "D2"
+        ]
+      },
+      "rowFields": [
+        "scenario",
+        "kind",
+        "onVerdict",
+        "offVerdict",
+        "onToolCalls",
+        "offToolCalls",
+        "onReads",
+        "offReads",
+        "onWrites",
+        "offWrites",
+        "onFirstAcmCallIndex",
+        "offFirstAcmCallIndex"
+      ],
+      "rows": [
+        [
+          "P1",
+          "outcome",
+          "pass",
+          "pass",
+          24,
+          19,
+          20,
+          18,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "P2",
+          "outcome",
+          "pass",
+          "outcome_pass_move_missed",
+          302,
+          157,
+          301,
+          157,
+          0,
+          0,
+          215,
+          -1
+        ],
+        [
+          "P3",
+          "outcome",
+          "pass",
+          "outcome_pass_move_missed",
+          98,
+          57,
+          97,
+          57,
+          0,
+          0,
+          97,
+          -1
+        ],
+        [
+          "P4",
+          "outcome",
+          "pass",
+          "outcome_pass_move_missed",
+          15,
+          12,
+          12,
+          12,
+          0,
+          0,
+          12,
+          -1
+        ],
+        [
+          "P5",
+          "outcome",
+          "outcome_pass_move_missed",
+          "outcome_pass_move_missed",
+          12,
+          12,
+          12,
+          12,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "N1",
+          "outcome",
+          "pass",
+          "pass",
+          35,
+          32,
+          24,
+          24,
+          8,
+          8,
+          32,
+          -1
+        ],
+        [
+          "N2",
+          "outcome",
+          "pass",
+          "pass",
+          20,
+          18,
+          16,
+          17,
+          1,
+          1,
+          17,
+          -1
+        ],
+        [
+          "N3",
+          "outcome",
+          "pass",
+          "pass",
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "N4",
+          "outcome",
+          "pass",
+          "pass",
+          12,
+          9,
+          9,
+          9,
+          0,
+          0,
+          9,
+          -1
+        ],
+        [
+          "N5",
+          "outcome",
+          "pass",
+          "pass",
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "D1",
+          "outcome",
+          "pass",
+          "pass",
+          22,
+          24,
+          12,
+          12,
+          0,
+          0,
+          2,
+          12
+        ],
+        [
+          "D2",
+          "outcome",
+          "pass",
+          "pass",
+          134,
+          200,
+          108,
+          192,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "D3",
+          "outcome",
+          "pass",
+          "pass",
+          5,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "K1-9",
+          "diagnostics",
+          "diagnostics",
+          "diagnostics",
+          10,
+          9,
+          9,
+          9,
+          0,
+          0,
+          9,
+          -1
+        ],
+        [
+          "K4",
+          "diagnostics",
+          "diagnostics",
+          "diagnostics",
+          25,
+          23,
+          20,
+          20,
+          0,
+          0,
+          10,
+          10
+        ]
+      ],
+      "scores": {
+        "P1": {
+          "on": {
+            "toolCalls": 24,
+            "acmCalls": 4,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 20,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 4,
+              "withinTargetCount": 1
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 557,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 557
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 3,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 19,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 18,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 1,
+              "withinTargetCount": 1
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 396,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 396
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 0,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": 5,
+            "acmCalls": 3,
+            "toolCallRatio": 1.26
+          }
+        },
+        "P2": {
+          "on": {
+            "toolCalls": 302,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 215,
+            "maxReadBurst": 215,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 208,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 858,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 858
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 4,
+              "totalRereads": 4,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 215,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 215,
+                  "rereads": 4,
+                  "revisitedTargets": [
+                    "package.json",
+                    "tsconfig.json",
+                    "README.md",
+                    "services/returns.ts"
+                  ]
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 157,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 157,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 145,
+            "acmCalls": 1,
+            "toolCallRatio": 1.92
+          },
+          "thrash": {
+            "flagged": true,
+            "flags": [
+              {
+                "kind": "post_fold_reread",
+                "detail": "4 archived target(s) re-read within 1 fold window(s)"
+              }
+            ]
+          }
+        },
+        "P3": {
+          "on": {
+            "toolCalls": 98,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 97,
+            "maxReadBurst": 97,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 98,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 488,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 488
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 97,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 97,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 57,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 57,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 41,
+            "acmCalls": 1,
+            "toolCallRatio": 1.72
+          }
+        },
+        "P4": {
+          "on": {
+            "toolCalls": 15,
+            "acmCalls": 3,
+            "firstAcmCallIndex": 12,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 13,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 3,
+            "acmCalls": 3,
+            "toolCallRatio": 1.25
+          }
+        },
+        "P5": {
+          "on": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "N1": {
+          "on": {
+            "toolCalls": 35,
+            "acmCalls": 3,
+            "firstAcmCallIndex": 32,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 32,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 3,
+            "acmCalls": 3,
+            "toolCallRatio": 1.09
+          }
+        },
+        "N2": {
+          "on": {
+            "toolCalls": 20,
+            "acmCalls": 3,
+            "firstAcmCallIndex": 17,
+            "maxReadBurst": 15,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 18,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 16,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 2,
+            "acmCalls": 3,
+            "toolCallRatio": 1.11
+          }
+        },
+        "N3": {
+          "on": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 243,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 243
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 0,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 442,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 442
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 0,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "N4": {
+          "on": {
+            "toolCalls": 12,
+            "acmCalls": 3,
+            "firstAcmCallIndex": 9,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 9,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 3,
+            "acmCalls": 3,
+            "toolCallRatio": 1.33
+          }
+        },
+        "N5": {
+          "on": {
+            "toolCalls": 1,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 1,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "D1": {
+          "on": {
+            "toolCalls": 22,
+            "acmCalls": 10,
+            "firstAcmCallIndex": 2,
+            "maxReadBurst": 10,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 3,
+              "withinTargetCount": 1
+            },
+            "handoff": {
+              "travels": 2,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 355.5,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 463
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 248
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 2,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 2,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 2,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 21,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 12,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 24,
+            "acmCalls": 12,
+            "firstAcmCallIndex": 12,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 13,
+              "withinTargetCount": 1
+            },
+            "handoff": {
+              "travels": 2,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 293,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 408
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 178
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 2,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 12,
+                  "observed": 5,
+                  "readsAfter": 0,
+                  "archivedTargets": 12,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 17,
+                  "observed": 5,
+                  "readsAfter": 0,
+                  "archivedTargets": 12,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": -2,
+            "acmCalls": -2,
+            "toolCallRatio": 0.92
+          }
+        },
+        "D2": {
+          "on": {
+            "toolCalls": 134,
+            "acmCalls": 26,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 73,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 1,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 5,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 483,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 206
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 184
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 483
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 508
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 578
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 5,
+              "maxRereads": 3,
+              "totalRereads": 3,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 0,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 90,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 81,
+                  "rereads": 3,
+                  "revisitedTargets": [
+                    "/var/log/orderflow/orderflow.yaml",
+                    "/var/log/orderflow/config.yaml",
+                    "README.md"
+                  ]
+                },
+                {
+                  "atIndex": 115,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 87,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 132,
+                  "observed": 1,
+                  "readsAfter": 0,
+                  "archivedTargets": 99,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 133,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 99,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 200,
+            "acmCalls": 8,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 180,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 2,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 4,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 423,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 213
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 762
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 268
+                },
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 578
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 4,
+              "maxRereads": 5,
+              "totalRereads": 5,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 1,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 183,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 180,
+                  "rereads": 5,
+                  "revisitedTargets": [
+                    "services/billing.ts",
+                    "services/checkout.ts",
+                    "services/inventory.ts",
+                    "services/shipping.ts",
+                    "services/auth.ts"
+                  ]
+                },
+                {
+                  "atIndex": 197,
+                  "observed": 2,
+                  "readsAfter": 0,
+                  "archivedTargets": 180,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                },
+                {
+                  "atIndex": 199,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 180,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": -66,
+            "acmCalls": 18,
+            "toolCallRatio": 0.67
+          },
+          "thrash": {
+            "flagged": true,
+            "flags": [
+              {
+                "kind": "post_fold_reread",
+                "detail": "3 archived target(s) re-read within 5 fold window(s)"
+              }
+            ]
+          }
+        },
+        "D3": {
+          "on": {
+            "toolCalls": 5,
+            "acmCalls": 5,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 5,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 303,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 303
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 4,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 2,
+            "acmCalls": 2,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 2,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 175,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 175
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 1,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": 3,
+            "acmCalls": 3,
+            "toolCallRatio": 2.5
+          }
+        },
+        "K1-9": {
+          "on": {
+            "toolCalls": 10,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 9,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 9,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "toolCallRatio": 1.11
+          }
+        },
+        "K4": {
+          "on": {
+            "toolCalls": 25,
+            "acmCalls": 5,
+            "firstAcmCallIndex": 10,
+            "maxReadBurst": 10,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 23,
+            "acmCalls": 3,
+            "firstAcmCallIndex": 10,
+            "maxReadBurst": 10,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 2,
+            "acmCalls": 2,
+            "toolCallRatio": 1.09
+          }
+        }
+      }
+    },
+    "dsv4flash-max": {
+      "model": "local-openai/deepseek-v4-flash",
+      "thinking": "max",
+      "summary": {
+        "scenarios": 15,
+        "outcomeScenarios": 13,
+        "diagnosticsOnlyScenarios": 2,
+        "on": {
+          "pass": 7,
+          "moveMissed": 3,
+          "fail": 2,
+          "runError": 1,
+          "outcomeDelivered": 10
+        },
+        "off": {
+          "pass": 6,
+          "moveMissed": 5,
+          "fail": 2,
+          "runError": 0,
+          "outcomeDelivered": 11
+        },
+        "thrashFlagged": []
+      },
+      "rowFields": [
+        "scenario",
+        "kind",
+        "onVerdict",
+        "offVerdict",
+        "onToolCalls",
+        "offToolCalls",
+        "onReads",
+        "offReads",
+        "onWrites",
+        "offWrites",
+        "onFirstAcmCallIndex",
+        "offFirstAcmCallIndex"
+      ],
+      "rows": [
+        [
+          "P1",
+          "outcome",
+          "fail",
+          "fail",
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          "P2",
+          "outcome",
+          "fail",
+          "fail",
+          189,
+          189,
+          189,
+          189,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "P3",
+          "outcome",
+          "run_error",
+          "outcome_pass_move_missed",
+          null,
+          76,
+          null,
+          76,
+          null,
+          0,
+          null,
+          -1
+        ],
+        [
+          "P4",
+          "outcome",
+          "pass",
+          "outcome_pass_move_missed",
+          24,
+          17,
+          23,
+          17,
+          0,
+          0,
+          23,
+          -1
+        ],
+        [
+          "P5",
+          "outcome",
+          "outcome_pass_move_missed",
+          "outcome_pass_move_missed",
+          12,
+          12,
+          12,
+          12,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "N1",
+          "outcome",
+          "pass",
+          "pass",
+          33,
+          20,
+          24,
+          12,
+          8,
+          8,
+          32,
+          -1
+        ],
+        [
+          "N2",
+          "outcome",
+          "pass",
+          "pass",
+          14,
+          16,
+          11,
+          14,
+          1,
+          1,
+          13,
+          4
+        ],
+        [
+          "N3",
+          "outcome",
+          "pass",
+          "pass",
+          4,
+          7,
+          2,
+          5,
+          0,
+          0,
+          2,
+          0
+        ],
+        [
+          "N4",
+          "outcome",
+          "pass",
+          "pass",
+          16,
+          19,
+          14,
+          19,
+          0,
+          0,
+          15,
+          -1
+        ],
+        [
+          "N5",
+          "outcome",
+          "pass",
+          "pass",
+          1,
+          1,
+          1,
+          1,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "D1",
+          "outcome",
+          "outcome_pass_move_missed",
+          "outcome_pass_move_missed",
+          12,
+          12,
+          12,
+          12,
+          0,
+          0,
+          -1,
+          -1
+        ],
+        [
+          "D2",
+          "outcome",
+          "pass",
+          "pass",
+          23,
+          21,
+          18,
+          16,
+          1,
+          1,
+          0,
+          0
+        ],
+        [
+          "D3",
+          "outcome",
+          "outcome_pass_move_missed",
+          "outcome_pass_move_missed",
+          2,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          -1
+        ],
+        [
+          "K1-9",
+          "diagnostics",
+          "diagnostics",
+          "diagnostics",
+          10,
+          9,
+          9,
+          9,
+          0,
+          0,
+          9,
+          -1
+        ],
+        [
+          "K4",
+          "diagnostics",
+          "diagnostics",
+          "diagnostics",
+          22,
+          20,
+          20,
+          20,
+          0,
+          0,
+          10,
+          -1
+        ]
+      ],
+      "scores": {
+        "P1": {
+          "on": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 0,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "P2": {
+          "on": {
+            "toolCalls": 189,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 189,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 189,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 189,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "P3": {
+          "on": null,
+          "off": {
+            "toolCalls": 76,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 76,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          }
+        },
+        "P4": {
+          "on": {
+            "toolCalls": 24,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 23,
+            "maxReadBurst": 23,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 24,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 17,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 17,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 7,
+            "acmCalls": 1,
+            "toolCallRatio": 1.41
+          }
+        },
+        "P5": {
+          "on": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "N1": {
+          "on": {
+            "toolCalls": 33,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 32,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 20,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 13,
+            "acmCalls": 1,
+            "toolCallRatio": 1.65
+          }
+        },
+        "N2": {
+          "on": {
+            "toolCalls": 14,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 13,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 16,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 4,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": -2,
+            "acmCalls": 0,
+            "toolCallRatio": 0.88
+          }
+        },
+        "N3": {
+          "on": {
+            "toolCalls": 4,
+            "acmCalls": 2,
+            "firstAcmCallIndex": 2,
+            "maxReadBurst": 2,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 133,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 133
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 0,
+              "windows": [
+                {
+                  "atIndex": 3,
+                  "observed": 0,
+                  "readsAfter": 0,
+                  "archivedTargets": 1,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 7,
+            "acmCalls": 2,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 5,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 122,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 122
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 5,
+              "windows": [
+                {
+                  "atIndex": 1,
+                  "observed": 5,
+                  "readsAfter": 5,
+                  "archivedTargets": 0,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": -3,
+            "acmCalls": 0,
+            "toolCallRatio": 0.57
+          }
+        },
+        "N4": {
+          "on": {
+            "toolCalls": 16,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 15,
+            "maxReadBurst": 13,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 19,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 19,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": -3,
+            "acmCalls": 1,
+            "toolCallRatio": 0.84
+          }
+        },
+        "N5": {
+          "on": {
+            "toolCalls": 1,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 1,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "D1": {
+          "on": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 12,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 12,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 0,
+            "acmCalls": 0,
+            "toolCallRatio": 1
+          }
+        },
+        "D2": {
+          "on": {
+            "toolCalls": 23,
+            "acmCalls": 4,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 17,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 22,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 758,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 758
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 1,
+              "windows": [
+                {
+                  "atIndex": 21,
+                  "observed": 1,
+                  "readsAfter": 1,
+                  "archivedTargets": 17,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "off": {
+            "toolCalls": 21,
+            "acmCalls": 4,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 13,
+            "moveLatency": {
+              "measured": 1,
+              "satisfiedMoves": 1,
+              "totalMoves": 1,
+              "worstToolCallsAfterPrefix": 18,
+              "withinTargetCount": 0
+            },
+            "handoff": {
+              "travels": 1,
+              "structuredRate": 1,
+              "minFieldsPresent": 7,
+              "minSubstantiveRequired": 3,
+              "medianStateChars": 232,
+              "perTravel": [
+                {
+                  "structured": true,
+                  "fieldsPresent": 7,
+                  "substantiveRequired": 3,
+                  "stateChars": 232
+                }
+              ]
+            },
+            "postFoldReread": {
+              "folds": 1,
+              "maxRereads": 0,
+              "totalRereads": 0,
+              "maxReadsAfterFold": 3,
+              "windows": [
+                {
+                  "atIndex": 17,
+                  "observed": 3,
+                  "readsAfter": 3,
+                  "archivedTargets": 13,
+                  "rereads": 0,
+                  "revisitedTargets": []
+                }
+              ]
+            }
+          },
+          "delta": {
+            "toolCalls": 2,
+            "acmCalls": 0,
+            "toolCallRatio": 1.1
+          }
+        },
+        "D3": {
+          "on": {
+            "toolCalls": 2,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 0,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 1,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 1,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "toolCallRatio": 2
+          }
+        },
+        "K1-9": {
+          "on": {
+            "toolCalls": 10,
+            "acmCalls": 1,
+            "firstAcmCallIndex": 9,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 9,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 9,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 1,
+            "acmCalls": 1,
+            "toolCallRatio": 1.11
+          }
+        },
+        "K4": {
+          "on": {
+            "toolCalls": 22,
+            "acmCalls": 2,
+            "firstAcmCallIndex": 10,
+            "maxReadBurst": 10,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "off": {
+            "toolCalls": 20,
+            "acmCalls": 0,
+            "firstAcmCallIndex": -1,
+            "maxReadBurst": 20,
+            "moveLatency": {
+              "measured": 0
+            },
+            "handoff": {
+              "travels": 0
+            },
+            "postFoldReread": {
+              "folds": 0
+            }
+          },
+          "delta": {
+            "toolCalls": 2,
+            "acmCalls": 2,
+            "toolCallRatio": 1.1
+          }
+        }
+      }
+    }
+  }
+}
