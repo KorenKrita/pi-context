@@ -66,6 +66,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     promptSnippet: PROMPT_SNIPPETS.checkpoint,
     promptGuidelines: PROMPT_GUIDELINES.checkpoint.split("\n"),
     parameters: schema,
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
       const args = rawArgs as Static<typeof schema>;

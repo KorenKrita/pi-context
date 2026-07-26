@@ -648,6 +648,16 @@
         <td>测试重塑第一步：删纯字符串镜像测试，补 gauge 行为锁</td>
         <td>用户测试哲学（少而狠的行为契约，不堆 pass 数）落地第一批：删除 <code>test/tool-descriptions.test.ts</code>（6 个测试全部为「源码文本 toContain」形态——锁的是实现字符串不是行为，教义锁已由 guidance-quality 承担）与 <code>test/lib.test.ts</code>（单测试文件，唯一真实行为锁 resolveTargetId off-path 判定并入 <code>travel-target-facts.test.ts</code>）；新增 <code>test/context-gauge.test.ts</code>（3 个测试锁仪表全部用户可见行为：双针/单针渲染与超预算不截断、里程表节奏双向+新周期必显+垃圾读数静默、ACM 豁免与 kill switch）。root 测试 168→165，全部行为承重。</td>
       </tr>
+      <tr>
+        <td><span class="label agent-resolved">agent-resolved</span></td>
+        <td>两轮全仓审计结论与修复</td>
+        <td>第一轮（src 逐文件）：lib/handoff/gauge/pressure/tool-protocol/host-bridge/travel-coordinator/三工具/runtime 系无逻辑 bug；travel-tool.ts 的 "unreachable" throw 是刻意的 future-variant 防御守卫（保留）；host-fixture/.acm-build 的 nudge 残留是构建产物（重建即消）。第二轮（test/docs/skills）：删除 docs/acm-redesign-plan.md 与 docs/acm-guidance-audit.md（v0 时代规划/审计快照，大量引用已退役的 eval/nudge/trigger 体系，历史使命完成，git 历史可查）；docs/acm-failure-mechanisms.md 保留为活的失败机制注册表。</td>
+      </tr>
+      <tr>
+        <td><span class="label agent-resolved">agent-resolved</span></td>
+        <td>Pi host 升级 0.81.1 → 0.82.1 并启用 constrainedSampling</td>
+        <td>API 面对比：ExtensionAPI 成员、事件面、AgentSession/SessionManager 公开方法均无变化（monkey patch 与 host contract 不受影响），host fixture 66 测试在 0.82.1 上全绿。0.82 新增 ToolDefinition.constrainedSampling；三个 ACM 工具启用 <code>{ type: "json_schema", strict: "prefer" }</code>——capable provider 上 provider 端 strict schema 保护七字段 handoff 完整性（P3 的结构面加固），不支持处静默回退。0.82.1 其余新特性（Opus 5、OpenRouter 登录、bash session env、RPC streaming）与本扩展无交集。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
