@@ -553,10 +553,36 @@
         <td>把 source-selected 的 17 场景 Opus 4.8 merge 作为本轮 showroom 权威校准结果，但不把跨三个 product commit 的拼接伪装成单 commit 因果估计。</td>
         <td>权威 compact artifact 为 <code>eval/evidence/showroom-opus48-calibration-2026-07-25.json</code>，本地展开副本为 <code>eval/.runs/showroom/opus48-authoritative-1d429775/merged-summary.json</code>：未受影响题取 base <code>88f58c62</code>，修复后的 P3/N4/N5 与七个 K 题取 supplement <code>8adacd2e</code>，N1 取隔离重跑 <code>1d429775</code>。17/17 场景、34/34 arms 均 completed、零 run_error；10 个 outcome 中 on=10 pass/0 fail，off=6 pass/4 fail，七个 K 题只作 diagnostics。P4 是 binary ceiling（两臂 pass，但 on 15 tools/turn 1，off 24 tools/turn 2）；K1 在 7→9 reads 显示 treatment burst 边界，K2/K3 受两臂自发 ACM 混淆而不能归因，K4 证明 save-point 会重新武装干预；最终 N1 两臂都正确完成，但 on 62 tools/3 次 travel、off 21 tools/1 次 checkpoint，属于显著 overhead evidence 而非 outcome failure。该单 seed merge 用于校准机制与 judge，不外推为总体效果。</td>
       </tr>
+      <tr>
+        <td>user-decided</td>
+        <td>评测体系重构五项全做：单 commit 全量编排 → 连续评分向量 → Thrash 自动判据 → 砍 K 系列换难度 → 分档散文降为事实。</td>
+        <td>用户对审计提出的五条建议答「全做」，并要求按依赖阶段交付。根因诊断：旧评测的问题不是「LLM 调用太多」（17 题 34 arms 并不多），而是（1）人肉编排产生跳 commit 证据（2）布尔 verdict 在 on 臂 10/10 时失去分辨率。五个原子 commit：<code>cd51cbd7</code>、<code>bdca0f80</code>、<code>de5d36ef</code>、<code>b2af6026</code>、<code>97bdea65</code>。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>全量 sweep 硬拒绝脏工作树，而不是把「commit + 未提交差异」记录为该 commit。</td>
+        <td><code>run-all.mjs</code> 的存在理由就是单 commit 因果估计，而脏树使 <code>productCommit</code> 不再描述被测产品。选择硬拒绝而非静默记录；<code>--allow-dirty</code> 仅供本地迭代，但会在 evidence 里置 <code>citable: false</code> 与显式 warning。已验证两个门（脏树、未知场景）均在当前仓库状态下正确报错。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>连续评分向量与 Thrash 判据均为机械量，只报告、不改变 verdict；Thrash 判据放在 run-all（配对层）而非 judge（单臂层）。</td>
+        <td>N1 是动机案例（两臂皆 pass，on=62 tools/3 次 travel vs off=21）：过度触发的成本既不应被当作任务失败，也不应只做备注。三个 flag（<code>paired_overhead</code> 比值 ≥ 2、<code>post_fold_reread</code> ≥ 3、<code>repeated_acm_attempts</code>）均需对照臂才有意义，所以必须在配对层计算。两个已知局限：（a）阈值未经分布校准，属 assay 待测变量，与 8/8pp/8 同类；（b）handoff 评分只看七字段的结构存在与 <code>none</code> 实质性，不判断文本质量——故意不引入语义打分。评分向量对 diagnostics 场景也产出，以便 K 题仍能参与 AB。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>新增的三个 hard positive（D1/D2/D3）不以 <code>inTurn</code> 作为裁决依据；K 系列从 7 题砍到 2 题。</td>
+        <td>砍 K 的依据来自 2026-07-25 校准自述的失败：K2 高低负载下两臂都行动（无法区分处理），K3 在 7 tools 无臂行动、4 tools 两臂都行动（未夹住边界），K1-7 无臂行动；阈值证据已由 <code>skeleton-params.json</code> 的真实分布（burst P95=8）以近零成本提供。D 系列不用 <code>inTurn</code> 裁决，是因为 commit <code>f1a69c75</code> 已把 placement 降为诊断量（避免把更安全的提前响应误判为 fail）；因此 D 系列的 gate 全部落在 probe/handoff 内容上——只有动作做得差才会摧毁那些信息。场景库 17→15，outcome-bearing 10→13。</td>
+      </tr>
+      <tr>
+        <td>agent-resolved</td>
+        <td>分档提醒保留通道但删除递进散文；三档共用同一段事实文本，70 档不再标 <code>Final reminder</code>。</td>
+        <td>审计（<code>docs/acm-guidance-audit.md</code>）已指认 nudge 是事实上的第四个 guidance owner，FM-08 记录了其动作梯度，而 CORE 明确否定「压力即许可」（a preferred outcome, not move authorization）。仪表后缀上线后，分档散文的边际信息量为零，只剩梯度。未选择彻底删除通道：AGENTS.md:212 的强弱分层规则要求弱模型 floor 靠结构面（schema/cue/nudge），删通道会直接抽掉 floor。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
   <ul>
+    <li><strong>open:</strong> 重构后的评测回路尚未跑过一次真模型 sweep。三个 hard positive 能否真正拉低 on 臂天花板、三个 Thrash 阈值是否误报、以及删掉分档散文后弱模型 floor 是否下降，都需要 <code>bun run eval:showroom --model …</code> 在单 commit 上实测才能回答。强弱两个模型各一轮是最小证据集。</li>
     <li><strong>future evidence:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability, exact-pointer delivery, a healthy production-like flow and one same-commit raw-control pair are now recorded.</li>
     <li><strong>conditional user decision:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>
   </ul>
