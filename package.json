@@ -20,6 +20,7 @@
     "test:host": "cd test/host-fixture && bun run verify",
     "typecheck": "tsc --noEmit",
     "eval:skeleton": "node eval/skeleton/extract-skeleton.mjs",
+    "eval:showroom": "node eval/showroom/run-all.mjs",
     "verify:acm": "bun scripts/generate-guidance.mjs --check && bun run test && bun run typecheck && bun run test:host"
   },
   "keywords": [
