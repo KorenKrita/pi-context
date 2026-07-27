@@ -14,6 +14,7 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -178,6 +179,50 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return undefined;
     }
   };
+  const ledgerStates = new WeakMap<object, LedgerState>();
+  let ledgerSeq = 0;
+  const ledgerFor = (session: object): LedgerState => {
+    let state = ledgerStates.get(session);
+    if (!state) {
+      ledgerSeq += 1;
+      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${ledgerSeq}`);
+      ledgerStates.set(session, state);
+    }
+    return state;
+  };
+  const recordBoundary = (
+    ctx: ExtensionContext,
+    pressure: { pressurePercent: number; usagePercent: number },
+    folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
+  ): void => {
+    try {
+      const session = ctx.sessionManager as unknown as object;
+      const branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
+      if (!Array.isArray(branch) || branch.length === 0) return;
+      let boundaryId: string | null = null;
+      for (let index = branch.length - 1; index >= 0; index--) {
+        const entry = branch[index]!;
+        if (entry.type === "message" && entry.message?.role === "user") {
+          boundaryId = entry.id;
+          break;
+        }
+      }
+      const state = ledgerFor(session);
+      if (!shouldCountBoundary(state, boundaryId)) return;
+      const ordinal = markBoundaryCounted(state, boundaryId!);
+      appendLedgerRow("boundary", buildBoundaryRow({
+        state,
+        boundary: ordinal,
+        budgetPercent: pressure.pressurePercent,
+        windowPercent: pressure.usagePercent,
+        foldTurnPercent: folds?.turnPercent,
+        foldTaskPercent: folds?.taskPercent,
+        entries: branch.length,
+      }));
+    } catch {
+      // A diagnostic writer must never reach the tool result.
+    }
+  };
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
     // tool_result handlers are chained and later extensions may still replace
     // content/details/isError. Final travel authorization is therefore read
@@ -192,6 +237,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (!pressure) return;
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
     const folds = currentFoldEstimates(ctx, pressure);
+    // Passive boundary ledger: one row per distinct user-request boundary, so
+    // "boundaries crossed N, folds M" accumulates without any injection. Never
+    // allowed to affect this result — every failure is swallowed inside.
+    recordBoundary(ctx, pressure, folds);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.

@@ -146,6 +146,19 @@ rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不�
 - 后缀永久留在持久化工具结果中（定稿后不再变，不破坏 prompt cache），这是「为持续本体感受付出少量永久 token」的已知交换；
 - turn_end 不再持久化任何 usage baseline entry；gauge 状态是易失的，重置点即重建。
 
+## Boundary ledger
+
+请求边界处的漏折在仓库内不可观测：一个从不折叠的 session 同样从不调用 `acm_timeline`，所以任何呈现面恰好在失效发生处不可见。观测必须被动，否则 n 永不增长。退役的评测装置回答不了这个问题——它构造场景且前提被校准反复推翻；缺的不是场景，是计数。
+
+`src/boundary-ledger.ts` 是一个 append-only writer，默认开启：每个不同的 user-request boundary 一行、每次 applied travel 一行，落在 `<agent-dir>/state/acm-boundary-ledger.jsonl`。它合宪的理由与仪表相同：不注入、不选时机、不渲染。
+
+- **只记计数与百分比**，绝不记消息内容；测试用 allowlist 断言字段集，任何携带文本的新字段必须让它变红；
+- 百分比取 `Math.floor`，与仪表渲染的读数一致；不可用值记 `null` 而非 0；
+- boundary 按 entry id 去重——同一 boundary 会在该轮每个 tool result 上被观测到，按观测计数就变成了统计工具活动而非请求结构；
+- **写失败一律吞掉**，硬要求：账本不许成为新的失败面。`appendLedgerRow` 永不抛出，返回值只作诊断；
+- 无读取路径、无查询层、无轮换，只有 `MAX_LEDGER_BYTES` 上限；超限即停写；
+- `ACM_LEDGER_DISABLED=1` 完全静默，按调用时读取；`test/setup.ts` 通过 bunfig preload 在测试期强制禁用——fixture 的合成压力会污染账本存在的意义。
+
 ## Post-mutation persistent observation 与 settled live sync
 
 明确成功的 travel 后，`ContextRefreshRegistry` 按 SessionManager identity 记录 pending refresh，同时 live adapter 记录同一 manager 的 pending ticket。provider delivery 与 native replacement 分离：finalized receipt 后的首个 `context` 立即交付 persisted Context Packet，native array 仍等待 idle `agent_settled`；finalized error receipt 取消两张 ticket 并进入可观察的 `receipt_rejected`。provider-active 期间每次 context 从 latest leaf rebuild；成功 packet 同时保存 source cursor。临时失败只在 source/cached prefix 可验证时合并 post-cutover tail，否则降级为当前 protocol-valid fallback，不能继续把旧 cache 称为 active。persistent rebuild 最多三次，之后保留 cache 为 `cached_exhausted` 并停止自动读取/warning，直到新 travel、lifecycle reset 或 reload；cached-exhausted 仍交付已验证 packet，因此实际 provider `turn_end` usage 继续更新 gauge/HUD。每次 travel 先清除上一 provider epoch 的 cached usage；provider-active gauge pressure 只使用实际 provider `turn_end` usage，native `ctx.getContextUsage()` 仅作 estimate。`indeterminate` mutation 只记录 pending observation refresh；明确失败或 `not_applied` 不登记。只有 `agent_settled` 才从最新 verified active leaf 应用 native AgentSession replacement；`agent_end` error/aborted 不解锁该路径。persistent rebuild 对 success refresh 或 indeterminate observation 按以下步骤验证或恢复 Context Packet：

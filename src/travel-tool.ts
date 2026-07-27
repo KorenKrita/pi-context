@@ -41,6 +41,7 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -732,6 +733,20 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
+      // Fold side of the passive ledger: one row per applied travel with the
+      // delta the receipt already carries, so folds and boundaries accumulate
+      // on the same yardstick. Swallowed on any failure.
+      try {
+        appendLedgerRow("fold", buildFoldRow({
+          state: createLedgerState(`${process.pid}-travel`),
+          budgetBefore: usageBeforePercent,
+          budgetAfter: estimatedUsageAfter?.percent,
+          messageDelta: currentMessages.length - afterMessages.length,
+          summaryDepth: activeSummaryDepthAfter,
+        }));
+      } catch {
+        // A diagnostic writer must never affect a travel receipt.
+      }
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
