@@ -5,31 +5,31 @@ export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->"
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "The authoritative current objective, including any user-visible result still owed. Knowing a result is not the same as delivering it.",
+    description: "当前目标，包括还没给用户的结果。",
   }),
   state: Type.String({
     minLength: 1,
-    description: "Live cognition for future self, not a report: settled knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the exact hot values needed next. If writing this forces vagueness, the fold is not yet earned. Multiline text is allowed.",
+    description: "给未来自己的活认知：已知的、未知的、假设、关键值。写不清楚说明还没整理好。可以多行。",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT: a pointer here licenses one bounded spot-check of a load-bearing claim, not a re-derivation. Write 'none' when empty.",
+    description: "支撑State的证据：文件路径、命令、ID。没有就写none。",
   }),
   external: Type.String({
     minLength: 1,
-    description: "Lasting file, process, browser, or remote-system state as known at handoff time. Future self treats it as authoritative unless later activity changed it. Write 'none' when empty.",
+    description: "外部状态：改了什么文件、跑了什么命令、动了什么系统。没有就写none。",
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Rejected or closed directions that should not regain authority — what a dead end proved rides here, so the lesson survives the fold. Write 'none' when empty.",
+    description: "放弃的方向：试过但不行的，免得重蹈覆辙。没有就写none。",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread; the folded path stays one travel away. Write 'none' when empty.",
+    description: "恢复点：存档点名字或节点ID，想回去时用。没有就写none。",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The first real task action future self should take directly from this handoff — one concrete action, executable immediately. Do not revalidate the handoff merely because travel occurred.",
+    description: "下一步：具体的、能立刻执行的动作。",
   }),
 }, { additionalProperties: false });
 

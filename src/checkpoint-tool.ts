@@ -57,11 +57,11 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: Type.String({
       minLength: 1,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic save-point name; unique and case-sensitive across the session tree ('root' is reserved). Name the state a future search should find, e.g. payments-retry-baseline. Suffixes are naming convention only; they never classify workflow state.",
+      description: "存档点名字，随便起，好记就行。不能叫root。",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "History node ID or checkpoint name to label. Omit to anchor on the latest protocol-complete leaf before this call; pass an explicit target only to label a deliberately chosen older node.",
+      description: "可选。不传就存当前位置，传节点ID或已有的存档点名字就存那个位置。",
     })),
   }, { additionalProperties: false });
 
