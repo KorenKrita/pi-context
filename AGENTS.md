@@ -21,7 +21,7 @@
 - Source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
 - `@earendil-works/pi-agent-core`、`pi-ai`、`pi-coding-agent`、`pi-tui` 的 peer/dev dependency 均精确固定为 **`0.82.1`**
-- **不使用** Pi 0.82 的 `constrainedSampling`：openai-responses 路径的 strict 由 `model.compat.supportsStrictMode` 门控（默认 false，本机 models.json 无一声明→字段惰性）；且 OpenAI strict 要求全部 properties 进 `required`，本项目 schema 含 `Type.Optional` 字段，`strict:"prefer"` 只对模型能力回退、不对 schema 不兼容回退——一旦 compat 打开会直接 400。handoff 完整性由 runtime 的 `buildCanonicalHandoff` 确定性验证承担。若未来重构 schema 为 strict-compatible（全 required + null-union）再评估
+- **不使用** Pi 0.82 的 `constrainedSampling`：openai-responses 路径的 strict 由 `model.compat.supportsStrictMode` 门控（默认 false；当前 `local-responses` 模型未显式启用，`models.json` 中部分 `local-openai` 模型则显式设为 false）；且 OpenAI strict 要求全部 properties 进 `required`，本项目 schema 含 `Type.Optional` 字段，`strict:"prefer"` 只对模型能力回退、不对 schema 不兼容回退——一旦 compat 打开会直接 400。handoff 完整性由 runtime 的 `buildCanonicalHandoff` 确定性验证承担。若未来重构 schema 为 strict-compatible（全 required + null-union）再评估
 - `test/host-fixture/` 也精确安装 Pi `0.82.1`，用于验证真实 host contract
 
 不要把开发依赖与 host fixture 的精确版本改成 caret/tilde range。Live Agent Sync 不读取、报告或按宿主版本分支；它只探测当前运行时实际使用的能力，缺失或失败时保留 persistent rebuild/reload fallback。successful travel 的 replacement boundary 必须是 `agent_settled`，不是 matching `tool_execution_end` 或 `agent_end`。
