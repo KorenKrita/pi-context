@@ -5,31 +5,31 @@ export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->"
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "The authoritative current objective, including any user-visible result still owed. Knowing a result is not the same as delivering it.",
+    description: "现在的目标是什么，包括还没交付给用户的结果。",
   }),
   state: Type.String({
     minLength: 1,
-    description: "Live cognition for future self, not a report: settled knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the exact hot values needed next. If writing this forces vagueness, the fold is not yet earned. Multiline text is allowed.",
+    description: "当前进展、已知信息、还没解决的问题、还需要用到的精确值。写给折叠后的自己，不是汇报。写不出来说明还没消化完。可以多行。",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT: a pointer here licenses one bounded spot-check of a load-bearing claim, not a re-derivation. Write 'none' when empty.",
+    description: "支撑 state 的直接事实和线索——文件路径、命令、ID。没有就写 none。",
   }),
   external: Type.String({
     minLength: 1,
-    description: "Lasting file, process, browser, or remote-system state as known at handoff time. Future self treats it as authoritative unless later activity changed it. Write 'none' when empty.",
+    description: "对话之外的持久状态——改了哪些文件、跑过什么命令。折叠后这些不变。没有就写 none。",
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Rejected or closed directions that should not regain authority — what a dead end proved rides here, so the lesson survives the fold. Write 'none' when empty.",
+    description: "试过但行不通的方向，免得重来。没有就写 none。",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread; the folded path stays one travel away. Write 'none' when empty.",
+    description: "能回去的存档点名或节点 ID。没有就写 none。",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The first real task action future self should take directly from this handoff — one concrete action, executable immediately. Do not revalidate the handoff merely because travel occurred.",
+    description: "折叠后立刻要做的下一步——一个具体、马上能执行的动作。",
   }),
 }, { additionalProperties: false });
 
@@ -37,10 +37,10 @@ export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
   Type.String({
     minLength: 1,
-    description: "Compatibility fallback for providers that serialize a nested tool argument: an exact JSON encoding of the same seven-field handoff object. This is not free-form summary text.",
+    description: "provider 把嵌套参数序列化成字符串时的兼容回退:传完整七字段的 JSON。不是自由文本摘要。",
   }),
 ], {
-  description: "Prefer the structured seven-field object. A JSON-encoded copy of that exact object is accepted only as a provider compatibility fallback.",
+  description: "优先用结构化七字段对象。JSON 字符串只在 provider 序列化嵌套参数时作为兼容回退。",
 });
 
 export type HandoffInput = Static<typeof StructuredHandoffSchema>;

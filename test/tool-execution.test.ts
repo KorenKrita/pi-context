@@ -782,32 +782,6 @@ describe("ACM tool execution contracts", () => {
     expect(getAppendCalls()).toBe(0);
   });
 
-  test("exposes collision routing only when the advanced Skill is available", async () => {
-    const root = userEntry("entry-collision-root");
-    const head = userEntry("entry-collision-head", root.id);
-    const entries = [root, head, labelEntry("label-collision", root.id, "existing-name")];
-    const ctx = {
-      sessionManager: {
-        getTree: () => [{ entry: root, children: [{ entry: head, children: [] }] }],
-        getEntries: () => entries,
-        getBranch: () => [root, head],
-        getLeafId: () => head.id,
-        getEntry: (id: string) => entries.find((entry) => entry.id === id),
-        appendLabelChange: () => { throw new Error("must not mutate"); },
-      },
-      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
-      ui: { notify() {} },
-    };
-
-    const core = await executeCheckpoint("collision-core", { name: "existing-name" }, undefined, undefined, ctx);
-    const product = await executeCheckpointWithSkill("collision-product", { name: "existing-name" }, undefined, undefined, ctx);
-
-    expect(core.details).toMatchObject({ error: "duplicate_name" });
-    expect(core.content[0]?.text).not.toContain("context-management");
-    expect(core.content[0]?.text).not.toContain("references/");
-    expect(product.content[0]?.text).toContain("`context-management` Skill");
-    expect(product.content[0]?.text).toContain("`references/target-selection.md`");
-  });
 
   test("rejects every case variant of root as an archive bookmark before any mutation", async () => {
     for (const name of ["root", "ROOT", "Root", "rOoT"]) {
@@ -988,35 +962,6 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
-  test("emits the advanced target pointer only when the Skill is actually available", async () => {
-    const withoutSkill = captureTimelineWithCommands([]);
-    const withSkill = captureTimelineWithCommands(["skill:context-management"]);
-
-    const absent = await withoutSkill("timeline-no-skill", { view: "active" }, undefined, undefined, timelineContext());
-    const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
-
-    expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
-    expect(available.content[0]?.text).toContain("`context-management` Skill");
-    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
-  });
-
-  test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
-    const path = "/tmp/ACM Skill/context management/SKILL.md";
-    const executeWithPath = captureTimelineWithSkillPath(path);
-
-    const result = await executeWithPath(
-      "timeline-with-router-path",
-      { view: "active" },
-      undefined,
-      undefined,
-      timelineContext(),
-    );
-
-    const text = result.content[0]?.text ?? "";
-    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
-    expect(text).toContain("relative to its directory");
-    expect(text).toContain("`references/target-selection.md`");
-  });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
     const result = await executeTravel(

@@ -140,8 +140,8 @@ export function buildBoundaryRow(input: {
   boundary: number;
   budgetPercent: number | null | undefined;
   windowPercent: number | null | undefined;
-  foldTurnPercent: number | null | undefined;
-  foldTaskPercent: number | null | undefined;
+  foldTurnPercent?: number | null | undefined;
+  foldTaskPercent?: number | null | undefined;
   entries: number;
 }): BoundaryLedgerRow {
   return {

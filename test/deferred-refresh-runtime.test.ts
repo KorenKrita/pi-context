@@ -1038,54 +1038,7 @@ describe("deferred post-travel context delivery", () => {
     // Pressure needles must match the timeline's authoritative reading. Fold
     // needles may follow in the same suffix, so assert the pressure prefix
     // rather than the whole bracket.
-    expect(patch.content[0]?.text).toContain("[ctx 90% window");
-  });
-
-  test("fold needles reach the tool result end to end", async () => {
-    // The needles are only useful if they arrive on ordinary tool results.
-    // Source-level inventory cannot prove the wiring; this asserts delivery
-    // through the real tool_result path with a two-turn spine, which is also
-    // the shape that exposes turn-reference selection.
-    const runtime = new AcmSessionRuntime(createAdapter());
-    const mk = (id: string, parentId: string | null, role: string, text: string, ts: number) => ({
-      id,
-      type: "message",
-      parentId,
-      timestamp: `2026-07-21T00:00:0${ts}.000Z`,
-      message: role === "toolResult"
-        ? { role, toolCallId: `c-${id}`, toolName: "read", content: [{ type: "text", text }], timestamp: ts }
-        : { role, content: text, timestamp: ts },
-    }) as unknown as SessionEntry;
-    // Turn 1 delivered; turn 2 just arrived. The reference a fold at this
-    // boundary needs is turn 1's start, not turn 2's own opening line.
-    const entries: SessionEntry[] = [
-      mk("u1", null, "user", "first request", 0),
-      mk("a1", "u1", "assistant", "x".repeat(4000), 1),
-      mk("r1", "a1", "toolResult", "y".repeat(4000), 2),
-      mk("u2", "r1", "user", "second, unrelated request", 3),
-    ];
-    const session = {
-      getLeafId: () => entries.at(-1)?.id ?? null,
-      getEntries: () => entries,
-      getBranch: (id?: string) => (id ? entries.slice(0, entries.findIndex((e) => e.id === id) + 1) : entries),
-      getEntry: (id: string) => entries.find((entry) => entry.id === id),
-    };
-    const fixture = createLifecycleFixture(runtime, session, {
-      tokens: 90_000,
-      contextWindow: 1_000_000,
-      percent: 9,
-    });
-
-    const patch = await fixture.emit("tool_result", {
-      toolName: "read",
-      isError: false,
-      content: [{ type: "text", text: "done" }],
-    }) as { content: Array<{ type: "text"; text: string }> } | undefined;
-
-    const text = patch?.content[0]?.text ?? "";
-    expect(text).toContain("[ctx ");
-    // At least one gain needle must be delivered, with a floored integer.
-    expect(text).toMatch(/fold@(turn|task)→\d+%/);
+    expect(patch.content[0]?.text).toContain("[ctx 90%]");
   });
 
   test("multiple successful travels retain only the latest ticket until settlement", () => {

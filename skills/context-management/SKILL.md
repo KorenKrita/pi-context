@@ -1,16 +1,10 @@
 ---
 name: context-management
-description: "Resolve advanced ACM cases: ambiguous rebase base or fold target, interleaved fronts, missing anchors, rehydration round trips, checkpoint-name collisions, and exceptional mutation or context-sync results. Use only when the always-on CORE judgment cannot complete the current decision."
+description: "Resolve advanced ACM cases: ambiguous fold target, rehydrating an archived detail, or an exceptional travel result. Use only when the always-on CORE cannot complete the current decision."
 ---
 
 # Advanced Context Management
 
-The always-on **CORE owns the normal path**: ordinary saves, clear folds, rebase checks, rehydration, and cadence all stay there. This Skill resolves one advanced condition at a time.
+CORE 已经覆盖正常使用：存档、查看、折叠、折叠后继续。这个 Skill 只在你遇到拿不准的情况时用——选不准折叠到哪、要取回某个归档细节、或 travel 结果异常。
 
-Select the reference whose observable condition is active:
-
-- Load [Advanced Target Selection](references/target-selection.md) when a fold or rebase is justified but the target remains ambiguous because candidate ancestry, interleaved fronts, an older or missing save point, raw-node fallback, or a checkpoint-name collision must be resolved.
-- Load [Archive Recovery](references/archive-recovery.md) when one exact archived detail must be rehydrated and ordinary work must resume on the current summary branch.
-- Load [Exceptional Recovery](references/exceptional-recovery.md) when a result reports travel failure, backup rollback failure, indeterminate branch mutation, exhausted context refresh, unexpectedly restored or grown history, or a fold with little structural saving.
-
-Load one reference at a time. If the observable condition changes, return to this router and replace the active reference instead of accumulating playbooks. Routing is complete when the current condition has one matching reference—or CORE already handles it—and no unrelated reference is loaded.
+恢复步骤直接看对应工具结果里的说明，不需要再加载额外的 reference 文件。

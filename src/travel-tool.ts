@@ -87,9 +87,9 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest label. A raw archive alias created by backupCurrentHeadAs restores pre-travel history: target it only for deliberate rehydrate/restore, never as a fold/rebase base. For a rebase, take the earliest candidate whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search." }),
+    target: Type.String({ minLength: 1, description: "折叠到哪个位置。传存档点名、节点 ID 或 'root'。选这段过程开始之前的那个点，不是最近的标签。用 acm_timeline 的 checkpoints 或 search 视图能帮忙找。backupCurrentHeadAs 建的存档点指向折叠前的原始历史——只有想取回那段历史时才 target 它，不要拿它当折叠基底。" }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional brand-new recovery alias for the latest protocol-complete point on the current origin path before mutation; unique and semantic, never a workflow state ('root' is reserved). This field never selects the destination: Put an existing checkpoint, archive alias, or return alias in target and omit this field. Use it only when a new alias is needed for this exact pre-travel path." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "可选。折叠前给当前状态新建一个恢复用的存档点名。这个名字指向折叠前的位置，不是折叠目标——target 才是目标。只有想给折叠前的状态起个新名字时才填。'root' 是保留字。" })),
   }, { additionalProperties: false });
 
   pi.registerTool({

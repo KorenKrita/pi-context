@@ -22,7 +22,6 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
@@ -266,7 +265,7 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
-    description: "Requested recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Default 50. Runtime applies and reports a context-derived per-call work/result budget instead of rejecting large requests.",
+    description: "返回多少条。active/checkpoints 是条数，search 是匹配数，tree 是每棵子树的深度。默认 50。runtime 会按当前 context 大小限制实际返回量。",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -274,11 +273,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       Type.Literal("checkpoints"),
       Type.Literal("search"),
       Type.Literal("tree"),
-    ], { description: "Timeline view mode. Default: active." })),
+    ], { description: "看哪个视图。默认 active。" })),
     limit: limitSchema,
-    verbose: Type.Optional(Type.Boolean({ description: "Show all active-path messages, including internal tool traffic and system/custom metadata. (active view only)" })),
-    filter: Type.Optional(Type.String({ minLength: 1, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively. (checkpoints view only)" })),
-    query: Type.Optional(Type.String({ minLength: 1, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
+    verbose: Type.Optional(Type.Boolean({ description: "显示 active 路径上的全部消息，包括内部工具调用和系统/自定义元数据。(仅 active 视图)" })),
+    filter: Type.Optional(Type.String({ minLength: 1, description: "按存档点名或节点 ID 过滤，大小写不敏感。(仅 checkpoints 视图)" })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "在整棵树里搜存档点名、节点 ID 或内容，大小写不敏感。view=search 时必填。" })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -591,36 +590,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
-      // Fold projections: what a fold at each structural reference point would
-      // leave, on the same working-budget yardstick the pressure line uses.
-      // Facts only — whether the extraction is complete stays CORE's bar.
-      let foldProjectionText = "unavailable";
-      try {
-        const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
-        const references = selectFoldReferences(foldBranch, labelMaps);
-        const hudCurrent = rebuildAcmContextPacket(sessionManager);
-        const estimates = authoritativePressure && hudCurrent.ok
-          ? estimateFoldGains({
-              usage: officialUsage,
-              workingBudgetTokens: authoritativePressure.workingBudgetTokens,
-              currentMessages: hudCurrent.value.messages,
-              messagesAt: (id: string) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
-            }, references)
-          : { turnPercent: null, taskPercent: null };
-        const segs: string[] = [];
-        if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
-        }
-        if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
-        }
-        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
-      } catch {
-        foldProjectionText = "unavailable";
-      }
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
@@ -631,7 +600,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
-        `• Fold Projection:  ${foldProjectionText}`,
         `• ACM Judgment:     ${activeSummaryDepth > 0
           ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
           : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,

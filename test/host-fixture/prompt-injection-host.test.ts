@@ -58,7 +58,7 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
     expect(injected).toBeDefined();
     expect(injected).toStartWith("base prompt");
     expect(injected).toContain(generated.ACM_CORE_MARKER);
-    expect(injected).toContain("Compression is intelligence");
+    expect(injected).toContain("折叠");
     expect(injected?.split(generated.ACM_CORE_MARKER)).toHaveLength(2);
 
     const second = await runner.emitBeforeAgentStart("again", undefined, injected!, { cwd: tempDir });
@@ -89,7 +89,7 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     expect(tools.get("acm_travel")?.promptSnippet).toBe(generated.PROMPT_SNIPPETS.travel);
     expect(tools.get("acm_travel")?.promptGuidelines).toEqual(generated.PROMPT_GUIDELINES.travel.split("\n"));
     expect(tools.get("acm_travel")?.executionMode).toBe("sequential");
-    expect(tools.get("acm_travel")?.description).toContain("alone in its assistant tool batch");
+    expect(tools.get("acm_travel")?.description).toContain("单独调用");
     const travelParameters = tools.get("acm_travel")?.parameters as {
       required?: string[];
       properties?: Record<string, { anyOf?: Array<{ type?: string; required?: string[] }> }>;

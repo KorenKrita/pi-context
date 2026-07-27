@@ -62,7 +62,7 @@ describe("ACM tool parameter schema limits", () => {
     const query = timelineProperties.query!;
 
     expect(limit).toMatchObject({ minimum: 1 });
-    expect(limit.description).toContain("Default 50.");
+    expect(limit.description).toContain("默认 50");
     expect(limit).not.toHaveProperty("maximum");
     for (const value of [filter, query]) {
       expect(value).toMatchObject({ minLength: 1 });
@@ -85,9 +85,9 @@ describe("ACM tool parameter schema limits", () => {
     const backup = properties(travel).backupCurrentHeadAs!;
     const description = String(backup.description ?? "");
 
-    expect(description).toContain("brand-new recovery alias");
-    expect(description).toContain("never selects the destination");
-    expect(description).toContain("Put an existing checkpoint, archive alias, or return alias in target");
-    expect(description).toContain("only when a new alias is needed for this exact pre-travel path");
+    expect(description).toContain("新建一个恢复用");
+    expect(description).toContain("不是折叠目标");
+    expect(description).toContain("target 才是目标");
+    expect(description).toContain("折叠前的状态");
   });
 });

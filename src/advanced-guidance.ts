@@ -1,57 +1,36 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-interface ContextManagementSkillAvailability {
-  available: boolean;
-  routerPath?: string;
-}
-
-function inspectContextManagementSkill(
-  pi: Pick<ExtensionAPI, "getCommands">,
-): ContextManagementSkillAvailability {
-  let matches: ReturnType<ExtensionAPI["getCommands"]>;
-  try {
-    matches = pi.getCommands().filter((command) => command.name === "skill:context-management");
-  } catch {
-    return { available: false };
-  }
-
-  if (matches.length === 0) return { available: false };
-  if (matches.length !== 1) return { available: true };
-
-  try {
-    const path = matches[0]?.sourceInfo.path;
-    return typeof path === "string" && path.trim().length > 0
-      ? { available: true, routerPath: path }
-      : { available: true };
-  } catch {
-    return { available: true };
-  }
-}
+/**
+ * Grassroots: advanced guidance is not routed through Skill reference files.
+ * Recovery text lives directly in TOOL-CONTRACTS.md (generated into
+ * RECOVERY_GUIDANCE) and is shown inline with the tool result. This module
+ * only answers whether the context-management Skill is installed at all.
+ */
 
 export function hasContextManagementSkill(pi: Pick<ExtensionAPI, "getCommands">): boolean {
-  return inspectContextManagementSkill(pi).available;
+  try {
+    return pi.getCommands().some((command) => command.name === "skill:context-management");
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Returns an advanced router cue only for a currently available Skill. When Pi
- * exposes one unambiguous source path, repeat it as a JSON string so the model
- * can open the router without guessing a cwd-relative location.
+ * Grassroots builds do not route to reference files, so this always returns
+ * undefined. Callers fall back to the inline recovery text in `base`.
  */
 export function getAvailableAdvancedGuidance(
-  pi: Pick<ExtensionAPI, "getCommands">,
-  pointer: string,
+  _pi: Pick<ExtensionAPI, "getCommands">,
+  _pointer: string,
 ): string | undefined {
-  const skill = inspectContextManagementSkill(pi);
-  if (!skill.available) return undefined;
-  if (!skill.routerPath) return pointer;
-  return `${pointer} Router location: ${JSON.stringify(skill.routerPath)}. Load that router first; the referenced file is relative to its directory.`;
+  return undefined;
 }
 
+/** Returns `base` unchanged — grassroots builds append no reference pointer. */
 export function withAvailableAdvancedGuidance(
-  pi: Pick<ExtensionAPI, "getCommands">,
+  _pi: Pick<ExtensionAPI, "getCommands">,
   base: string,
-  pointer: string,
+  _pointer: string,
 ): string {
-  const advancedGuidance = getAvailableAdvancedGuidance(pi, pointer);
-  return advancedGuidance ? `${base} ${advancedGuidance}` : base;
+  return base;
 }

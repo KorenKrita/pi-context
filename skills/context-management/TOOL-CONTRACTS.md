@@ -1,137 +1,137 @@
 # ACM Tool Contracts
 
-This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `docs/acm-judgment-contract.md` owns judgment semantics, projected to models through `CORE.md`. Generated TypeScript must be refreshed with `bun run generate:guidance`.
+这是工具描述、prompt metadata、result cue 和 recovery 文案的单一来源。改了要跑 `bun run generate:guidance` 重新生成 `src/generated-guidance.ts`。
 
 ## Tool descriptions
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Save point: attach a semantic label to a recoverable session state without changing the active context. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.
+给当前会话状态起个名字存档，以后能用这个名字回到这个状态。不改变当前对话。省略 target 时自动存到调用前最近的有效位置；传 target 可以存指定的历史节点。
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-Orient: inspect the session tree and context economics through one view — `active` (default; the spine the model actually sees), `checkpoints` (save points with projected post-travel summary depth), `search` (find labels, node IDs, or content across the whole tree), or `tree` (topology, when ancestry or branch ownership matters). The HUD reports usage, ACM pressure, summary depth, and sync state.
+查看会话树。view 选 active(默认，看当前对话主线)、checkpoints(看所有存档点)、search(搜历史内容)、tree(看整棵树结构)。
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Rewrite the working set through one recoverable transition: fold an extraction-complete stretch into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. Fold only what you can already restate without reaching back; the handoff must pass cold start — a fresh agent could continue from it and its pointers alone, sounding like the same person. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
+把一段已完成的过程折叠成一份简短交接说明。对话变短，原文留在历史树里随时能取回。target 是折叠到哪个存档点或节点(那段过程开始之前的位置)，handoff 是写给折叠后的自己的交接说明。必须单独调用，不能和其他工具混在一个 batch。
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## Prompt snippets
 
 <!-- ACM:SNIPPET_CHECKPOINT:START -->
-Save a recoverable point without changing context
+存档当前状态
 <!-- ACM:SNIPPET_CHECKPOINT:END -->
 
 <!-- ACM:SNIPPET_TIMELINE:START -->
-Inspect the session tree, usage, and travel evidence
+查看会话树和存档点
 <!-- ACM:SNIPPET_TIMELINE:END -->
 
 <!-- ACM:SNIPPET_TRAVEL:START -->
-Fold, rebase, or rehydrate the working set through a cold-start handoff
+折叠一段已完成的过程
 <!-- ACM:SNIPPET_TRAVEL:END -->
 
 ## Prompt guidelines
 
 <!-- ACM:GUIDELINE_CHECKPOINT:START -->
-acm_checkpoint is cheap and never mutates context; names are recovery cues, not workflow states.
+acm_checkpoint 随时可用，不改变当前对话，想存就存。
 <!-- ACM:GUIDELINE_CHECKPOINT:END -->
 
 <!-- ACM:GUIDELINE_TIMELINE:START -->
-Choose the acm_timeline view by the question: current spine → active, return points → checkpoints, an exact buried detail → search, ancestry or branch ownership → tree.
+acm_timeline 的 view 按需要选:active 看主线，checkpoints 看存档点，search 搜内容，tree 看结构。
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
+acm_travel 折叠后直接按 handoff 的 next 继续，不要重读刚折叠的内容;折叠不回滚文件或命令。
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point applied; the working set is unchanged. This state is now cheap to return to and acts as an activation foothold for later orientation. Use timeline when topology evidence would improve the next judgment; choose any later travel target by the material it precedes, not merely by this checkpoint.
+已存档。当前对话不变。需要时用这个名字回到这个状态。
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-Travel applied: this result is the mutation receipt, and the handoff is now the authoritative working set. Execute NEXT directly. Trust the handoff's known state; verify only uncertainty it explicitly carries or facts changed by later independent activity. Rehydrate only when one exact missing detail is actually needed.
+已折叠。handoff 是现在的状态，按它的 next 继续。不要重读刚折叠的内容。
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another, so a rebase check is worthwhile. Rebase only if one new cold-start handoff at the earliest safe base would replace competing layers and have a better net effect than continuing or making a local fold. Root is a candidate, never a default.
+当前对话已有一层交接说明，再折叠会再加一层。可以考虑把已有的几层合并成一份更早的，但不强制。
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->
-If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/target-selection.md` relative to the Skill directory.
+如果 target 还是选不准，先把这段过程得出了什么结论、下一步做什么想清楚，再选它开始之前的存档点。
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
 
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:START -->
-Before deciding whether or how to retry, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/exceptional-recovery.md` relative to the Skill directory.
+出错了先别急着重试。看清楚报错，确认折叠到底有没有生效，再决定怎么办。
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-`active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.
+active 是当前对话主线。看看有没有已经不需要的过程可以折叠。
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-`checkpoints` lists save points with projected post-travel depth and marks raw archive origins. Choose a target by what it precedes, not by how recent or well named it is. Raw archive origins are restore/rehydrate targets, not fold/rebase bases.
+checkpoints 列出所有存档点。折叠时选这段过程开始之前的那个存档点。
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-`search` spans the whole tree. Narrow until the last clean node before the material being folded is identifiable; a raw node ID from this result is a valid target.
+search 搜整棵历史树。缩小范围，找到要折叠的那段开始之前的节点。
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
-`tree` shows ancestry and branch ownership. Reject targets inside the material being folded or on another front, then return to a narrower view.
+tree 看树结构。别选要折叠的那段里面的节点，也别选另一条分支上的。
 <!-- ACM:CUE_TIMELINE_TREE:END -->
 
 ## Manual navigation summary instructions
 
-Injected as the full summarization prompt when the user navigates `/tree` with "Summarize" and provides no custom instructions, so native branch summaries carry the same cold-start shape as travel handoffs. User-supplied instructions always win.
+用户用 /tree 选 "Summarize" 且没给自定义指令时，作为完整摘要提示注入，让原生分支摘要也保持七槽交接说明的形态。用户给的指令永远优先。
 
 <!-- ACM:TREE_SUMMARY_INSTRUCTIONS:START -->
-Summarize this abandoned conversation branch as a handoff for whoever returns to it later.
+把这条要放弃的对话分支总结成一份交接说明，让以后回来的人能接着干。
 
-Write exactly these seven slots, once each, in this order, each starting its own line, with no other headings:
+就写这七行，每行一个，按顺序，不要加别的标题:
 
-Goal: what this branch was trying to accomplish.
-State: what was settled here, with the evidence that settled it, and what stayed uncertain, marked as such. Include the exact files, symbols, and values still in play.
-Evidence: pointers a reader can verify directly — file paths, commands, IDs. Write 'none' if empty.
-External: lasting side effects outside the conversation — files changed, commands run, systems touched. Write 'none' if empty.
-Exclusions: directions tried and closed here, so a retry does not repeat them. Write 'none' if empty.
-Recover: the most useful save point or node ID to return to. Write 'none' if empty.
-NEXT: the single most concrete next action if this work resumes.
+Goal: 这条分支想干什么。
+State: 这里得出了什么结论、有什么证据、还有什么没搞清楚的。写清楚还在用的文件、符号、数值。
+Evidence: 能直接验证的线索——文件路径、命令、ID。没有就写 none。
+External: 对话之外留下的改动——改了哪些文件、跑了什么命令。没有就写 none。
+Exclusions: 这里试过但行不通的方向，免得重来。没有就写 none。
+Recover: 最有用的存档点或节点 ID，方便回来。没有就写 none。
+NEXT: 如果接着干，下一步具体做什么。
 
-Preserve exact file paths, function names, error messages, and numbers; they outrank prose. Keep the whole handoff compact.
+保留准确的文件路径、函数名、错误信息和数字，这些比描述重要。整体简短。
 <!-- ACM:TREE_SUMMARY_INSTRUCTIONS:END -->
 
 ## Recovery guidance
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->
-Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target.
+这个名字已经被别的存档点用了。换个名字——保留原意，加个序号、范围或日期。别覆盖原来的。
 <!-- ACM:RECOVERY_NAME_COLLISION:END -->
 
 <!-- ACM:RECOVERY_HOST_CAPABILITY:START -->
-The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported Pi version before retrying.
+Pi 的 SessionManager 不支持这个操作。停下，报告这个错误，确认 Pi 版本支持后再试。
 <!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
-The backup label remains in the tree. Record its label and entry ID as a recovery pointer before any retry.
+备份存档点没删掉。记下它的名字和节点 ID 作为恢复线索，再重试。
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:END -->
 
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:START -->
-Branch creation failed before mutation; the new backup label was rolled back. Correct the reported host failure before retrying.
+折叠没成功，备份存档点已经回滚。修好报的错再重试。
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:START -->
-Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer and inspect the active leaf before retrying.
+因为折叠可能已经生效，备份存档点没自动删。保留这个备份指针，先看看当前节点再重试。
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
 
 <!-- ACM:RECOVERY_REFRESH_PENDING:START -->
-Travel mutation landed, but rebuilt message evidence is pending. Use the reported summary entry as the fallback and inspect context sync state if the next rebuild fails.
+折叠生效了，但重建对话内容还没完成。用报的 summary 节点作为备用，下次重建还不行就看 context sync 状态。
 <!-- ACM:RECOVERY_REFRESH_PENDING:END -->
 
 <!-- ACM:RECOVERY_RESTORED_HISTORY:START -->
-Off-path travel restored history. Execute this handoff's NEXT directly. For a bounded rehydration lookup, carry the extracted detail back through the return pointer named by the handoff; use that pointer as the next `target`, not `backupCurrentHeadAs`, and do not substitute an older fold base. Stay only when this branch intentionally becomes the new working set.
+这次 travel 恢复了之前的历史(context 变大了)。如果是有意的取回，拿走需要的细节就继续;如果是误操作，travel 回之前的存档点。
 <!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
 
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->
-Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and resume only after the selected branch is authoritative.
+重建对话重试次数用完了。重新加载会话，确认当前分支对了再继续。
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:END -->
