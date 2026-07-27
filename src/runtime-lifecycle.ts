@@ -395,6 +395,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
   });
 
+  pi.on("model_select", (_event, ctx: ExtensionContext) => {
+    // Cached prompt usage belongs to the previous model's context window.
+    // Until the new model completes a turn, the gauge falls back to the host's
+    // current context usage and the provider HUD remains explicitly pending.
+    runtime.resetUsageForModelChange(ctx.sessionManager);
+  });
+
   pi.on("session_before_compact", (event, ctx: ExtensionContext) => {
     const sessionManager = ctx.sessionManager;
     const branch = sessionManager.getBranch();

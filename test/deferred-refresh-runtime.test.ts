@@ -760,6 +760,39 @@ describe("deferred post-travel context delivery", () => {
     expect(checkpointTarget).toBe(result.id);
   });
 
+  test("invalidates provider usage and resets the gauge when the model changes", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const session = createSession("model-select-leaf");
+    const fixture = createLifecycleFixture(runtime, session, {
+      tokens: 90_000,
+      contextWindow: 100_000,
+      percent: 90,
+    });
+    runtime.deferPostTravelRefresh(session, "model-select-travel", "model-select-leaf");
+    runtime.markProviderCutoverReady(session, "model-select-travel");
+    runtime.activateProviderPacket(
+      session,
+      [{ role: "user", content: "compact provider packet", timestamp: 1 }],
+      "model-select-leaf",
+    );
+    runtime.setUsage(session, { tokens: 300_000, contextWindow: 1_000_000, percent: 30 });
+    runtime.markProviderUsageObserved(session);
+    expect(runtime.shouldShowGaugeNow(session, 75)).toBe(true);
+    runtime.confirmGaugeShown(session, 75);
+
+    await fixture.emit("model_select", {});
+
+    expect(runtime.getUsage(session)).toBeUndefined();
+    expect(runtime.getProviderDeliveryStatus(session).usageObserved).toBe(false);
+    const patch = await fixture.emit("tool_result", {
+      toolName: "read",
+      isError: false,
+      content: [{ type: "text", text: "done" }],
+    }) as { content: Array<{ type: "text"; text: string }> };
+    expect(patch.content[0]?.text).toContain("[ctx 90% window]");
+  });
+
   test("multiple successful travels retain only the latest ticket until settlement", () => {
     const adapter = createAdapter();
     const runtime = new AcmSessionRuntime(adapter);

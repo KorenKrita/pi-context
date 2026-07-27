@@ -392,6 +392,15 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
 
+  resetUsageForModelChange(session: object): void {
+    this.cachedUsage.delete(session);
+    this.gaugeStates.delete(session);
+    const deferred = this.deferredTravelRefresh.get(session);
+    if (deferred?.providerUsageObserved) {
+      this.deferredTravelRefresh.set(session, { ...deferred, providerUsageObserved: false });
+    }
+  }
+
   resetGaugeCycle(session: object): void {
     // A context transition (travel, compaction, manual /tree) starts a fresh
     // odometer: the first post-transition reading always shows once.
