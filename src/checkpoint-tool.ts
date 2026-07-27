@@ -330,7 +330,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         const estimates = pressure && currentPacket.ok
           ? estimateFoldGains({
               usage: usageLike,
-              workingBudgetTokens: pressure.workingBudgetTokens,
+              contextWindow: pressure.contextWindow,
               currentMessages: currentPacket.value.messages,
               messagesAt: (id) => {
                 const result = rebuildAcmContextPacket(sessionManager, id);

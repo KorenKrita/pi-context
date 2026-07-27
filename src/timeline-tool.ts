@@ -602,7 +602,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const estimates = authoritativePressure && hudCurrent.ok
           ? estimateFoldGains({
               usage: officialUsage,
-              workingBudgetTokens: authoritativePressure.workingBudgetTokens,
+              contextWindow: authoritativePressure.contextWindow,
               currentMessages: hudCurrent.value.messages,
               messagesAt: (id: string) => {
                 const result = rebuildAcmContextPacket(sessionManager, id);

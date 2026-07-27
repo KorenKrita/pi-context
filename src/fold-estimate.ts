@@ -1,27 +1,6 @@
 import { buildLabelMaps, estimateUsageAfterMessageChange, getEntryLabel, type LabelMaps, type UsageLike } from "./lib.js";
 
-/**
- * Fold-gain estimation for the gauge and for checkpoint receipts.
- *
- * Design contract (AGENTS.md gauge contract): these are needles, not verdicts.
- * A needle reports how much attention a fold at a structural reference point
- * would return; whether that fold is semantically appropriate is CORE's
- * extraction bar, never a number. Restored from the fold preview that shipped
- * until 7c3bdff7 (2026-07-12) silently dropped it during the single-file
- * split, with one deliberate change: reference points no longer require a
- * label, because `estimateUsageAfterMessageChange` only consumes message
- * arrays. Label-gated preview stayed silent for sessions that never
- * checkpointed — exactly the sessions that needed it.
- */
-
-/**
- * Nominal token cost of the handoff a fold appends, charged to every projection.
- *
- * A needle that ignored it would report a saving travel cannot deliver. The
- * exact handoff is unknown at projection time, so this is a deliberate nominal
- * figure: a seven-field cold-start handoff plus the branch-summary entry
- * overhead that estimateUsageAtTravelTarget already charges.
- */
+/** Nominal token cost of the handoff a fold appends. */
 const NOMINAL_HANDOFF_TOKENS = 400;
 
 /** Minimal shape this module needs from a session entry. */
@@ -38,18 +17,13 @@ export interface FoldReference {
   label: string | null;
 }
 
-/** Both reference points the gauge reports, either may be absent on a short spine. */
 export interface FoldReferences {
-  /** Phase/burst granularity: the most recent user-request boundary or save point. */
   turn: FoldReference | null;
-  /** Task-chain granularity: the earliest on-path save point, else the earliest user boundary. */
   task: FoldReference | null;
 }
 
 export interface FoldEstimates {
-  /** Projected budget-pressure percent after folding to the turn reference. */
   turnPercent: number | null;
-  /** Projected budget-pressure percent after folding to the task reference. */
   taskPercent: number | null;
 }
 
@@ -62,32 +36,15 @@ function labelOf(labelMaps: LabelMaps, entryId: string): string | null {
 }
 
 /**
- * Pick both reference points from the active branch, tip-first for `turn` and
- * root-first for `task`. A labeled node wins over a bare structural node at
- * the same granularity because the label is a better travel target for the
- * model; when no label exists the structural node still works, so the needle
- * never goes blind. `excludeId` skips the entry a checkpoint call just labeled.
+ * Pick both reference points from the active branch.
+ * `turn` is the most recent user boundary or save point before the current turn.
+ * `task` is the earliest save point, else the earliest user boundary.
  */
 export function selectFoldReferences(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
   excludeId?: string,
 ): FoldReferences {
-  // Skip the current user turn before looking for the turn reference.
-  //
-  // A fold collapses a tail, never a middle, so the target for "fold the
-  // previous stretch's process" is necessarily the boundary that opened that
-  // stretch. Taking the nearest boundary tip-first points at the current
-  // turn's own opening line the moment a new request arrives — precisely the
-  // structural position CORE names as already a candidate — and reports a
-  // near-zero saving there. That is a value-range defect, not a precision one:
-  // the meaningful target was not expressible at all.
-  //
-  // The cost is real and accepted: in a long turn, "fold this turn's own
-  // exploration" is no longer expressed by this needle. The checkpoint receipt
-  // carries that projection instead, since it excludes the entry just labeled.
-  // Skipping is unconditional — advancing the reference once the current turn
-  // has "produced enough" would let a number choose the reference point.
   let currentTurnStart = -1;
   for (let index = branch.length - 1; index >= 0; index--) {
     if (isUserBoundary(branch[index]!)) {
@@ -130,7 +87,7 @@ export function selectFoldReferences(
   return { turn, task };
 }
 
-/** Walk the active branch tip-first for the nearest save point. Pure fact, no verdict. */
+/** Walk the active branch tip-first for the nearest save point. */
 export function findNearestSavePoint(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
@@ -146,8 +103,8 @@ export function findNearestSavePoint(
 
 export interface FoldEstimateInputs {
   usage: UsageLike | undefined;
-  /** Working-budget token cap so a projected percent uses the same yardstick as the gauge. */
-  workingBudgetTokens: number;
+  /** Context window size for projecting percentage. */
+  contextWindow: number;
   currentMessages: Parameters<typeof estimateUsageAfterMessageChange>[1];
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
 }
@@ -156,14 +113,9 @@ function projectedBudgetPercent(
   inputs: FoldEstimateInputs,
   reference: FoldReference | null,
 ): number | null {
-  if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
+  if (!reference || !inputs.usage || inputs.contextWindow <= 0) return null;
   const after = inputs.messagesAt(reference.entryId);
   if (!after) return null;
-  // A fold does not merely remove messages: it appends one handoff. Excluding
-  // that cost makes every needle optimistic, and worst exactly where it matters
-  // — at turn granularity, where the handoff can be the same order of magnitude
-  // as the saving. estimateUsageAtTravelTarget already charges it; charge the
-  // same nominal cost here so the needle cannot promise more than travel gives.
   const estimate = estimateUsageAfterMessageChange(
     inputs.usage,
     inputs.currentMessages,
@@ -171,10 +123,9 @@ function projectedBudgetPercent(
     NOMINAL_HANDOFF_TOKENS,
   );
   if (!estimate) return null;
-  return (estimate.tokens * 100) / inputs.workingBudgetTokens;
+  return (estimate.tokens * 100) / inputs.contextWindow;
 }
 
-/** Project both needles against the working budget the gauge already reports. */
 export function estimateFoldGains(
   inputs: FoldEstimateInputs,
   references: FoldReferences,

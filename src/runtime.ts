@@ -448,13 +448,11 @@ export class AcmSessionRuntime {
    * moves in confirmGaugeShown, only after the suffix is actually attached
    * (moving it on an undeliverable result would silently swallow the tick).
    */
-  shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
+  shouldShowGaugeNow(session: object, usagePercent: number): boolean {
     if (isGaugeDisabled()) return false;
-    return shouldShowGauge(this.gaugeState(session), pressurePercent);
-  }
+    return shouldShowGauge(this.gaugeState(session), usagePercent);
 
   /** Move the odometer after its suffix was actually attached. */
-  confirmGaugeShown(session: object, pressurePercent: number): void {
-    markGaugeShown(this.gaugeState(session), pressurePercent);
-  }
+  confirmGaugeShown(session: object, usagePercent: number): void {
+    markGaugeShown(this.gaugeState(session), usagePercent);
 }

@@ -1,16 +1,13 @@
-export const ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS = 400_000;
-
-export type ContextWorkingBudgetPolicy = "actual-window" | "400k-cap";
+/**
+ * Simple context usage pressure: just reports the percentage of the context window used.
+ * No working-budget cap, no policy distinction.
+ */
 
 export interface ContextUsagePressure {
   tokens: number;
   contextWindow: number;
-  /** Hard usage percent against the real model window — the physical runway. */
+  /** Hard usage percent against the real model window. */
   usagePercent: number;
-  workingBudgetTokens: number;
-  /** Pressure percent against the working budget — the soft attention envelope. */
-  pressurePercent: number;
-  policy: ContextWorkingBudgetPolicy;
 }
 
 export function calculateContextUsagePressure(
@@ -23,7 +20,6 @@ export function calculateContextUsagePressure(
 
   const validTokens = tokens as number;
   const validContextWindow = contextWindow as number;
-  const workingBudgetTokens = Math.min(validContextWindow, ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS);
   const hardUsagePercent = Number.isFinite(usagePercent) && (usagePercent ?? -1) >= 0
     ? usagePercent as number
     : (validTokens * 100) / validContextWindow;
@@ -32,9 +28,6 @@ export function calculateContextUsagePressure(
     tokens: validTokens,
     contextWindow: validContextWindow,
     usagePercent: hardUsagePercent,
-    workingBudgetTokens,
-    pressurePercent: (validTokens * 100) / workingBudgetTokens,
-    policy: validContextWindow > ACM_CONTEXT_WORKING_BUDGET_CAP_TOKENS ? "400k-cap" : "actual-window",
   };
 }
 
@@ -46,6 +39,5 @@ function formatTokenCount(tokens: number): string {
 }
 
 export function formatContextUsagePressure(pressure: ContextUsagePressure): string {
-  const policy = pressure.policy === "400k-cap" ? "400K cap" : "actual window";
-  return `${pressure.pressurePercent.toFixed(1)}% (${formatTokenCount(pressure.tokens)} / ${formatTokenCount(pressure.workingBudgetTokens)} working budget; ${policy})`;
+  return `${pressure.usagePercent.toFixed(1)}% (${formatTokenCount(pressure.tokens)} / ${formatTokenCount(pressure.contextWindow)})`;
 }

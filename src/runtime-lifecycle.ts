@@ -147,12 +147,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     return runtime.authoritativeContextPressure(session, usage);
   };
-  // Fold needles for the gauge: project what a fold at each structural
-  // reference point would leave. Reference points never require a label, so a
-  // session that has not checkpointed still gets both numbers. Estimation is
-  // bounded to the two references the gauge renders, and a failed rebuild
-  // simply omits that needle.
-  const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
+  // Fold projection for the gauge: estimate what a fold would save.
+  const currentFoldEstimates = (ctx: ExtensionContext, pressure: { contextWindow: number; tokens: number }) => {
     const session = ctx.sessionManager;
     try {
       const branch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
@@ -165,7 +161,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const cache = new Map<string, AgentMessage[] | undefined>();
       return estimateFoldGains({
         usage: { tokens: pressure.tokens, contextWindow: pressure.contextWindow, percent: 0 },
-        workingBudgetTokens: pressure.workingBudgetTokens,
+        contextWindow: pressure.contextWindow,
         currentMessages: currentPacket.value.messages,
         messagesAt: (entryId) => {
           if (!cache.has(entryId)) {
@@ -192,7 +188,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   };
   const recordBoundary = (
     ctx: ExtensionContext,
-    pressure: { pressurePercent: number; usagePercent: number },
+    pressure: { usagePercent: number },
     folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
   ): void => {
     try {
@@ -213,7 +209,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       appendLedgerRow("boundary", buildBoundaryRow({
         state,
         boundary: ordinal,
-        budgetPercent: pressure.pressurePercent,
+        budgetPercent: pressure.usagePercent,
         windowPercent: pressure.usagePercent,
         foldTurnPercent: folds?.turnPercent,
         foldTaskPercent: folds?.taskPercent,
@@ -221,8 +217,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }));
     } catch {
       // A diagnostic writer must never reach the tool result.
-    }
-  };
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
     // tool_result handlers are chained and later extensions may still replace
     // content/details/isError. Final travel authorization is therefore read
@@ -235,18 +229,17 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (isAcmTool(event.toolName) || event.isError) return;
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
-    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
+    if (!runtime.shouldShowGaugeNow(session, pressure.usagePercent)) return;
     const folds = currentFoldEstimates(ctx, pressure);
     // Passive boundary ledger: one row per distinct user-request boundary, so
     // "boundaries crossed N, folds M" accumulates without any injection. Never
     // allowed to affect this result — every failure is swallowed inside.
     recordBoundary(ctx, pressure, folds);
-    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
+    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.
-    if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
+    if (patch) runtime.confirmGaugeShown(session, pressure.usagePercent);
     return patch;
-  });
 
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
