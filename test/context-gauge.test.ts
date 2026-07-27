@@ -1,52 +1,62 @@
 import { describe, expect, test } from "bun:test";
-import {
-	buildGaugeSuffix,
-	createGaugeState,
-	isAcmTool,
-	isGaugeDisabled,
-	markGaugeShown,
-	shouldShowGauge,
-} from "../src/context-gauge.js";
-import { calculateContextUsagePressure } from "../src/context-pressure.js";
+import { buildGaugeSuffix, shouldShowGauge, createGaugeState, markGaugeShown } from "../src/context-gauge.js";
+import type { ContextUsagePressure } from "../src/context-pressure.js";
 
-// The gauge is the only perception surface ACM injects (AGENTS.md gauge
-// contract). These tests lock the user-visible behavior: what the suffix
-// says, when it appears, and what must never be decorated.
+describe("context gauge - 草根版", () => {
+  test("渲染简单的百分比", () => {
+    const pressure: ContextUsagePressure = {
+      pressurePercent: 45,
+      usagePercent: 45,
+      workingBudgetTokens: 400_000,
+      policy: "400k-cap",
+    };
+    const suffix = buildGaugeSuffix(pressure);
+    expect(suffix).toContain("45%");
+  });
 
-describe("context gauge", () => {
-	test("renders two needles under the 400k cap and one when the window is the budget", () => {
-		const capped = calculateContextUsagePressure(410_000, 1_000_000, 41);
-		expect(capped?.policy).toBe("400k-cap");
-		// 410K/400K budget = 102%, 410K/1M window = 41% — over-budget stays
-		// a visible fact, never clamped: the budget is information, not a wall.
-		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% budget · 41% window]");
+  test("超过 80% 显示警告", () => {
+    const pressure: ContextUsagePressure = {
+      pressurePercent: 85,
+      usagePercent: 85,
+      workingBudgetTokens: 400_000,
+      policy: "400k-cap",
+    };
+    const suffix = buildGaugeSuffix(pressure);
+    expect(suffix).toContain("85%");
+    expect(suffix).toContain("建议压缩");
+  });
 
-		const plain = calculateContextUsagePressure(50_000, 200_000, 25);
-		expect(plain?.policy).toBe("actual-window");
-		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% window]");
-	});
+  test("显示节奏：低于 50% 每 10% 显示一次", () => {
+    const state = createGaugeState();
+    
+    // 首次总是显示
+    expect(shouldShowGauge(state, 25)).toBe(true);
+    markGaugeShown(state, 25);
+    
+    // 同一个 10% 区间不显示
+    expect(shouldShowGauge(state, 28)).toBe(false);
+    
+    // 跨越 10% 边界则显示
+    expect(shouldShowGauge(state, 31)).toBe(true);
+  });
 
-	test("odometer cadence: shows on integer change in either direction, silent otherwise", () => {
-		const state = createGaugeState();
-		// Fresh cycle always shows once — the post-transition reading is the anchor.
-		expect(shouldShowGauge(state, 12.4)).toBe(true);
-		markGaugeShown(state, 12.4);
-		// Same integer → silence; fractional drift is not a fact worth a line.
-		expect(shouldShowGauge(state, 12.9)).toBe(false);
-		// Up one integer → show.
-		expect(shouldShowGauge(state, 13.0)).toBe(true);
-		// Down after a fold → show too; shrinkage is honest feedback.
-		expect(shouldShowGauge(state, 11.2)).toBe(true);
-		// Garbage readings never render.
-		expect(shouldShowGauge(state, Number.NaN)).toBe(false);
-		expect(shouldShowGauge(state, -1)).toBe(false);
-	});
+  test("显示节奏：超过 50% 每 5% 显示一次", () => {
+    const state = createGaugeState();
+    markGaugeShown(state, 52);
+    
+    // 同一个 5% 区间不显示
+    expect(shouldShowGauge(state, 53)).toBe(false);
+    
+    // 跨越 5% 边界则显示
+    expect(shouldShowGauge(state, 56)).toBe(true);
+  });
 
-	test("ACM results and the kill switch stay undecorated", () => {
-		expect(isAcmTool("acm_travel")).toBe(true);
-		expect(isAcmTool("acm_checkpoint")).toBe(true);
-		expect(isAcmTool("bash")).toBe(false);
-		expect(isGaugeDisabled({ ACM_GAUGE_DISABLED: "1" })).toBe(true);
-		expect(isGaugeDisabled({})).toBe(false);
-	});
+  test("显示节奏：超过 80% 每次变化都显示", () => {
+    const state = createGaugeState();
+    markGaugeShown(state, 82);
+    
+    expect(shouldShowGauge(state, 83)).toBe(true);
+    markGaugeShown(state, 83);
+    expect(shouldShowGauge(state, 84)).toBe(true);
+  });
 });

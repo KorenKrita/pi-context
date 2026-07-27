@@ -8,11 +8,9 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
-  ContextRefreshRegistry,
   countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
   extractTextFromContent,
-  formatBoundaryTravelCue,
   formatContextUsage,
   getEntryLabel,
   optionalString,
@@ -22,12 +20,9 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
-import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { getAvailableAdvancedGuidance, withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { calculateContextUsagePressure } from "./context-pressure.js";
+import type { AcmSessionRuntime } from "./runtime.js";
+import { PROMPT_GUIDELINES, PROMPT_SNIPPETS, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -420,7 +415,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
       const resultCharacterBudget = timelineResultCharacterBudget(ctx);
-      const advancedTargetPointer = getAvailableAdvancedGuidance(pi, GUIDANCE_CUES.advancedTargetPointer);
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -573,7 +567,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         officialUsageRaw?.contextWindow,
         officialUsageRaw?.percent,
       );
-      const lastUsage = runtime.getUsage(sessionManager);
       let stepsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
       for (let index = branch.length - 1; index >= 0; index--) {
@@ -591,104 +584,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
-      // Fold projections: what a fold at each structural reference point would
-      // leave, on the same working-budget yardstick the pressure line uses.
-      // Facts only — whether the extraction is complete stays CORE's bar.
-      let foldProjectionText = "unavailable";
-      try {
-        const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
-        const references = selectFoldReferences(foldBranch, labelMaps);
-        const hudCurrent = rebuildAcmContextPacket(sessionManager);
-        const estimates = authoritativePressure && hudCurrent.ok
-          ? estimateFoldGains({
-              usage: officialUsage,
-              workingBudgetTokens: authoritativePressure.workingBudgetTokens,
-              currentMessages: hudCurrent.value.messages,
-              messagesAt: (id: string) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
-            }, references)
-          : { turnPercent: null, taskPercent: null };
-        const segs: string[] = [];
-        if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
-        }
-        if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
-        }
-        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
-      } catch {
-        foldProjectionText = "unavailable";
-      }
+      // 草根版 HUD - 只显示最关键的信息
+      const usagePercent = authoritativePressure?.pressurePercent ?? officialPressure?.pressurePercent ?? 0;
       const hudParts = [
-        "[Context Dashboard]",
-        `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
-        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
-        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
-        `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
-        `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
-        `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
-        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
-        `• Fold Projection:  ${foldProjectionText}`,
-        `• ACM Judgment:     ${activeSummaryDepth > 0
-          ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
-          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,
+        "[Context 状态]",
+        `• 用量: ${Math.floor(usagePercent)}%${usagePercent >= 80 ? " ⚠️ 建议压缩" : usagePercent >= 50 ? " (可以考虑压缩)" : ""}`,
+        `• 节点数: ${branch.length}`,
+        `• 压缩层数: ${activeSummaryDepth}`,
+        `• 最近存档: ${nearestCheckpoint ? `'${boundedTimelineValue(nearestCheckpoint)}' (${stepsSinceCheckpoint}步前)` : "无"}`,
+        "---------------------------------------------------",
       ];
-      if (resultBudgetApplied) {
-        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
-      }
-      if (refreshFailure) {
-        const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const exhausted = attempts >= ContextRefreshRegistry.MAX_ATTEMPTS && !refreshPending;
-        const refreshGuidance = exhausted
-          ? withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)
-          : "";
-        hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
-      }
-      // Failure evidence and the currently deliverable provider state are
-      // complementary; show both while a bounded retry remains pending.
-      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
-      if (refreshPending) {
-        const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
-          pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
-          ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
-          fallback: "provider rebuild fallback is retrying from the latest persisted branch",
-        };
-        const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
-          ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
-        let retry = "";
-        if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
-          retry = ` (cached retry ${attempt})`;
-        } else if (attempt > 0) {
-          retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
-        }
-        hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
-        hudParts.push(providerPacketLine);
-      } else {
-        hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
-        hudParts.push(providerPacketLine);
-      }
-      const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
-      const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
-      if (liveSync.status === "applied") {
-        hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
-      } else if (liveSyncRecovery) {
-        const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
-        hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
-      } else {
-        hudParts.push(`• Native Replacement: ${liveSync.status}`);
-      }
-      const cue = params.view === "active"
-        ? GUIDANCE_CUES.timelineActive
-        : params.view === "checkpoints"
-          ? GUIDANCE_CUES.timelineCheckpoints
-          : params.view === "search"
-            ? GUIDANCE_CUES.timelineSearch
-            : GUIDANCE_CUES.timelineTree;
-      hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
       const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
       const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId);
@@ -737,8 +642,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           providerPacketMessageCount: providerDelivery.packetMessageCount,
           providerPacketLeafId: providerDelivery.leafId,
           providerPacketError: providerDelivery.error,
-          nativeContextReplacement: liveSync,
-          nativeContextReplacementRecovery: liveSyncRecovery,
         },
       };
     },

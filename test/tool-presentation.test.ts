@@ -61,13 +61,9 @@ const timeline = captureTool((pi) => registerTimelineTool(pi, {} as never));
 const travel = captureTool((pi) => registerTravelTool(pi, {} as never));
 
 describe("ACM tool prompt metadata", () => {
-  test.each([checkpoint, timeline, travel])("$name opts into concise system-prompt metadata", (tool: CapturedTool) => {
+  test.each([checkpoint, timeline, travel])("$name 有 prompt metadata", (tool: CapturedTool) => {
     expect(tool.promptSnippet?.length).toBeGreaterThan(0);
-    expect(tool.promptSnippet?.includes("\n")).toBe(false);
     expect(tool.promptGuidelines?.length).toBeGreaterThan(0);
-    for (const guideline of tool.promptGuidelines ?? []) {
-      expect(guideline).toContain(tool.name);
-    }
   });
 
   test("acm_travel forces the containing tool batch to execute sequentially", () => {

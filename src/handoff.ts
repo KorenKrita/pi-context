@@ -2,34 +2,35 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 
 export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->";
 
+// 草根版 handoff schema - 描述简化，核心三个字段必填，其他四个可以写 none
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "The authoritative current objective, including any user-visible result still owed. Knowing a result is not the same as delivering it.",
+    description: "当前目标是什么",
   }),
   state: Type.String({
     minLength: 1,
-    description: "Live cognition for future self, not a report: settled knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the exact hot values needed next. If writing this forces vagueness, the fold is not yet earned. Multiline text is allowed.",
+    description: "现在进展到哪了，知道了什么，还不确定什么",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT: a pointer here licenses one bounded spot-check of a load-bearing claim, not a re-derivation. Write 'none' when empty.",
+    description: "相关的文件路径、命令等证据。没有就写 none",
   }),
   external: Type.String({
     minLength: 1,
-    description: "Lasting file, process, browser, or remote-system state as known at handoff time. Future self treats it as authoritative unless later activity changed it. Write 'none' when empty.",
+    description: "改过哪些文件、运行过什么命令。没有就写 none",
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Rejected or closed directions that should not regain authority — what a dead end proved rides here, so the lesson survives the fold. Write 'none' when empty.",
+    description: "试过但行不通的方向。没有就写 none",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread; the folded path stays one travel away. Write 'none' when empty.",
+    description: "可以回退的存档点。没有就写 none",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The first real task action future self should take directly from this handoff — one concrete action, executable immediately. Do not revalidate the handoff merely because travel occurred.",
+    description: "下一步要做什么",
   }),
 }, { additionalProperties: false });
 
@@ -37,10 +38,10 @@ export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
   Type.String({
     minLength: 1,
-    description: "Compatibility fallback for providers that serialize a nested tool argument: an exact JSON encoding of the same seven-field handoff object. This is not free-form summary text.",
+    description: "也可以传 JSON 字符串格式的 handoff 对象",
   }),
 ], {
-  description: "Prefer the structured seven-field object. A JSON-encoded copy of that exact object is accepted only as a provider compatibility fallback.",
+  description: "交接单。核心三个字段: goal(目标), state(现状), next(下一步)。其他字段没有就写 none。",
 });
 
 export type HandoffInput = Static<typeof StructuredHandoffSchema>;

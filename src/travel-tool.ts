@@ -7,13 +7,9 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
-  calculateUsageDelta,
-  classifyStructuralMessageDirection,
   countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
-  estimateUsageAtTravelTarget,
   findInTree,
-  formatContextUsage,
   formatEntryLabel,
   isReservedTargetName,
   isValidEntryId,
@@ -69,27 +65,20 @@ interface TravelSummaryDetails {
   backupCurrentHeadAs?: string | null;
 }
 
-function formatBackupText(name: string | undefined, entryId: string | undefined, resolvedFromHead: string | undefined): string {
-  if (!name || !entryId) return "none";
-  return resolvedFromHead
-    ? `${name}@${entryId} (resolved from HEAD ${resolvedFromHead})`
-    : `${name}@${entryId}`;
-}
-
 function formatNumericValue(value: number | null, fractionDigits = 0): string {
-  return value === null || !Number.isFinite(value) ? "unknown" : value.toFixed(fractionDigits);
+  return value === null || !Number.isFinite(value) ? "?" : value.toFixed(fractionDigits);
 }
 
-function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""): string {
-  if (value === null || !Number.isFinite(value)) return "unknown";
-  return `${value > 0 ? "+" : ""}${value.toFixed(fractionDigits)}${suffix}`;
+function formatSignedDelta(value: number | null, fractionDigits = 0): string {
+  if (value === null || !Number.isFinite(value)) return "?";
+  return `${value > 0 ? "+" : ""}${value.toFixed(fractionDigits)}`;
 }
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest label. A raw archive alias created by backupCurrentHeadAs restores pre-travel history: target it only for deliberate rehydrate/restore, never as a fold/rebase base. For a rebase, take the earliest candidate whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search." }),
+    target: Type.String({ minLength: 1, description: "压缩到哪个点。可以是 checkpoint 名称、节点 ID 或 'root'" }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional brand-new recovery alias for the latest protocol-complete point on the current origin path before mutation; unique and semantic, never a workflow state ('root' is reserved). This field never selects the destination: Put an existing checkpoint, archive alias, or return alias in target and omit this field. Use it only when a new alias is needed for this exact pre-travel path." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "压缩前先给当前位置存个档（可选）" })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -250,10 +239,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const labelMaps = buildLabelMaps(sessionManager.getEntries());
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));
       const requestedRoot = params.target.toLowerCase() === "root";
-      const resolvedBy = requestedRoot ? "root" : labelMaps.labelToEntryId.has(params.target) ? "checkpoint" : "entry_id";
       const resolved = resolveTargetId(sessionManager, tree, params.target, branchIds, labelMaps);
       const targetId = resolved.id;
-      const targetIsStructuralRoot = tree[0]?.entry.id === targetId;
       if (requestedRoot && !isValidEntryId(targetId)) {
         return {
           content: [{ type: "text" as const, text: "Error: Cannot travel to root — session tree is empty." }],
@@ -296,7 +283,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageBefore = usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
         ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
         : undefined;
-      const usageBeforeText = formatContextUsage(usageBefore, true);
       const currentPacketResult = rebuildAcmContextPacket(sessionManager);
       if (!currentPacketResult.ok) {
         return {
@@ -388,21 +374,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           },
         };
       }
-      const estimatedUsagePreview = estimateUsageAtTravelTarget(
-        usageBefore,
-        currentMessages,
-        targetPacketResult.value.messages,
-        canonicalHandoff.text,
-      );
-      const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
-      const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
       const targetSummaryDepth = countActiveSummaryDepth(targetBranch);
 
       let backupEntryId: string | undefined;
-      let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
-      let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
       if (params.backupCurrentHeadAs) {
         if (signal?.aborted) {
           return {
@@ -431,7 +407,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           };
         }
         const backupProtocol = backupPacketResult.value.protocol;
-        backupProtocolNormalizations = backupProtocol.normalizations;
         if (backupProtocol.status === "invalid") {
           return {
             content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
@@ -457,7 +432,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         }
         backupEntryId = backupCandidate.id;
         if (backupEntryId !== originId) {
-          backupResolvedFromHead = originId;
           ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
         }
       }
@@ -717,130 +691,44 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (!afterPacketResult.ok) throw new Error("unreachable post-mutation evidence state");
       const afterPacket = afterPacketResult.value;
       const afterMessages = afterPacket.messages;
-      const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
-      const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
-      const usageDelta = calculateUsageDelta(usageBefore, estimatedUsageAfter);
-      const structuralMessageDelta = messagesAfter - messagesBefore;
-      const structuralMessageDirection = classifyStructuralMessageDirection(messagesBefore, messagesAfter);
-      const backupText = formatBackupText(params.backupCurrentHeadAs, backupEntryId, backupResolvedFromHead);
-      const backupOutcome = mutation.backupOutcome;
-      const messageDelta = `${messagesBefore} → ${messagesAfter} (${formatSignedDelta(structuralMessageDelta)}, ${structuralMessageDirection})`;
-      const usageBeforeTokens = usageBefore?.tokens ?? null;
-      const usageBeforePercent = usageBefore?.percent ?? null;
-      const usageContextWindow = usageBefore?.contextWindow ?? estimatedUsageAfter?.contextWindow ?? null;
-      const estimatedUsageAfterTokens = estimatedUsageAfter?.tokens ?? null;
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
-      const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
-      const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      // Fold side of the passive ledger: one row per applied travel with the
-      // delta the receipt already carries, so folds and boundaries accumulate
-      // on the same yardstick. Swallowed on any failure.
+
+      // 记录到 ledger
       try {
         appendLedgerRow("fold", buildFoldRow({
           state: createLedgerState(`${process.pid}-travel`),
-          budgetBefore: usageBeforePercent,
+          budgetBefore: usageBefore?.percent,
           budgetAfter: estimatedUsageAfter?.percent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
         }));
       } catch {
-        // A diagnostic writer must never affect a travel receipt.
+        // ledger 写入失败不影响 travel 结果
       }
-      const nextCue = GUIDANCE_CUES.travel;
-      const summaryDepthNote = targetIsStructuralRoot
-        && activeSummaryDepthBefore > targetSummaryDepth
-        && activeSummaryDepthAfter === targetSummaryDepth + 1
-        ? `Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
-        : null;
 
+      // 草根版 - 简化输出
+      const usageBeforePercent = usageBefore?.percent ?? 0;
+      const usageAfterPercent = estimatedUsageAfterPercent ?? 0;
       return {
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
-            summaryDepthNote,
-            liveAgentSessionSyncRecovery,
-            resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
-            targetAnalysis.warnings.length > 0
-              ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
-              : null,
-            `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
-            currentUserTurnOpen
-              ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
-              : null,
-            nextCue,
-          ].filter((line): line is string => line !== null).join("\n"),
+            `压缩完成。`,
+            `Context: ${Math.floor(usageBeforePercent)}% → ${Math.floor(usageAfterPercent)}%`,
+            `下一步: ${canonicalHandoff.fields.next}`,
+          ].join("\n"),
         }],
         details: {
           target: params.target,
           targetId,
-          resolvedBy,
-          resolvedEntryId: targetId,
-          rootCount: requestedRoot ? tree.length : null,
           originId,
-          originLabel,
-          hasBackup: !!params.backupCurrentHeadAs,
-          backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
-          backupEntryId,
-          backupResolvedFromHead,
-          backupOutcome,
-          backupProtocolStatus: params.backupCurrentHeadAs ? "complete" : null,
-          backupProtocolNormalizations,
-          usageBefore: usageBeforeText,
-          usageAfter: "pending_next_context_event",
-          estimatedUsagePreview: estimatedPreviewText,
-          estimatedUsageAfter: estimatedUsageAfterText,
-          usageBeforeTokens,
-          usageBeforePercent,
-          usageContextWindow,
-          estimatedUsageAfterTokens,
-          estimatedUsageAfterPercent,
-          tokenDelta: usageDelta.tokenDelta,
-          percentagePointDelta: usageDelta.percentagePointDelta,
-          structuralMessagesBefore: messagesBefore,
-          structuralMessagesAfter: messagesAfter,
-          structuralMessageDelta,
-          structuralMessageDirection,
-          activeSummaryDepthBefore,
-          activeSummaryDepthAfter,
-          activeSummaryDepthDelta,
-          targetSummaryDepth,
-          targetIsStructuralRoot,
-          summaryDepthNote,
-          sessionMessages: messageDelta,
-          messagesBefore,
-          messagesAfter,
           summaryEntryId,
           resultingLeafId,
-          contextRefreshPending: true,
-          contextRefreshState: "pending_tool_result",
-          contextDeliveryPhase: "pending_tool_result",
-          providerDeliveryPhase: providerDelivery.phase,
-          providerPacketMessageCount: providerDelivery.packetMessageCount,
-          providerPacketLeafId: providerDelivery.leafId,
-          providerPacketError: providerDelivery.error,
-          // Native replacement is scheduled independently from when the
-          // persisted Context Packet becomes deliverable to the model.
-          nativeContextReplacementState: liveAgentSessionSync.status,
-          nativeContextReplacement: liveAgentSessionSync,
-          // Compatibility aliases retained for existing integrations.
-          liveAgentSessionSyncState: liveAgentSessionSync.status,
-          liveAgentSessionSync,
+          usageBeforePercent,
+          usageAfterPercent,
           mutationStatus: "applied",
-          persistentMutationApplied: true,
-          postMutationEvidenceStatus: "verified",
-          postMutationProtocolStatus: afterPacket.protocol.status,
-          postMutationProtocolNormalizations: afterPacket.protocol.normalizations,
-          postMutationProtocolRepairs: afterPacket.protocol.repairs,
-          postMutationProtocolDefects: afterPacket.protocol.defects,
-          fromOffPath: resolved.fromOffPath,
-          targetFacts: targetAnalysis.facts,
-          targetWarnings: targetAnalysis.warnings,
-          handoffFormat: "structured-v1",
-          canonicalHandoffLength: canonicalHandoff.text.length,
           handoffNext: canonicalHandoff.fields.next,
-          currentUserTurnOpen,
         },
       };
     },
