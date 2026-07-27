@@ -134,6 +134,8 @@ rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不�
 
 针可以报状态，也可以报收益：`fold@turn` / `fold@task` 是折叠后的投影压力，与 `% budget` / `% window` 同为 measurement，因为它们回答「折了能省多少」而不回答「是否该折」（**Preview measures; boundary decides**，资格线在 CORE）。判断一根针合宪的标准不是它测量什么，而是三条：不携带动词或评价、不选择出现时机、缺参照点时省略而非编造。收益针恢复自 7c3bdff7（2026-07-12）架构拆分中静默丢失的 fold preview——那次没有设计决定，只有空白 commit body；随后六次 guidance 修订都在用措辞补偿一个缺失的数字。`test/fold-visibility.test.ts` 是机制清单，任何再次搬走收益针的重构必须让它变红。
 
+- **参照点语义**：`fold@turn` 跳过当前用户轮，取它之前最近的 boundary/label；`fold@task` 取最早的。这不是精度选择而是值域选择——ACM 的 fold 只能塌尾巴不能塌中段，所以「折掉上一段的过程」这个目标的 target 必然落在上一个 user boundary。tip-first 取最近 boundary 会在新请求刚到时指向本轮自己的开头，于是教义唯一点名「已经在候选位置上」的结构时刻（新请求只用得上上一段结论）反而报出近零收益——那个目标不在值域里，不是读数不准。代价是长轮次里「折掉本轮自己的探索过程」不再由 turn 针表达；它由 checkpoint 回执的投影承担（回执排除刚标记的条目）。跳过是无条件的：按「本轮产出足够多则参照点留在本轮」会让一个数字决定参照点，正是 `d8f9599d` 删掉的那类东西。
+- **口径**：收益针计入折叠会追加的 handoff 名义成本（`NOMINAL_HANDOFF_TOKENS`），与 `estimateUsageAtTravelTarget` 收取 `summaryTokens + BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS` 对齐。不计入会让针承诺 travel 交付不了的收益，且偏差在 turn 粒度最大——那里 handoff 与收益同量级。测试锁方向不锁常数：计入成本的投影必须严格劣于朴素投影。
 - **形态**：普通工具结果尾部追加一行定界后缀。压力针：`policy === "400k-cap"` 时为 `N% budget · M% window`（N=working-budget pressure，M=hard-window usage），否则仅 `M% window`；收益针依次追加 `fold@turn→X%` 与 `fold@task→Y%`（同一 working-budget 口径）。整体形如 `\n[ctx <针 · 针 · …>]`；所有百分比取 `Math.floor`；
 - **压力口径**：`workingBudgetTokens = min(contextWindow, 400_000)`；`pressurePercent = tokens / workingBudgetTokens * 100`；`usagePercent` 始终表示 hard-window usage，不得静默改为 working-budget pressure（`src/context-pressure.ts`）；
 - **显示节奏（里程表）**：整数位变化即显示，双向都算；数字不变时沉默——恒定信号 + 变化驱动，无阈值、无档位、无梯度；
