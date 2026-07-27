@@ -81,24 +81,48 @@ describe("fold-gain visibility", () => {
     // exactly the sessions that needed it. Structural nodes must resolve.
     const branch = [userEntry("u1"), aiEntry("a1"), userEntry("u2"), aiEntry("a2")];
     const refs = selectFoldReferences(branch, emptyLabels);
-    expect(refs.turn?.entryId).toBe("u2");
+    // u2 opened the current turn, so the turn reference is the boundary before
+    // it: folding to u2 would discard only this turn's own opening.
+    expect(refs.turn?.entryId).toBe("u1");
     expect(refs.turn?.label).toBeNull();
-    expect(refs.task?.entryId).toBe("u1");
-    expect(refs.task?.label).toBeNull();
+    // With two turns, both granularities resolve to the same boundary, so the
+    // duplicate is dropped rather than rendered twice.
+    expect(refs.task).toBeNull();
   });
 
   test("a labeled node wins over a bare structural node at the same granularity", () => {
+    // A label inside the current turn is skipped with the rest of that turn;
+    // a1 sits in the previous stretch, so its label wins there.
     const branch = [userEntry("u1"), aiEntry("a1"), userEntry("u2"), aiEntry("a2")];
-    const refs = selectFoldReferences(branch, labelsFor([["a2", "phase-done"]]));
+    const refs = selectFoldReferences(branch, labelsFor([["a1", "phase-done"]]));
     expect(refs.turn?.label).toBe("phase-done");
-    expect(refs.turn?.entryId).toBe("a2");
+    expect(refs.turn?.entryId).toBe("a1");
   });
 
   test("both granularities collapsing to one node reports a single reference", () => {
+    // A single turn has no previous stretch: the turn needle has no reference
+    // and is omitted, while task still resolves to the first boundary.
     const branch = [userEntry("u1"), aiEntry("a1")];
     const refs = selectFoldReferences(branch, emptyLabels);
+    expect(refs.turn).toBeNull();
+    expect(refs.task?.entryId).toBe("u1");
+  });
+
+test("the turn reference skips the current user turn", () => {
+    // Value range, not precision: "fold the previous stretch" is only
+    // expressible when the reference is the boundary that opened it. Pointing
+    // at the current turn's own opening reports a near-zero saving at exactly
+    // the position CORE names as already a candidate.
+    const branch = [
+      userEntry("u1"), aiEntry("a1"), aiEntry("a2"),
+      userEntry("u2"), aiEntry("a3"),
+    ];
+    const refs = selectFoldReferences(branch, emptyLabels);
     expect(refs.turn?.entryId).toBe("u1");
-    expect(refs.task).toBeNull();
+    // Skipping is unconditional — no amount of work inside the current turn
+    // moves the reference forward, because that would let a number choose it.
+    const longer = [...branch, aiEntry("a4"), aiEntry("a5"), aiEntry("a6")];
+    expect(selectFoldReferences(longer, emptyLabels).turn?.entryId).toBe("u1");
   });
 
   test("the entry a checkpoint just labeled is excluded from its own projection", () => {

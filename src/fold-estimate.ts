@@ -73,8 +73,30 @@ export function selectFoldReferences(
   labelMaps: LabelMaps,
   excludeId?: string,
 ): FoldReferences {
-  let turn: FoldReference | null = null;
+  // Skip the current user turn before looking for the turn reference.
+  //
+  // A fold collapses a tail, never a middle, so the target for "fold the
+  // previous stretch's process" is necessarily the boundary that opened that
+  // stretch. Taking the nearest boundary tip-first points at the current
+  // turn's own opening line the moment a new request arrives — precisely the
+  // structural position CORE names as already a candidate — and reports a
+  // near-zero saving there. That is a value-range defect, not a precision one:
+  // the meaningful target was not expressible at all.
+  //
+  // The cost is real and accepted: in a long turn, "fold this turn's own
+  // exploration" is no longer expressed by this needle. The checkpoint receipt
+  // carries that projection instead, since it excludes the entry just labeled.
+  // Skipping is unconditional — advancing the reference once the current turn
+  // has "produced enough" would let a number choose the reference point.
+  let currentTurnStart = -1;
   for (let index = branch.length - 1; index >= 0; index--) {
+    if (isUserBoundary(branch[index]!)) {
+      currentTurnStart = index;
+      break;
+    }
+  }
+  let turn: FoldReference | null = null;
+  for (let index = currentTurnStart >= 0 ? currentTurnStart - 1 : branch.length - 1; index >= 0; index--) {
     const entry = branch[index]!;
     if (entry.id === excludeId) continue;
     const label = labelOf(labelMaps, entry.id);

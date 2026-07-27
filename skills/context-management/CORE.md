@@ -38,7 +38,7 @@ The gauge on tool results is proprioception, and it reads left to right — stat
 
 - `51% budget` — pressure against your attention budget. Advisory, breakable for a clean extraction.
 - `20% window` — room left in the physical window. The hard runway. When the window is at or under the budget cap the two coincide and only this needle shows.
-- `fold@turn→22%` — projected budget pressure if you folded to the nearest structural reference: the most recent user-request boundary, or a save point if one sits closer. Phase and burst granularity.
+- `fold@turn→22%` — projected budget pressure if you folded the stretch before the current request: the boundary or save point that opened it. It skips the current turn, because folding to this turn's own opening would discard nothing but the request you just received. Phase and burst granularity.
 - `fold@task→9%` — the same projection at the earliest reference on this spine: the first save point, else the first user boundary. Task-chain granularity.
 
 A fold needle is omitted when its reference point does not exist — a short spine, or both granularities resolving to the same node. Absent is a fact; a fabricated zero is not. The needles are unconditional otherwise: an early-session `fold@turn→2%` is a parked speedometer reading zero, not noise.
