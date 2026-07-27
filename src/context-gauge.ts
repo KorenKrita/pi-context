@@ -1,45 +1,23 @@
 import type { ContextUsagePressure } from "./context-pressure.js";
-import type { FoldEstimates } from "./fold-estimate.js";
 
 /**
- * Constant context gauge — the only perception surface ACM injects.
+ * Simple context usage gauge. Appends [ctx N%] to tool results
+ * so the model knows how full the context window is.
  *
- * Design contract (AGENTS.md gauge contract): the gauge is furniture, not an
- * event. It renders facts and nothing else: working-budget pressure (the soft
- * attention envelope, breakable for a clean extraction), hard window usage
- * (the physical runway), and the projected pressure a fold at each structural
- * reference point would leave (turn granularity and task granularity). No
- * verbs, no evaluation, no thresholds, no escalation — any injected wording
- * beyond the numbers gets read as an instruction by an obedient model, which
- * is exactly the failure mode this design retired (burst cues, boundary cues,
- * tier reminders).
- *
- * The fold needles are projections, not recommendations: they report what a
- * fold would return, never whether it is earned. Whether the extraction is
- * complete stays CORE's bar. They are unconditional — a needle that appears
- * only past a threshold would be choosing its moment, and a gauge that
- * chooses its moments becomes an event again. An early-session
- * `fold@turn→4%` is a parked speedometer reading zero, not noise.
- *
- * Cadence is an odometer: the suffix appears only when the integer percent
- * changes (in either direction). Display frequency therefore tracks
- * consumption speed with zero editorial judgment about "important moments" —
- * a gauge that chooses its moments becomes an event again.
+ * Shows when the integer percent changes (odometer cadence).
+ * Kill switch: ACM_GAUGE_DISABLED=1
  */
 
-/** Kill switch: ACM_GAUGE_DISABLED=1 silences the gauge. Read per call so tests can toggle it. */
 export function isGaugeDisabled(env: Record<string, string | undefined> = process.env): boolean {
   return env["ACM_GAUGE_DISABLED"] === "1";
 }
 
-/** ACM tool results carry mutation receipts with their own usage line; never decorate them. */
+/** ACM tool results have their own usage info; never decorate them. */
 export function isAcmTool(toolName: string): boolean {
   return toolName.startsWith("acm_");
 }
 
-/** Per-session gauge state. Reset on every context transition (travel, compaction, manual /tree). */
 export interface GaugeState {
-  /** Pressure percent at the last shown gauge; null means nothing shown this cycle. */
   lastShownPercent: number | null;
 }
 
@@ -47,44 +25,21 @@ export function createGaugeState(): GaugeState {
   return { lastShownPercent: null };
 }
 
-/**
- * Odometer cadence: show when the integer part of the budget percent differs
- * from the last shown one. Downward changes show too — watching the number
- * drop after a fold is honest feedback, not noise. A fresh cycle always shows
- * on the first opportunity (null baseline): after a context transition the
- * new reading is exactly the fact worth rendering once.
- */
+/** Show when the integer percent changes. Always shows on first call after reset. */
 export function shouldShowGauge(state: GaugeState, pressurePercent: number): boolean {
   if (!Number.isFinite(pressurePercent) || pressurePercent < 0) return false;
   if (state.lastShownPercent === null) return true;
   return Math.floor(pressurePercent) !== Math.floor(state.lastShownPercent);
 }
 
-/** Move the odometer — call only after the suffix was actually attached to a result. */
 export function markGaugeShown(state: GaugeState, pressurePercent: number): void {
   state.lastShownPercent = pressurePercent;
 }
 
-/**
- * Pressure needles first: budget is the advisory attention envelope, window is
- * the physical truth. When the window itself is at or under the budget cap the
- * two coincide and only the window fact remains.
- *
- * Fold needles follow when a reference point exists on the spine: `fold@turn`
- * projects a fold to the most recent user-request boundary or save point,
- * `fold@task` projects one to the earliest. A needle with no reference point
- * (a short spine, or both granularities resolving to the same node) is omitted
- * rather than rendered as zero — absent is a fact, fabricated is not.
- */
-export function buildGaugeSuffix(pressure: ContextUsagePressure, folds?: FoldEstimates): string {
-  const parts = pressure.policy === "400k-cap"
-    ? [`${Math.floor(pressure.pressurePercent)}% budget`, `${Math.floor(pressure.usagePercent)}% window`]
-    : [`${Math.floor(pressure.usagePercent)}% window`];
-  if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
-    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%`);
-  }
-  if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
-    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%`);
-  }
-  return `\n[ctx ${parts.join(" · ")}]`;
+/** Build a simple [ctx N%] suffix showing context window usage. */
+export function buildGaugeSuffix(pressure: ContextUsagePressure): string {
+  const percent = pressure.policy === "400k-cap"
+    ? Math.floor(pressure.pressurePercent)
+    : Math.floor(pressure.usagePercent);
+  return `\n[ctx ${percent}%]`;
 }

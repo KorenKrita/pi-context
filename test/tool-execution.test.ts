@@ -805,8 +805,8 @@ describe("ACM tool execution contracts", () => {
     expect(core.details).toMatchObject({ error: "duplicate_name" });
     expect(core.content[0]?.text).not.toContain("context-management");
     expect(core.content[0]?.text).not.toContain("references/");
-    expect(product.content[0]?.text).toContain("`context-management` Skill");
-    expect(product.content[0]?.text).toContain("`references/target-selection.md`");
+    expect(product.content[0]?.text).not.toContain("context-management");
+    expect(product.content[0]?.text).not.toContain("references/");
   });
 
   test("rejects every case variant of root as an archive bookmark before any mutation", async () => {
@@ -996,8 +996,8 @@ describe("ACM tool execution contracts", () => {
     const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
 
     expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
-    expect(available.content[0]?.text).toContain("`context-management` Skill");
-    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
+    expect(available.content[0]?.text).not.toContain("context-management");
+    expect(available.content[0]?.text).not.toContain("references/");
   });
 
   test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
@@ -1013,9 +1013,9 @@ describe("ACM tool execution contracts", () => {
     );
 
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
-    expect(text).toContain("relative to its directory");
-    expect(text).toContain("`references/target-selection.md`");
+    expect(text).not.toContain("Router location:");
+    expect(text).not.toContain("context-management");
+    expect(text).not.toContain("references/target-selection.md");
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {

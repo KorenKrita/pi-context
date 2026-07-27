@@ -38,10 +38,8 @@ import {
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
-import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
+import type { AcmSessionRuntime } from "./runtime.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -483,7 +481,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}` }],
+              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
               details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
             };
           }
@@ -544,20 +542,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
           recoveryAction = mutation.remainingBackupLabelState === "present"
-            ? withAvailableAdvancedGuidance(
-              pi,
-              mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped,
-              GUIDANCE_CUES.advancedExceptionalPointer,
-            )
+            ? mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped
             : mutation.remainingBackupLabelState === "unknown"
               ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
               : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
         } else if (mutation.branchState === "indeterminate") {
-          recoveryAction = withAvailableAdvancedGuidance(
-            pi,
-            "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.",
-            GUIDANCE_CUES.advancedExceptionalPointer,
-          );
+          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
         } else {
           recoveryAction = mutation.backupRolledBack
             ? RECOVERY_GUIDANCE.branchRolledBack
@@ -736,17 +726,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       // Fold side of the passive ledger: one row per applied travel with the
       // delta the receipt already carries, so folds and boundaries accumulate
       // on the same yardstick. Swallowed on any failure.
-      try {
-        appendLedgerRow("fold", buildFoldRow({
-          state: createLedgerState(`${process.pid}-travel`),
-          budgetBefore: usageBeforePercent,
-          budgetAfter: estimatedUsageAfter?.percent,
-          messageDelta: currentMessages.length - afterMessages.length,
-          summaryDepth: activeSummaryDepthAfter,
-        }));
-      } catch {
-        // A diagnostic writer must never affect a travel receipt.
-      }
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
