@@ -98,15 +98,18 @@ describe("ACM guidance quality", () => {
 			for (const check of ["Compression Candidate", "Compressibility", "Attention effect", "Recovery value", "Transition effect"]) {
 				expect(ACM_CORE).toContain(check);
 			}
-			// Contract: v1 边界自认 cadence pair.
+			// Contract: v1 折叠的落点 cadence pair.
 			expect(ACM_CORE).toContain("compress continuously");
 			expect(ACM_CORE).toContain("Fold in batches");
 		});
 
-		test("boundaries are self-noticed and the tree is the answer space", () => {
-			// Contract: v1 边界自认 — the perception layer is a gauge; no worded
-			// cue exists, so boundary sense is the model's own duty.
-			expect(ACM_CORE).toContain("No cue will fire");
+		test("folds are placed steps and the tree is the answer space", () => {
+			// Contract: v1 折叠的落点 — folding is planned as a step, never
+			// sensed as a moment; both entries are low-frequency and judged.
+			expect(ACM_CORE).toContain("a step you place, not a moment you sense");
+			expect(ACM_CORE).toContain("alongside tests and commits");
+			expect(ACM_CORE).toContain("needs only the conclusions of the previous stretch");
+			expect(ACM_CORE).toContain("equally a complete judgment");
 			// Contract: v1 树即答案空间 — re-asking the user for what the
 			// session already holds is the canonical navigation failure.
 			expect(ACM_CORE).toContain("Asking again is a navigation failure, not caution");
