@@ -126,7 +126,27 @@ describe("fold-gain visibility", () => {
       messagesAt: () => [],
     }, refs);
     // 8000 tokens against a 10K working budget is 80%, not 0.8% of the window.
-    expect(estimates.turnPercent).toBeCloseTo(80, 5);
+    // The extra 4pp is the nominal handoff a fold appends, charged deliberately.
+    expect(estimates.turnPercent).toBeCloseTo(84, 5);
+  });
+
+  test("a projection charges the handoff a fold would append", () => {
+    // Ignoring it would promise a saving travel cannot deliver, and worst at
+    // turn granularity where the handoff rivals the saving. estimateUsageAt-
+    // TravelTarget charges it; the needles must charge the same.
+    const branch = [userEntry("u1"), aiEntry("a1"), userEntry("u2")];
+    const refs = selectFoldReferences(branch, emptyLabels);
+    const inputs = {
+      usage: { tokens: 8000, contextWindow: 1_000_000, percent: 0.8 },
+      workingBudgetTokens: 10_000,
+      currentMessages: [],
+      messagesAt: () => [],
+    };
+    const charged = estimateFoldGains(inputs, refs).turnPercent!;
+    // Strictly worse than the naive message-only projection, never better.
+    expect(charged).toBeGreaterThan(80);
+    const source = readFileSync(new URL("../src/fold-estimate.ts", import.meta.url), "utf8");
+    expect(source).toContain("NOMINAL_HANDOFF_TOKENS");
   });
 
   test("an unavailable rebuild omits that needle rather than guessing", () => {

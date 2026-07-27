@@ -668,6 +668,16 @@
         <td>更正：撤销 constrainedSampling（用户质疑触发复核）</td>
         <td>用户指出 provider-side constrained sampling 疑似未接通。复核结论：Pi 0.82.1 链路本身已接通（loader→wrapper→agent-session→agent-loop→pi-ai 五环节验证），但 openai-responses 路径 strict 由 <code>model.compat.supportsStrictMode ?? false</code> 门控；当前 <code>local-responses</code> 模型未显式启用该标志，<code>models.json</code> 中部分 <code>local-openai</code> 模型则显式设为 false。更严重的是 OpenAI strict 要求所有 properties 进 required，本项目 schema 含 7 处 <code>Type.Optional</code>，<code>strict:"prefer"</code> 只对模型能力回退、不对 schema 不兼容回退，一旦 compat 打开三工具会被 400 拒绝。前一条目"capable provider 静默回退"的判断在危险方向上错误，已撤销三工具的 constrainedSampling 声明；handoff 完整性守卫回归 runtime 确定性验证（buildCanonicalHandoff）。Pi 内置工具亦无一使用该字段。</td>
       </tr>
+      <tr>
+        <td><span class="label agent-resolved">agent-resolved</span></td>
+        <td>恢复 7c3bdff7 静默删除的 fold 收益可见性</td>
+        <td>用户会话实测零自发折叠（3 小时、四话题、压力至 99.6%）。考古定位：fold preview 双参照、Segment 距离、Era B2 的「Preview measures; boundary decides」与 no-saving 双分支，全部死于 <code>7c3bdff7</code>（2026-07-12 单文件拆分，2209+/1700-，commit body 空白，无设计讨论）。此后六次 guidance 修订都在用措辞补偿一个缺失的测量，这解释了为何触发层反复摆动而机械层与质量层单调改进。恢复时刻意改动一处：参照点不再要求 label（<code>estimateUsageAfterMessageChange</code> 只吃消息数组），因为 label 门控让从未打点的会话永远静默——恰是最需要它的会话。同时为 FM-15 加结构护栏：替换范围全为 ACM label 记账时拒绝，不按距离（会误伤「打点→批量读取→折回」）也不按投影数字（会让数字越权）。<code>test/fold-visibility.test.ts</code> 作为机制清单，任何再次搬走收益针的重构必须变红——7-12 那次是静默通过的。</td>
+      </tr>
+      <tr>
+        <td><span class="label agent-resolved">agent-resolved</span></td>
+        <td>更正：收益针必须计入 handoff 自身成本</td>
+        <td>独立复核指出 <code>estimateUsageAtTravelTarget</code> 收取 <code>summaryTokens + BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS</code>，而 fold 针走 <code>estimateUsageAfterMessageChange</code> 且 <code>extraTokens</code> 默认 0——针不含折叠追加的 handoff 成本。task 粒度影响可忽略，turn 粒度恰是收益本来就小的场合，handoff 可能与收益同量级，于是针报出偏乐观的数。这与 <code>context-gauge.ts</code> 自述的「absent is a fact, fabricated is not」直接冲突：乐观偏差就是 fabricated。已统一收取 <code>NOMINAL_HANDOFF_TOKENS = 400</code>（七字段 cold-start handoff + branch-summary entry overhead 的名义值），并加行为测试锁住「针的读数严格劣于朴素投影，永不更优」。</td>
+      </tr>
     </tbody>
   </table>
   <h2>Future evidence and conditional decisions</h2>
@@ -678,6 +688,9 @@
     <li><strong>open:</strong> 交叉点与最优点仍依赖一个未校准量：折叠后保留比 15%（<code>foldedTokens = 0.15 × contextTokens</code>）。S 已由可观测产物锢定、<code>recoveryTokens</code> 已证不影响判定基准，但保留比直接决定交叉点位置。它应由真实 travel 后的观测 prompt 规模标定；强模型配对跑一旦产生真实折叠，就应用它的 fold 后 prompt 回填该参数并重算交叉点。</li>
     <li><strong>open:</strong> 30 轮在 sol 上的理论收益仅 $0.36（约占 30 轮总额 12%），信号存在但不厚，可被 on 臂额外工具调用的 output 成本吞掉。若需更厚信号需延至 40–45 轮（N=40 省 $0.79、N=60 省 $1.65），代价是强模型成本与时长同比例上升。先跑 30 轮的理由：它先回答「真实模型会不会在 S 附近折叠、outcome 是否仍达成」；若模型根本不折叠或折错时机，延长剧本也救不了，问题在产品侧。</li>
     <li><strong>open:</strong> 成本模型只考虑「至多折叠一次」。真实长剧本可能多次折叠（rebase 会叠加 summary 层），多折叠策略的最优时机序列尚未建模；20–30 轮剧本若出现两次以上 travel，第三项因变量需要扩展而非直接套用。</li>
+    <li><strong>open:</strong> <code>fold@task</code> 的参照点选择：<code>selectFoldReferences</code> 先从头扫 label，只有全程无 label 才回退到最早 user 边界。于是一个早期随手打的临时 checkpoint 会永久钉住 <code>fold@task</code>，挡住通常更有意义的最早 user 边界。label 优先在 turn 粒度说得通（label 是更好的 travel target），在任务链粒度未必。反向改动同样有代价——刻意打的 <code>project-start</code> 会被忽略，因此需要真实使用证据才知道哪种更好，不在推测里选。</li>
+    <li><strong>open:</strong> 常显收益针的每次开销无上界证据：<code>currentFoldEstimates</code> 在整数位跳动的非 ACM 工具结果上最多重建两个完整 packet 并对全部 message 求 token 和，cache 每次调用新建不跨调用复用。里程表节奏与 try/catch 降级限制了触发频率与失败影响，实测样本无可观察延迟，但这是一个「常显」设计，仍缺规模基准。</li>
+    <li><strong>open:</strong> 判断层注入体量：CORE.md 单日 7439 → 11248 字符（+51%），<code>generated-guidance.ts</code> 14826 → 18804，均为 always-on 注入。与同日 <code>d2521b1f</code>「文档注重质量而不是数量」构成张力——一个上下文管理工具让自身注入成为上下文压力来源。今日两次扩张（placed folds、判断实质与可命名范围）性质上是入口结构改革与举证责任补全，不同于 7-12 之后那六次「用措辞补偿缺失数字」；但削减哪一段目前只能靠推测，需实际使用体感回答。</li>
     <li><strong>future evidence:</strong> Continue measuring spontaneous production Skill invocation and post-travel continuation rates beyond controlled analogues; availability, exact-pointer delivery, a healthy production-like flow and one same-commit raw-control pair are now recorded.</li>
     <li><strong>conditional user decision:</strong> If registry publication becomes desirable, choose a scoped or renamed npm identity for this fork; the current unscoped package remains private and GitHub-only.</li>
   </ul>

@@ -14,6 +14,16 @@ import { buildLabelMaps, estimateUsageAfterMessageChange, getEntryLabel, type La
  * checkpointed — exactly the sessions that needed it.
  */
 
+/**
+ * Nominal token cost of the handoff a fold appends, charged to every projection.
+ *
+ * A needle that ignored it would report a saving travel cannot deliver. The
+ * exact handoff is unknown at projection time, so this is a deliberate nominal
+ * figure: a seven-field cold-start handoff plus the branch-summary entry
+ * overhead that estimateUsageAtTravelTarget already charges.
+ */
+const NOMINAL_HANDOFF_TOKENS = 400;
+
 /** Minimal shape this module needs from a session entry. */
 export interface FoldEstimateEntry {
   readonly id: string;
@@ -127,7 +137,17 @@ function projectedBudgetPercent(
   if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
   const after = inputs.messagesAt(reference.entryId);
   if (!after) return null;
-  const estimate = estimateUsageAfterMessageChange(inputs.usage, inputs.currentMessages, after);
+  // A fold does not merely remove messages: it appends one handoff. Excluding
+  // that cost makes every needle optimistic, and worst exactly where it matters
+  // — at turn granularity, where the handoff can be the same order of magnitude
+  // as the saving. estimateUsageAtTravelTarget already charges it; charge the
+  // same nominal cost here so the needle cannot promise more than travel gives.
+  const estimate = estimateUsageAfterMessageChange(
+    inputs.usage,
+    inputs.currentMessages,
+    after,
+    NOMINAL_HANDOFF_TOKENS,
+  );
   if (!estimate) return null;
   return (estimate.tokens * 100) / inputs.workingBudgetTokens;
 }
