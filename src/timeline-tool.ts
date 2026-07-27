@@ -313,7 +313,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     promptSnippet: PROMPT_SNIPPETS.timeline,
     promptGuidelines: PROMPT_GUIDELINES.timeline.split("\n"),
     parameters: schema,
-    constrainedSampling: { type: "json_schema", strict: "prefer" },
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
       const args = rawArgs as Static<typeof schema>;

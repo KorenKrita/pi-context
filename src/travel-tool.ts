@@ -82,9 +82,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     promptSnippet: PROMPT_SNIPPETS.travel,
     promptGuidelines: PROMPT_GUIDELINES.travel.split("\n"),
     parameters: schema,
-    // Provider-side strict schema keeps the seven-slot handoff intact on
-    // capable models and falls back silently elsewhere (Pi >= 0.82).
-    constrainedSampling: { type: "json_schema", strict: "prefer" },
     executionMode: "sequential",
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
