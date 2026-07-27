@@ -256,7 +256,11 @@ function indeterminateTravelContext() {
   };
 }
 
-function successfulTravelContext(failPostMutationRebuild = false, invalidatePostMutationPacket = false) {
+function successfulTravelContext(
+  failPostMutationRebuild = false,
+  invalidatePostMutationPacket = false,
+  failPostMutationBranchRead = false,
+) {
   const root = userEntry("travel-root");
   const head = userEntry("travel-head", root.id);
   const entries: SessionEntry[] = [root, head];
@@ -282,6 +286,7 @@ function successfulTravelContext(failPostMutationRebuild = false, invalidatePost
       return postMutationPacketInvalid ? [invalidRoot, ...entries.slice(1)] : entries;
     },
     getBranch: (fromId?: string) => {
+      if (failPostMutationBranchRead && leafId !== head.id) throw new Error("post-mutation branch read failed");
       if (fromId === root.id) return [root];
       return leafId === head.id ? [root, head] : [root, entries.at(-1)!];
     },
@@ -752,6 +757,32 @@ describe("ACM tool execution contracts", () => {
     });
     expect(result.content[0]?.text).toContain("Travel complete");
     expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+  });
+
+  test("keeps an applied travel receipt when post-mutation branch diagnostics fail", async () => {
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTravelTool(pi, runtime));
+    const context = successfulTravelContext(false, false, true);
+
+    const result = await executeWithRuntime(
+      "travel-post-mutation-branch-failure",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      resultingLeafId: "travel-summary",
+      contextRefreshPending: true,
+      contextDeliveryPhase: "pending_tool_result",
+      postMutationEvidenceStatus: "unavailable",
+      postMutationEvidenceWarning: expect.stringContaining("post-mutation branch read failed"),
+    });
+    expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
+    expect(result.content[0]?.text).toContain("Travel complete");
   });
 
   test("keeps an applied travel receipt and protocol defects when post-mutation packet evidence is invalid", async () => {

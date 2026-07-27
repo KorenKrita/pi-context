@@ -552,8 +552,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
-      const activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
-      const activeSummaryDepthDelta = activeSummaryDepthAfter - activeSummaryDepthBefore;
+      // The mutation is already durable. Establish both refresh tickets before
+      // any diagnostic read that may fail, so an applied travel can never fall
+      // back into an untracked split-brain state.
       const liveAgentSessionSync = runtime.deferPostTravelRefresh(
         sessionManager,
         toolCallId,
@@ -561,19 +562,33 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       );
       const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
       const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
+      let activeSummaryDepthAfter = targetSummaryDepth + 1;
+      let postMutationDiagnosticWarning: string | undefined;
+      try {
+        activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
+      } catch (error) {
+        const cause = error instanceof Error ? error.message : String(error);
+        postMutationDiagnosticWarning = `Active summary depth could not be read after the applied mutation: ${cause}`;
+      }
+      const activeSummaryDepthDelta = activeSummaryDepthAfter - activeSummaryDepthBefore;
       const afterPacketResult = rebuildAcmContextPacket(sessionManager);
-      const postMutationEvidence = !afterPacketResult.ok
+      const postMutationEvidence = postMutationDiagnosticWarning
         ? {
             status: "unavailable" as const,
-            warning: `Session-message evidence could not be rebuilt after the applied mutation: ${afterPacketResult.message}`,
+            warning: postMutationDiagnosticWarning,
           }
-        : afterPacketResult.value.protocol.status === "invalid"
+        : !afterPacketResult.ok
           ? {
-              status: "invalid_protocol" as const,
-              warning: `Session-message evidence has invalid tool protocol: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
-              defects: afterPacketResult.value.protocol.defects,
+              status: "unavailable" as const,
+              warning: `Session-message evidence could not be rebuilt after the applied mutation: ${afterPacketResult.message}`,
             }
-          : { status: "verified" as const };
+          : afterPacketResult.value.protocol.status === "invalid"
+            ? {
+                status: "invalid_protocol" as const,
+                warning: `Session-message evidence has invalid tool protocol: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
+                defects: afterPacketResult.value.protocol.defects,
+              }
+            : { status: "verified" as const };
       if (postMutationEvidence.status !== "verified") {
         return {
           content: [{
