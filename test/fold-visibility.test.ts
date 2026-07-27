@@ -50,23 +50,23 @@ function aiEntry(id: string): FoldEstimateEntry {
 describe("fold-gain visibility", () => {
   test("the gauge renders both fold needles alongside the pressure needles", () => {
     const suffix = buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: 9.1 });
-    expect(suffix).toBe("\n[ctx 51% budget · 20% window · fold@turn→22% · fold@task→9%]");
+    expect(suffix).toBe("\n[ctx 51% used · fold→22%]");
   });
 
   test("a missing reference point omits its needle instead of rendering zero", () => {
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: null }))
-      .toBe("\n[ctx 51% budget · 20% window · fold@turn→22%]");
+      .toBe("\n[ctx 51% used · fold→22%]");
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: null, taskPercent: null }))
-      .toBe("\n[ctx 51% budget · 20% window]");
+      .toBe("\n[ctx 51% used]");
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap")))
-      .toBe("\n[ctx 51% budget · 20% window]");
+      .toBe("\n[ctx 51% used]");
   });
 
   test("fold needles are unconditional: no threshold, floor, or tier gates them", () => {
     // A needle that appeared only past a threshold would be choosing its
     // moment, and a gauge that chooses its moments becomes an event again.
     const early = buildGaugeSuffix(pressure(2.4, 1.1, "400k-cap"), { turnPercent: 2.3, taskPercent: 0.4 });
-    expect(early).toBe("\n[ctx 2% budget · 1% window · fold@turn→2% · fold@task→0%]");
+    expect(early).toBe("\n[ctx 2% used · fold→2%]");
   });
 
   test("fold needles carry no verb, evaluation, or recommendation", () => {
@@ -192,8 +192,7 @@ test("the turn reference skips the current user turn", () => {
     const checkpointSource = readFileSync(new URL("../src/checkpoint-tool.ts", import.meta.url), "utf8");
     expect(checkpointSource).toContain("selectFoldReferences");
     expect(checkpointSource).toContain("findNearestSavePoint");
-    expect(checkpointSource).toContain("fold@turn");
-    expect(checkpointSource).toContain("fold@task");
+    expect(checkpointSource).toContain("fold back to");
     expect(checkpointSource).toContain("Segment:");
 
     const timelineSource = readFileSync(new URL("../src/timeline-tool.ts", import.meta.url), "utf8");
@@ -208,7 +207,7 @@ test("the turn reference skips the current user turn", () => {
   test("CORE explains every needle the gauge can render", () => {
     // A number the model cannot read is noise. CORE owns the reading key.
     const core = readFileSync(new URL("../skills/context-management/CORE.md", import.meta.url), "utf8");
-    for (const needle of ["% budget", "% window", "fold@turn", "fold@task"]) {
+    for (const needle of ["% used", "fold→"]) {
       expect(core).toContain(needle);
     }
   });

@@ -87,9 +87,9 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest label. A raw archive alias created by backupCurrentHeadAs restores pre-travel history: target it only for deliberate rehydrate/restore, never as a fold/rebase base. For a rebase, take the earliest candidate whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search." }),
+    target: Type.String({ minLength: 1, description: "Where to jump back to: a checkpoint name, node ID, or 'root'. Pick the last clean point BEFORE the material you want to fold away. Use acm_timeline (checkpoints or search view) to find candidates." }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional brand-new recovery alias for the latest protocol-complete point on the current origin path before mutation; unique and semantic, never a workflow state ('root' is reserved). This field never selects the destination: Put an existing checkpoint, archive alias, or return alias in target and omit this field. Use it only when a new alias is needed for this exact pre-travel path." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional: a new name to bookmark the current position before folding, so the full pre-fold history stays easy to find. Must be a new unique name; it does not affect where you jump to." })),
   }, { additionalProperties: false });
 
   pi.registerTool({

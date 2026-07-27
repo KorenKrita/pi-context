@@ -1,16 +1,12 @@
 ---
 name: context-management
-description: "Resolve advanced ACM cases: ambiguous rebase base or fold target, interleaved fronts, missing anchors, rehydration round trips, checkpoint-name collisions, and exceptional mutation or context-sync results. Use only when the always-on CORE judgment cannot complete the current decision."
+description: "Help with tricky ACM cases: picking a fold/rebase target, recovering a detail from folded history, name collisions, and handling failed or indeterminate travel results."
 ---
 
-# Advanced Context Management
+# Context Management — Advanced Help
 
-The always-on **CORE owns the normal path**: ordinary saves, clear folds, rebase checks, rehydration, and cadence all stay there. This Skill resolves one advanced condition at a time.
+The always-on CORE covers normal use. Come here only when stuck, and read just the one file that matches your problem:
 
-Select the reference whose observable condition is active:
-
-- Load [Advanced Target Selection](references/target-selection.md) when a fold or rebase is justified but the target remains ambiguous because candidate ancestry, interleaved fronts, an older or missing save point, raw-node fallback, or a checkpoint-name collision must be resolved.
-- Load [Archive Recovery](references/archive-recovery.md) when one exact archived detail must be rehydrated and ordinary work must resume on the current summary branch.
-- Load [Exceptional Recovery](references/exceptional-recovery.md) when a result reports travel failure, backup rollback failure, indeterminate branch mutation, exhausted context refresh, unexpectedly restored or grown history, or a fold with little structural saving.
-
-Load one reference at a time. If the observable condition changes, return to this router and replace the active reference instead of accumulating playbooks. Routing is complete when the current condition has one matching reference—or CORE already handles it—and no unrelated reference is loaded.
+- [target-selection.md](references/target-selection.md) — you want to fold or consolidate but aren't sure where to jump back to.
+- [archive-recovery.md](references/archive-recovery.md) — you need one detail from already-folded history.
+- [exceptional-recovery.md](references/exceptional-recovery.md) — a travel result reported failure, rollback problems, or indeterminate mutation.

@@ -57,11 +57,11 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: Type.String({
       minLength: 1,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic save-point name; unique and case-sensitive across the session tree ('root' is reserved). Name the state a future search should find, e.g. payments-retry-baseline. Suffixes are naming convention only; they never classify workflow state.",
+      description: "Name for this restore point, e.g. before-refactor or api-baseline. Must be unique in this session ('root' is reserved).",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "History node ID or checkpoint name to label. Omit to anchor on the latest protocol-complete leaf before this call; pass an explicit target only to label a deliberately chosen older node.",
+      description: "Node ID or existing checkpoint name to label. Omit to label the current position (recommended).",
     })),
   }, { additionalProperties: false });
 
@@ -341,12 +341,12 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         const segments: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
           const name = references.turn.label ?? references.turn.entryId;
-          segments.push(`fold@turn '${name}' → ~${Math.floor(estimates.turnPercent)}% budget`);
+          segments.push(`fold back to '${name}' → ~${Math.floor(estimates.turnPercent)}% used`);
           foldDetails.turn = name;
         }
         if (estimates.taskPercent != null && references.task) {
           const name = references.task.label ?? references.task.entryId;
-          segments.push(`fold@task '${name}' → ~${Math.floor(estimates.taskPercent)}% budget`);
+          segments.push(`fold back to earliest '${name}' → ~${Math.floor(estimates.taskPercent)}% used`);
           foldDetails.task = name;
         }
         foldDetails.stepsSinceSavePoint = nearest.stepsBack;

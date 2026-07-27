@@ -1,137 +1,137 @@
-# ACM Tool Contracts
+# ACM Tool Contracts (草根版)
 
-This file is the single source of truth for generated ACM tool descriptions, prompt snippets, prompt guidelines, result cues, and recovery text (术). It owns invocation and observable mechanics; `docs/acm-judgment-contract.md` owns judgment semantics, projected to models through `CORE.md`. Generated TypeScript must be refreshed with `bun run generate:guidance`.
+Single source of truth for generated tool descriptions, prompt snippets, guidelines, result cues, and recovery text. Regenerate with `bun run generate:guidance`.
 
 ## Tool descriptions
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-Save point: attach a semantic label to a recoverable session state without changing the active context. Omitting `target` anchors that name on the latest protocol-complete leaf before this call, often a completed tool result, so restoration preserves finished tool work instead of inventing interruption; an explicit checkpoint name or node ID labels deliberately chosen older history.
+Save a named restore point at the current position in the session. Free and instant; changes nothing in your context. Omit `target` to label the latest completed point (recommended); pass a node ID or existing checkpoint name to label an older point. Use before risky steps, before large reads you may fold away later, or at stable milestones.
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-Orient: inspect the session tree and context economics through one view — `active` (default; the spine the model actually sees), `checkpoints` (save points with projected post-travel summary depth), `search` (find labels, node IDs, or content across the whole tree), or `tree` (topology, when ancestry or branch ownership matters). The HUD reports usage, ACM pressure, summary depth, and sync state.
+Inspect the session. Pick one view: `active` (what's currently in context), `checkpoints` (saved restore points), `search` (find text/labels/node IDs anywhere in the tree, including folded history), `tree` (branch structure). Also reports token usage and sync status.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-Rewrite the working set through one recoverable transition: fold an extraction-complete stretch into its handoff, rebase stacked summaries onto an earlier base, or rehydrate an archived branch. Fold only what you can already restate without reaching back; the handoff must pass cold start — a fresh agent could continue from it and its pointers alone, sounding like the same person. Travel must run alone in its assistant tool batch. The result is the only fact: applied, not applied, or indeterminate.
+Shrink context by folding finished history: jump back to `target` (a checkpoint name, node ID, or 'root') and replace everything after it with your 7-field handoff summary. The full old history stays in the session tree and is recoverable. Only fold work that is finished — you must be able to write the handoff from memory without re-reading. Call this tool alone, not batched with other tool calls. Check the result: applied, not applied, or indeterminate.
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## Prompt snippets
 
 <!-- ACM:SNIPPET_CHECKPOINT:START -->
-Save a recoverable point without changing context
+Save a named restore point (free, changes nothing)
 <!-- ACM:SNIPPET_CHECKPOINT:END -->
 
 <!-- ACM:SNIPPET_TIMELINE:START -->
-Inspect the session tree, usage, and travel evidence
+Inspect session history, checkpoints, and token usage
 <!-- ACM:SNIPPET_TIMELINE:END -->
 
 <!-- ACM:SNIPPET_TRAVEL:START -->
-Fold, rebase, or rehydrate the working set through a cold-start handoff
+Fold finished history into a short summary to free context
 <!-- ACM:SNIPPET_TRAVEL:END -->
 
 ## Prompt guidelines
 
 <!-- ACM:GUIDELINE_CHECKPOINT:START -->
-acm_checkpoint is cheap and never mutates context; names are recovery cues, not workflow states.
+acm_checkpoint is free and never changes context — when in doubt, save one.
 <!-- ACM:GUIDELINE_CHECKPOINT:END -->
 
 <!-- ACM:GUIDELINE_TIMELINE:START -->
-Choose the acm_timeline view by the question: current spine → active, return points → checkpoints, an exact buried detail → search, ancestry or branch ownership → tree.
+acm_timeline views: active = current context, checkpoints = restore points, search = find old details, tree = branch structure.
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-An acm_travel fold packs for the road ahead, and is never itself the turn's deliverable: if an answer is owed, deliver it — a fold's NEXT carries the still-undelivered work, and recording it in State is not giving it.
+acm_travel folds finished work; if you still owe the user an answer, deliver it first or put it in the handoff's next field — folding is not answering.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point applied; the working set is unchanged. This state is now cheap to return to and acts as an activation foothold for later orientation. Use timeline when topology evidence would improve the next judgment; choose any later travel target by the material it precedes, not merely by this checkpoint.
+Checkpoint saved; context unchanged. You can return to this point later with acm_travel.
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-Travel applied: this result is the mutation receipt, and the handoff is now the authoritative working set. Execute NEXT directly. Trust the handoff's known state; verify only uncertainty it explicitly carries or facts changed by later independent activity. Rehydrate only when one exact missing detail is actually needed.
+Fold applied. Your handoff is now the working state — continue with its `next` action. Don't re-read the folded material to double-check; recover it only if a specific detail is actually missing.
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-This spine already carries handoff layers; the next fold would stack another, so a rebase check is worthwhile. Rebase only if one new cold-start handoff at the earliest safe base would replace competing layers and have a better net effect than continuing or making a local fold. Root is a candidate, never a default.
+Multiple fold summaries are now stacked on this path. Consider one consolidating fold: target an earlier clean point and write a single handoff that merges everything still relevant.
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:START -->
-If ancestry, interleaved fronts, or missing anchors still make the target ambiguous, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/target-selection.md` relative to the Skill directory.
+For tricky target-selection cases, load the `context-management` Skill (see its `location` in the Skills list) and read `references/target-selection.md` next to it.
 <!-- ACM:CUE_ADVANCED_TARGET_POINTER:END -->
 
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:START -->
-Before deciding whether or how to retry, read the available Skills list and use the `location` advertised for the `context-management` Skill—its name is not a cwd-relative path. Load that router first, then read `references/exceptional-recovery.md` relative to the Skill directory.
+Before retrying, load the `context-management` Skill (see its `location` in the Skills list) and read `references/exceptional-recovery.md` next to it.
 <!-- ACM:CUE_ADVANCED_EXCEPTIONAL_POINTER:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-`active` is the spine the model sees. Evaluate whether any low-attention-value, high-noise material has a substantially more concise representation, then compare attention and recovery gain with transition and continuity cost before choosing the next move.
+This is what's currently in your context. If a stretch of it is finished and only its conclusions matter, folding it with acm_travel will free space.
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-`checkpoints` lists save points with projected post-travel depth and marks raw archive origins. Choose a target by what it precedes, not by how recent or well named it is. Raw archive origins are restore/rehydrate targets, not fold/rebase bases.
+These are your restore points. Pick a travel target by position — the last clean point before the material you want to fold. Raw-archive entries hold pre-fold history: use them to restore old detail, not as fold targets.
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-`search` spans the whole tree. Narrow until the last clean node before the material being folded is identifiable; a raw node ID from this result is a valid target.
+Search covers the whole tree including folded history. A node ID from these results is a valid acm_travel or acm_checkpoint target.
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
-`tree` shows ancestry and branch ownership. Reject targets inside the material being folded or on another front, then return to a narrower view.
+This is the branch structure. Use it to check ancestry before picking a travel target; then go back to a narrower view.
 <!-- ACM:CUE_TIMELINE_TREE:END -->
 
 ## Manual navigation summary instructions
 
-Injected as the full summarization prompt when the user navigates `/tree` with "Summarize" and provides no custom instructions, so native branch summaries carry the same cold-start shape as travel handoffs. User-supplied instructions always win.
+Injected as the summarization prompt when the user navigates `/tree` with plain "Summarize" and no custom instructions.
 
 <!-- ACM:TREE_SUMMARY_INSTRUCTIONS:START -->
 Summarize this abandoned conversation branch as a handoff for whoever returns to it later.
 
-Write exactly these seven slots, once each, in this order, each starting its own line, with no other headings:
+Write exactly these seven lines, in this order, no other headings:
 
 Goal: what this branch was trying to accomplish.
-State: what was settled here, with the evidence that settled it, and what stayed uncertain, marked as such. Include the exact files, symbols, and values still in play.
-Evidence: pointers a reader can verify directly — file paths, commands, IDs. Write 'none' if empty.
-External: lasting side effects outside the conversation — files changed, commands run, systems touched. Write 'none' if empty.
-Exclusions: directions tried and closed here, so a retry does not repeat them. Write 'none' if empty.
+State: what was settled (with evidence) and what stayed uncertain. Include exact files, symbols, and values still in play.
+Evidence: verifiable pointers — file paths, commands, IDs. Write 'none' if empty.
+External: lasting side effects — files changed, commands run, systems touched. Write 'none' if empty.
+Exclusions: directions tried and closed, so a retry doesn't repeat them. Write 'none' if empty.
 Recover: the most useful save point or node ID to return to. Write 'none' if empty.
 NEXT: the single most concrete next action if this work resumes.
 
-Preserve exact file paths, function names, error messages, and numbers; they outrank prose. Keep the whole handoff compact.
+Keep exact file paths, function names, error messages, and numbers; they outrank prose. Keep it compact.
 <!-- ACM:TREE_SUMMARY_INSTRUCTIONS:END -->
 
 ## Recovery guidance
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->
-Search existing checkpoints, preserve the semantic base, and add the smallest useful scope, ordinal, or date. Do not overwrite the existing recovery target.
+That name is taken. Keep the existing checkpoint and pick a new name (add a scope, number, or date).
 <!-- ACM:RECOVERY_NAME_COLLISION:END -->
 
 <!-- ACM:RECOVERY_HOST_CAPABILITY:START -->
-The supported Host Bridge capability is unavailable or malformed. Stop mutation and report the named capability error; verify the exact supported Pi version before retrying.
+The host doesn't expose the needed capability. Nothing was changed. Report the capability error; check the Pi version matches what this extension supports.
 <!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
-The backup label remains in the tree. Record its label and entry ID as a recovery pointer before any retry.
+The backup label is still in the tree. Note its name and entry ID before retrying.
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:END -->
 
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:START -->
-Branch creation failed before mutation; the new backup label was rolled back. Correct the reported host failure before retrying.
+The fold failed before changing anything; the backup label was rolled back. Fix the reported host error before retrying.
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:START -->
-Branch mutation or prior aliases make automatic backup rollback unsafe. Keep the reported backup pointer and inspect the active leaf before retrying.
+Automatic backup rollback was unsafe, so the backup label was kept. Note the backup pointer and check the active leaf before retrying.
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
 
 <!-- ACM:RECOVERY_REFRESH_PENDING:START -->
-Travel mutation landed, but rebuilt message evidence is pending. Use the reported summary entry as the fallback and inspect context sync state if the next rebuild fails.
+The fold landed but the rebuilt context isn't confirmed yet. If the next turn looks wrong, check acm_timeline sync state.
 <!-- ACM:RECOVERY_REFRESH_PENDING:END -->
 
 <!-- ACM:RECOVERY_RESTORED_HISTORY:START -->
-Off-path travel restored history. Execute this handoff's NEXT directly. For a bounded rehydration lookup, carry the extracted detail back through the return pointer named by the handoff; use that pointer as the next `target`, not `backupCurrentHeadAs`, and do not substitute an older fold base. Stay only when this branch intentionally becomes the new working set.
+This travel restored old history (it grew context rather than shrinking it). If you came here to fetch one detail, grab it and travel back to your return checkpoint. Stay only if this branch is intentionally the new working state.
 <!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
 
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->
-Context reconstruction exhausted bounded retries. Reload the session, inspect timeline sync state, and resume only after the selected branch is authoritative.
+Context rebuild retries are exhausted. Reload the session, check acm_timeline sync state, and continue once the active branch is confirmed.
 <!-- ACM:RECOVERY_REFRESH_EXHAUSTED:END -->

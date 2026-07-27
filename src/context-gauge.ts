@@ -70,21 +70,16 @@ export function markGaugeShown(state: GaugeState, pressurePercent: number): void
  * the physical truth. When the window itself is at or under the budget cap the
  * two coincide and only the window fact remains.
  *
- * Fold needles follow when a reference point exists on the spine: `fold@turn`
- * projects a fold to the most recent user-request boundary or save point,
- * `fold@task` projects one to the earliest. A needle with no reference point
- * (a short spine, or both granularities resolving to the same node) is omitted
- * rather than rendered as zero — absent is a fact, fabricated is not.
+ * One fold needle follows when a reference point exists: `fold→X%` projects
+ * usage after folding the stretch before the current request. Omitted when
+ * there is nothing to fold yet.
  */
 export function buildGaugeSuffix(pressure: ContextUsagePressure, folds?: FoldEstimates): string {
-  const parts = pressure.policy === "400k-cap"
-    ? [`${Math.floor(pressure.pressurePercent)}% budget`, `${Math.floor(pressure.usagePercent)}% window`]
-    : [`${Math.floor(pressure.usagePercent)}% window`];
-  if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
-    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%`);
-  }
-  if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
-    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%`);
+  const usedPercent = pressure.policy === "400k-cap" ? pressure.pressurePercent : pressure.usagePercent;
+  const parts = [`${Math.floor(usedPercent)}% used`];
+  const foldPercent = folds?.turnPercent ?? folds?.taskPercent;
+  if (foldPercent != null && Number.isFinite(foldPercent)) {
+    parts.push(`fold→${Math.floor(foldPercent)}%`);
   }
   return `\n[ctx ${parts.join(" · ")}]`;
 }

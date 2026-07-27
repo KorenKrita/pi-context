@@ -266,7 +266,7 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
-    description: "Requested recent visible entries (active), checkpoint entries (checkpoints), matches (search), or traversal depth per root (tree). Default 50. Runtime applies and reports a context-derived per-call work/result budget instead of rejecting large requests.",
+    description: "Max entries/matches to return (or tree depth). Default 50.",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -274,11 +274,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       Type.Literal("checkpoints"),
       Type.Literal("search"),
       Type.Literal("tree"),
-    ], { description: "Timeline view mode. Default: active." })),
+    ], { description: "Which view: active (current context), checkpoints (restore points), search (whole tree), tree (branch structure). Default: active." })),
     limit: limitSchema,
-    verbose: Type.Optional(Type.Boolean({ description: "Show all active-path messages, including internal tool traffic and system/custom metadata. (active view only)" })),
-    filter: Type.Optional(Type.String({ minLength: 1, description: "Optional non-blank checkpoint label or entry-ID filter, matched case-insensitively. (checkpoints view only)" })),
-    query: Type.Optional(Type.String({ minLength: 1, description: "Full-tree query matching labels, node IDs, or rendered content case-insensitively. Required when view=search." })),
+    verbose: Type.Optional(Type.Boolean({ description: "Include internal tool traffic and metadata (active view only)." })),
+    filter: Type.Optional(Type.String({ minLength: 1, description: "Filter checkpoints by label or entry ID, case-insensitive (checkpoints view only)." })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "Text to find anywhere in the tree: labels, node IDs, or message content. Required when view=search." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -612,10 +612,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : { turnPercent: null, taskPercent: null };
         const segs: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
+          segs.push(`fold back to '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% used`);
         }
         if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
+          segs.push(`fold back to earliest '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% used`);
         }
         foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
       } catch {

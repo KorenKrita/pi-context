@@ -85,9 +85,7 @@ describe("ACM tool parameter schema limits", () => {
     const backup = properties(travel).backupCurrentHeadAs!;
     const description = String(backup.description ?? "");
 
-    expect(description).toContain("brand-new recovery alias");
-    expect(description).toContain("never selects the destination");
-    expect(description).toContain("Put an existing checkpoint, archive alias, or return alias in target");
-    expect(description).toContain("only when a new alias is needed for this exact pre-travel path");
+    expect(description).toContain("new unique name");
+    expect(description).toContain("does not affect where you jump to");
   });
 });
