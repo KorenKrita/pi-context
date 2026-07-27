@@ -16,8 +16,6 @@ import {
   resolveTargetId,
 } from "./lib.js";
 import { rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
-import { calculateContextUsagePressure } from "./context-pressure.js";
-import { estimateFoldGains, findNearestSavePoint, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import {
   appendCheckpointLabel,
   type CheckpointLabelConflict,
@@ -305,7 +303,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         };
       }
 
-      const { status, label, labelEntryId } = append.value;
+      const { status, labelEntryId } = append.value;
       const resolvedEntry = targetEntry ?? findEntryInTree(tree, entryId);
       const role = autoResolved?.role ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined) ?? resolvedEntry?.type.toUpperCase() ?? "NODE";
       const usage = ctx.getContextUsage();
@@ -314,49 +312,6 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         : undefined;
       const usageText = usageLike ? formatContextUsage(usageLike, true) : "unknown";
       const cue = GUIDANCE_CUES.checkpoint;
-      // Fold projections and segment distance, restored from the preview that
-      // shipped until 7c3bdff7 (2026-07-12) dropped it in the single-file split.
-      // Facts only: what a fold at each reference point would leave, and how far
-      // back the nearest save point is. The receipt excludes the entry this call
-      // just labeled, so the numbers describe folding material, not this node.
-      let foldText = "";
-      let foldDetails: { turn: string | null; task: string | null; stepsSinceSavePoint: number | null } = { turn: null, task: null, stepsSinceSavePoint: null };
-      try {
-        const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
-        const references = selectFoldReferences(foldBranch, labelMaps, entryId);
-        const nearest = findNearestSavePoint(foldBranch, labelMaps);
-        const pressure = calculateContextUsagePressure(usageLike?.tokens, usageLike?.contextWindow, usageLike?.percent);
-        const currentPacket = rebuildAcmContextPacket(sessionManager);
-        const estimates = pressure && currentPacket.ok
-          ? estimateFoldGains({
-              usage: usageLike,
-              workingBudgetTokens: pressure.workingBudgetTokens,
-              currentMessages: currentPacket.value.messages,
-              messagesAt: (id) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
-            }, references)
-          : { turnPercent: null, taskPercent: null };
-        const segments: string[] = [];
-        if (estimates.turnPercent != null && references.turn) {
-          const name = references.turn.label ?? references.turn.entryId;
-          segments.push(`fold@turn '${name}' → ~${Math.floor(estimates.turnPercent)}% budget`);
-          foldDetails.turn = name;
-        }
-        if (estimates.taskPercent != null && references.task) {
-          const name = references.task.label ?? references.task.entryId;
-          segments.push(`fold@task '${name}' → ~${Math.floor(estimates.taskPercent)}% budget`);
-          foldDetails.task = name;
-        }
-        foldDetails.stepsSinceSavePoint = nearest.stepsBack;
-        const distance = nearest.name !== null && nearest.stepsBack !== null
-          ? `Segment: ${nearest.stepsBack} step(s) since save point '${nearest.name}'.`
-          : `Segment: no prior save point on this spine.`;
-        foldText = ` ${distance}${segments.length > 0 ? ` ${segments.join("; ")}.` : ""}`;
-      } catch {
-        foldText = "";
-      }
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
         ? `${role}; latest protocol-complete pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
@@ -365,10 +320,9 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       return {
         content: [{
           type: "text" as const,
-          text: `${action} checkpoint '${params.name}' at ${entryId} via label entry ${labelEntryId} (${placement}). Label: ${label}. Context usage: ${usageText}.${foldText} ${cue}`,
+          text: `${action} checkpoint '${params.name}' at ${entryId} (${placement}). Context: ${usageText}. ${cue}`,
         }],
         details: {
-          foldReferences: foldDetails,
           status,
           alreadyPresent: status === "already_present",
           label: params.name,
