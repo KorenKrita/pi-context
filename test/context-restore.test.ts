@@ -45,7 +45,7 @@ describe("fixOrphanedToolUse", () => {
         expect(messages).toHaveLength(2);
     });
 
-    it("removes results for error assistants that Pi omits from the API request", () => {
+    it("removes an empty error assistant with its orphaned result", () => {
         const messages = [
             {
                 role: "assistant",
@@ -61,8 +61,7 @@ describe("fixOrphanedToolUse", () => {
         ];
 
         const fixed = fixOrphanedToolUse(messages as Parameters<typeof fixOrphanedToolUse>[0]);
-        expect(fixed).toHaveLength(1);
-        expect(fixed[0]?.role).toBe("assistant");
+        expect(fixed).toEqual([]);
         expect(messages).toHaveLength(2);
     });
 

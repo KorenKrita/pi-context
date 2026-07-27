@@ -5,10 +5,60 @@ import type {
   AgentSessionSyncOutcome,
   LiveAgentSessionAdapter,
 } from "../src/live-agent-session-adapter.js";
+import { buildGaugeSuffix } from "../src/context-gauge.js";
+import { formatContextUsagePressure, type ContextUsagePressure } from "../src/context-pressure.js";
+import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerAcmLifecycle } from "../src/runtime-lifecycle.js";
+import { ANCHOR_SEARCH_WINDOW } from "../src/lib.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
+
+type TimelineResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: {
+    authoritativeContextPressure: ContextUsagePressure | null;
+    persistentMutationApplied: boolean;
+    providerDeliveryPhase: string;
+  };
+};
+
+type TimelineExecute = (
+  id: string,
+  params: { view: "active" },
+  signal: AbortSignal | undefined,
+  onUpdate: unknown,
+  ctx: ExtensionContext,
+) => Promise<TimelineResult>;
+
+function captureTimelineExecute(runtime: AcmSessionRuntime): TimelineExecute {
+  let execute: TimelineExecute | undefined;
+  const pi = {
+    registerTool(tool: { execute?: TimelineExecute }) {
+      execute = tool.execute;
+    },
+    getCommands: () => [],
+  } as unknown as ExtensionAPI;
+  registerTimelineTool(pi, runtime);
+  if (!execute) throw new Error("timeline execute handler was not registered");
+  return execute;
+}
+
+function gaugeText(result: unknown): string {
+  if (!result || typeof result !== "object" || !("content" in result) || !Array.isArray(result.content)) {
+    throw new Error("gauge result did not contain content");
+  }
+  const part = result.content[0];
+  if (
+    !part
+    || typeof part !== "object"
+    || !("type" in part)
+    || part.type !== "text"
+    || !("text" in part)
+    || typeof part.text !== "string"
+  ) throw new Error("gauge result did not contain a text part");
+  return part.text;
+}
 
 function createAdapter(): LiveAgentSessionAdapter & {
   scheduled: Array<{ toolCallId: string; leafId?: string }>;
@@ -75,6 +125,23 @@ function createSession(id: string) {
   };
 }
 
+type TimelineSession = {
+  getLeafId(): string;
+  getTree(): Array<{ entry: SessionEntry; children: [] }>;
+  getEntries(): SessionEntry[];
+  getBranch(): SessionEntry[];
+};
+
+function createTimelineSession(id: string): TimelineSession {
+  const entry = persistedUserEntry(id, `persisted ${id}`);
+  return {
+    getLeafId: () => id,
+    getTree: () => [{ entry, children: [] }],
+    getEntries: () => [entry],
+    getBranch: () => [entry],
+  };
+}
+
 function createProtocolInvalidSession(id: string) {
   const root = persistedUserEntry(`${id}-root`, "persisted root");
   const invalidAssistant = {
@@ -96,6 +163,74 @@ function createProtocolInvalidSession(id: string) {
     getLeafId: () => id,
     getEntries: () => [root, invalidAssistant],
     getBranch: () => [root, invalidAssistant],
+  };
+}
+
+function poisonedCompactionSession(entryCount = 402) {
+  const root = persistedUserEntry("poisoned-compact-root", "safe baseline");
+  const unclosedBatch = {
+    id: "poisoned-compact-unclosed",
+    type: "message",
+    parentId: root.id,
+    timestamp: "2026-07-21T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "poisoned-compact-read", name: "read", arguments: { path: "stuck.txt" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 1,
+    },
+  } as SessionEntry;
+  // The host strips bare dangling calls; this stale result keeps later
+  // host-projected prefixes protocol-repaired rather than complete.
+  const staleOrphanResult = {
+    id: "poisoned-compact-orphan-result",
+    type: "message",
+    parentId: unclosedBatch.id,
+    timestamp: "2026-07-21T00:00:02.000Z",
+    message: {
+      role: "toolResult",
+      toolCallId: "poisoned-compact-missing",
+      toolName: "read",
+      content: [{ type: "text", text: "interrupted result" }],
+      isError: true,
+      timestamp: 2,
+    },
+  } as SessionEntry;
+  const entries: SessionEntry[] = [root, unclosedBatch, staleOrphanResult];
+  for (let index = 3; index < entryCount; index++) {
+    const parent = entries.at(-1);
+    if (!parent) throw new Error("poisoned compaction fixture lost its parent");
+    entries.push({
+      id: `poisoned-compact-${index}`,
+      type: "message",
+      parentId: parent.id,
+      timestamp: "2026-07-21T00:00:03.000Z",
+      message: { role: "user", content: [{ type: "text", text: `later message ${index}` }], timestamp: index },
+    } as SessionEntry);
+  }
+  let appendCalls = 0;
+  let candidatePrefixReads = 0;
+  return {
+    session: {
+      getLeafId: () => entries.at(-1)?.id ?? null,
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        if (fromId === undefined) return entries;
+        candidatePrefixReads++;
+        const candidateIndex = entries.findIndex((entry) => entry.id === fromId);
+        return candidateIndex < 0 ? [] : entries.slice(0, candidateIndex + 1);
+      },
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange: () => {
+        appendCalls++;
+        return "must-not-append-poisoned-compaction-label";
+      },
+    },
+    getAppendCalls: () => appendCalls,
+    getCandidatePrefixReads: () => candidatePrefixReads,
   };
 }
 
@@ -131,6 +266,7 @@ function createLifecycleFixture(
     ui: { notify(message: string) { notifications.push(message); } },
   } as unknown as ExtensionContext;
   return {
+    context,
     appendedEntries,
     notifications,
     setIdle(value: boolean | "throw") { idle = value; },
@@ -612,6 +748,96 @@ describe("deferred post-travel context delivery", () => {
     expect(runtime.getContextDeliveryPhase(session)).toBe("receipt_rejected");
   });
 
+  test("keeps a rejected receipt diagnostic without claiming provider delivery", () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const session = {};
+
+    runtime.deferPostTravelRefresh(session, "rejected-receipt", "rejected-leaf");
+    expect(runtime.rejectProviderCutover(session, "rejected-receipt")).toBe(true);
+
+    expect(runtime.getProviderDeliveryStatus(session)).toMatchObject({
+      persistentMutationApplied: false,
+      phase: "receipt_rejected",
+    });
+  });
+
+  test("keeps gauge and timeline authoritative pressure aligned", async () => {
+    const hostUsage = { tokens: 70_000, contextWindow: 100_000, percent: 70 };
+    const scenarios: Array<{
+      name: string;
+      prepare(runtime: AcmSessionRuntime, session: TimelineSession): void;
+      pressurePercent: number;
+      applied: boolean;
+      phase: string;
+      pressureAuthority: "provider actual" | "native context";
+    }> = [
+      {
+        name: "no travel",
+        prepare() {},
+        pressurePercent: 70,
+        applied: false,
+        phase: "active",
+        pressureAuthority: "native context",
+      },
+      {
+        name: "provider active with observed usage",
+        prepare(runtime, session) {
+          runtime.deferPostTravelRefresh(session, "provider-observed", session.getLeafId());
+          runtime.markProviderCutoverReady(session, "provider-observed");
+          runtime.activateProviderPacket(
+            session,
+            [{ role: "user", content: "compact provider packet", timestamp: 1 }],
+            session.getLeafId(),
+          );
+          runtime.setUsage(session, { tokens: 300_000, contextWindow: 1_000_000, percent: 30 });
+          runtime.markProviderUsageObserved(session);
+        },
+        pressurePercent: 75,
+        applied: true,
+        phase: "active",
+        pressureAuthority: "provider actual",
+      },
+      {
+        name: "rejected receipt",
+        prepare(runtime, session) {
+          runtime.deferPostTravelRefresh(session, "provider-rejected", session.getLeafId());
+          runtime.rejectProviderCutover(session, "provider-rejected");
+        },
+        pressurePercent: 70,
+        applied: false,
+        phase: "receipt_rejected",
+        pressureAuthority: "native context",
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const runtime = new AcmSessionRuntime(createAdapter());
+      const session = createTimelineSession(`pressure-${scenario.name.replaceAll(" ", "-")}`);
+      scenario.prepare(runtime, session);
+      const lifecycle = createLifecycleFixture(runtime, session, hostUsage);
+      const timelineExecute = captureTimelineExecute(runtime);
+
+      const gauge = await lifecycle.emit("tool_result", {
+        toolName: "read",
+        isError: false,
+        content: [{ type: "text", text: "read complete" }],
+      });
+      const timeline = await timelineExecute("pressure-timeline", { view: "active" }, undefined, undefined, lifecycle.context);
+      const pressure = timeline.details.authoritativeContextPressure;
+
+      expect(pressure).not.toBeNull();
+      expect(pressure?.pressurePercent).toBe(scenario.pressurePercent);
+      expect(gaugeText(gauge)).toBe(`read complete${buildGaugeSuffix(pressure!)}`);
+      expect(timeline.content[0]?.text).toContain(
+        `• ACM Pressure:     ${formatContextUsagePressure(pressure!)} (${scenario.pressureAuthority})`,
+      );
+      expect(timeline.details).toMatchObject({
+        persistentMutationApplied: scenario.applied,
+        providerDeliveryPhase: scenario.phase,
+      });
+    }
+  });
+
   test("retains the delivery phase through rebuild failures and consumes it only after a later rebuild succeeds", async () => {
     const adapter = createAdapter();
     const runtime = new AcmSessionRuntime(adapter);
@@ -758,6 +984,21 @@ describe("deferred post-travel context delivery", () => {
     await fixture.emit("session_before_compact", {});
 
     expect(checkpointTarget).toBe(result.id);
+  });
+
+  test("skips and warns when bounded pre-compaction anchoring cannot find a complete prefix", async () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const { session, getAppendCalls, getCandidatePrefixReads } = poisonedCompactionSession();
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(getAppendCalls()).toBe(0);
+    expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW);
+    expect(getCandidatePrefixReads()).toBe(ANCHOR_SEARCH_WINDOW);
+    expect(fixture.notifications).toHaveLength(1);
+    expect(fixture.notifications[0]).toContain("No pre-compaction checkpoint was created");
+    expect(fixture.notifications[0]).toContain(`within the last ${ANCHOR_SEARCH_WINDOW} entries`);
   });
 
   test("invalidates provider usage and resets the gauge when the model changes", async () => {

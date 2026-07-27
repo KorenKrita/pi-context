@@ -7,8 +7,10 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import {
   buildLabelMaps,
+  ANCHOR_SEARCH_WINDOW,
   formatContextUsage,
   isReservedTargetName,
+  optionalString,
   sanitizeTerminalText,
   isValidEntryId,
   resolveTargetId,
@@ -44,6 +46,7 @@ interface AutomaticCheckpointAnchor {
   normalizations: AcmProtocolNormalization[];
   skipped: SkippedCheckpointAnchor[];
   aborted?: boolean;
+  searchExhausted?: boolean;
 }
 
 export function registerCheckpointTool(pi: ExtensionAPI): void {
@@ -72,7 +75,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const target = sanitizeTerminalText(args.target ?? "latest protocol-complete pre-call leaf");
+      const target = sanitizeTerminalText(optionalString(args.target) ?? "latest protocol-complete pre-call leaf");
       const name = sanitizeTerminalText(args.name ?? "…");
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
@@ -127,7 +130,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
-      const params = rawParams;
+      const params = { ...rawParams, target: optionalString(rawParams.target) };
       if (isReservedTargetName(params.name)) {
         return {
           content: [{ type: "text" as const, text: `Error: Checkpoint name '${params.name}' is reserved for the structural root target. Choose a different semantic name.` }],
@@ -181,7 +184,9 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
         const skipped: SkippedCheckpointAnchor[] = [];
         autoResolved = { entryId: null, normalizations: [], skipped };
-        for (let index = startIndex; index >= 0; index--) {
+        let index = startIndex;
+        let inspected = 0;
+        for (; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
           if (signal?.aborted) {
             autoResolved.aborted = true;
             break;
@@ -218,6 +223,9 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           };
           break;
         }
+        if (!autoResolved.entryId && !autoResolved.aborted && inspected === ANCHOR_SEARCH_WINDOW && index >= 0) {
+          autoResolved.searchExhausted = true;
+        }
         entryId = autoResolved.entryId ?? "";
       }
 
@@ -231,11 +239,16 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
             type: "text" as const,
             text: isEmpty
               ? "No session entry to checkpoint. The conversation is empty."
-              : "No protocol-complete session prefix exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
+              : autoResolved?.searchExhausted
+                ? `No protocol-complete session prefix exists within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.`
+                : "No protocol-complete session prefix exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
           }],
           details: {
             error: isEmpty ? "empty_session" : "no_protocol_complete_checkpoint_target",
             skipped: autoResolved?.skipped ?? [],
+            ...(autoResolved?.searchExhausted
+              ? { searchWindow: ANCHOR_SEARCH_WINDOW, searchExhausted: true }
+              : {}),
           },
         };
       }

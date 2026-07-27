@@ -6,6 +6,7 @@ export type ToolProtocolRepair =
   | { kind: "removed_orphan_result"; toolCallId: string; toolName: string }
   | { kind: "removed_duplicate_result"; toolCallId: string; toolName: string }
   | { kind: "synthesized_missing_result"; toolCallId: string; toolName: string }
+  | { kind: "stripped_unpaired_tool_call"; toolCallId: string; toolName: string }
   | { kind: "reordered_results"; assistantIndex: number; before: string[]; after: string[] };
 
 export type ToolProtocolDefect =
@@ -91,6 +92,56 @@ function isToolCallBlock(block: unknown): block is ToolCall {
 
 function isToolCallLike(block: unknown): block is { type: "toolCall"; id?: unknown; name?: unknown } {
   return typeof block === "object" && block !== null && "type" in block && block.type === "toolCall";
+}
+
+type StrippedUnpairedToolCallRepair = {
+  kind: "stripped_unpaired_tool_call";
+  toolCallId: string;
+  toolName: string;
+};
+
+function unpairedToolCallRepair(
+  block: unknown,
+  pairedToolResultIds: ReadonlySet<string>,
+): StrippedUnpairedToolCallRepair | undefined {
+  if (!isToolCallLike(block)) return undefined;
+  const toolCallId = typeof block.id === "string" ? block.id : "";
+  if (pairedToolResultIds.has(toolCallId)) return undefined;
+  return {
+    kind: "stripped_unpaired_tool_call",
+    toolCallId,
+    toolName: typeof block.name === "string" ? block.name : "",
+  };
+}
+
+function stripUnpairedToolCalls(messages: AgentMessage[], repairs: ToolProtocolRepair[]): void {
+  const pairedToolResultIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "toolResult") pairedToolResultIds.add(message.toolCallId);
+  }
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+
+    const strippedIndices = new Set<number>();
+    const stripped: StrippedUnpairedToolCallRepair[] = [];
+    for (let contentIndex = 0; contentIndex < message.content.length; contentIndex++) {
+      const repair = unpairedToolCallRepair(message.content[contentIndex], pairedToolResultIds);
+      if (!repair) continue;
+      strippedIndices.add(contentIndex);
+      stripped.push(repair);
+    }
+    if (stripped.length === 0) continue;
+
+    repairs.push(...stripped);
+    const content = message.content.filter((_, contentIndex) => !strippedIndices.has(contentIndex));
+    if (content.length === 0) {
+      messages.splice(index, 1);
+    } else {
+      messages[index] = { ...message, content };
+    }
+  }
 }
 
 function findToolCallDefects(messages: readonly AgentMessage[]): ToolProtocolDefect[] {
@@ -227,6 +278,10 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
     result.splice(index + 1, followingIndex - index - 1, ...repairedResults);
     index += repairedResults.length;
   }
+
+  // The final packet is the only authority for tool-result pairing. This also
+  // removes calls from aborted/error turns whose results were just orphaned.
+  stripUnpairedToolCalls(result, repairs);
 
   return {
     status: repairs.length === 0 ? "complete" : "repaired",

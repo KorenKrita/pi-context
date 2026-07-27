@@ -2,6 +2,21 @@ import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { analyzeToolProtocol, formatToolProtocolDefects, hasOpenUserTurnAtAssistant } from "../src/tool-protocol";
+function unpairedToolCallIds(messages: readonly AgentMessage[]): string[] {
+  const resultIds = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "toolResult") resultIds.add(message.toolCallId);
+  }
+  const unpaired: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      if (block.type === "toolCall" && !resultIds.has(block.id)) unpaired.push(block.id);
+    }
+  }
+  return unpaired;
+}
+
 
 describe("LLM tool protocol analysis", () => {
   test("formats every protocol defect variant consistently", () => {
@@ -151,35 +166,69 @@ describe("LLM tool protocol analysis", () => {
     ]);
   });
 
-  test("ignores malformed aborted tool calls but removes their orphaned result", () => {
+  test("strips an aborted assistant's unpaired tool call when removing its orphaned result", () => {
     const messages = [
+      { role: "user" as const, content: "start", timestamp: 1 },
       {
         role: "assistant" as const,
-        content: [
-          { type: "toolCall" as const, id: "aborted-call", name: "", arguments: {} },
-          { type: "toolCall" as const, id: "aborted-call", name: "", arguments: {} },
-        ],
+        content: [{ type: "toolCall" as const, id: "tc1", name: "read", arguments: {} }],
         stopReason: "aborted" as const,
-        timestamp: 1,
+        timestamp: 2,
       },
       {
         role: "toolResult" as const,
-        toolCallId: "aborted-call",
+        toolCallId: "tc1",
         toolName: "read",
         content: [],
-        timestamp: 2,
+        timestamp: 3,
       },
+      { role: "user" as const, content: "continue", timestamp: 4 },
     ] as AgentMessage[];
 
     const analysis = analyzeToolProtocol(messages);
 
     expect(analysis.status).toBe("repaired");
-    expect(analysis.defects).toEqual([]);
-    expect(analysis.repairs).toEqual([{
-      kind: "removed_orphan_result",
-      toolCallId: "aborted-call",
+    expect(unpairedToolCallIds(analysis.messages)).toEqual([]);
+    expect(analysis.messages.map((message) => message.role)).toEqual(["user", "user"]);
+    expect(analysis.repairs).toContainEqual({
+      kind: "stripped_unpaired_tool_call",
+      toolCallId: "tc1",
       toolName: "read",
-    }]);
-    expect(analysis.messages).toEqual([messages[0]]);
+    });
+  });
+
+  test("leaves no dangling tool calls across healthy, aborted, and duplicate-result batches", () => {
+    const messages = [
+      { role: "user" as const, content: "start", timestamp: 1 },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "healthy", name: "read", arguments: {} }],
+        stopReason: "toolUse" as const,
+        timestamp: 2,
+      },
+      { role: "toolResult" as const, toolCallId: "healthy", toolName: "read", content: [], timestamp: 3 },
+      { role: "toolResult" as const, toolCallId: "healthy", toolName: "read", content: [], timestamp: 4 },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "aborted", name: "bash", arguments: {} }],
+        stopReason: "aborted" as const,
+        timestamp: 5,
+      },
+      { role: "toolResult" as const, toolCallId: "aborted", toolName: "bash", content: [], timestamp: 6 },
+    ] as AgentMessage[];
+
+    const analysis = analyzeToolProtocol(messages);
+
+    expect(unpairedToolCallIds(analysis.messages)).toEqual([]);
+    expect(analysis.repairs).toContainEqual({
+      kind: "removed_duplicate_result",
+      toolCallId: "healthy",
+      toolName: "read",
+    });
+    expect(analysis.repairs).toContainEqual({
+      kind: "stripped_unpaired_tool_call",
+      toolCallId: "aborted",
+      toolName: "bash",
+    });
   });
 });

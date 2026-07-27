@@ -7,7 +7,7 @@ import { appendCheckpointLabel } from "./host-bridge.js";
 import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
-import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
+import { ANCHOR_SEARCH_WINDOW, buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
@@ -142,15 +142,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   // defeats its purpose).
   const currentGaugePressure = (ctx: ExtensionContext) => {
     const session = ctx.sessionManager;
-    if (!runtime.shouldObserveNativeContextUsage(session)) {
-      const cached = runtime.getUsage(session);
-      const providerPressure = calculateContextUsagePressure(cached?.tokens, cached?.contextWindow, cached?.percent);
-      if (providerPressure) return providerPressure;
-    }
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
-    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
+    return runtime.authoritativeContextPressure(session, usage);
   };
-
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
     // tool_result handlers are chained and later extensions may still replace
     // content/details/isError. Final travel authorization is therefore read
@@ -414,7 +408,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       checkpointName = `${checkpointBase}-${ordinal}`;
     }
     let checkpointTargetId: string | undefined;
-    for (let index = branch.length - 1; index >= 0; index--) {
+    let inspected = 0;
+    for (let index = branch.length - 1; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
       if (event.signal?.aborted) return;
       const candidate = branch[index];
       if (!candidate) continue;
@@ -424,7 +419,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         break;
       }
     }
-    if (!checkpointTargetId) return;
+    if (!checkpointTargetId) {
+      ctx.ui.notify(
+        `No pre-compaction checkpoint was created because no protocol-complete anchor exists within the last ${ANCHOR_SEARCH_WINDOW} entries of the bounded search window.`,
+        "warning",
+      );
+      return;
+    }
     const append = appendCheckpointLabel(sessionManager, checkpointTargetId, checkpointName);
     if (!append.ok) ctx.ui.notify(`Could not create pre-compaction checkpoint: ${append.message}`, "warning");
   });

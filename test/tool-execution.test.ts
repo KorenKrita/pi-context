@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
+import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/lib.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerTravelTool } from "../src/travel-tool.js";
@@ -84,18 +85,21 @@ function captureTimelineWithSkillPath(path: string): ExecuteTool {
 
 function checkpointContext() {
   const entry = userEntry("entry-1");
+  const entries: SessionEntry[] = [entry];
   const tree: SessionTreeNode[] = [{ entry, children: [] }];
   let appendCalls = 0;
   let branchCalls = 0;
   const sessionManager = {
     getTree: () => tree,
-    getEntries: () => [entry],
+    getEntries: () => entries,
     getBranch: () => [entry],
     getLeafId: () => entry.id,
-    getEntry: (id: string) => id === entry.id ? entry : undefined,
-    appendLabelChange: () => {
+    getEntry: (id: string) => entries.find((candidate) => candidate.id === id),
+    appendLabelChange: (targetId: string, label: string | undefined) => {
       appendCalls++;
-      return "label-1";
+      const id = `label-${appendCalls}`;
+      entries.push(labelEntry(id, targetId, label ?? ""));
+      return id;
     },
     branchWithSummary: () => {
       branchCalls++;
@@ -391,6 +395,102 @@ function currentProtocolInvalidTravelContext(toolCallId: string) {
   };
 }
 
+function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402) {
+  const root = userEntry("poisoned-anchor-root");
+  const unclosedBatch = {
+    type: "message",
+    id: "poisoned-anchor-unclosed",
+    parentId: root.id,
+    timestamp: "2026-01-01T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "poisoned-anchor-read", name: "read", arguments: { path: "stuck.txt" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 1,
+    },
+  } as SessionEntry;
+  // Host context projection strips bare dangling calls. A stale orphan result
+  // after the interrupted batch keeps every later prefix protocol-repaired.
+  const staleOrphanResult = {
+    type: "message",
+    id: "poisoned-anchor-orphan-result",
+    parentId: unclosedBatch.id,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    message: {
+      role: "toolResult",
+      toolCallId: "poisoned-anchor-missing",
+      toolName: "read",
+      content: [{ type: "text", text: "interrupted result" }],
+      isError: true,
+      timestamp: 2,
+    },
+  } as SessionEntry;
+  const entries: SessionEntry[] = [root, unclosedBatch, staleOrphanResult];
+  for (let index = 3; index < entryCount - 1; index++) {
+    const parent = entries.at(-1);
+    if (!parent) throw new Error("poisoned checkpoint fixture lost its parent");
+    entries.push({
+      type: "message",
+      id: `poisoned-anchor-${index}`,
+      parentId: parent.id,
+      timestamp: "2026-01-01T00:00:03.000Z",
+      message: { role: "user", content: `later message ${index}`, timestamp: index },
+    } as SessionEntry);
+  }
+  const checkpointParent = entries.at(-1);
+  if (!checkpointParent) throw new Error("poisoned checkpoint fixture has no checkpoint parent");
+  const checkpointCall = {
+    type: "message",
+    id: "poisoned-anchor-checkpoint",
+    parentId: checkpointParent.id,
+    timestamp: "2026-01-01T00:10:00.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "acm_checkpoint", arguments: { name: "bounded-anchor" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: entryCount,
+    },
+  } as SessionEntry;
+  entries.push(checkpointCall);
+  let tree: SessionTreeNode | undefined;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    tree = { entry: entries[index]!, children: tree ? [tree] : [] };
+  }
+  let candidatePrefixReads = 0;
+  let appendCalls = 0;
+  const sessionManager = {
+    getTree: () => tree ? [tree] : [],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => {
+      if (fromId === undefined) return entries;
+      candidatePrefixReads++;
+      const candidateIndex = entries.findIndex((entry) => entry.id === fromId);
+      return candidateIndex < 0 ? [] : entries.slice(0, candidateIndex + 1);
+    },
+    getLeafId: () => checkpointCall.id,
+    getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    appendLabelChange: () => {
+      appendCalls++;
+      return "must-not-append-poisoned-anchor";
+    },
+  };
+  return {
+    context: {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    },
+    getAppendCalls: () => appendCalls,
+    getCandidatePrefixReads: () => candidatePrefixReads,
+  };
+}
+
 const executeCheckpoint = captureExecute(registerCheckpointTool);
 const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
@@ -406,9 +506,16 @@ const HANDOFF = {
 };
 
 describe("ACM tool execution contracts", () => {
+  test("normalizes optional string provider parameters", () => {
+    for (const value of [null, undefined, 0, {}, " \t\n"]) {
+      expect(optionalString(value)).toBeUndefined();
+    }
+    expect(optionalString("  recovery-anchor  ")).toBe("recovery-anchor");
+  });
   test("rejects malformed top-level travel parameters without throwing or mutating", async () => {
     for (const params of [
       { target: 42, handoff: HANDOFF },
+      { target: null, handoff: HANDOFF },
       { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: {} },
       { target: "entry-1", handoff: HANDOFF, unexpected: true },
     ]) {
@@ -419,6 +526,70 @@ describe("ACM tool execution contracts", () => {
       expect(getBranchCalls()).toBe(0);
     }
   });
+  test("treats null optional tool parameters as omitted", async () => {
+    const travel = await executeTravel(
+      "null-backup",
+      { target: "travel-root", handoff: HANDOFF, backupCurrentHeadAs: null },
+      undefined,
+      undefined,
+      successfulTravelContext(),
+    );
+    expect(travel.details?.error).toBeUndefined();
+    expect(travel.details).toMatchObject({
+      mutationStatus: "applied",
+      hasBackup: false,
+      backupCurrentHeadAs: null,
+    });
+
+    const checkpointFixture = checkpointContext();
+    const checkpoint = await executeCheckpoint(
+      "null-target",
+      { name: "null-optional-target", target: null },
+      undefined,
+      undefined,
+      checkpointFixture.ctx,
+    );
+    expect(checkpoint.details).toMatchObject({
+      target: "auto",
+      targetResolution: "automatic_protocol_complete",
+    });
+    expect(checkpointFixture.getAppendCalls()).toBe(1);
+
+    const timeline = await executeTimeline(
+      "null-timeline-optionals",
+      { view: null, limit: null, verbose: null, filter: null, query: null },
+      undefined,
+      undefined,
+      timelineContext(),
+    );
+    expect(timeline.details).toMatchObject({ view: "active", limit: 50, verbose: false });
+
+    const missingQuery = await executeTimeline(
+      "null-search-query",
+      { view: "search", query: null },
+      undefined,
+      undefined,
+      timelineContext(),
+    );
+    expect(missingQuery.details).toMatchObject({ error: "missing_query" });
+  });
+
+  test("rejects malformed archive aliases before mutation", async () => {
+    const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
+    const result = await executeTravel(
+      "invalid-backup-format",
+      { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: "bad name!" },
+      undefined,
+      undefined,
+      ctx,
+    );
+    expect(result.details).toMatchObject({
+      error: "invalid_params",
+      defects: expect.arrayContaining(["backupCurrentHeadAs:invalid_type_or_format"]),
+    });
+    expect(getAppendCalls()).toBe(0);
+    expect(getBranchCalls()).toBe(0);
+  });
 
   test("rejects every case variant of the reserved structural root name without mutating labels", async () => {
     for (const name of ["root", "ROOT", "Root", "rOoT"]) {
@@ -428,6 +599,33 @@ describe("ACM tool execution contracts", () => {
       expect(result.content[0]?.text).toContain("reserved");
       expect(getAppendCalls()).toBe(0);
     }
+  });
+  test("bounds automatic checkpoint anchoring after an unclosed tool batch", async () => {
+    const toolCallId = "bounded-anchor-call";
+    const { context, getAppendCalls, getCandidatePrefixReads } = poisonedAutomaticCheckpointContext(toolCallId);
+
+    const result = await executeCheckpoint(
+      toolCallId,
+      { name: "bounded-anchor" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "no_protocol_complete_checkpoint_target",
+      searchWindow: ANCHOR_SEARCH_WINDOW,
+      searchExhausted: true,
+    });
+    expect(result.content[0]?.text).toContain(
+      `within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call`,
+    );
+    const skipped = result.details?.skipped;
+    expect(Array.isArray(skipped)).toBe(true);
+    if (!Array.isArray(skipped)) throw new Error("bounded checkpoint result omitted skipped candidates");
+    expect(skipped).toHaveLength(ANCHOR_SEARCH_WINDOW);
+    expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW);
+    expect(getAppendCalls()).toBe(0);
   });
 
   test("exposes collision routing only when the advanced Skill is available", async () => {

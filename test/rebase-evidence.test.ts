@@ -9,6 +9,7 @@ import {
   projectSummaryDepthAfterTravel,
 } from "../src/lib.js";
 import { ACM_CONTINUATION_MARKER } from "../src/context-packet.js";
+import { calculateContextUsagePressure } from "../src/context-pressure.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { GUIDANCE_CUES } from "../src/generated-guidance.js";
 
@@ -99,6 +100,17 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     }),
     getLiveAgentSyncStatus: () => ({ status: "idle" }),
     ...overrides,
+  } as Record<string, unknown>;
+  // Mirror AcmSessionRuntime.authoritativeContextPressure so the HUD reads one
+  // authority here too; overrides above may replace the delivery status it uses.
+  runtime.authoritativeContextPressure = (
+    _session: object,
+    hostUsage: { tokens?: number | null; contextWindow?: number | null; percent?: number | null } | undefined,
+  ) => {
+    const status = (runtime.getProviderDeliveryStatus as () => { persistentMutationApplied: boolean; usageObserved: boolean })();
+    const cached = (runtime.getUsage as () => { tokens: number; contextWindow: number; percent: number } | undefined)();
+    const usage = status.persistentMutationApplied && status.usageObserved ? cached ?? hostUsage : hostUsage;
+    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
   };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);
   if (!timeline) throw new Error("acm_timeline was not registered");

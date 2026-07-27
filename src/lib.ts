@@ -6,6 +6,9 @@ export { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 
 export const ACM_INTERNAL_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 
+/** Bounds backward protocol-complete searches so one unclosed batch cannot cause a full-branch O(n²) anchor walk. */
+export const ANCHOR_SEARCH_WINDOW = 200;
+
 /** `root` is a structural target keyword and cannot safely be used as an alias. */
 export function isReservedTargetName(name: string): boolean {
  return name.toLowerCase() === "root";
@@ -16,6 +19,12 @@ export function sanitizeTerminalText(value: string): string {
  return value
   .replace(/\r\n?/g, "\n")
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
+}
+
+/** Optional tool parameters: a provider may legitimately send `null` for "absent". */
+export function optionalString(value: unknown): string | undefined {
+ const trimmed = typeof value === "string" ? value.trim() : "";
+ return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /** Fixed token overhead for a branch_summary entry in travel usage estimates. */
@@ -196,9 +205,6 @@ export function formatEntryLabels(labelMaps: LabelMaps, entryId: string): string
  return labels.length > 0 ? labels.join(", ") : undefined;
 }
 
-export function entryMatchesLabelSearch(labelMaps: LabelMaps, entryId: string, searchTerm: string): boolean {
- return getEntryLabels(labelMaps, entryId).some((label) => label.toLowerCase().includes(searchTerm));
-}
 
 export function findCheckpointLabelOwner(
  labelMaps: LabelMaps,
@@ -288,9 +294,6 @@ export function projectSummaryDepthAfterTravel(targetBranch: SessionEntry[]): nu
  return countActiveSummaryDepth(targetBranch) + 1;
 }
 
-export function compareEntriesByTimestamp(a: SessionEntry, b: SessionEntry): number {
- return a.timestamp.localeCompare(b.timestamp);
-}
 
 export function sumMessageTokens(messages: AgentMessage[]): number {
  return messages.reduce((sum, msg) => sum + estimateTokens(msg), 0);

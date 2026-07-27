@@ -17,6 +17,7 @@ import {
   formatEntryLabels,
   isReservedTargetName,
   isValidEntryId,
+  optionalString,
   resolveTargetId,
   sanitizeTerminalText,
 } from "./lib.js";
@@ -89,8 +90,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const backup = args.backupCurrentHeadAs ? ` · backup ${sanitizeTerminalText(args.backupCurrentHeadAs)}` : "";
-      const target = sanitizeTerminalText(args.target ?? "…");
+      const backupName = optionalString(args.backupCurrentHeadAs);
+      const backup = backupName ? ` · backup ${sanitizeTerminalText(backupName)}` : "";
+      const target = sanitizeTerminalText(optionalString(args.target) ?? "…");
       const handoffLength = typeof args.handoff === "string"
         ? args.handoff.length
         : args.handoff && typeof args.handoff === "object"
@@ -166,15 +168,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : {};
       const paramDefects: string[] = [];
       const rawTarget = rawRecord.target;
-      const target = typeof rawTarget === "string" ? rawTarget.trim() : "";
+      const target = optionalString(rawTarget) ?? "";
       if (!target) paramDefects.push("target:invalid_type_or_empty");
       const rawBackup = rawRecord.backupCurrentHeadAs;
-      const backupCurrentHeadAs = rawBackup === undefined
-        ? undefined
-        : typeof rawBackup === "string" && /^[A-Za-z0-9._-]+$/.test(rawBackup)
-          ? rawBackup
-          : undefined;
-      if (rawBackup !== undefined && backupCurrentHeadAs === undefined) {
+      const backupCurrentHeadAs = optionalString(rawBackup);
+      if (
+        rawBackup !== undefined
+        && rawBackup !== null
+        && (backupCurrentHeadAs === undefined || !/^[A-Za-z0-9._-]+$/.test(backupCurrentHeadAs))
+      ) {
         paramDefects.push("backupCurrentHeadAs:invalid_type_or_format");
       }
       for (const name of Object.keys(rawRecord)) {

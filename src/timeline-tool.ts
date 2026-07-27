@@ -15,6 +15,7 @@ import {
   formatBoundaryTravelCue,
   formatContextUsage,
   getEntryLabels,
+  optionalString,
   projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
   sanitizeTerminalText,
@@ -319,12 +320,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const view = args.view ?? "active";
+      const view = optionalString(args.view) ?? "active";
       const displayView = sanitizeTerminalText(view);
-      const qualifiers = [`limit ${args.limit ?? 50}`];
-      if (view === "active" && args.verbose) qualifiers.push("verbose");
-      if (view === "checkpoints" && args.filter) qualifiers.push(`filter “${sanitizeTerminalText(args.filter)}”`);
-      if (view === "search" && args.query) qualifiers.push(`query “${sanitizeTerminalText(args.query)}”`);
+      const limit = args.limit === null ? undefined : args.limit;
+      const verbose = args.verbose === null ? undefined : args.verbose;
+      const filter = optionalString(args.filter);
+      const query = optionalString(args.query);
+      const qualifiers = [`limit ${limit ?? 50}`];
+      if (view === "active" && verbose) qualifiers.push("verbose");
+      if (view === "checkpoints" && filter) qualifiers.push(`filter “${sanitizeTerminalText(filter)}”`);
+      if (view === "search" && query) qualifiers.push(`query “${sanitizeTerminalText(query)}”`);
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
           + theme.fg("accent", displayView)
@@ -420,7 +425,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       _onUpdate: unknown,
       ctx: ExtensionContext,
     ) {
-      const params = { ...rawParams, view: rawParams.view ?? "active", limit: rawParams.limit ?? 50 } as
+      const view = optionalString(rawParams.view) ?? "active";
+      const limit = rawParams.limit === null ? undefined : rawParams.limit;
+      const verbose = rawParams.verbose === null ? undefined : rawParams.verbose;
+      const filter = optionalString(rawParams.filter);
+      const query = optionalString(rawParams.query);
+      const params = { view, limit: limit ?? 50, verbose, filter, query } as
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
         | { view: "search"; limit: number; query: string }
@@ -604,19 +614,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
       const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
       const providerEpoch = providerDelivery.persistentMutationApplied;
-      const providerTurnUsageAuthoritative = providerDelivery.usageObserved;
-      let authoritativePressure = officialPressure ?? null;
-      if (providerEpoch) {
-        authoritativePressure = providerTurnUsageAuthoritative
-          ? calculateContextUsagePressure(lastUsage?.tokens, lastUsage?.contextWindow, lastUsage?.percent) ?? null
-          : null;
-      }
+      const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
+      const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
         `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
-        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerEpoch ? "provider actual" : "native context"})`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerEpoch ? "provider actual turn_end" : "turn_end"})`,
+        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
+        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
@@ -684,12 +689,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
-          contextUsage: officialUsageRaw ? { percent: officialUsageRaw.percent, tokens: officialUsageRaw.tokens, contextWindow: officialUsageRaw.contextWindow } : null,
-          contextUsageAuthority: providerTurnUsageAuthoritative
-            ? "provider_turn_end"
-            : providerDelivery.persistentMutationApplied
-              ? "provider_pending"
-              : "native_context",
+          contextUsageAuthority: providerTurnUsageAuthoritative ? "provider_turn_end" : "native_context",
           contextPressure: officialPressure ?? null,
           authoritativeContextPressure: authoritativePressure ?? null,
           leafId,

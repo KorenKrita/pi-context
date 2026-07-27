@@ -13,6 +13,7 @@ import {
   shouldShowGauge,
   type GaugeState,
 } from "./context-gauge.js";
+import { calculateContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
 
 interface DeferredTravelRefreshState {
   readonly providerPhase: ProviderDeliveryPhase;
@@ -30,6 +31,12 @@ interface CachedProviderPacket {
   readonly leafId: string | null;
   /** Provider messages observed when this compact packet was built. */
   readonly sourceMessages: AgentMessage[];
+}
+
+interface ContextUsageInput {
+  readonly tokens: number | null | undefined;
+  readonly contextWindow: number | null | undefined;
+  readonly percent: number | null | undefined;
 }
 
 function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
@@ -183,7 +190,7 @@ export class AcmSessionRuntime {
     const deferred = this.deferredTravelRefresh.get(session);
     const packet = deferred?.providerPacket;
     return {
-      persistentMutationApplied: deferred !== undefined,
+      persistentMutationApplied: deferred !== undefined && deferred.providerPhase !== "receipt_rejected",
       phase: deferred?.providerPhase ?? "active",
       packetMessageCount: packet?.messages.length ?? null,
       leafId: packet?.leafId ?? null,
@@ -328,10 +335,6 @@ export class AcmSessionRuntime {
     return this.deferredTravelRefresh.get(session)?.providerPhase === "active";
   }
 
-  shouldObserveNativeContextUsage(session: object): boolean {
-    const deferred = this.deferredTravelRefresh.get(session);
-    return deferred === undefined || deferred.providerPhase === "receipt_rejected";
-  }
 
   isProviderDeliveryActive(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
@@ -390,6 +393,21 @@ export class AcmSessionRuntime {
 
   getUsage(session: object): UsageLike | undefined {
     return this.cachedUsage.get(session);
+  }
+  /**
+   * One pressure authority for every ACM perception surface. A completed
+   * provider turn describes a travel-owned context; otherwise the host's
+   * current native usage remains the best available reading.
+   */
+  authoritativeContextPressure(
+    session: object,
+    hostUsage: ContextUsageInput | undefined,
+  ): ContextUsagePressure | undefined {
+    const providerDelivery = this.getProviderDeliveryStatus(session);
+    const usage = providerDelivery.persistentMutationApplied && providerDelivery.usageObserved
+      ? this.getUsage(session) ?? hostUsage
+      : hostUsage;
+    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
   }
 
   resetUsageForModelChange(session: object): void {

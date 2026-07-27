@@ -255,7 +255,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     expect(JSON.stringify(liveSession.agent.state.messages)).toContain("post-travel tool work");
   });
 
-  test("ignores stale 70% native usage while provider is active and native replacement is pending", async () => {
+  test("uses native 70% usage until provider delivery observes a turn_end", async () => {
     AgentSession.prototype.getContextUsage = function () {
       return { tokens: 70_000, contextWindow: 100_000, percent: 70 };
     };
@@ -300,11 +300,13 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       undefined,
       fixture.context,
     );
-    expect((timeline.content[0] as { text: string }).text).toContain("native AgentSession estimate");
-    expect((timeline.content[0] as { text: string }).text).toContain("ACM Pressure:     N/A (provider actual)");
+    const timelineText = timeline.content[0]?.type === "text" ? timeline.content[0].text : "";
+    expect(timelineText).toContain("native AgentSession estimate");
+    expect(timelineText).toContain("ACM Pressure:     70.0%");
+    expect(timelineText).toContain("(native context)");
     expect(timeline.details).toMatchObject({
-      contextUsageAuthority: "provider_pending",
-      authoritativeContextPressure: null,
+      contextUsageAuthority: "native_context",
+      authoritativeContextPressure: { pressurePercent: 70 },
       contextDeliveryPhase: "provider_active_native_pending",
       nativeContextReplacement: { status: "pending" },
     });
