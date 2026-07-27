@@ -13,7 +13,6 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
@@ -147,38 +146,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     return runtime.authoritativeContextPressure(session, usage);
   };
-  // Fold needles for the gauge: project what a fold at each structural
-  // reference point would leave. Reference points never require a label, so a
-  // session that has not checkpointed still gets both numbers. Estimation is
-  // bounded to the two references the gauge renders, and a failed rebuild
-  // simply omits that needle.
-  const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
-    const session = ctx.sessionManager;
-    try {
-      const branch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
-      if (!Array.isArray(branch) || branch.length === 0) return undefined;
-      const labelMaps = buildLabelMaps(session.getEntries());
-      const references = selectFoldReferences(branch, labelMaps);
-      if (!references.turn && !references.task) return undefined;
-      const currentPacket = rebuildAcmContextPacket(session);
-      if (!currentPacket.ok) return undefined;
-      const cache = new Map<string, AgentMessage[] | undefined>();
-      return estimateFoldGains({
-        usage: { tokens: pressure.tokens, contextWindow: pressure.contextWindow, percent: 0 },
-        workingBudgetTokens: pressure.workingBudgetTokens,
-        currentMessages: currentPacket.value.messages,
-        messagesAt: (entryId) => {
-          if (!cache.has(entryId)) {
-            const result = rebuildAcmContextPacket(session, entryId);
-            cache.set(entryId, result.ok ? result.value.messages : undefined);
-          }
-          return cache.get(entryId);
-        },
-      }, references);
-    } catch {
-      return undefined;
-    }
-  };
   const ledgerStates = new WeakMap<object, LedgerState>();
   let ledgerSeq = 0;
   const ledgerFor = (session: object): LedgerState => {
@@ -236,12 +203,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
-    const folds = currentFoldEstimates(ctx, pressure);
-    // Passive boundary ledger: one row per distinct user-request boundary, so
-    // "boundaries crossed N, folds M" accumulates without any injection. Never
-    // allowed to affect this result — every failure is swallowed inside.
-    recordBoundary(ctx, pressure, folds);
-    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
+    // Passive boundary ledger
+    recordBoundary(ctx, pressure, undefined);
+    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.
     if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);

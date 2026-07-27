@@ -12,7 +12,6 @@ import {
   countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
   extractTextFromContent,
-  formatBoundaryTravelCue,
   formatContextUsage,
   getEntryLabel,
   optionalString,
@@ -22,12 +21,11 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { getAvailableAdvancedGuidance, withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -420,7 +418,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
       const resultCharacterBudget = timelineResultCharacterBudget(ctx);
-      const advancedTargetPointer = getAvailableAdvancedGuidance(pi, GUIDANCE_CUES.advancedTargetPointer);
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -591,36 +588,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
-      // Fold projections: what a fold at each structural reference point would
-      // leave, on the same working-budget yardstick the pressure line uses.
-      // Facts only — whether the extraction is complete stays CORE's bar.
-      let foldProjectionText = "unavailable";
-      try {
-        const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
-        const references = selectFoldReferences(foldBranch, labelMaps);
-        const hudCurrent = rebuildAcmContextPacket(sessionManager);
-        const estimates = authoritativePressure && hudCurrent.ok
-          ? estimateFoldGains({
-              usage: officialUsage,
-              workingBudgetTokens: authoritativePressure.workingBudgetTokens,
-              currentMessages: hudCurrent.value.messages,
-              messagesAt: (id: string) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
-            }, references)
-          : { turnPercent: null, taskPercent: null };
-        const segs: string[] = [];
-        if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
-        }
-        if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
-        }
-        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
-      } catch {
-        foldProjectionText = "unavailable";
-      }
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
@@ -631,10 +598,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
-        `• Fold Projection:  ${foldProjectionText}`,
-        `• ACM Judgment:     ${activeSummaryDepth > 0
-          ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
-          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,
+        `• Rebase Hint:    ${activeSummaryDepth > 0 ? GUIDANCE_CUES.rebaseCheck : "Clean — no stacking issues."}`,
       ];
       if (resultBudgetApplied) {
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);

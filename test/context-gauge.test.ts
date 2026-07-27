@@ -14,16 +14,15 @@ import { calculateContextUsagePressure } from "../src/context-pressure.js";
 // says, when it appears, and what must never be decorated.
 
 describe("context gauge", () => {
-	test("renders two needles under the 400k cap and one when the window is the budget", () => {
+	test("renders simple percentage under the 400k cap and plain when window is budget", () => {
 		const capped = calculateContextUsagePressure(410_000, 1_000_000, 41);
 		expect(capped?.policy).toBe("400k-cap");
-		// 410K/400K budget = 102%, 410K/1M window = 41% — over-budget stays
-		// a visible fact, never clamped: the budget is information, not a wall.
-		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% budget · 41% window]");
+		// 410K/400K budget = 102%
+		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102%]");
 
 		const plain = calculateContextUsagePressure(50_000, 200_000, 25);
 		expect(plain?.policy).toBe("actual-window");
-		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% window]");
+		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25%]");
 	});
 
 	test("odometer cadence: shows on integer change in either direction, silent otherwise", () => {

@@ -5,31 +5,31 @@ export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->"
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "The authoritative current objective, including any user-visible result still owed. Knowing a result is not the same as delivering it.",
+    description: "The current objective. Include any pending user-visible deliverable.",
   }),
   state: Type.String({
     minLength: 1,
-    description: "Live cognition for future self, not a report: settled knowns, open unknowns, competing hypotheses with their current weights, surviving fronts, and the exact hot values needed next. If writing this forces vagueness, the fold is not yet earned. Multiline text is allowed.",
+    description: "What you know, what's uncertain, key values and identifiers needed next. Be specific, not vague.",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "Compact direct facts and optional pointers supporting State. This is a receipt, never a verification checklist or a prerequisite to NEXT: a pointer here licenses one bounded spot-check of a load-bearing claim, not a re-derivation. Write 'none' when empty.",
+    description: "File paths, commands, IDs that support your state. Write 'none' when empty.",
   }),
   external: Type.String({
     minLength: 1,
-    description: "Lasting file, process, browser, or remote-system state as known at handoff time. Future self treats it as authoritative unless later activity changed it. Write 'none' when empty.",
+    description: "Files changed, processes running, external system state. Write 'none' when empty.",
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Rejected or closed directions that should not regain authority — what a dead end proved rides here, so the lesson survives the fold. Write 'none' when empty.",
+    description: "Dead ends and closed directions — don't revisit these. Write 'none' when empty.",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names, node IDs, or archive pointers available for optional recovery. These are choices, not instructions to reread; the folded path stays one travel away. Write 'none' when empty.",
+    description: "Checkpoint names or node IDs for recovery. Write 'none' when empty.",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The first real task action future self should take directly from this handoff — one concrete action, executable immediately. Do not revalidate the handoff merely because travel occurred.",
+    description: "The exact next action to take. Must be immediately executable.",
   }),
 }, { additionalProperties: false });
 
@@ -37,10 +37,10 @@ export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
   Type.String({
     minLength: 1,
-    description: "Compatibility fallback for providers that serialize a nested tool argument: an exact JSON encoding of the same seven-field handoff object. This is not free-form summary text.",
+    description: "JSON string fallback: exact JSON encoding of the same seven-field object. Not free-form text.",
   }),
 ], {
-  description: "Prefer the structured seven-field object. A JSON-encoded copy of that exact object is accepted only as a provider compatibility fallback.",
+  description: "Prefer the structured seven-field object. A JSON string encoding is accepted as a fallback.",
 });
 
 export type HandoffInput = Static<typeof StructuredHandoffSchema>;

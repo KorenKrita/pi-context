@@ -37,15 +37,15 @@ describe("canonical guidance generation", () => {
     expect(TREE_SUMMARY_INSTRUCTIONS).toBe(derived.treeSummaryInstructions);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
     expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
-    expect(RECOVERY_GUIDANCE.hostCapability).toContain("supported Pi version");
+    expect(RECOVERY_GUIDANCE.hostCapability).toContain("unavailable");
   });
 
   test("keeps manual navigation summaries handoff-shaped and standalone", () => {
     for (const slot of ["Goal:", "State:", "Evidence:", "External:", "Exclusions:", "Recover:", "NEXT:"]) {
       expect(TREE_SUMMARY_INSTRUCTIONS).toContain(slot);
     }
-    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("abandoned conversation branch");
-    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("Preserve exact file paths");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("conversation branch");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("file paths");
     expect(TREE_SUMMARY_INSTRUCTIONS).not.toContain("##");
   });
 
@@ -161,14 +161,12 @@ describe("canonical guidance generation", () => {
     for (const cue of Object.values(GUIDANCE_CUES)) {
       expect(cue).not.toContain("Goal: <");
     }
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start handoff");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Rebase only if");
-    expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Root is a candidate");
-    expect(GUIDANCE_CUES.timelineActive).toContain("`active`");
-    expect(GUIDANCE_CUES.timelineCheckpoints).toContain("`checkpoints`");
-    expect(GUIDANCE_CUES.timelineSearch).toContain("`search`");
-    expect(GUIDANCE_CUES.timelineTree).toContain("`tree`");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("summary");
+    expect(GUIDANCE_CUES.rebaseCheck).toContain("rebas");
+    expect(GUIDANCE_CUES.timelineActive).toContain("spine");
+    expect(GUIDANCE_CUES.timelineCheckpoints).toContain("save points");
+    expect(GUIDANCE_CUES.timelineSearch).toContain("tree");
+    expect(GUIDANCE_CUES.timelineTree).toContain("topology");
   });
 
   test("keeps recovery branches separately selectable", () => {

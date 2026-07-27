@@ -41,7 +41,7 @@ describe("advanced guidance availability", () => {
       piWithCommands(["skill:context-management"]),
       base,
       GUIDANCE_CUES.advancedExceptionalPointer,
-    )).toContain("references/exceptional-recovery.md");
+    )).toContain("acm_timeline");
   });
 
   test("adds the exact uniquely advertised router path with a JSON-safe runtime bridge", () => {

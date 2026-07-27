@@ -150,9 +150,8 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("Summary Depth:    1 active handoff summary layer(s) on the current spine");
     expect(result.content[0].text).not.toContain("normalized rebase");
     expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
-    expect(result.content[0].text).toContain("a rebase check is worthwhile");
-    expect(result.content[0].text).toContain("Rebase only if");
-    expect(result.content[0].text).not.toContain("Rebase instead");
+    expect(result.content[0].text).toContain("summary layers");
+    expect(result.content[0].text).toContain("rebasing");
   });
 
   test("checkpoint view exposes root as a structural candidate with projected depth", async () => {
