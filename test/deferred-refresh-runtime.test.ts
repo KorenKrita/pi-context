@@ -703,6 +703,63 @@ describe("deferred post-travel context delivery", () => {
     expect(runtime.getContextDeliveryPhase(session)).toBe("fallback");
   });
 
+  test("anchors the pre-compaction checkpoint after a completed regular tool batch", async () => {
+    const adapter = createAdapter();
+    const runtime = new AcmSessionRuntime(adapter);
+    const user = persistedUserEntry("pre-compact-user", "read the file");
+    const assistant = {
+      id: "pre-compact-assistant",
+      type: "message",
+      parentId: user.id,
+      timestamp: "2026-07-21T00:00:01.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "file.txt" } }],
+        stopReason: "toolUse",
+        timestamp: 1,
+      },
+    } as SessionEntry;
+    const result = {
+      id: "pre-compact-result",
+      type: "message",
+      parentId: assistant.id,
+      timestamp: "2026-07-21T00:00:02.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "read-1",
+        toolName: "read",
+        content: [{ type: "text", text: "important completed evidence" }],
+        timestamp: 2,
+      },
+    } as SessionEntry;
+    const entries: SessionEntry[] = [user, assistant, result];
+    let checkpointTarget: string | undefined;
+    const session = {
+      getLeafId: () => entries.at(-1)?.id ?? null,
+      getEntries: () => entries,
+      getBranch: () => entries,
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange(targetId: string, label: string | undefined) {
+        checkpointTarget = targetId;
+        const entry = {
+          id: "pre-compact-label",
+          type: "label",
+          parentId: result.id,
+          timestamp: "2026-07-21T00:00:03.000Z",
+          targetId,
+          label,
+        } as SessionEntry;
+        entries.push(entry);
+        return entry.id;
+      },
+    };
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(checkpointTarget).toBe(result.id);
+  });
+
   test("multiple successful travels retain only the latest ticket until settlement", () => {
     const adapter = createAdapter();
     const runtime = new AcmSessionRuntime(adapter);

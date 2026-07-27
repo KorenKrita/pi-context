@@ -9,7 +9,6 @@ import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.
 import { calculateContextUsagePressure } from "./context-pressure.js";
 import { buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
-import { findLastMeaningfulEntry } from "./entry-resolution.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
@@ -407,9 +406,19 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     for (let ordinal = 2; labelMaps.labelToEntryId.has(checkpointName); ordinal++) {
       checkpointName = `${checkpointBase}-${ordinal}`;
     }
-    const resolved = findLastMeaningfulEntry(branch, event.signal);
-    if (!resolved.entryId) return;
-    const append = appendCheckpointLabel(sessionManager, resolved.entryId, checkpointName);
+    let checkpointTargetId: string | undefined;
+    for (let index = branch.length - 1; index >= 0; index--) {
+      if (event.signal?.aborted) return;
+      const candidate = branch[index];
+      if (!candidate) continue;
+      const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
+      if (packet.ok && packet.value.protocol.status === "complete") {
+        checkpointTargetId = candidate.id;
+        break;
+      }
+    }
+    if (!checkpointTargetId) return;
+    const append = appendCheckpointLabel(sessionManager, checkpointTargetId, checkpointName);
     if (!append.ok) ctx.ui.notify(`Could not create pre-compaction checkpoint: ${append.message}`, "warning");
   });
 
