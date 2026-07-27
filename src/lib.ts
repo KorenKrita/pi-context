@@ -196,13 +196,12 @@ export function findInTree(
 }
 
 
-export function getEntryLabels(labelMaps: LabelMaps, entryId: string): string[] {
- return labelMaps.entryToLabels.get(entryId) ?? [];
+export function getEntryLabel(labelMaps: LabelMaps, entryId: string): string | undefined {
+ return labelMaps.entryToLabel.get(entryId);
 }
 
-export function formatEntryLabels(labelMaps: LabelMaps, entryId: string): string | undefined {
- const labels = getEntryLabels(labelMaps, entryId);
- return labels.length > 0 ? labels.join(", ") : undefined;
+export function formatEntryLabel(labelMaps: LabelMaps, entryId: string): string | undefined {
+ return getEntryLabel(labelMaps, entryId);
 }
 
 

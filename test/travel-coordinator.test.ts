@@ -92,7 +92,7 @@ describe("travel mutation recovery", () => {
           targetId: original.id,
           name: "archive-done",
           status: "already_present",
-          aliases: ["archive-done"],
+          existingLabel: "archive-done",
           existingLabelEntryId: "label-a",
         },
       },

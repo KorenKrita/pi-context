@@ -16,6 +16,7 @@ export type HostBridgeErrorCode =
   | "branch_verification_failed"
   | "entry_not_found"
   | "label_conflict"
+  | "label_displaces_existing"
   | "reserved_name"
   | "unsafe_rollback";
 
@@ -43,8 +44,16 @@ export interface CheckpointLabelPrevalidation {
   targetId: string;
   name: string;
   status: "would_create" | "already_present";
-  aliases: string[];
+  /** The label the host currently reports for this entry, if any. */
+  existingLabel: string | undefined;
   existingLabelEntryId?: string;
+}
+
+/** The target already carries a different label; writing this name would erase it. */
+export interface CheckpointLabelDisplacement {
+  targetId: string;
+  name: string;
+  existingLabel: string;
 }
 
 export interface CheckpointLabelConflict {
@@ -60,7 +69,7 @@ export interface LabelRollbackToken {
   targetId: string;
   name: string;
   labelEntryId: string;
-  priorAliases: string[];
+  priorLabel: string | undefined;
 }
 
 export interface AppendCheckpointLabelResult {
@@ -68,7 +77,7 @@ export interface AppendCheckpointLabelResult {
   targetId: string;
   name: string;
   status: "created" | "already_present";
-  aliases: string[];
+  label: string;
   rollback?: LabelRollbackToken;
   hostReturnedEntryId?: string;
 }
@@ -76,8 +85,8 @@ export interface AppendCheckpointLabelResult {
 export interface LabelMutationFailureDetails {
   targetId: string;
   name: string;
-  priorAliases: string[];
-  aliasesAfter?: string[];
+  priorLabel: string | undefined;
+  labelAfter?: string | undefined;
   observedLabelEntryId?: string;
   hostReturnedEntryId?: string;
   hostError?: string;
@@ -87,15 +96,15 @@ export interface LabelMutationFailureDetails {
 export interface RollbackCheckpointLabelResult {
   targetId: string;
   label: string;
-  restoredAliases: string[];
+  restoredLabel: string | undefined;
 }
 
 export interface LabelRollbackFailureDetails {
   targetId: string;
   label: string;
-  expectedAliases: string[];
-  aliasesBefore?: string[];
-  aliasesAfter?: string[];
+  expectedLabel: string | undefined;
+  labelBefore?: string | undefined;
+  labelAfter?: string | undefined;
   hostError?: string;
   compensationError?: string;
   cause?: string;
@@ -158,10 +167,6 @@ function isLabelEntry(entry: SessionEntry): entry is LabelEntry {
   return entry.type === "label";
 }
 
-function sameStrings(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
 function findLastEntry<Entry>(entries: Entry[], predicate: (entry: Entry) => boolean): Entry | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index]!;
@@ -170,8 +175,8 @@ function findLastEntry<Entry>(entries: Entry[], predicate: (entry: Entry) => boo
   return undefined;
 }
 
-function currentAliases(sm: ReadonlySessionManager, targetId: string): string[] {
-  return buildLabelMaps(sm.getEntries()).entryToLabels.get(targetId) ?? [];
+function currentLabel(sm: ReadonlySessionManager, targetId: string): string | undefined {
+  return buildLabelMaps(sm.getEntries()).entryToLabel.get(targetId);
 }
 
 function findNewLabelEntry(
@@ -219,7 +224,7 @@ export function prevalidateCheckpointLabel(
   sm: ReadonlySessionManager,
   targetId: string,
   name: string,
-): HostResult<CheckpointLabelPrevalidation, { targetId: string; name: string } | ({ targetId: string; name: string } & HostObservationFailureDetails) | CheckpointLabelConflict> {
+): HostResult<CheckpointLabelPrevalidation, { targetId: string; name: string } | ({ targetId: string; name: string } & HostObservationFailureDetails) | CheckpointLabelConflict | CheckpointLabelDisplacement> {
   if (isReservedTargetName(name)) {
     return failure("reserved_name", `Checkpoint name '${name}' is reserved for the structural root target`, { targetId, name });
   }
@@ -240,18 +245,27 @@ export function prevalidateCheckpointLabel(
       });
     }
 
-    const aliases = maps.entryToLabels.get(targetId) ?? [];
-    if (aliases.includes(name)) {
+    const existingLabel = maps.entryToLabel.get(targetId);
+    if (existingLabel === name) {
       const existing = findLastEntry(
         entries,
         (entry) => isLabelEntry(entry) && entry.targetId === targetId && entry.label === name,
       ) as LabelEntry | undefined;
       if (!existing) {
-        return failure("malformed_capability", `Checkpoint '${name}' is present in the alias map but has no label journal entry`, { targetId, name });
+        return failure("malformed_capability", `Checkpoint '${name}' is the current label but has no label journal entry`, { targetId, name });
       }
-      return success({ targetId, name, status: "already_present", aliases, existingLabelEntryId: existing.id });
+      return success({ targetId, name, status: "already_present", existingLabel, existingLabelEntryId: existing.id });
     }
-    return success({ targetId, name, status: "would_create", aliases });
+    // The host keeps one label per entry, so writing this name would erase the
+    // existing one — and a save point that vanishes silently is worse than none.
+    if (existingLabel !== undefined) {
+      return failure(
+        "label_displaces_existing",
+        `Entry ${targetId} already carries checkpoint '${existingLabel}'; writing '${name}' would replace it because the host keeps one label per entry`,
+        { targetId, name, existingLabel },
+      );
+    }
+    return success({ targetId, name, status: "would_create", existingLabel: undefined });
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return failure("host_operation_failed", `Failed to inspect checkpoint label state: ${cause}`, { targetId, name, cause });
@@ -262,7 +276,7 @@ export function appendCheckpointLabel(
   sm: ReadonlySessionManager,
   targetId: string,
   name: string,
-): HostMutationResult<AppendCheckpointLabelResult, LabelMutationFailureDetails | { targetId: string; name: string } | CheckpointLabelConflict> {
+): HostMutationResult<AppendCheckpointLabelResult, LabelMutationFailureDetails | { targetId: string; name: string } | CheckpointLabelConflict | CheckpointLabelDisplacement> {
   const prevalidation = prevalidateCheckpointLabel(sm, targetId, name);
   if (!prevalidation.ok) return { ...prevalidation, state: "not_applied" };
   if (prevalidation.value.status === "already_present") {
@@ -274,7 +288,7 @@ export function appendCheckpointLabel(
         targetId,
         name,
         status: "already_present",
-        aliases: prevalidation.value.aliases,
+        label: name,
       },
     };
   }
@@ -298,8 +312,8 @@ export function appendCheckpointLabel(
       ...failure("host_operation_failed", `Failed to snapshot label state before append: ${cause}`, {
         targetId,
         name,
-        priorAliases: prevalidation.value.aliases,
-        aliasesAfter: prevalidation.value.aliases,
+        priorLabel: prevalidation.value.existingLabel,
+        labelAfter: prevalidation.value.existingLabel,
         cause,
       }),
       state: "not_applied",
@@ -315,12 +329,12 @@ export function appendCheckpointLabel(
 
   const hostReturnedEntryId = typeof returned === "string" && returned.length > 0 ? returned : undefined;
   let entriesAfter: SessionEntry[];
-  let aliasesAfter: string[];
+  let labelAfter: string | undefined;
   let observed: LabelEntry | undefined;
   let owner: string | undefined;
   try {
     entriesAfter = sm.getEntries();
-    aliasesAfter = currentAliases(sm, targetId);
+    labelAfter = currentLabel(sm, targetId);
     observed = findNewLabelEntry(entriesAfter, beforeIds, targetId, name);
     owner = buildLabelMaps(entriesAfter).labelToEntryId.get(name);
   } catch (error) {
@@ -329,7 +343,7 @@ export function appendCheckpointLabel(
       ...failure("host_operation_failed", `Could not verify appendLabelChange after mutation attempt: ${cause}`, {
         targetId,
         name,
-        priorAliases: prevalidation.value.aliases,
+        priorLabel: prevalidation.value.existingLabel,
         ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
         ...(hostError === undefined ? {} : { hostError }),
         cause,
@@ -338,7 +352,7 @@ export function appendCheckpointLabel(
     };
   }
   if (owner === targetId && observed) {
-    const rollback: LabelRollbackToken = { targetId, name, labelEntryId: observed.id, priorAliases: prevalidation.value.aliases };
+    const rollback: LabelRollbackToken = { targetId, name, labelEntryId: observed.id, priorLabel: prevalidation.value.existingLabel };
     return {
       ok: true,
       state: "applied",
@@ -347,14 +361,14 @@ export function appendCheckpointLabel(
         targetId,
         name,
         status: "created",
-        aliases: aliasesAfter,
+        label: labelAfter ?? name,
         rollback,
         ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
       },
     };
   }
 
-  const changed = entriesAfter.length !== entriesBefore.length || !sameStrings(aliasesAfter, prevalidation.value.aliases);
+  const changed = entriesAfter.length !== entriesBefore.length || labelAfter !== prevalidation.value.existingLabel;
   return {
     ...failure(
       hostError ? "host_operation_failed" : "malformed_capability",
@@ -362,8 +376,8 @@ export function appendCheckpointLabel(
       {
         targetId,
         name,
-        priorAliases: prevalidation.value.aliases,
-        aliasesAfter,
+        priorLabel: prevalidation.value.existingLabel,
+        labelAfter,
         ...(observed === undefined ? {} : { observedLabelEntryId: observed.id }),
         ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
         ...(hostError === undefined ? {} : { hostError }),
@@ -383,75 +397,74 @@ export function rollbackCheckpointLabel(
       ...failure(
         "missing_capability",
         "SessionManager does not support appendLabelChange — cannot roll back checkpoint label",
-        { targetId: token.targetId, label: token.name, expectedAliases: token.priorAliases },
+        { targetId: token.targetId, label: token.name, expectedLabel: token.priorLabel },
       ),
       state: "not_applied",
     };
   }
 
-  let aliasesBefore: string[];
+  let labelBefore: string | undefined;
   try {
-    aliasesBefore = currentAliases(sm, token.targetId);
+    labelBefore = currentLabel(sm, token.targetId);
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Failed to snapshot aliases before checkpoint rollback: ${cause}`, {
+      ...failure("host_operation_failed", `Failed to snapshot the label before checkpoint rollback: ${cause}`, {
         targetId: token.targetId,
         label: token.name,
-        expectedAliases: token.priorAliases,
+        expectedLabel: token.priorLabel,
         cause,
       }),
       state: "not_applied",
     };
   }
-  const expectedCurrent = [...token.priorAliases, token.name];
-  if (!sameStrings(aliasesBefore, expectedCurrent)) {
+  // Only undo what this token actually wrote. If the entry no longer carries
+  // that label, something else moved it and a blind restore would clobber it.
+  if (labelBefore !== token.name) {
     return {
       ...failure(
         "unsafe_rollback",
-        "Checkpoint aliases changed after append; rollback would overwrite another operation",
+        "The checkpoint label changed after append; rollback would overwrite another operation",
         {
           targetId: token.targetId,
           label: token.name,
-          expectedAliases: token.priorAliases,
-          aliasesBefore,
-          aliasesAfter: aliasesBefore,
+          expectedLabel: token.priorLabel,
+          labelBefore,
+          labelAfter: labelBefore,
         },
       ),
       state: "indeterminate",
     };
   }
 
-  // The clear-then-replay sequence converges to priorAliases when every call
-  // succeeds, so a mid-sequence failure gets exactly one full compensation retry
-  // before the outcome is judged from the observed aliases.
+  // The host keeps one label per entry, so restoring is a single write: the
+  // prior label, or a clear when the entry carried none.
   let hostError: string | undefined;
   let compensationError: string | undefined;
-  const replayPriorState = (): void => {
-    append(token.targetId, undefined);
-    for (const alias of token.priorAliases) append(token.targetId, alias);
+  const restorePriorLabel = (): void => {
+    append(token.targetId, token.priorLabel);
   };
   try {
-    replayPriorState();
+    restorePriorLabel();
   } catch (error) {
     hostError = error instanceof Error ? error.message : String(error);
     try {
-      replayPriorState();
+      restorePriorLabel();
     } catch (retryError) {
       compensationError = retryError instanceof Error ? retryError.message : String(retryError);
     }
   }
-  let aliasesAfter: string[];
+  let labelAfter: string | undefined;
   try {
-    aliasesAfter = currentAliases(sm, token.targetId);
+    labelAfter = currentLabel(sm, token.targetId);
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
       ...failure("host_operation_failed", `Could not verify checkpoint rollback after mutation attempt: ${cause}`, {
         targetId: token.targetId,
         label: token.name,
-        expectedAliases: token.priorAliases,
-        aliasesBefore,
+        expectedLabel: token.priorLabel,
+        labelBefore,
         ...(hostError === undefined ? {} : { hostError }),
         ...(compensationError === undefined ? {} : { compensationError }),
         cause,
@@ -459,19 +472,19 @@ export function rollbackCheckpointLabel(
       state: "indeterminate",
     };
   }
-  if (sameStrings(aliasesAfter, token.priorAliases)) {
-    return { ok: true, state: "applied", value: { targetId: token.targetId, label: token.name, restoredAliases: aliasesAfter } };
+  if (labelAfter === token.priorLabel) {
+    return { ok: true, state: "applied", value: { targetId: token.targetId, label: token.name, restoredLabel: labelAfter } };
   }
   return {
     ...failure(
       hostError ? "host_operation_failed" : "malformed_capability",
-      hostError ? `appendLabelChange rollback failed: ${hostError}` : "appendLabelChange rollback did not restore the previous aliases",
+      hostError ? `appendLabelChange rollback failed: ${hostError}` : "appendLabelChange rollback did not restore the previous label",
       {
         targetId: token.targetId,
         label: token.name,
-        expectedAliases: token.priorAliases,
-        aliasesBefore,
-        aliasesAfter,
+        expectedLabel: token.priorLabel,
+        labelBefore,
+        labelAfter,
         ...(hostError === undefined ? {} : { hostError }),
         ...(compensationError === undefined ? {} : { compensationError }),
       },

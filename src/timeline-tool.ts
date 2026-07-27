@@ -14,7 +14,7 @@ import {
   extractTextFromContent,
   formatBoundaryTravelCue,
   formatContextUsage,
-  getEntryLabels,
+  getEntryLabel,
   optionalString,
   projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
@@ -22,6 +22,7 @@ import {
   type LabelMaps,
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
+import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
@@ -30,9 +31,9 @@ import { getAvailableAdvancedGuidance, withAvailableAdvancedGuidance } from "./a
 
 interface CheckpointListing {
   entryId: string;
-  labels: string[];
-  matchedLabels: string[];
-  rawArchiveLabels: string[];
+  label: string;
+  matched: boolean;
+  isRawArchive: boolean;
   onActivePath: boolean;
   isHead: boolean;
   pathOrder: number;
@@ -41,7 +42,7 @@ interface CheckpointListing {
 
 interface SearchMatch {
   entry: SessionEntry;
-  labels: string[];
+  label: string | undefined;
 }
 
 const TIMELINE_DYNAMIC_VALUE_CHARS = 240;
@@ -51,18 +52,9 @@ function boundedTimelineValue(value: string, maxChars = TIMELINE_DYNAMIC_VALUE_C
   return `${value.slice(0, maxChars)}… [truncated ${value.length} chars]`;
 }
 
-function formatTimelineAliases(labels: readonly string[], rawArchiveAliases: ReadonlySet<string> = new Set()): string {
-  const preferred = labels.at(-1);
-  if (!preferred) return "";
-  const remaining = labels.length - 1;
-  const hasRawArchive = labels.some((label) => rawArchiveAliases.has(label));
-  const preferredText = boundedTimelineValue(preferred);
-  const rawArchiveMarker = hasRawArchive
-    ? rawArchiveAliases.has(preferred) ? " [raw archive]" : " [raw archive on this entry]"
-    : "";
-  return remaining > 0
-    ? `${preferredText}${rawArchiveMarker} (+${remaining} other alias${remaining === 1 ? "" : "es"})`
-    : `${preferredText}${rawArchiveMarker}`;
+function formatTimelineLabel(label: string | undefined, rawArchiveAliases: ReadonlySet<string> = new Set()): string {
+  if (!label) return "";
+  return `${boundedTimelineValue(label)}${rawArchiveAliases.has(label) ? " [raw archive]" : ""}`;
 }
 
 function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: LabelMaps): Set<string> {
@@ -102,7 +94,7 @@ function displayRole(entry: SessionEntry): string {
 
 function visibleOnActivePath(entry: SessionEntry, labelMaps: LabelMaps, leafId: string | null, verbose: boolean): boolean {
   if (verbose) return true;
-  if (entry.id === leafId || getEntryLabels(labelMaps, entry.id).length > 0) return true;
+  if (entry.id === leafId || getEntryLabel(labelMaps, entry.id) !== undefined) return true;
   if (entry.type === "branch_summary" || entry.type === "compaction") return true;
   return entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant");
 }
@@ -117,21 +109,18 @@ function collectListings(
   rawArchiveAliases: ReadonlySet<string>,
 ): CheckpointListing[] {
   const listings: CheckpointListing[] = [];
-  for (const [entryId, labels] of labelMaps.entryToLabels) {
+  for (const [entryId, label] of labelMaps.entryToLabel) {
     const entry = entriesById.get(entryId);
     if (!entry) continue;
-    const entryIdMatches = filter.length > 0 && entryId.toLowerCase().includes(filter);
-    const matchedLabels = filter
-      ? entryIdMatches
-        ? labels
-        : labels.filter((label) => label.toLowerCase().includes(filter))
-      : labels;
-    if (filter && matchedLabels.length === 0) continue;
+    const matched = filter.length === 0
+      || entryId.toLowerCase().includes(filter)
+      || label.toLowerCase().includes(filter);
+    if (filter && !matched) continue;
     listings.push({
       entryId,
-      labels,
-      matchedLabels,
-      rawArchiveLabels: labels.filter((label) => rawArchiveAliases.has(label)),
+      label,
+      matched,
+      isRawArchive: rawArchiveAliases.has(label),
       onActivePath: activeIds.has(entryId),
       isHead: entryId === leafId,
       pathOrder: pathOrder.get(entryId) ?? Number.MAX_SAFE_INTEGER,
@@ -146,16 +135,8 @@ function collectListings(
   });
 }
 
-function formatCheckpointLabels(listing: CheckpointListing): string {
-  const preferred = listing.matchedLabels.at(-1) ?? listing.labels.at(-1) ?? "checkpoint";
-  const remaining = Math.max(0, listing.labels.length - 1);
-  const preferredText = boundedTimelineValue(preferred);
-  const rawArchiveMarker = listing.rawArchiveLabels.length > 0
-    ? listing.rawArchiveLabels.includes(preferred) ? " [raw archive]" : " [raw archive on this entry]"
-    : "";
-  return remaining === 0
-    ? `${preferredText}${rawArchiveMarker}`
-    : `${preferredText}${rawArchiveMarker} (+${remaining} other alias${remaining === 1 ? "" : "es"})`;
+function formatCheckpointLabel(listing: CheckpointListing): string {
+  return `${boundedTimelineValue(listing.label)}${listing.isRawArchive ? " [raw archive]" : ""}`;
 }
 
 function searchTree(
@@ -175,24 +156,17 @@ function searchTree(
       break;
     }
     const node = stack.pop()!;
-    const labels = getEntryLabels(labelMaps, node.entry.id);
+    const label = getEntryLabel(labelMaps, node.entry.id);
     const matched = node.entry.id.toLowerCase().includes(normalizedQuery)
-      || labels.some((label) => label.toLowerCase().includes(normalizedQuery))
+      || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
       || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
     if (matched) {
-      if (matches.length < limit) matches.push({ entry: node.entry, labels });
+      if (matches.length < limit) matches.push({ entry: node.entry, label });
       else truncated = true;
     }
     pushTreeChildrenPreOrder(stack, node.children);
   }
   return { matches, truncated };
-}
-
-function prioritizeSearchAliases(labels: readonly string[], query: string): string[] {
-  const normalized = query.toLowerCase();
-  const unmatched = labels.filter((label) => !label.toLowerCase().includes(normalized));
-  const matched = labels.filter((label) => label.toLowerCase().includes(normalized));
-  return matched.length > 0 ? [...unmatched, ...matched] : [...labels];
 }
 
 function renderTree(
@@ -212,7 +186,7 @@ function renderTree(
       return;
     }
     const role = displayRole(node.entry);
-    const labels = formatTimelineAliases(getEntryLabels(labelMaps, node.entry.id), rawArchiveAliases);
+    const labels = formatTimelineLabel(getEntryLabel(labelMaps, node.entry.id), rawArchiveAliases);
     const tags = [
       node.entry.id === leafId ? "HEAD" : null,
       activeIds.has(node.entry.id) ? "active" : "off-path",
@@ -486,9 +460,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const displayedListings = listings.slice(0, checkpointListingLimit);
         checkpointsMatchingEntries = listings.length;
         checkpointsDisplayedEntries = displayedListings.length;
-        checkpointsMatchingAliases = listings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
-        checkpointsDisplayedAliases = displayedListings.reduce((count, listing) => count + listing.matchedLabels.length, 0);
-        checkpointAliasesOnMatchingEntries = listings.reduce((count, listing) => count + listing.labels.length, 0);
+        // One label per entry, so alias counts collapse onto entry counts.
+        checkpointsMatchingAliases = listings.length;
+        checkpointsDisplayedAliases = displayedListings.length;
+        checkpointAliasesOnMatchingEntries = listings.length;
         checkpointAliasNamesShown = displayedListings.length;
         const usage = toUsageLike(ctx.getContextUsage());
         const currentResult = rebuildAcmContextPacket(sessionManager, leafId);
@@ -551,10 +526,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
-          const rawArchiveNote = checkpoint.rawArchiveLabels.length > 0
+          const rawArchiveNote = checkpoint.isRawArchive
             ? "; raw archive origin — restore/rehydrate only, not a fold/rebase base"
             : "";
-          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabels(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -566,8 +541,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
-          const displayLabels = prioritizeSearchAliases(match.labels, params.query);
-          lines.push(`  ${match.entry.id}${displayLabels.length ? ` (checkpoint: ${formatTimelineAliases(displayLabels, rawArchiveAliases)})` : ""} [${displayRole(match.entry)}] ${body}`);
+          const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
+          lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {
@@ -583,7 +558,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatTimelineAliases(getEntryLabels(labelMaps, entry.id), rawArchiveAliases);
+          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const body = entryText(entry, verbose).replace(/\s+/g, " ").slice(0, 100);
@@ -602,9 +577,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let stepsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
       for (let index = branch.length - 1; index >= 0; index--) {
-        const labels = getEntryLabels(labelMaps, branch[index]!.id);
-        if (labels.length > 0) {
-          nearestCheckpoint = labels.at(-1) ?? null;
+        const label = getEntryLabel(labelMaps, branch[index]!.id);
+        if (label !== undefined) {
+          nearestCheckpoint = label;
           break;
         }
         stepsSinceCheckpoint++;
@@ -616,6 +591,36 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
+      // Fold projections: what a fold at each structural reference point would
+      // leave, on the same working-budget yardstick the pressure line uses.
+      // Facts only — whether the extraction is complete stays CORE's bar.
+      let foldProjectionText = "unavailable";
+      try {
+        const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
+        const references = selectFoldReferences(foldBranch, labelMaps);
+        const hudCurrent = rebuildAcmContextPacket(sessionManager);
+        const estimates = authoritativePressure && hudCurrent.ok
+          ? estimateFoldGains({
+              usage: officialUsage,
+              workingBudgetTokens: authoritativePressure.workingBudgetTokens,
+              currentMessages: hudCurrent.value.messages,
+              messagesAt: (id: string) => {
+                const result = rebuildAcmContextPacket(sessionManager, id);
+                return result.ok ? result.value.messages : undefined;
+              },
+            }, references)
+          : { turnPercent: null, taskPercent: null };
+        const segs: string[] = [];
+        if (estimates.turnPercent != null && references.turn) {
+          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
+        }
+        if (estimates.taskPercent != null && references.task) {
+          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
+        }
+        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
+      } catch {
+        foldProjectionText = "unavailable";
+      }
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
@@ -626,6 +631,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
         `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
+        `• Fold Projection:  ${foldProjectionText}`,
         `• ACM Judgment:     ${activeSummaryDepth > 0
           ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
           : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,

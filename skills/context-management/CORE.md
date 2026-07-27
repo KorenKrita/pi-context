@@ -28,7 +28,22 @@ The bar applies to the stretch being folded, not to the whole task. Mid-investig
 
 Once the bar is met, lean into the fold. The regret is asymmetric: sediment taxes every later step it lingers through, while an earned fold costs one transition and stays recoverable. Deferring a fold you have already earned is drag, not caution. Recoverability, though, is insurance against accidents, not a license for half-done extraction — fold scraps you barely understood and you get **thrash**, immediately rereading what was just folded, paying for the fold and the reread both; and what you never extracted, you will not know to go back for.
 
-The working budget (the smaller of the model window and 400K) is information, not a deadline. The gauge on tool results — `[ctx N% budget · M% window]`, or `[ctx N% window]` where the window itself is the budget — is proprioception: pressure against your attention budget, room against the physical window. Numbers carry no instruction; running past a number to finish a clean extraction is right, folding dirty to stay under one is wrong. When genuinely long work outruns useful folding, native compaction remains an acceptable backstop.
+The working budget (the smaller of the model window and 400K) is information, not a deadline. Numbers carry no instruction; running past a number to finish a clean extraction is right, folding dirty to stay under one is wrong. When genuinely long work outruns useful folding, native compaction remains an acceptable backstop.
+
+The gauge on tool results is proprioception, and it reads left to right — state first, then what a fold would return:
+
+```text
+[ctx 51% budget · 20% window · fold@turn→22% · fold@task→9%]
+```
+
+- `51% budget` — pressure against your attention budget. Advisory, breakable for a clean extraction.
+- `20% window` — room left in the physical window. The hard runway. When the window is at or under the budget cap the two coincide and only this needle shows.
+- `fold@turn→22%` — projected budget pressure if you folded to the nearest structural reference: the most recent user-request boundary, or a save point if one sits closer. Phase and burst granularity.
+- `fold@task→9%` — the same projection at the earliest reference on this spine: the first save point, else the first user boundary. Task-chain granularity.
+
+A fold needle is omitted when its reference point does not exist — a short spine, or both granularities resolving to the same node. Absent is a fact; a fabricated zero is not. The needles are unconditional otherwise: an early-session `fold@turn→2%` is a parked speedometer reading zero, not noise.
+
+**Projections measure; the extraction bar decides.** A needle answers only "how much would this fold return", never "is this fold earned". A projection close to current pressure means that fold would return nothing — folding anyway costs a transition and a summary layer for no representation gain, which is what a zero-distance fold looks like from the outside: labeling a point and immediately traveling to it. Two references are shown precisely so the numbers offer a choice of scale rather than a ranking.
 
 ### The moves
 

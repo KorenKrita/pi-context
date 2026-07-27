@@ -2,34 +2,29 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface LabelMaps {
   labelToEntryId: Map<string, string>;
-  entryToLabels: Map<string, string[]>;
+  entryToLabel: Map<string, string>;
 }
 
-/** Replay the label journal into the complete case-sensitive alias index. */
+/** Replay the label journal into the host's single-label, case-sensitive index. */
 export function buildLabelMaps(entries: SessionEntry[]): LabelMaps {
   const labelToEntryId = new Map<string, string>();
-  const entryToLabels = new Map<string, string[]>();
+  const entryToLabel = new Map<string, string>();
   for (const entry of entries) {
     if (entry.type !== "label") continue;
     const { targetId, label } = entry;
-    if (label === null || label === undefined) {
-      const existingLabels = entryToLabels.get(targetId);
-      if (existingLabels) for (const existing of existingLabels) labelToEntryId.delete(existing);
-      entryToLabels.delete(targetId);
+    const previousLabel = entryToLabel.get(targetId);
+    if (!label) {
+      if (previousLabel !== undefined) labelToEntryId.delete(previousLabel);
+      entryToLabel.delete(targetId);
       continue;
     }
+
+    if (previousLabel !== undefined && previousLabel !== label) labelToEntryId.delete(previousLabel);
     const previousOwner = labelToEntryId.get(label);
-    if (previousOwner && previousOwner !== targetId) {
-      const previousLabels = entryToLabels.get(previousOwner);
-      if (previousLabels) {
-        const filtered = previousLabels.filter((existing) => existing !== label);
-        if (filtered.length === 0) entryToLabels.delete(previousOwner);
-        else entryToLabels.set(previousOwner, filtered);
-      }
-    }
+    if (previousOwner !== undefined && previousOwner !== targetId) entryToLabel.delete(previousOwner);
+
     labelToEntryId.set(label, targetId);
-    const existing = entryToLabels.get(targetId) ?? [];
-    if (!existing.includes(label)) entryToLabels.set(targetId, [...existing, label]);
+    entryToLabel.set(targetId, label);
   }
-  return { labelToEntryId, entryToLabels };
+  return { labelToEntryId, entryToLabel };
 }

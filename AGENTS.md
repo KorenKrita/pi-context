@@ -130,9 +130,11 @@ rebase 与 rehydrate 都是 agent 对现有 `acm_travel` 的高阶使用，不�
 
 ## Context gauge contract
 
-感知层是仪表盘，不是教练：一个常驻双针仪表后缀，只报数字，永不措辞。所有带措辞的 cue（burst 判断题、run 边界提醒、30/50/70 档位提醒）已整体退役（2026-07-27 用户决定，宪法第 2 条）——对顺从模型不存在"纯事实的措辞"，任何措辞注入都会被读成行动指令（P1：注入即指令）。信号要么恒定存在，要么不存在；判断语义只属于 CORE。
+感知层是仪表盘，不是教练：一个常驻多针仪表后缀，只报数字，永不措辞。所有带措辞的 cue（burst 判断题、run 边界提醒、30/50/70 档位提醒）已整体退役（2026-07-27 用户决定，宪法第 2 条）——对顺从模型不存在"纯事实的措辞"，任何措辞注入都会被读成行动指令（P1：注入即指令）。信号要么恒定存在，要么不存在；判断语义只属于 CORE。
 
-- **形态**：普通工具结果尾部追加一行定界后缀。`policy === "400k-cap"` 时为 `\n[ctx N% budget · M% window]`（N=working-budget pressure，M=hard-window usage），否则 `\n[ctx N% window]`；N/M 取 `Math.floor`；
+针可以报状态，也可以报收益：`fold@turn` / `fold@task` 是折叠后的投影压力，与 `% budget` / `% window` 同为 measurement，因为它们回答「折了能省多少」而不回答「是否该折」（**Preview measures; boundary decides**，资格线在 CORE）。判断一根针合宪的标准不是它测量什么，而是三条：不携带动词或评价、不选择出现时机、缺参照点时省略而非编造。收益针恢复自 7c3bdff7（2026-07-12）架构拆分中静默丢失的 fold preview——那次没有设计决定，只有空白 commit body；随后六次 guidance 修订都在用措辞补偿一个缺失的数字。`test/fold-visibility.test.ts` 是机制清单，任何再次搬走收益针的重构必须让它变红。
+
+- **形态**：普通工具结果尾部追加一行定界后缀。压力针：`policy === "400k-cap"` 时为 `N% budget · M% window`（N=working-budget pressure，M=hard-window usage），否则仅 `M% window`；收益针依次追加 `fold@turn→X%` 与 `fold@task→Y%`（同一 working-budget 口径）。整体形如 `\n[ctx <针 · 针 · …>]`；所有百分比取 `Math.floor`；
 - **压力口径**：`workingBudgetTokens = min(contextWindow, 400_000)`；`pressurePercent = tokens / workingBudgetTokens * 100`；`usagePercent` 始终表示 hard-window usage，不得静默改为 working-budget pressure（`src/context-pressure.ts`）；
 - **显示节奏（里程表）**：整数位变化即显示，双向都算；数字不变时沉默——恒定信号 + 变化驱动，无阈值、无档位、无梯度；
 - **cycle 重置点**：明确成功的 `acm_travel`、`session_compact`、手动 `/tree` 导航（`session_tree`）、`session_start`；重置后首个可装饰结果必显示（重建锚点）；

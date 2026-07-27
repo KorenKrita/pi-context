@@ -499,3 +499,24 @@ Tool schema、canonical guidance 与 advanced target selection 把 transaction b
 
 **边界**:
 Runtime 不按 token increase 或 off-path 自动拒绝，因为合法 rehydrate 的结构效果本来就是恢复历史并可能扩张。是否需要进一步引入显式 travel intent，必须由后续同任务行为证据决定。
+
+## FM-15 — Zero-distance fold: checkpoint, then travel to it
+
+**状态**: Observed in one live session (2026-07-27); structural rejection adopted, projection surfaced at all three delivery points
+
+**现象**:
+Agent 先创建 checkpoint，随即以该 checkpoint 为 `target` 调用 travel。锚点落在被折内容之后而不是之前，替换范围因此约等于零：付出一次 transition 与一层 summary depth，换来的表示收益为零或负。它在回执里看起来完全正常——动作序列合规，只是没有发生压缩。
+
+**证据**:
+一个 live session 的 travel 回执显示 checkpoint 落在 `latest protocol-complete pre-call leaf`，target 即该 checkpoint，压力在 394K/1.0M 附近无变化。既有 `currentLeaf === targetId` 拒绝没有拦住它：checkpoint 自己的回执写入后 leaf 前进一步，于是 `currentLeaf !== targetId`，恰好差一步穿过护栏，实际折掉的内容就是那条 checkpoint 回执。
+
+**成因**:
+两个原因叠加。一，`Save … before folding raw history` 可被顺从模型读成两步菜谱（要折→先 checkpoint→再 travel），而它的本意是给**留在身后**的原始路径留恢复标签，不是给 travel 提供目的地；菜谱化之后第二步的 target 选择被第一步污染。二，收益不可见：FM-09 描述的是低收益 transition 后立刻重读，这里连"收益为零"本身都无法在按下 travel 之前观察到——`Preview measures; boundary decides` 与 fold preview 同死于 7c3bdff7，历史上唯一用数字挡掉无效折叠的机制（Era B2 的 "preview shows almost no saving → checkpoint 完直接答，不 travel" 双分支）随之消失。
+
+这与 FM-12 是同一缺口的两面：那边是收益不可见导致该折不折，这边是成本不可见导致不该折硬折。模型两侧都看不到 delta。
+
+**当前解决方式**:
+Travel 在 mutation 之前做结构判断：若替换范围为空，或仅包含本次调用自身产生的条目，则拒绝并说明 target precedes nothing——这是 FM-05 同性质的机械安全，不掺数字判断。同时收益针在三个投递面常显：gauge 的 `fold@turn` / `fold@task`、checkpoint 回执的 fold 投影与 segment 距离、timeline HUD 的 Fold Projection。CORE 明写投影接近当前压力即该折叠不产生表示收益，并把零距离折叠列为它的可见形态。`test/fold-visibility.test.ts` 锁住这些投递面。
+
+**边界**:
+不按距离拒绝。刚打锚点、一次大批量读取、随后折回该锚点，距离很短但收益真实；按距离设阈值会误伤这类合法用法。也不按投影数字拒绝——那会让数字越权决定，违反 `Preview measures; boundary decides`。数字只报，拒绝只依据结构。

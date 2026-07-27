@@ -1,15 +1,25 @@
 import type { ContextUsagePressure } from "./context-pressure.js";
+import type { FoldEstimates } from "./fold-estimate.js";
 
 /**
  * Constant context gauge — the only perception surface ACM injects.
  *
  * Design contract (AGENTS.md gauge contract): the gauge is furniture, not an
- * event. It renders two facts and nothing else: working-budget pressure (the
- * soft attention envelope, breakable for a clean extraction) and hard window
- * usage (the physical runway). No verbs, no evaluation, no thresholds, no
- * escalation — any injected wording beyond the numbers gets read as an
- * instruction by an obedient model, which is exactly the failure mode this
- * design retired (burst cues, boundary cues, tier reminders).
+ * event. It renders facts and nothing else: working-budget pressure (the soft
+ * attention envelope, breakable for a clean extraction), hard window usage
+ * (the physical runway), and the projected pressure a fold at each structural
+ * reference point would leave (turn granularity and task granularity). No
+ * verbs, no evaluation, no thresholds, no escalation — any injected wording
+ * beyond the numbers gets read as an instruction by an obedient model, which
+ * is exactly the failure mode this design retired (burst cues, boundary cues,
+ * tier reminders).
+ *
+ * The fold needles are projections, not recommendations: they report what a
+ * fold would return, never whether it is earned. Whether the extraction is
+ * complete stays CORE's bar. They are unconditional — a needle that appears
+ * only past a threshold would be choosing its moment, and a gauge that
+ * chooses its moments becomes an event again. An early-session
+ * `fold@turn→4%` is a parked speedometer reading zero, not noise.
  *
  * Cadence is an odometer: the suffix appears only when the integer percent
  * changes (in either direction). Display frequency therefore tracks
@@ -56,14 +66,25 @@ export function markGaugeShown(state: GaugeState, pressurePercent: number): void
 }
 
 /**
- * Dual needle when the working budget is smaller than the model window:
- * budget is the advisory attention envelope, window is the physical truth.
- * When the window itself is at or under the budget cap the two needles
- * coincide and only the window fact remains.
+ * Pressure needles first: budget is the advisory attention envelope, window is
+ * the physical truth. When the window itself is at or under the budget cap the
+ * two coincide and only the window fact remains.
+ *
+ * Fold needles follow when a reference point exists on the spine: `fold@turn`
+ * projects a fold to the most recent user-request boundary or save point,
+ * `fold@task` projects one to the earliest. A needle with no reference point
+ * (a short spine, or both granularities resolving to the same node) is omitted
+ * rather than rendered as zero — absent is a fact, fabricated is not.
  */
-export function buildGaugeSuffix(pressure: ContextUsagePressure): string {
-  if (pressure.policy === "400k-cap") {
-    return `\n[ctx ${Math.floor(pressure.pressurePercent)}% budget · ${Math.floor(pressure.usagePercent)}% window]`;
+export function buildGaugeSuffix(pressure: ContextUsagePressure, folds?: FoldEstimates): string {
+  const parts = pressure.policy === "400k-cap"
+    ? [`${Math.floor(pressure.pressurePercent)}% budget`, `${Math.floor(pressure.usagePercent)}% window`]
+    : [`${Math.floor(pressure.usagePercent)}% window`];
+  if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
+    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%`);
   }
-  return `\n[ctx ${Math.floor(pressure.usagePercent)}% window]`;
+  if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
+    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%`);
+  }
+  return `\n[ctx ${parts.join(" · ")}]`;
 }

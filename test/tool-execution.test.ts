@@ -19,17 +19,17 @@ type ExecuteTool = (
   ctx: unknown,
 ) => Promise<ToolResult>;
 
-function userEntry(id: string, parentId: string | null = null): SessionEntry {
+function userEntry(id: string, parentId: string | null = null, timestamp = "2026-01-01T00:00:00.000Z"): SessionEntry {
   return {
     type: "message",
     id,
     parentId,
-    timestamp: "2026-01-01T00:00:00.000Z",
+    timestamp,
     message: { role: "user", content: "hello", timestamp: 0 },
   } as SessionEntry;
 }
 
-function labelEntry(id: string, targetId: string, label: string): SessionEntry {
+function labelEntry(id: string, targetId: string, label: string | undefined): SessionEntry {
   return {
     type: "label",
     id,
@@ -83,9 +83,12 @@ function captureTimelineWithSkillPath(path: string): ExecuteTool {
   return execute;
 }
 
-function checkpointContext() {
+function checkpointContext(initialLabel?: string) {
   const entry = userEntry("entry-1");
-  const entries: SessionEntry[] = [entry];
+  const entries: SessionEntry[] = [
+    entry,
+    ...(initialLabel === undefined ? [] : [labelEntry("label-existing", entry.id, initialLabel)]),
+  ];
   const tree: SessionTreeNode[] = [{ entry, children: [] }];
   let appendCalls = 0;
   let branchCalls = 0;
@@ -98,7 +101,7 @@ function checkpointContext() {
     appendLabelChange: (targetId: string, label: string | undefined) => {
       appendCalls++;
       const id = `label-${appendCalls}`;
-      entries.push(labelEntry(id, targetId, label ?? ""));
+      entries.push(labelEntry(id, targetId, label));
       return id;
     },
     branchWithSummary: () => {
@@ -119,13 +122,7 @@ function checkpointContext() {
 
 function timelineContext() {
   const root = userEntry("entry-1");
-  const entries = [
-    root,
-    labelEntry("label-1", root.id, "alpha"),
-    labelEntry("label-2", root.id, "beta"),
-    labelEntry("label-3", root.id, "gamma"),
-    labelEntry("label-4", root.id, "delta"),
-  ];
+  const entries = [root, labelEntry("label-1", root.id, "baseline-checkpoint")];
   const sessionManager = {
     getTree: () => [{ entry: root, children: [] }],
     getEntries: () => entries,
@@ -173,24 +170,132 @@ function largeTimelineContext(count = 250) {
   };
 }
 
-function longAliasTimelineContext() {
-  const root = userEntry("entry-long-alias");
-  const longAlias = `long-${"x".repeat(100_000)}`;
-  const aliases = Array.from({ length: 100 }, (_, index) => labelEntry(`short-label-${index}`, root.id, `short-${index}`));
-  const entries = [root, ...aliases, labelEntry("long-label", root.id, longAlias)];
+function largeLabelTimelineContext(count = 250) {
+  const messages: SessionEntry[] = [];
+  const labels: SessionEntry[] = [];
+  const volumeLabel = `volume-${"x".repeat(1_000)}`;
+  let longLabel = "";
+  for (let index = 0; index < count; index++) {
+    const entry = userEntry(`entry-long-label-${index}`, index === 0 ? null : `entry-long-label-${index - 1}`);
+    const label = index === count - 50 ? `long-${"x".repeat(100_000)}` : `${volumeLabel}-${index}`;
+    if (index === count - 50) longLabel = label;
+    messages.push(entry);
+    labels.push(labelEntry(`label-${index}`, entry.id, label));
+  }
+  let treeNode: SessionTreeNode | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    treeNode = { entry: messages[index]!, children: treeNode ? [treeNode] : [] };
+  }
+  const entries = [...messages, ...labels];
+  const leafId = messages.at(-1)?.id ?? null;
+  const sessionManager = {
+    getTree: () => treeNode ? [treeNode] : [],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => {
+      if (!fromId) return messages;
+      const index = messages.findIndex((entry) => entry.id === fromId);
+      return index < 0 ? [] : messages.slice(0, index + 1);
+    },
+    getLeafId: () => leafId,
+  };
+  return {
+    context: {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 1_000, contextWindow: 20_000, percent: 5 }),
+      ui: { notify() {} },
+    },
+    longLabel,
+    leafId,
+  };
+}
+
+function sortedCheckpointTimelineContext() {
+  const root = userEntry("root", null, "2026-01-01T00:00:00.000Z");
+  const onFirst = userEntry("on-first", root.id, "2026-01-01T00:00:05.000Z");
+  const onSecond = userEntry("on-second", onFirst.id, "2026-01-01T00:00:01.000Z");
+  const head = userEntry("head", onSecond.id, "2026-01-01T00:00:06.000Z");
+  const offEarlier = userEntry("z-off-earlier", root.id, "2026-01-01T00:00:02.000Z");
+  const offAlpha = userEntry("off-alpha", root.id, "2026-01-01T00:00:04.000Z");
+  const offZeta = userEntry("off-zeta", root.id, "2026-01-01T00:00:04.000Z");
+  const offLater = userEntry("a-off-later", root.id, "2026-01-01T00:00:07.000Z");
+  const activeBranch = [root, onFirst, onSecond, head];
+  const entries: SessionEntry[] = [
+    root,
+    onFirst,
+    onSecond,
+    head,
+    offEarlier,
+    offAlpha,
+    offZeta,
+    offLater,
+    labelEntry("label-on-first", onFirst.id, "checkpoint-on-first"),
+    labelEntry("label-on-second", onSecond.id, "checkpoint-on-second"),
+    labelEntry("label-off-earlier", offEarlier.id, "checkpoint-off-earlier"),
+    labelEntry("label-off-alpha", offAlpha.id, "checkpoint-off-alpha"),
+    labelEntry("label-off-zeta", offZeta.id, "checkpoint-off-zeta"),
+    labelEntry("label-off-later", offLater.id, "checkpoint-off-later"),
+  ];
+  const branches: Record<string, SessionEntry[]> = {
+    [root.id]: [root],
+    [onFirst.id]: [root, onFirst],
+    [onSecond.id]: [root, onFirst, onSecond],
+    [head.id]: activeBranch,
+    [offEarlier.id]: [root, offEarlier],
+    [offAlpha.id]: [root, offAlpha],
+    [offZeta.id]: [root, offZeta],
+    [offLater.id]: [root, offLater],
+  };
+  const tree: SessionTreeNode[] = [{
+    entry: root,
+    children: [
+      { entry: onFirst, children: [{ entry: onSecond, children: [{ entry: head, children: [] }] }] },
+      { entry: offEarlier, children: [] },
+      { entry: offAlpha, children: [] },
+      { entry: offZeta, children: [] },
+      { entry: offLater, children: [] },
+    ],
+  }];
   return {
     context: {
       sessionManager: {
-        getTree: () => [{ entry: root, children: [] }],
+        getTree: () => tree,
         getEntries: () => entries,
-        getBranch: () => [root],
-        getLeafId: () => root.id,
+        getBranch: (fromId?: string) => fromId === undefined ? activeBranch : branches[fromId] ?? [],
+        getLeafId: () => head.id,
       },
-      getContextUsage: () => ({ tokens: 10_000, contextWindow: 100_000, percent: 10 }),
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
       ui: { notify() {} },
     },
-    longAlias,
-    rootId: root.id,
+  };
+}
+
+function filterableCheckpointTimelineContext() {
+  const root = userEntry("root");
+  const labelMatched = userEntry("entry-label-match", root.id);
+  const idMatched = userEntry("alpha-entry", labelMatched.id);
+  const excluded = userEntry("entry-excluded", idMatched.id);
+  const branch = [root, labelMatched, idMatched, excluded];
+  const entries: SessionEntry[] = [
+    ...branch,
+    labelEntry("label-alpha", labelMatched.id, "checkpoint-alpha"),
+    labelEntry("label-unrelated", idMatched.id, "checkpoint-unrelated"),
+    labelEntry("label-excluded", excluded.id, "checkpoint-hidden"),
+  ];
+  return {
+    context: {
+      sessionManager: {
+        getTree: () => [{ entry: root, children: [{ entry: labelMatched, children: [{ entry: idMatched, children: [{ entry: excluded, children: [] }] }] }] }],
+        getEntries: () => entries,
+        getBranch: (fromId?: string) => {
+          if (fromId === undefined) return branch;
+          const index = branch.findIndex((entry) => entry.id === fromId);
+          return index < 0 ? [] : branch.slice(0, index + 1);
+        },
+        getLeafId: () => excluded.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    },
   };
 }
 
@@ -264,13 +369,20 @@ function successfulTravelContext(
   failPostMutationRebuild = false,
   invalidatePostMutationPacket = false,
   failPostMutationBranchRead = false,
+  preexistingBackupLabel?: string,
 ) {
   const root = userEntry("travel-root");
   const head = userEntry("travel-head", root.id);
-  const entries: SessionEntry[] = [root, head];
+  const entries: SessionEntry[] = [
+    root,
+    head,
+    ...(preexistingBackupLabel === undefined ? [] : [labelEntry("label-existing-backup", head.id, preexistingBackupLabel)]),
+  ];
   let leafId = head.id;
   let postMutationRebuildFailed = false;
   let postMutationPacketInvalid = false;
+  let appendCalls = 0;
+  let branchCalls = 0;
   const invalidRoot = {
     ...root,
     message: {
@@ -296,7 +408,14 @@ function successfulTravelContext(
     },
     getLeafId: () => leafId,
     getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    appendLabelChange: (targetId: string, label: string | undefined) => {
+      appendCalls++;
+      const id = `label-backup-${appendCalls}`;
+      entries.push(labelEntry(id, targetId, label));
+      return id;
+    },
     branchWithSummary: (targetId: string, summary: string, details: unknown) => {
+      branchCalls++;
       const entry: SessionEntry = {
         type: "branch_summary",
         id: "travel-summary",
@@ -317,6 +436,8 @@ function successfulTravelContext(
     sessionManager,
     getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
     ui: { notify() {} },
+    getAppendCalls: () => appendCalls,
+    getBranchCalls: () => branchCalls,
   };
 }
 
@@ -600,6 +721,39 @@ describe("ACM tool execution contracts", () => {
       expect(getAppendCalls()).toBe(0);
     }
   });
+
+  test("refuses a checkpoint that would displace an existing label without appending", async () => {
+    const fixture = checkpointContext("existing-checkpoint");
+    const result = await executeCheckpoint(
+      "checkpoint-displacement",
+      { name: "replacement-checkpoint", target: "entry-1" },
+      undefined,
+      undefined,
+      fixture.ctx,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "label_displaces_existing",
+      entryId: "entry-1",
+      existingLabel: "existing-checkpoint",
+    });
+    expect(result.content[0]?.text).toContain("existing-checkpoint");
+    expect(fixture.getAppendCalls()).toBe(0);
+  });
+
+  test("reuses a checkpoint label already present on the same entry without appending", async () => {
+    const fixture = checkpointContext("same-checkpoint");
+    const result = await executeCheckpoint(
+      "checkpoint-reuse",
+      { name: "same-checkpoint", target: "entry-1" },
+      undefined,
+      undefined,
+      fixture.ctx,
+    );
+
+    expect(result.details).toMatchObject({ status: "already_present", alreadyPresent: true, label: "same-checkpoint" });
+    expect(fixture.getAppendCalls()).toBe(0);
+  });
   test("bounds automatic checkpoint anchoring after an unclosed tool batch", async () => {
     const toolCallId = "bounded-anchor-call";
     const { context, getAppendCalls, getCandidatePrefixReads } = poisonedAutomaticCheckpointContext(toolCallId);
@@ -672,6 +826,25 @@ describe("ACM tool execution contracts", () => {
     }
   });
 
+  test("refuses a travel backup that would displace the resolved pre-travel label", async () => {
+    const fixture = successfulTravelContext(false, false, false, "existing-backup");
+    const result = await executeTravel(
+      "travel-backup-displacement",
+      { target: "travel-root", handoff: HANDOFF, backupCurrentHeadAs: "replacement-backup" },
+      undefined,
+      undefined,
+      fixture,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "backup_displaces_existing_label",
+      candidateId: "travel-head",
+      existingLabel: "existing-backup",
+    });
+    expect(fixture.getAppendCalls()).toBe(0);
+    expect(fixture.getBranchCalls()).toBe(0);
+  });
+
   test("names the concrete handoff defects instead of restating the slot list", async () => {
     const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
     const broken = { ...HANDOFF, state: " ", next: "none" };
@@ -685,48 +858,61 @@ describe("ACM tool execution contracts", () => {
     expect(getBranchCalls()).toBe(0);
   });
 
-  test("groups aliases by checkpoint entry before applying the caller-supplied limit", async () => {
-    const result = await executeTimeline(
-      "call-3",
-      { view: "checkpoints", limit: 2 },
+  test("applies the caller-supplied limit to sorted checkpoint entries", async () => {
+    const fixture = sortedCheckpointTimelineContext();
+    const full = await executeTimeline(
+      "sorted-checkpoints",
+      { view: "checkpoints", filter: "checkpoint", limit: 6 },
       undefined,
       undefined,
-      timelineContext(),
+      fixture.context,
     );
-    expect(result.details).toMatchObject({
+    const fullText = full.content[0]?.text ?? "";
+    const listingOrder = [
+      "on-first (checkpoint:",
+      "on-second (checkpoint:",
+      "z-off-earlier (checkpoint:",
+      "off-alpha (checkpoint:",
+      "off-zeta (checkpoint:",
+      "a-off-later (checkpoint:",
+    ];
+    for (let index = 1; index < listingOrder.length; index++) {
+      expect(fullText.indexOf(listingOrder[index - 1]!)).toBeLessThan(fullText.indexOf(listingOrder[index]!));
+    }
+
+    const limited = await executeTimeline(
+      "limited-checkpoints",
+      { view: "checkpoints", filter: "checkpoint", limit: 2 },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(limited.details).toMatchObject({
       view: "checkpoints",
       limit: 2,
-      checkpointsMatchingEntries: 1,
-      checkpointsDisplayedEntries: 1,
-      checkpointsMatchingAliases: 4,
-      checkpointsDisplayedAliases: 4,
-      checkpointAliasesOnMatchingEntries: 4,
-      checkpointAliasNamesShown: 1,
+      checkpointsMatchingEntries: 6,
+      checkpointsDisplayedEntries: 2,
     });
-    expect(result.content[0]?.text).toContain("1 matching entry / 4 aliases, 1 entry displayed; requested 2, effective 2");
-    expect(result.content[0]?.text).toContain("entry-1 (checkpoint: delta (+3 other aliases); on-path");
-    expect(result.content[0]?.text).not.toContain("alpha, beta, gamma, delta");
+    expect(limited.content[0]?.text).toContain("... +4 more — use a narrower filter or query");
   });
 
-  test("keeps filter-matching alias counts distinct from all aliases on the entry", async () => {
+  test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
     const result = await executeTimeline(
-      "call-filtered-checkpoints",
-      { view: "checkpoints", limit: 2, filter: "alpha" },
+      "filtered-checkpoints",
+      { view: "checkpoints", limit: 10, filter: "alpha" },
       undefined,
       undefined,
-      timelineContext(),
+      filterableCheckpointTimelineContext().context,
     );
 
     expect(result.details).toMatchObject({
-      checkpointsMatchingEntries: 1,
-      checkpointsDisplayedEntries: 1,
-      checkpointsMatchingAliases: 1,
-      checkpointsDisplayedAliases: 1,
-      checkpointAliasesOnMatchingEntries: 4,
-      checkpointAliasNamesShown: 1,
+      checkpointsMatchingEntries: 2,
+      checkpointsDisplayedEntries: 2,
     });
-    expect(result.content[0]?.text).toContain("1 matching entry / 1 matched alias / 4 total aliases");
-    expect(result.content[0]?.text).toContain("entry-1 (checkpoint: alpha (+3 other aliases); on-path");
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("entry-label-match (checkpoint: checkpoint-alpha");
+    expect(text).toContain("alpha-entry (checkpoint: checkpoint-unrelated");
+    expect(text).not.toContain("entry-excluded");
   });
 
   test("keeps a failed checkpoint message estimate unknown instead of reporting zero", async () => {
@@ -769,21 +955,23 @@ describe("ACM tool execution contracts", () => {
     expect(result.content[0]?.text).toContain("+151 more");
   });
 
-  test("bounds timeline output for a huge alias set and huge search query", async () => {
-    const fixture = longAliasTimelineContext();
+  test("bounds timeline output for many labeled entries and a huge search query", async () => {
+    const fixture = largeLabelTimelineContext();
 
     const active = await executeTimeline(
-      "long-alias-active",
+      "large-label-active",
       { view: "active", limit: 1_000_000_000 },
       undefined,
       undefined,
       fixture.context,
     );
     const activeText = active.content[0]?.text ?? "";
-    expect(activeText.length).toBeLessThanOrEqual(active.details?.resultCharacterBudget as number);
-    expect(activeText).toContain(fixture.rootId);
-    expect(activeText).toContain(`truncated ${fixture.longAlias.length} chars`);
-    expect(activeText).toContain("(+100 other aliases)");
+    const activeBudget = active.details?.resultCharacterBudget;
+    if (typeof activeBudget !== "number") throw new Error("timeline result omitted its character budget");
+    expect(active.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
+    expect(activeText.length).toBeLessThanOrEqual(activeBudget);
+    expect(activeText).toContain(`truncated ${fixture.longLabel.length} chars`);
+    expect(activeText).toContain(`… [timeline output truncated at ${activeBudget} characters; active leaf ${fixture.leafId}. Use a narrower filter/query or a smaller view.]`);
 
     const query = "q".repeat(100_000);
     const search = await executeTimeline(
@@ -794,7 +982,9 @@ describe("ACM tool execution contracts", () => {
       fixture.context,
     );
     const searchText = search.content[0]?.text ?? "";
-    expect(searchText.length).toBeLessThanOrEqual(search.details?.resultCharacterBudget as number);
+    const searchBudget = search.details?.resultCharacterBudget;
+    if (typeof searchBudget !== "number") throw new Error("timeline search omitted its character budget");
+    expect(searchText.length).toBeLessThanOrEqual(searchBudget);
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 

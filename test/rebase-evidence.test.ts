@@ -181,11 +181,12 @@ describe("semantic rebase evidence", () => {
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });
 
-  test("all timeline views preserve a raw archive marker when a later ordinary alias exists", async () => {
+  test("all timeline views mark only the resolved raw archive entry among ordinary checkpoints", async () => {
     const root = message("root", null, "root");
-    const archived = message("archived", "root", "raw packet");
+    const archived = message("archived", "root", "raw checkpoint packet");
     const rawLabel = label("label-raw", "archived", "archived", "raw-before-fold");
-    const semanticLabel = label("label-semantic", "label-raw", "archived", "later-semantic");
+    const ordinary = message("ordinary", "label-raw", "ordinary checkpoint");
+    const ordinaryLabel = label("label-ordinary", "ordinary", "ordinary", "later-semantic");
     const folded = {
       ...summary("summary-1", "root", `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: folded\nEvidence: none\nExternal: none\nExclusions: none\nRecover: raw-before-fold\nNEXT: continue`),
       fromHook: true,
@@ -200,6 +201,19 @@ describe("semantic rebase evidence", () => {
         backupCurrentHeadAs: "raw-before-fold",
       },
     } as SessionEntry;
+    const receiptDetails = {
+      mutationStatus: "applied",
+      persistentMutationApplied: true,
+      handoffFormat: "structured-v1",
+      summaryEntryId: "summary-1",
+      resultingLeafId: "summary-1",
+      originId: "old-head",
+      target: "root",
+      targetId: "root",
+      currentUserTurnOpen: false,
+      backupCurrentHeadAs: "raw-before-fold",
+      backupEntryId: "archived",
+    };
     const receipt = {
       id: "receipt-1",
       type: "message",
@@ -210,46 +224,66 @@ describe("semantic rebase evidence", () => {
         toolCallId: "travel-1",
         toolName: "acm_travel",
         content: [{ type: "text", text: "Travel complete" }],
-        details: {
-          mutationStatus: "applied",
-          persistentMutationApplied: true,
-          handoffFormat: "structured-v1",
-          summaryEntryId: "summary-1",
-          resultingLeafId: "summary-1",
-          originId: "old-head",
-          target: "root",
-          targetId: "root",
-          currentUserTurnOpen: false,
-          backupCurrentHeadAs: "raw-before-fold",
-          backupEntryId: "archived",
-        },
+        details: receiptDetails,
         isError: false,
         timestamp: 3,
       },
     } as SessionEntry;
-    const current = message("current", "label-semantic", "current");
-    const entries = [root, archived, rawLabel, semanticLabel, folded, receipt, current];
-    const branch = [root, archived, rawLabel, semanticLabel, current];
+    const mismatchedReceipt = {
+      id: "receipt-mismatched",
+      type: "message",
+      parentId: "summary-1",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "travel-1",
+        toolName: "acm_travel",
+        content: [{ type: "text", text: "Travel complete" }],
+        details: { ...receiptDetails, backupEntryId: "ordinary" },
+        isError: false,
+        timestamp: 3,
+      },
+    } as SessionEntry;
+    const current = message("current", "label-ordinary", "current");
+    const entries = [root, archived, rawLabel, ordinary, ordinaryLabel, folded, receipt, current];
+    const branch = [root, archived, rawLabel, ordinary, ordinaryLabel, current];
+    const tree = [node(root, [
+      node(archived, [node(rawLabel, [node(ordinary, [node(ordinaryLabel, [node(current)])])])]),
+      node(folded, [node(receipt)]),
+    ])];
     const tool = captureTimelineTool();
-    const context = makeContext(
-      entries,
-      [node(root, [
-        node(archived, [node(rawLabel, [node(semanticLabel, [node(current)])])]),
-        node(folded, [node(receipt)]),
-      ])],
-      branch,
-    );
+    const context = makeContext(entries, tree, branch);
 
     const checkpoints = await tool.execute("timeline-raw-checkpoints", { view: "checkpoints", limit: 50 }, undefined, undefined, context);
     const active = await tool.execute("timeline-raw-active", { view: "active", limit: 50 }, undefined, undefined, context);
-    const search = await tool.execute("timeline-raw-search", { view: "search", query: "raw-before-fold", limit: 50 }, undefined, undefined, context);
-    const tree = await tool.execute("timeline-raw-tree", { view: "tree", limit: 50 }, undefined, undefined, context);
+    const search = await tool.execute("timeline-raw-search", { view: "search", query: "checkpoint", limit: 50 }, undefined, undefined, context);
+    const treeResult = await tool.execute("timeline-raw-tree", { view: "tree", limit: 50 }, undefined, undefined, context);
 
-    expect(checkpoints.content[0].text).toContain("later-semantic [raw archive on this entry]");
+    for (const result of [checkpoints, active, search, treeResult]) {
+      const text = result.content[0].text;
+      expect(text).toContain("raw-before-fold [raw archive]");
+      expect(text).toContain("later-semantic");
+      expect(text).not.toContain("later-semantic [raw archive]");
+      expect(text).not.toContain("[raw archive on this entry]");
+    }
     expect(checkpoints.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
-    expect(active.content[0].text).toContain("later-semantic [raw archive on this entry]");
-    expect(search.content[0].text).toContain("raw-before-fold [raw archive]");
-    expect(tree.content[0].text).toContain("later-semantic [raw archive on this entry]");
+
+    const mismatched = await tool.execute(
+      "timeline-raw-mismatched-receipt",
+      { view: "checkpoints", limit: 50 },
+      undefined,
+      undefined,
+      makeContext(
+        [root, archived, rawLabel, ordinary, ordinaryLabel, folded, mismatchedReceipt, current],
+        [node(root, [
+          node(archived, [node(rawLabel, [node(ordinary, [node(ordinaryLabel, [node(current)])])])]),
+          node(folded, [node(mismatchedReceipt)]),
+        ])],
+        branch,
+      ),
+    );
+    expect(mismatched.content[0].text).toContain("raw-before-fold");
+    expect(mismatched.content[0].text).not.toContain("[raw archive]");
   });
 
   test("foreign summary details cannot classify an ordinary alias as raw archive", async () => {
