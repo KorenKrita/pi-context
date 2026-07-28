@@ -201,8 +201,8 @@ describe("ACM tool rendering", () => {
     const call = travel.renderCall!(args, theme, renderContext(args));
     const callOutput = render(call);
     expect(callOutput).toContain("◆ ACM TRAVEL  → parser-fix-start");
-    expect(callOutput).toContain("backup parser-fix-done");
-    expect(callOutput).toContain(`field content ${Object.values(args.handoff).reduce((sum, value) => sum + value.length, 0)} chars`);
+    expect(callOutput).toContain("备份 parser-fix-done");
+    expect(callOutput).toContain(`交接单 ${Object.values(args.handoff).reduce((sum, value) => sum + value.length, 0)} 字符`);
 
     const result = travel.renderResult!(
       {
@@ -228,10 +228,10 @@ describe("ACM tool rendering", () => {
     );
     const output = render(result);
     expect(output).toContain("✓ 折叠完成  parser-fix-start → summary-456");
-    expect(output).toContain("context 120000 → 70000 est. (-50000)");
-    expect(output).toContain("messages 42 → 18 (shrunk)");
-    expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
-    expect(output).toContain("delivery pending_tool_result · evidence verified · persisted refresh pending");
+    expect(output).toContain("上下文 120000 → 70000 est. (-50000)");
+    expect(output).toContain("消息 42 → 18 (shrunk)");
+    expect(output).toContain("摘要深度 2 → 1 · 备份 parser-fix-done");
+    expect(output).toContain("delivery pending_tool_result · evidence verified · 持久化刷新待确认");
   });
 
   test("renderers surface actionable error states instead of success chrome", () => {

@@ -13,7 +13,7 @@
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史换成交接单（goal/state/next 必填，其余字段用到才写）。上下文变小，原始历史留在会话树里可以找回。还欠用户答复时先答复再折；单独调用，不与其他工具同批。
+折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史换成交接单（goal/state/next 必填，其余字段用到才写）。上下文变小，原始历史留在会话树里可以找回。单独调用，不与其他工具同批。
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## 结果提示

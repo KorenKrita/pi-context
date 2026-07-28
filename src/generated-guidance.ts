@@ -8,7 +8,7 @@ export const ACM_CORE = "## 上下文管理工具\n\n你的上下文不是流水
 export const TOOL_DESCRIPTIONS = {
   "checkpoint": "存档：给会话当前位置起个名字，之后可以用 acm_travel 回来。免费、瞬间完成、不改变上下文。不传 `target` 就标记当前位置；也可以传节点 ID 标记更早的位置。危险操作前、要折叠前，顺手存一个。",
   "timeline": "查看会话。四个视图选一个：`active`（当前上下文里有什么）、`checkpoints`（存档列表）、`search`（全树搜索，已折叠的历史也能搜到）、`tree`（分支结构）。附带 token 用量。",
-  "travel": "折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史换成交接单（goal/state/next 必填，其余字段用到才写）。上下文变小，原始历史留在会话树里可以找回。还欠用户答复时先答复再折；单独调用，不与其他工具同批。"
+  "travel": "折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史换成交接单（goal/state/next 必填，其余字段用到才写）。上下文变小，原始历史留在会话树里可以找回。单独调用，不与其他工具同批。"
 } as const;
 
 export const GUIDANCE_CUES = {

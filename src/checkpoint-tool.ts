@@ -118,7 +118,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       ];
       if (cue) lines.push(theme.fg("dim", `  → ${cue}`));
       if (expanded && raw) {
-        lines.push(theme.fg("dim", "  ─ full result ─"), theme.fg("toolOutput", raw));
+        lines.push(theme.fg("dim", "  ─ 完整结果 ─"), theme.fg("toolOutput", raw));
       }
       component.setText(lines.join("\n"));
       return component;

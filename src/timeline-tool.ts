@@ -464,7 +464,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const currentResult = rebuildAcmContextPacket(sessionManager, leafId);
         if (!currentResult.ok) {
           return {
-            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
+            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). 错误：无法重建当前会话消息：${currentResult.message}` }],
             details: { error: currentResult.error, message: currentResult.message },
           };
         }

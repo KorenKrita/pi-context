@@ -94,7 +94,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ? context.lastComponent
         : new Text("", 0, 0);
       const backupName = optionalString(args.backupCurrentHeadAs);
-      const backup = backupName ? ` · backup ${sanitizeTerminalText(backupName)}` : "";
+      const backup = backupName ? ` · 备份 ${sanitizeTerminalText(backupName)}` : "";
       const target = sanitizeTerminalText(optionalString(args.target) ?? "…");
       const handoffLength = typeof args.handoff === "string"
         ? args.handoff.length
@@ -104,7 +104,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))
           + theme.fg("accent", `→ ${target}`)
-          + theme.fg("dim", `${backup} · field content ${handoffLength} chars`),
+          + theme.fg("dim", `${backup} · 交接单 ${handoffLength} 字符`),
       );
       return component;
     },
@@ -145,16 +145,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ 折叠完成" : "⚠ 折叠已生效 — 证据待确认")
           + theme.fg("accent", `  ${target} → ${leaf}`),
         theme.fg("muted",
-          `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
-            + ` (${formatSignedDelta(tokenDelta)}) · messages ${formatNumericValue(beforeMessages)} → ${formatNumericValue(afterMessages)} (${direction})`,
+          `  上下文 ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
+            + ` (${formatSignedDelta(tokenDelta)}) · 消息 ${formatNumericValue(beforeMessages)} → ${formatNumericValue(afterMessages)} (${direction})`,
         ),
         theme.fg("dim",
-          `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · backup ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · persisted refresh pending`,
+          `  摘要深度 ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
+            + ` · 备份 ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · 持久化刷新待确认`,
         ),
       ];
       if (expanded && raw) {
-        lines.push(theme.fg("dim", "  ─ full result ─"), theme.fg("toolOutput", raw));
+        lines.push(theme.fg("dim", "  ─ 完整结果 ─"), theme.fg("toolOutput", raw));
       }
       component.setText(lines.join("\n"));
       return component;
@@ -259,13 +259,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (!currentLeaf) return { content: [{ type: "text" as const, text: "错误：会话没有活动叶节点，无法折叠。" }], details: { error: "no_active_leaf" } };
       if (currentLeaf === targetId) {
         return {
-          content: [{ type: "text" as const, text: `Already at target ${targetId}. Nothing to travel.` }],
+          content: [{ type: "text" as const, text: `已经在目标 ${targetId} 上，没有可折叠的内容。` }],
           details: { error: "already_at_target", targetId, leafId: currentLeaf },
         };
       }
       if (signal?.aborted) {
         return {
-          content: [{ type: "text" as const, text: "acm_travel aborted: signal was already aborted." }],
+          content: [{ type: "text" as const, text: "acm_travel 已中止：调用开始前信号已取消。没有做任何变更。" }],
           details: { error: "aborted", target: params.target, targetId },
         };
       }
@@ -333,7 +333,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return {
           content: [{
             type: "text" as const,
-            text: `Zero-distance travel refused: target ${targetId} precedes nothing foldable (${replacedEntryCount} replaceable entr${replacedEntryCount === 1 ? "y" : "ies"} on this spine, all produced by this call). A fold target must sit before the material being folded; a save point created just now sits after it. Choose the last clean node before that material — acm_timeline view search or checkpoints locates it — or continue without folding.`,
+            text: `零距离折叠已拒绝：目标 ${targetId} 之后没有可折的内容（这段路径上只有 ${replacedEntryCount} 条可替换条目，全部是本次调用自己产生的）。折叠目标必须在要折内容之【前】；刚刚创建的存档在它之后。用 acm_timeline 的 search 或 checkpoints 视图找到那段内容之前最后一个干净节点，或者不折叠继续工作。`,
           }],
           details: {
             error: "zero_distance_travel",
@@ -388,7 +388,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (params.backupCurrentHeadAs) {
         if (signal?.aborted) {
           return {
-            content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
+            content: [{ type: "text" as const, text: "acm_travel 已中止（解析备份目标时信号取消）。没有做任何变更。" }],
             details: { error: "aborted", target: params.target, targetId },
           };
         }
@@ -494,7 +494,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       if (signal?.aborted) {
         return {
-          content: [{ type: "text" as const, text: "acm_travel aborted after prevalidation and before mutation." }],
+          content: [{ type: "text" as const, text: "acm_travel 已中止（预校验通过后、变更开始前信号取消）。没有做任何变更。" }],
           details: { error: "aborted", target: params.target, targetId },
         };
       }
