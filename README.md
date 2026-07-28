@@ -24,22 +24,18 @@ Pi 自带的办法是 compaction：窗口快满时自动把历史压成一段摘
 
 ## 交接单（handoff）
 
-折叠不是删除，是把一段过程换成它的精华。`acm_travel` 要求 agent 写一份七个字段的交接单，写给"折叠之后的自己"：
+折叠不是删除，是把一段过程换成它的精华。`acm_travel` 要求 agent 写一份交接单，写给"折叠之后的自己"：
 
 ```json
 {
   "goal": "完成 parser 迁移并保持现有行为。",
   "state": "实现已完成，测试通过；仍需更新 README 示例。",
-  "evidence": "bun test；src/parser.ts；test/parser.test.ts",
-  "external": "src/parser.ts 已修改，尚未提交。",
-  "exclusions": "不再尝试 recursive-descent 方案。",
-  "recover": "parser-raw",
   "next": "更新 README 中的 parser 示例。"
 }
 ```
 
-- **goal / state / next** 必须有真实内容：目标是什么、现在什么状态、下一步做什么。
-- **evidence / external / exclusions / recover** 是辅助信息：证据在哪、改过哪些文件、放弃过哪些方向、想回头时去哪——没有就写 `none`。
+- **goal / state / next** 必填：目标是什么、现在什么状态、下一步做什么。
+- **evidence / external / exclusions / recover** 可选：证据在哪、改过哪些文件、放弃过哪些方向、想回头时去哪——用得上再加。
 
 合格标准只有一条：一个完全不知道前情的新 agent，只靠这张单子就能无缝接着干。写不出来这样的单子，说明这段过程还没消化完，还不到折叠的时候。
 

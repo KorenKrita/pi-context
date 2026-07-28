@@ -2,6 +2,8 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 
 export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->";
 
+// wire 上只有 goal/state/next 必填；四个辅助字段可省略，缺省按 "none" 处理。
+// 持久化文本始终渲染完整七行——解析锚点与 continuation 投影依赖固定格式。
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
@@ -11,39 +13,45 @@ export const StructuredHandoffSchema = Type.Object({
     minLength: 1,
     description: "已知什么、还有什么不确定，以及接下来要用的具体值、路径、名字。可以写多行。",
   }),
-  evidence: Type.String({
-    minLength: 1,
-    description: "支撑 state 的文件路径、命令、ID。没有写 'none'。",
-  }),
-  external: Type.String({
-    minLength: 1,
-    description: "对话之外的持久副作用——改过的文件、跑过的命令、动过的系统。没有写 'none'。",
-  }),
-  exclusions: Type.String({
-    minLength: 1,
-    description: "试过并排除的方向，避免重踩。没有写 'none'。",
-  }),
-  recover: Type.String({
-    minLength: 1,
-    description: "能找回被折叠历史的存档名或节点 ID。没有写 'none'。",
-  }),
   next: Type.String({
     minLength: 1,
     description: "现在立刻要做的下一步，写成一个具体动作。",
   }),
+  evidence: Type.Optional(Type.String({
+    description: "可选：支撑 state 的文件路径、命令、ID。",
+  })),
+  external: Type.Optional(Type.String({
+    description: "可选：对话之外的持久副作用——改过的文件、跑过的命令、动过的系统。",
+  })),
+  exclusions: Type.Optional(Type.String({
+    description: "可选：试过并排除的方向，避免重踩。",
+  })),
+  recover: Type.Optional(Type.String({
+    description: "可选：能找回被折叠历史的存档名或节点 ID。",
+  })),
 }, { additionalProperties: false });
 
 export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
   Type.String({
     minLength: 1,
-    description: "兼容回退：把同一个 7 字段对象 JSON 序列化成字符串也可以，但不接受自由文本。",
+    description: "兼容回退：把同一个交接单对象 JSON 序列化成字符串也可以，但不接受自由文本。",
   }),
 ], {
-  description: "7 字段交接单对象；也接受同一对象的 JSON 字符串编码。",
+  description: "交接单对象（goal/state/next 必填，其余可选）；也接受同一对象的 JSON 字符串编码。",
 });
 
-export type HandoffInput = Static<typeof StructuredHandoffSchema>;
+/** 规范化后的完整七字段形态；可选字段缺省补 "none"。 */
+export interface HandoffInput {
+  goal: string;
+  state: string;
+  evidence: string;
+  external: string;
+  exclusions: string;
+  recover: string;
+  next: string;
+}
+
 export type HandoffWireInput = Static<typeof HandoffSchema>;
 export type HandoffField = keyof HandoffInput;
 
@@ -72,7 +80,7 @@ const FIELD_ORDER: Array<{ field: HandoffField; label: string }> = [
   { field: "next", label: "NEXT" },
 ];
 
-const AUTHORITATIVE_FIELDS = new Set<HandoffField>(["goal", "state", "next"]);
+const REQUIRED_FIELDS = new Set<HandoffField>(["goal", "state", "next"]);
 
 function normalize(value: string): string {
   return value.replace(/\r\n?|\u2028|\u2029/g, "\n").trim();
@@ -102,15 +110,26 @@ export function buildCanonicalHandoff(
   const normalizedFields: Partial<Record<HandoffField, string>> = {};
   for (const { field } of FIELD_ORDER) {
     const rawValue = inputRecord[field];
+    const required = REQUIRED_FIELDS.has(field);
+    if (rawValue === undefined || rawValue === null) {
+      // 可选字段缺省补 "none"；必填字段缺失按类型缺陷报告。
+      if (required) defects.push({ field, reason: "invalid_type" });
+      else normalizedFields[field] = "none";
+      continue;
+    }
     if (typeof rawValue !== "string") {
       defects.push({ field, reason: "invalid_type" });
       continue;
     }
     const value = normalize(rawValue);
-    normalizedFields[field] = value;
     if (value.length === 0) {
-      defects.push({ field, reason: "empty" });
-    } else if (AUTHORITATIVE_FIELDS.has(field) && value.toLowerCase() === "none") {
+      // 可选字段传了空串等价于省略；必填字段空是缺陷。
+      if (required) defects.push({ field, reason: "empty" });
+      else normalizedFields[field] = "none";
+      continue;
+    }
+    normalizedFields[field] = value;
+    if (required && value.toLowerCase() === "none") {
       defects.push({ field, reason: "none_not_allowed" });
     }
   }

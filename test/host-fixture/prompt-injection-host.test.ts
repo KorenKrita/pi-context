@@ -101,12 +101,8 @@ test("ACM tools register with a thin injection surface on the exact Pi host", as
     const structuredHandoff = handoffVariants.find((variant) => variant.type === "object");
     const serializedHandoff = handoffVariants.find((variant) => variant.type === "string");
     expect(structuredHandoff?.required?.sort()).toEqual([
-      "evidence",
-      "exclusions",
-      "external",
       "goal",
       "next",
-      "recover",
       "state",
     ]);
     expect(serializedHandoff).toBeDefined();

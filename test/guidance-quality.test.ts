@@ -12,9 +12,13 @@ describe("ACM guidance quality", () => {
 		expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
 	});
 
-	test("keeps both JSON handoff examples with all seven slots", () => {
-		for (const slot of ["\"goal\":", "\"state\":", "\"evidence\":", "\"external\":", "\"exclusions\":", "\"recover\":", "\"next\":"]) {
+	test("keeps a minimal and a fuller JSON handoff example", () => {
+		// 基础例只用必填字段（goal/state/next），复杂例展示可选字段的用法。
+		for (const slot of ["\"goal\":", "\"state\":", "\"next\":"]) {
 			expect(ACM_CORE).toContain(slot);
+		}
+		for (const optional of ["evidence", "external", "exclusions", "recover"]) {
+			expect(ACM_CORE).toContain(optional);
 		}
 		expect(ACM_CORE.split("```json").length - 1).toBe(2);
 	});

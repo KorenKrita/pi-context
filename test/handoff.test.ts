@@ -20,8 +20,8 @@ function handoff(overrides: Partial<HandoffInput> = {}): HandoffInput {
 }
 
 describe("canonical handoff", () => {
-  test("keeps Evidence optional via the 'none' convention", () => {
-    expect(StructuredHandoffSchema.properties.evidence.description).toContain("'none'");
+  test("keeps Evidence optional on the wire", () => {
+    expect(StructuredHandoffSchema.required ?? []).not.toContain("evidence");
   });
 
   test("renders multiline fields without exposing continuation lines as new slots", () => {
@@ -156,5 +156,32 @@ describe("canonical handoff", () => {
       ok: false,
       defects: [{ field: "handoff", reason: "invalid_json" }],
     });
+  });
+});
+
+describe("optional handoff fields", () => {
+  test("a three-field handoff builds with the optional slots defaulted to none", () => {
+    const result = buildCanonicalHandoff({ goal: "g", state: "s", next: "n" } as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.value.fields).toMatchObject({ evidence: "none", external: "none", exclusions: "none", recover: "none" });
+    // 持久化文本仍是完整七行——解析锚点不因 wire 精简而改变。
+    for (const label of ["Goal: g", "State: s", "Evidence: none", "External: none", "Exclusions: none", "Recover: none", "NEXT: n"]) {
+      expect(result.value.text).toContain(label);
+    }
+  });
+
+  test("an empty optional field is treated as omitted, not a defect", () => {
+    const result = buildCanonicalHandoff({ goal: "g", state: "s", next: "n", evidence: "" } as never);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.value.fields.evidence).toBe("none");
+  });
+
+  test("a missing required field is still a defect", () => {
+    const result = buildCanonicalHandoff({ goal: "g", state: "s" } as never);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.defects).toEqual([{ field: "next", reason: "invalid_type" }]);
   });
 });

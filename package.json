@@ -23,8 +23,7 @@
     "context-management",
     "context-optimization",
     "time-travel",
-    "checkpoint",
-    "pi-skill"
+    "checkpoint"
   ],
   "type": "module",
   "author": "KorenKrita",

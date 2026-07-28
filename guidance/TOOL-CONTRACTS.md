@@ -13,37 +13,37 @@
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史替换成你的 7 字段交接单，上下文随之变小。原始历史仍留在会话树里可以找回。只折叠已经做完的事；如果还欠用户一个答复，先答复再折。这个工具要单独调用，不要和其他工具放在同一批。调用后看结果回执：applied / not_applied / indeterminate。
+折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史替换成交接单（goal/state/next 必填，evidence/external/exclusions/recover 按需），上下文随之变小。原始历史留在会话树里可以找回。只折叠已经做完的事；如果还欠用户一个答复，先答复再折。单独调用，不要和其他工具放在同一批。回执：applied / not_applied / indeterminate。
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## 结果提示
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-存档完成，上下文没有变化。之后可以用 acm_travel 回到这里。
+存档完成，上下文无变化。之后可用 acm_travel 回到这里。
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-折叠完成。交接单就是你现在的工作状态——直接执行它的 next。不要回头重读折掉的内容自我确认；确实缺某个细节时再去找回。
+折叠完成。交接单就是当前工作状态：直接执行 next，不要回头重读折掉的内容；缺某个细节时用 recover 指针找回。
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
-这条路径上已经叠了多层折叠摘要。可以考虑合并一次：回到更早的干净位置，写一份把所有还有用的信息都装进去的交接单。
+这条路径已叠多层折叠摘要。可以合并：回到更早的干净位置，写一份装下全部存活信息的交接单。
 <!-- ACM:CUE_REBASE_CHECK:END -->
 
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
-这就是你当前上下文里的内容。哪一段已经做完、只剩结论有用，就可以用 acm_travel 折掉它。
+以上是当前上下文。已经做完、只剩结论有用的段落可以用 acm_travel 折掉。
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-这些是你的存档。选折叠目标看位置——要折的内容之前最近的干净点。标了 raw archive 的存档指向折叠前的完整历史，用于找回旧细节，不要当折叠目标。
+折叠目标选在要折内容之前最近的干净点。标 raw archive 的存档指向折叠前的完整历史，用于找回旧细节，不要当折叠目标。
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-搜索覆盖整棵树，包括已折叠的历史。结果里的节点 ID 可以直接作为 acm_travel 或 acm_checkpoint 的目标。
+搜索覆盖整棵树，含已折叠的历史。结果里的节点 ID 可直接作为 acm_travel 或 acm_checkpoint 的目标。
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
-这是分支结构。用它确认目标的先后关系，别把目标选在要折叠的范围里。
+分支结构用于确认目标的先后关系；不要把折叠目标选在要折的范围里。
 <!-- ACM:CUE_TIMELINE_TREE:END -->
 
 ## 手动 /tree 摘要指令
