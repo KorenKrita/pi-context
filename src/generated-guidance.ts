@@ -14,7 +14,6 @@ export const TOOL_DESCRIPTIONS = {
 export const GUIDANCE_CUES = {
   "checkpoint": "存档完成，上下文无变化。之后可用 acm_travel 回到这里。",
   "travel": "折叠完成。交接单就是你现在的全部状态：直接做 next；缺细节时用 recover 指回去取，不要凭记忆重读。",
-  "rebaseCheck": "这条路径已叠多层折叠摘要。可以合并：回到更早的干净位置，写一份装下全部存活信息的交接单。",
   "timelineActive": "以上是当前上下文。已经做完、只剩结论有用的段落可以用 acm_travel 折掉。",
   "timelineCheckpoints": "折叠目标选在要折内容之前最近的干净点。标 raw archive 的存档指向折叠前的完整历史，用于找回旧细节，不要当折叠目标。",
   "timelineSearch": "搜索覆盖整棵树，含已折叠的历史。结果里的节点 ID 可直接作为 acm_travel 或 acm_checkpoint 的目标。",

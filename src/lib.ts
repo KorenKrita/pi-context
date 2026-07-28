@@ -26,13 +26,6 @@ export function optionalString(value: unknown): string | undefined {
 
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
-export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
- if (nearestCheckpointName === null) {
-  return "这条路径上还没有存档。接下来要冒险或折叠的话，先存一个；节点 ID 也可以直接当 travel 目标";
- }
- return `最近的存档是 '${nearestCheckpointName}'。折叠目标要选在待折内容之前的干净位置，不一定是最近的这个`;
-}
-
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };
 
 export type StructuralMessageDirection = "decreased" | "increased" | "equal" | "unknown";

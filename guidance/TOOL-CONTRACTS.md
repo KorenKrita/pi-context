@@ -26,10 +26,6 @@
 折叠完成。交接单就是你现在的全部状态：直接做 next；缺细节时用 recover 指回去取，不要凭记忆重读。
 <!-- ACM:CUE_TRAVEL:END -->
 
-<!-- ACM:CUE_REBASE_CHECK:START -->
-这条路径已叠多层折叠摘要。可以合并：回到更早的干净位置，写一份装下全部存活信息的交接单。
-<!-- ACM:CUE_REBASE_CHECK:END -->
-
 <!-- ACM:CUE_TIMELINE_ACTIVE:START -->
 以上是当前上下文。已经做完、只剩结论有用的段落可以用 acm_travel 折掉。
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->

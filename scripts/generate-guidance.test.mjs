@@ -130,14 +130,12 @@ describe("canonical guidance generation", () => {
   test("keeps result cues concise and view-specific", () => {
     expect(Object.keys(GUIDANCE_CUES).sort()).toEqual([
       "checkpoint",
-      "rebaseCheck",
       "timelineActive",
       "timelineCheckpoints",
       "timelineSearch",
       "timelineTree",
       "travel",
     ]);
-    expect(GUIDANCE_CUES.rebaseCheck.length).toBeGreaterThan(0);
   });
 
   test("keeps recovery branches separately selectable", () => {

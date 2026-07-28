@@ -332,7 +332,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return {
           content: [{
             type: "text" as const,
-            text: `零距离折叠已拒绝：目标 ${targetId} 之后没有可折的内容（这段路径上只有 ${replacedEntryCount} 条可替换条目，全部是本次调用自己产生的）。折叠目标必须在要折内容之【前】；刚刚创建的存档在它之后。用 acm_timeline 的 search 或 checkpoints 视图找到那段内容之前最后一个干净节点，或者不折叠继续工作。`,
+            text: `零距离折叠已拒绝：目标 ${targetId} 之后没有可折的内容（这段路径上只有 ${replacedEntryCount} 条可替换条目，全部是本次调用自己产生的）。机制事实：折叠替换的是目标之后的历史，刚刚创建的存档位于待折内容之后，所以以它为目标折不到任何东西。没有做任何变更。`,
           }],
           details: {
             error: "zero_distance_travel",

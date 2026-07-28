@@ -38,7 +38,6 @@ export function deriveGuidance(coreSource, contractsSource) {
     guidanceCues: {
       checkpoint: extract("CUE_CHECKPOINT"),
       travel: extract("CUE_TRAVEL"),
-      rebaseCheck: extract("CUE_REBASE_CHECK"),
       timelineActive: extract("CUE_TIMELINE_ACTIVE"),
       timelineCheckpoints: extract("CUE_TIMELINE_CHECKPOINTS"),
       timelineSearch: extract("CUE_TIMELINE_SEARCH"),
