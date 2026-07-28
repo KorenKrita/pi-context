@@ -769,7 +769,7 @@ describe("deferred post-travel context delivery", () => {
       pressurePercent: number;
       applied: boolean;
       phase: string;
-      pressureAuthority: "provider actual" | "native context";
+      pressureAuthority: "provider 实测" | "native 上下文";
     }> = [
       {
         name: "no travel",
@@ -777,7 +777,7 @@ describe("deferred post-travel context delivery", () => {
         pressurePercent: 70,
         applied: false,
         phase: "active",
-        pressureAuthority: "native context",
+        pressureAuthority: "native 上下文",
       },
       {
         name: "provider active with observed usage",
@@ -795,7 +795,7 @@ describe("deferred post-travel context delivery", () => {
         pressurePercent: 75,
         applied: true,
         phase: "active",
-        pressureAuthority: "provider actual",
+        pressureAuthority: "provider 实测",
       },
       {
         name: "rejected receipt",
@@ -806,7 +806,7 @@ describe("deferred post-travel context delivery", () => {
         pressurePercent: 70,
         applied: false,
         phase: "receipt_rejected",
-        pressureAuthority: "native context",
+        pressureAuthority: "native 上下文",
       },
     ];
 

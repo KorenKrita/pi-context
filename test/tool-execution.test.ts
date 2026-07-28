@@ -884,7 +884,7 @@ describe("ACM tool execution contracts", () => {
 
     const text = result.content[0]?.text ?? "";
     expect(text).toContain("broken-summary (checkpoint: broken-candidate; off-path");
-    expect(text).toContain("message estimate unavailable");
+    expect(text).toContain("无法估算消息数");
     expect(text).not.toContain("broken-candidate → broken-summary (off-path) ~0 msgs");
   });
 

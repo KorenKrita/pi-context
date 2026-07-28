@@ -12,7 +12,6 @@ import {
   countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
   extractTextFromContent,
-  formatBoundaryTravelCue,
   formatContextUsage,
   getEntryLabel,
   optionalString,
@@ -468,13 +467,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
-        const matchingEntryLabel = listings.length === 1 ? "entry" : "entries";
-        const displayedEntryLabel = displayedListings.length === 1 ? "entry" : "entries";
-        const matchingAliasLabel = checkpointsMatchingAliases === 1 ? "alias" : "aliases";
         const aliasCountText = filter
-          ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
-          : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${boundedTimelineValue(params.filter ?? "")}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, summary depth ${activeSummaryDepth}:`);
+          ? `匹配别名 ${checkpointsMatchingAliases} / 共 ${checkpointAliasesOnMatchingEntries}`
+          : `别名 ${checkpointAliasesOnMatchingEntries}`;
+        lines.push(`Checkpoints（匹配 ${listings.length} 项 / ${aliasCountText}，显示 ${displayedListings.length} 项${filter ? `，filter '${boundedTimelineValue(params.filter ?? "")}'` : ""}；requested ${requestedLimit}，effective ${effectiveLimit}）。当前：${currentResult.value.messages.length} msgs，${formatContextUsage(usage, true)}，摘要深度 ${activeSummaryDepth}：`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
@@ -485,18 +481,18 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           rootCandidateEntryId = rootEntry.id;
           rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
           projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
-          let estimateText = "message estimate unavailable";
+          let estimateText = "无法估算消息数";
           if (rootResult.ok) {
             const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
             estimateText = estimated
               ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
               : `~${rootMessages.length} msgs`;
           }
-          const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
+          const rootTopology = tree.length > 1 ? `，${tree.length} 个顶层根中的第一个` : "";
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
-            ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
+            ? "；预计深度是 1 而非 0，因为 travel 会追加一份新交接单"
             : "";
-          lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; summary depth ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
+          lines.push(`  root → ${rootEntry.id}（结构候选，非存档${rootTopology}）${estimateText}；摘要深度 ${activeSummaryDepth} → ${rootProjectedSummaryDepth}（预计）${rootDepthNote}`);
         }
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
@@ -512,7 +508,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             ? estimateUsageAfterMessageChange(usage, currentResult.value.messages, cachedTarget.messages)
             : undefined;
           const estimateText = !cachedTarget.ok
-            ? "message estimate unavailable"
+            ? "无法估算消息数"
             : estimated
               ? `~${cachedTarget.messages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
               : `~${cachedTarget.messages.length} msgs`;
@@ -522,9 +518,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
           const rawArchiveNote = checkpoint.isRawArchive
-            ? "; raw archive origin — restore/rehydrate only, not a fold/rebase base"
+            ? "；raw archive 源 — 仅用于恢复/取细节，不能当折叠基底"
             : "";
-          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}；摘要深度 ${activeSummaryDepth} → ${projectedSummaryDepth}（预计）`);
         }
         if (listings.length > displayedListings.length) lines.push(`  ... 还有 ${listings.length - displayedListings.length} 条 — 用更窄的 filter 或 query 查看`);
       } else if (params.view === "search") {
@@ -532,7 +528,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; 其他匹配已截断" : " 个匹配节点"}.`,
+          `Search '${boundedTimelineValue(params.query)}'：显示 ${search.matches.length} 个匹配节点${search.truncated ? "；其余已截断" : ""}。`,
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
@@ -609,24 +605,21 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         if (estimates.taskPercent != null && references.task) {
           segs.push(`折回最早的 '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → 约剩 ${Math.floor(estimates.taskPercent)}%`);
         }
-        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
+        foldProjectionText = segs.length > 0 ? segs.join("; ") : "这条主干上没有参照点";
       } catch {
-        foldProjectionText = "unavailable";
+        foldProjectionText = "无法推算";
       }
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
-        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
-        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
+        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession 估计" : "官方硬窗口"})`,
+        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider 实测" : "native 上下文"})`,
+        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider 实测 turn_end" : "turn_end"})`,
         `• Active Path:      ${branch.length} 个节点 — LLM 上下文沿这条主干`,
         `• Summary Depth:    ${activeSummaryDepth} 层交接单摘要`,
         `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} 个带废弃摘要的分支点`,
         `• Recovery Distance: ${stepsSinceCheckpoint} 步距上个存档 '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
         `• Fold Projection:  ${foldProjectionText}`,
-        `• ACM Judgment:     ${activeSummaryDepth > 0
-          ? GUIDANCE_CUES.rebaseCheck
-          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null)}`,
       ];
       if (resultBudgetApplied) {
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; 本次最多处理 ${effectiveLimit} 条（按上下文推导的预算 ${resultEntryBudget} 条）。其余用 filter/query 缩小范围。`);
@@ -639,34 +632,34 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : "";
         hudParts.push(`• Context Sync:     上次 travel 刷新失败 — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       }
-      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
+      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? 0} 条消息 @ ${providerDelivery.leafId ?? "无已验证叶节点"}${providerDelivery.error ? `; 最近错误: ${providerDelivery.error}` : ""}`;
       if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
         const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
-          pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
-          ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
-          fallback: "provider rebuild fallback is retrying from the latest persisted branch",
+          pending_tool_result: "等待匹配的持久化 tool_result；当前有效工具批次保持不动",
+          ready: "已观测到匹配回执；本次 context 事件开始重建 provider Context Packet",
+          fallback: "provider 重建回退中，正从最新持久化分支重试",
         };
         const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
-          ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
+          ?? `持久化 provider packet 已生效${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : "（travel 待完成）"}`;
         let retry = "";
         if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
-          retry = ` (cached retry ${attempt})`;
+          retry = `（缓存重试 ${attempt}）`;
         } else if (attempt > 0) {
-          retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
+          retry = `（重试 ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}）`;
         }
         hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
         hudParts.push(providerPacketLine);
       } else {
-        hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
+        hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active — 持久化 provider 上下文已生效" : providerDelivery.phase}`);
         hudParts.push(providerPacketLine);
       }
       const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
       const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
       if (liveSync.status === "applied") {
-        hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
+        hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} 条消息 @ ${liveSync.leafId ?? "无叶节点"}`);
       } else if (liveSyncRecovery) {
-        const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
+        const message = "message" in liveSync ? liveSync.message : "无适配器诊断";
         hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
       } else {
         hudParts.push(`• Native Replacement: ${liveSync.status}`);

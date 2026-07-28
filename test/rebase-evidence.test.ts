@@ -11,7 +11,6 @@ import {
 import { ACM_CONTINUATION_MARKER } from "../src/context-packet.js";
 import { calculateContextUsagePressure } from "../src/context-pressure.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
-import { GUIDANCE_CUES } from "../src/generated-guidance.js";
 
 function message(id: string, parentId: string | null, text: string): SessionEntry {
   return {
@@ -149,7 +148,8 @@ describe("semantic rebase evidence", () => {
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
     expect(result.content[0].text).toContain("Summary Depth:    1 层交接单摘要");
     expect(result.content[0].text).not.toContain("normalized rebase");
-    expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
+    // ACM Judgment 行已删除：dashboard 只报事实，不再注入行动建议。
+    expect(result.content[0].text).not.toContain("这条路径已叠多层折叠摘要");
   });
 
   test("checkpoint view exposes root as a structural candidate with projected depth", async () => {
@@ -173,9 +173,9 @@ describe("semantic rebase evidence", () => {
       rootCandidateEntryId: "root",
       rootProjectedSummaryDepth: 1,
     });
-    expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
-    expect(result.content[0].text).toContain("summary depth 1 → 1 projected");
-    expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
+    expect(result.content[0].text).toContain("root → root（结构候选，非存档）");
+    expect(result.content[0].text).toContain("摘要深度 1 → 1（预计）");
+    expect(result.content[0].text).toContain("预计深度是 1 而非 0，因为 travel 会追加一份新交接单");
   });
 
   test("all timeline views mark only the resolved raw archive entry among ordinary checkpoints", async () => {
@@ -263,7 +263,7 @@ describe("semantic rebase evidence", () => {
       expect(text).not.toContain("later-semantic [raw archive]");
       expect(text).not.toContain("[raw archive on this entry]");
     }
-    expect(checkpoints.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
+    expect(checkpoints.content[0].text).toContain("raw archive 源 — 仅用于恢复/取细节，不能当折叠基底");
 
     const mismatched = await tool.execute(
       "timeline-raw-mismatched-receipt",
@@ -314,7 +314,7 @@ describe("semantic rebase evidence", () => {
 
     expect(result.content[0].text).toContain("ordinary-checkpoint");
     expect(result.content[0].text).not.toContain("[raw archive]");
-    expect(result.content[0].text).not.toContain("raw archive origin — restore/rehydrate only");
+    expect(result.content[0].text).not.toContain("raw archive 源 — 仅用于恢复/取细节");
   });
 
   test("HUD exposes cached_exhausted and stops presenting persistence refresh as pending", async () => {
@@ -347,7 +347,7 @@ describe("semantic rebase evidence", () => {
     );
 
     expect(result.content[0].text).toContain("Context Delivery: cached_exhausted");
-    expect(result.content[0].text).toContain("Provider Packet: cached_exhausted; 2 message(s) at summary-1");
+    expect(result.content[0].text).toContain("Provider Packet: cached_exhausted; 2 条消息 @ summary-1");
     expect(result.details).toMatchObject({
       contextRefreshPending: false,
       contextDeliveryPhase: "cached_exhausted",
