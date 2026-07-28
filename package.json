@@ -5,7 +5,6 @@
   "description": "Pi 的主动上下文管理扩展——存档、查看、折叠三个工具",
   "files": [
     "src",
-    "guidance",
     "README.md",
     "AGENTS.md"
   ],

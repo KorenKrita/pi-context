@@ -1038,7 +1038,7 @@ describe("deferred post-travel context delivery", () => {
     // Pressure needles must match the timeline's authoritative reading. Fold
     // needles may follow in the same suffix, so assert the pressure prefix
     // rather than the whole bracket.
-    expect(patch.content[0]?.text).toContain("[ctx 90% used");
+    expect(patch.content[0]?.text).toContain("[ctx 90% budget");
   });
 
   test("fold needles reach the tool result end to end", async () => {
@@ -1085,7 +1085,7 @@ describe("deferred post-travel context delivery", () => {
     const text = patch?.content[0]?.text ?? "";
     expect(text).toContain("[ctx ");
     // At least one gain needle must be delivered, with a floored integer.
-    expect(text).toMatch(/fold→\d+%/);
+    expect(text).toMatch(/fold@turn→\d+%/);
   });
 
   test("multiple successful travels retain only the latest ticket until settlement", () => {

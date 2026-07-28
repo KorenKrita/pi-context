@@ -48,29 +48,47 @@ function aiEntry(id: string): FoldEstimateEntry {
 }
 
 describe("fold-gain visibility", () => {
-  test("the gauge renders both fold needles alongside the pressure needles", () => {
-    const suffix = buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: 9.1 });
-    expect(suffix).toBe("\n[ctx 51% used · fold→22%]");
+  test("the gauge renders both fold needles alongside the pressure and save-point needles", () => {
+    const suffix = buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), {
+      turnPercent: 22.8, taskPercent: 9.1,
+      turnMsgCount: 15, taskMsgCount: 38,
+      savePointCount: 3,
+    });
+    expect(suffix).toBe("\n[ctx 51% budget · 3pts · fold@turn→22%/15 · fold@task→9%/38]");
   });
 
   test("a missing reference point omits its needle instead of rendering zero", () => {
-    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: null }))
-      .toBe("\n[ctx 51% used · fold→22%]");
-    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: null, taskPercent: null }))
-      .toBe("\n[ctx 51% used]");
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), {
+      turnPercent: 22.8, taskPercent: null,
+      turnMsgCount: 15, taskMsgCount: null,
+      savePointCount: 1,
+    })).toBe("\n[ctx 51% budget · 1pts · fold@turn→22%/15]");
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), {
+      turnPercent: null, taskPercent: null,
+      turnMsgCount: null, taskMsgCount: null,
+      savePointCount: 0,
+    })).toBe("\n[ctx 51% budget]");
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap")))
-      .toBe("\n[ctx 51% used]");
+      .toBe("\n[ctx 51% budget]");
   });
 
   test("fold needles are unconditional: no threshold, floor, or tier gates them", () => {
     // A needle that appeared only past a threshold would be choosing its
     // moment, and a gauge that chooses its moments becomes an event again.
-    const early = buildGaugeSuffix(pressure(2.4, 1.1, "400k-cap"), { turnPercent: 2.3, taskPercent: 0.4 });
-    expect(early).toBe("\n[ctx 2% used · fold→2%]");
+    const early = buildGaugeSuffix(pressure(2.4, 1.1, "400k-cap"), {
+      turnPercent: 2.3, taskPercent: 0.4,
+      turnMsgCount: 1, taskMsgCount: 3,
+      savePointCount: 0,
+    });
+    expect(early).toBe("\n[ctx 2% budget · fold@turn→2%/1 · fold@task→0%/3]");
   });
 
   test("fold needles carry no verb, evaluation, or recommendation", () => {
-    const suffix = buildGaugeSuffix(pressure(80, 30, "400k-cap"), { turnPercent: 12, taskPercent: 4 });
+    const suffix = buildGaugeSuffix(pressure(80, 30, "400k-cap"), {
+      turnPercent: 12, taskPercent: 4,
+      turnMsgCount: 50, taskMsgCount: 100,
+      savePointCount: 2,
+    });
     for (const advisory of ["fold now", "should", "consider", "recommend", "worth", "cheap", "expensive", "?"]) {
       expect(suffix.toLowerCase()).not.toContain(advisory);
     }
@@ -207,7 +225,7 @@ test("the turn reference skips the current user turn", () => {
   test("CORE explains every needle the gauge can render", () => {
     // 模型读不懂的数字是噪音；仪表的读数销在 CORE 里。
     const core = readFileSync(new URL("../guidance/CORE.md", import.meta.url), "utf8");
-    for (const needle of ["% used", "fold→"]) {
+    for (const needle of ["% budget", "pts", "fold@turn→", "fold@task→"]) {
       expect(core).toContain(needle);
     }
   });

@@ -21,6 +21,9 @@ export interface FoldReferences {
 export interface FoldEstimates {
   turnPercent: number | null;
   taskPercent: number | null;
+  turnMsgCount: number | null;
+  taskMsgCount: number | null;
+  savePointCount: number;
 }
 
 function isUserBoundary(entry: FoldEstimateEntry): boolean {
@@ -98,6 +101,8 @@ export interface FoldEstimateInputs {
   workingBudgetTokens: number;
   currentMessages: Parameters<typeof estimateUsageAfterMessageChange>[1];
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
+  branch?: readonly FoldEstimateEntry[];
+  labelMaps?: LabelMaps;
 }
 
 function projectedBudgetPercent(
@@ -121,9 +126,28 @@ export function estimateFoldGains(
   inputs: FoldEstimateInputs,
   references: FoldReferences,
 ): FoldEstimates {
+  const currentMsgCount = inputs.currentMessages.length;
+
+  function tailMsgCount(reference: FoldReference | null): number | null {
+    if (!reference) return null;
+    const after = inputs.messagesAt(reference.entryId);
+    if (!after) return null;
+    return currentMsgCount - after.length;
+  }
+
+  let savePointCount = 0;
+  if (inputs.branch && inputs.labelMaps) {
+    for (const entry of inputs.branch) {
+      if (getEntryLabel(inputs.labelMaps, entry.id) !== null) savePointCount++;
+    }
+  }
+
   return {
     turnPercent: projectedBudgetPercent(inputs, references.turn),
     taskPercent: projectedBudgetPercent(inputs, references.task),
+    turnMsgCount: tailMsgCount(references.turn),
+    taskMsgCount: tailMsgCount(references.task),
+    savePointCount,
   };
 }
 

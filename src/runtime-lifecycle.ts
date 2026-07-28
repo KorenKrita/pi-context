@@ -158,6 +158,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           }
           return cache.get(entryId);
         },
+        branch,
+        labelMaps,
       }, references);
     } catch {
       return undefined;

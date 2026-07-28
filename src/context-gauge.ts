@@ -58,10 +58,22 @@ export function markGaugeShown(state: GaugeState, pressurePercent: number): void
  */
 export function buildGaugeSuffix(pressure: ContextUsagePressure, folds?: FoldEstimates): string {
   const usedPercent = pressure.policy === "400k-cap" ? pressure.pressurePercent : pressure.usagePercent;
-  const parts = [`${Math.floor(usedPercent)}% used`];
-  const foldPercent = folds?.turnPercent ?? folds?.taskPercent;
-  if (foldPercent != null && Number.isFinite(foldPercent)) {
-    parts.push(`fold→${Math.floor(foldPercent)}%`);
+  const parts = [`${Math.floor(usedPercent)}% budget`];
+
+  if (folds?.savePointCount !== undefined && folds.savePointCount > 0) {
+    parts.push(`${folds.savePointCount}pts`);
   }
+
+  function foldNeedle(label: string, percent: number | null, msgCount: number | null): string | null {
+    if (percent == null || !Number.isFinite(percent)) return null;
+    const base = `fold${label}→${Math.floor(percent)}%`;
+    return msgCount != null ? `${base}/${msgCount}` : base;
+  }
+
+  const turn = foldNeedle("@turn", folds?.turnPercent ?? null, folds?.turnMsgCount ?? null);
+  const task = foldNeedle("@task", folds?.taskPercent ?? null, folds?.taskMsgCount ?? null);
+  if (turn) parts.push(turn);
+  if (task) parts.push(task);
+
   return `\n[ctx ${parts.join(" · ")}]`;
 }

@@ -19,11 +19,11 @@ describe("context gauge", () => {
 		expect(capped?.policy).toBe("400k-cap");
 		// 410K/400K budget = 102%, 410K/1M window = 41% — over-budget stays
 		// a visible fact, never clamped: the budget is information, not a wall.
-		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% used]");
+		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% budget]");
 
 		const plain = calculateContextUsagePressure(50_000, 200_000, 25);
 		expect(plain?.policy).toBe("actual-window");
-		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% used]");
+		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% budget]");
 	});
 
 	test("odometer cadence: shows on integer change in either direction, silent otherwise", () => {
