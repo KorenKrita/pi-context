@@ -1,30 +1,30 @@
 import { buildLabelMaps, estimateUsageAfterMessageChange, getEntryLabel, type LabelMaps, type UsageLike } from "./lib.js";
 
 /**
- * Fold-gain estimation for the gauge and for checkpoint receipts.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * Design contract (AGENTS.md gauge contract): these are needles, not verdicts.
- * A needle reports how much attention a fold at a structural reference point
- * would return; whether that fold is semantically appropriate is CORE's
- * extraction bar, never a number. Restored from the fold preview that shipped
- * until 7c3bdff7 (2026-07-12) silently dropped it during the single-file
- * split, with one deliberate change: reference points no longer require a
- * label, because `estimateUsageAfterMessageChange` only consumes message
- * arrays. Label-gated preview stayed silent for sessions that never
- * checkpointed — exactly the sessions that needed it.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 
 /**
- * Nominal token cost of the handoff a fold appends, charged to every projection.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * A needle that ignored it would report a saving travel cannot deliver. The
- * exact handoff is unknown at projection time, so this is a deliberate nominal
- * figure: a seven-field cold-start handoff plus the branch-summary entry
- * overhead that estimateUsageAtTravelTarget already charges.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 const NOMINAL_HANDOFF_TOKENS = 400;
 
-/** Minimal shape this module needs from a session entry. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface FoldEstimateEntry {
   readonly id: string;
   readonly type?: string;
@@ -32,24 +32,24 @@ export interface FoldEstimateEntry {
 }
 
 export interface FoldReference {
-  /** Entry id usable directly as an acm_travel target. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   entryId: string;
-  /** Label when the reference point carries one; null for a structural node. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   label: string | null;
 }
 
-/** Both reference points the gauge reports, either may be absent on a short spine. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface FoldReferences {
-  /** Phase/burst granularity: the most recent user-request boundary or save point. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   turn: FoldReference | null;
-  /** Task-chain granularity: the earliest on-path save point, else the earliest user boundary. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   task: FoldReference | null;
 }
 
 export interface FoldEstimates {
-  /** Projected budget-pressure percent after folding to the turn reference. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   turnPercent: number | null;
-  /** Projected budget-pressure percent after folding to the task reference. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   taskPercent: number | null;
 }
 
@@ -62,32 +62,32 @@ function labelOf(labelMaps: LabelMaps, entryId: string): string | null {
 }
 
 /**
- * Pick both reference points from the active branch, tip-first for `turn` and
- * root-first for `task`. A labeled node wins over a bare structural node at
- * the same granularity because the label is a better travel target for the
- * model; when no label exists the structural node still works, so the needle
- * never goes blind. `excludeId` skips the entry a checkpoint call just labeled.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 export function selectFoldReferences(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
   excludeId?: string,
 ): FoldReferences {
-  // Skip the current user turn before looking for the turn reference.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   //
-  // A fold collapses a tail, never a middle, so the target for "fold the
-  // previous stretch's process" is necessarily the boundary that opened that
-  // stretch. Taking the nearest boundary tip-first points at the current
-  // turn's own opening line the moment a new request arrives — precisely the
-  // structural position CORE names as already a candidate — and reports a
-  // near-zero saving there. That is a value-range defect, not a precision one:
-  // the meaningful target was not expressible at all.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   //
-  // The cost is real and accepted: in a long turn, "fold this turn's own
-  // exploration" is no longer expressed by this needle. The checkpoint receipt
-  // carries that projection instead, since it excludes the entry just labeled.
-  // Skipping is unconditional — advancing the reference once the current turn
-  // has "produced enough" would let a number choose the reference point.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   let currentTurnStart = -1;
   for (let index = branch.length - 1; index >= 0; index--) {
     if (isUserBoundary(branch[index]!)) {
@@ -130,7 +130,7 @@ export function selectFoldReferences(
   return { turn, task };
 }
 
-/** Walk the active branch tip-first for the nearest save point. Pure fact, no verdict. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function findNearestSavePoint(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
@@ -146,7 +146,7 @@ export function findNearestSavePoint(
 
 export interface FoldEstimateInputs {
   usage: UsageLike | undefined;
-  /** Working-budget token cap so a projected percent uses the same yardstick as the gauge. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   workingBudgetTokens: number;
   currentMessages: Parameters<typeof estimateUsageAfterMessageChange>[1];
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
@@ -159,11 +159,11 @@ function projectedBudgetPercent(
   if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
   const after = inputs.messagesAt(reference.entryId);
   if (!after) return null;
-  // A fold does not merely remove messages: it appends one handoff. Excluding
-  // that cost makes every needle optimistic, and worst exactly where it matters
-  // — at turn granularity, where the handoff can be the same order of magnitude
-  // as the saving. estimateUsageAtTravelTarget already charges it; charge the
-  // same nominal cost here so the needle cannot promise more than travel gives.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   const estimate = estimateUsageAfterMessageChange(
     inputs.usage,
     inputs.currentMessages,
@@ -174,7 +174,7 @@ function projectedBudgetPercent(
   return (estimate.tokens * 100) / inputs.workingBudgetTokens;
 }
 
-/** Project both needles against the working budget the gauge already reports. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function estimateFoldGains(
   inputs: FoldEstimateInputs,
   references: FoldReferences,

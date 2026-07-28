@@ -411,7 +411,7 @@ describe("deferred post-travel context delivery", () => {
     expect(runtime.getProviderDeliveryStatus(session)).toMatchObject({
       phase: "active",
       packetMessageCount: first.messages.length + 1,
-      error: "Failed to read session state: later persistence read failed",
+      error: "无法读取会话状态: later persistence read failed",
     });
     expect(runtime.contextRefresh.isPending(session)).toBe(true);
 
@@ -654,7 +654,7 @@ describe("deferred post-travel context delivery", () => {
         isError: true,
       }),
     ]);
-    expect(JSON.stringify(result.messages)).toContain("Interrupted by context travel");
+    expect(JSON.stringify(result.messages)).toContain("已被上下文折叠打断");
     expect(outgoing).toHaveLength(4);
     expect(runtime.getContextDeliveryPhase(session)).toBe("pending_tool_result");
     expect(adapter.applied).toEqual([]);
@@ -740,7 +740,7 @@ describe("deferred post-travel context delivery", () => {
     await fixture.emit("agent_settled");
     expect(adapter.applied).toEqual([]);
     expect(runtime.getContextDeliveryPhase(session)).toBe("pending_tool_result");
-    expect(fixture.notifications.at(-1)).toContain("finalized travel receipt could not be inspected");
+    expect(fixture.notifications.at(-1)).toContain("无法检查已完成的 travel 回执");
 
     receiptReadable = true;
     await fixture.emit("agent_settled");
@@ -908,7 +908,7 @@ describe("deferred post-travel context delivery", () => {
     expect(result).toEqual({ messages: liveMessages });
     expect(runtime.contextRefresh.isPending(session)).toBe(true);
     expect(runtime.getContextDeliveryPhase(session)).toBe("fallback");
-    expect(fixture.notifications.at(-1)).toContain("invalid tool protocol");
+    expect(fixture.notifications.at(-1)).toContain("协议无效");
     expect(fixture.notifications.at(-1)).toContain("invalid_tool_call_id");
   });
 
@@ -1001,8 +1001,8 @@ describe("deferred post-travel context delivery", () => {
     expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW);
     expect(getCandidatePrefixReads()).toBe(ANCHOR_SEARCH_WINDOW);
     expect(fixture.notifications).toHaveLength(1);
-    expect(fixture.notifications[0]).toContain("No pre-compaction checkpoint was created");
-    expect(fixture.notifications[0]).toContain(`within the last ${ANCHOR_SEARCH_WINDOW} entries`);
+    expect(fixture.notifications[0]).toContain("未创建压缩前 checkpoint");
+    expect(fixture.notifications[0]).toContain(`最近 ${ANCHOR_SEARCH_WINDOW} 个条目`);
   });
 
   test("invalidates provider usage and resets the gauge when the model changes", async () => {

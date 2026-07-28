@@ -147,7 +147,7 @@ describe("semantic rebase evidence", () => {
     );
 
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
-    expect(result.content[0].text).toContain("Summary Depth:    1 active handoff summary layer(s) on the current spine");
+    expect(result.content[0].text).toContain("Summary Depth:    1 层交接单摘要");
     expect(result.content[0].text).not.toContain("normalized rebase");
     expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
   });

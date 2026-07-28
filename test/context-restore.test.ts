@@ -116,7 +116,7 @@ describe("manual tree navigation summaries", () => {
 
         expect(result.replaceInstructions).toBe(true);
         expect(result.customInstructions.startsWith(TREE_SUMMARY_INSTRUCTIONS)).toBe(true);
-        expect(result.customInstructions).toContain("The abandoned branch tip is node node-9");
+        expect(result.customInstructions).toContain("废弃分支末端是节点 node-9");
     });
 
     it("omits the recover pointer when the abandoned branch has no tip", async () => {

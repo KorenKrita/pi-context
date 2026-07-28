@@ -174,7 +174,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     // This later user turn must remain higher priority than the continuation.
     branch.sessionManager.appendMessage({
       role: "user",
-      content: "later user priority after the fold",
+      content: "以用户消息为准",
       timestamp: Date.now(),
     });
     await emit(fixture.handlers, "tool_result", {
@@ -196,9 +196,9 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       fixture.context,
     ) as { messages: AgentMessage[] };
     const firstSerialized = JSON.stringify(firstProvider.messages);
-    expect(firstSerialized).toContain("HIGHEST-PRIORITY SESSION STATE");
-    expect(firstSerialized).toContain("CURRENT USER TURN IS STILL OPEN");
-    expect(firstSerialized).toContain("later user priority after the fold");
+    expect(firstSerialized).toContain("当前工作状态");
+    expect(firstSerialized).toContain("本轮用户消息尚未答复");
+    expect(firstSerialized).toContain("以用户消息为准");
     expect(firstSerialized).not.toContain("204K-to-133K material to fold");
     expect(firstProvider.messages.some((message) => message.role === "toolResult" && message.toolCallId === "provider-now")).toBe(false);
     expect(firstProvider.messages.filter((message) => message.role === "custom" && message.customType === "acm:continuation")).toHaveLength(1);
@@ -394,7 +394,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       toolCallId: "current-travel",
       toolName: "acm_travel",
       isError: true,
-      content: [{ type: "text", text: "[Interrupted by context travel]" }],
+      content: [{ type: "text", text: "[已被上下文折叠打断]" }],
     });
     expect(result.messages.some((message) => message.role === "toolResult" && message.toolCallId === "historical-travel")).toBe(false);
     const timeline = await fixture.timelineTool.execute("same-run-orphan-timeline", { view: "active" }, undefined, undefined, fixture.context);
@@ -448,7 +448,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       { messages: inFlightMessages },
       fixture.context,
     ) as { messages?: AgentMessage[] };
-    expect(JSON.stringify(pendingProvider.messages)).toContain("Interrupted by context travel");
+    expect(JSON.stringify(pendingProvider.messages)).toContain("已被上下文折叠打断");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     // A provider error can auto-retry; it must not be treated as the terminal
@@ -462,7 +462,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       { messages: inFlightMessages },
       fixture.context,
     ) as { messages?: AgentMessage[] };
-    expect(JSON.stringify(retryPendingProvider.messages)).toContain("Interrupted by context travel");
+    expect(JSON.stringify(retryPendingProvider.messages)).toContain("已被上下文折叠打断");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     const finalizedProvider = await emit(fixture.handlers, "context", {
@@ -474,7 +474,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
     const rebuilt = rebuild(branch.sessionManager);
     expect(liveSession.agent.state.messages).toEqual(rebuilt);
-    expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(JSON.stringify(rebuilt)).toContain("当前工作状态");
     expect(JSON.stringify(rebuilt)).not.toContain("normal material to fold");
 
     // Later provider contexts originate from the native message array now held

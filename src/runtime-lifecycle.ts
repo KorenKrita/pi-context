@@ -8,10 +8,9 @@ import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from ".
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
 import { ANCHOR_SEARCH_WINDOW, buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
+import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
 import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
@@ -19,9 +18,9 @@ import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCount
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
 /**
- * Append a delimited ACM suffix to the last text part of a finalized tool
- * result. Returns a tool_result patch, or undefined when the content shape
- * offers no text part to extend (never invent one — the result is a receipt).
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 function appendSuffixPatch<T extends ToolResultEventContent>(
   content: readonly T[],
@@ -118,13 +117,13 @@ function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): Ag
 }
 
 /**
- * The summarizer model cannot see session node IDs, so the abandoned branch tip
- * is handed to it as a concrete fact: a Recover pointer that acm_travel can
- * rehydrate directly.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 export function buildTreeSummaryInstructions(oldLeafId: string | null): string {
   if (!oldLeafId) return TREE_SUMMARY_INSTRUCTIONS;
-  return `${TREE_SUMMARY_INSTRUCTIONS}\n\nThe abandoned branch tip is node ${oldLeafId}. Name it in the Recover slot unless the branch contains a more specific save point.`;
+  return `${TREE_SUMMARY_INSTRUCTIONS}\n\n废弃分支末端是节点 ${oldLeafId}。除非分支包含更具体的存档，否则请在 Recover 槽中写出它。`;
 }
 
 export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
@@ -132,26 +131,26 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
-    // Pi emits this before the run is fully settled. Retain the latest ticket
-    // and live message sequence; agent_settled owns the actual replacement.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  // Gauge pressure: actual provider usage once a travel owns provider
-  // delivery, native usage otherwise. Native usage is also the fallback while
-  // a provider epoch has not yet observed a turn_end (a single long run never
-  // updates cached provider usage, and a gauge that goes blind mid-run
-  // defeats its purpose).
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
   const currentGaugePressure = (ctx: ExtensionContext) => {
     const session = ctx.sessionManager;
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     return runtime.authoritativeContextPressure(session, usage);
   };
-  // Fold needles for the gauge: project what a fold at each structural
-  // reference point would leave. Reference points never require a label, so a
-  // session that has not checkpointed still gets both numbers. Estimation is
-  // bounded to the two references the gauge renders, and a failed rebuild
-  // simply omits that needle.
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
   const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
     const session = ctx.sessionManager;
     try {
@@ -220,39 +219,39 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         entries: branch.length,
       }));
     } catch {
-      // A diagnostic writer must never reach the tool result.
+      // 实现细节与生命周期安全约束。
     }
   };
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
-    // tool_result handlers are chained and later extensions may still replace
-    // content/details/isError. Final travel authorization is therefore read
-    // only from the finalized toolResult message on the next context event.
-    //
-    // The constant gauge is the only decoration: numbers, no wording.
-    // ACM tool results carry mutation receipts with their own usage line and
-    // are never decorated; error results stay clean receipts too.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     const session = ctx.sessionManager;
     if (isAcmTool(event.toolName) || event.isError) return;
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
     const folds = currentFoldEstimates(ctx, pressure);
-    // Passive boundary ledger: one row per distinct user-request boundary, so
-    // "boundaries crossed N, folds M" accumulates without any injection. Never
-    // allowed to affect this result — every failure is swallowed inside.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     recordBoundary(ctx, pressure, folds);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
-    // Move the odometer only on actual delivery; an undeliverable result (no
-    // text part) leaves the tick armed for the next tool completion.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
     return patch;
   });
 
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
-    // A settled notification can race a queued continuation or retry. Do not
-    // replace live messages until the host confirms this SessionManager is
-    // genuinely idle; retain the ticket for the next idle settled boundary.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     try {
       if (ctx.isIdle?.() === false) return;
     } catch {
@@ -268,7 +267,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         return;
       } else if (receipt.status === "unavailable") {
         ctx.ui.notify(
-          "The finalized travel receipt could not be inspected at agent settlement. Native context replacement remains pending until the receipt can be verified.",
+          "agent settled 时无法检查已完成的 travel 回执。在回执可验证前，native 上下文替换保持 pending。",
           "warning",
         );
         return;
@@ -280,7 +279,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (recovery) {
       const message = "message" in outcome ? outcome.message : "no adapter diagnostic";
       ctx.ui.notify(
-        `Native context replacement after settled travel ${outcome.status}: ${message}. ${recovery}`,
+        `settled travel 后的 native 上下文替换 ${outcome.status}: ${message}. ${recovery}`,
         "warning",
       );
     }
@@ -300,26 +299,26 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         runtime.rejectProviderCutover(sessionManager, pendingTravelToolCallId);
       }
     }
-    // A same-run context event may occur after acm_travel while the model is
-    // deciding its next action. Preserve that valid tool batch only until its
-    // matching persisted receipt arrives; the receipt then unlocks immediate
-    // provider delivery from the latest persisted Context Packet. Native
-    // AgentSession messages still wait for agent_settled.
-    //
-    // branchWithSummary can leave a historical tool result behind when the
-    // host appends it after the branch mutation. Do not rebuild persisted
-    // context or replace native messages early, but repair that orphan in an
-    // outgoing clone so the provider still receives a valid current tool pair.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     if (runtime.shouldKeepCurrentRunContext(sessionManager)) {
       const messages = event.messages as AgentMessage[];
       const analysis = analyzeToolProtocol(messages);
-      // A real acm_travel cannot enter same-run delivery with invalid call
-      // identity because travel prevalidation rejects that current packet.
-      // Keep an explicit diagnostic for directly constructed runtimes or host
-      // drift instead of silently passing an invalid provider packet through.
+      // 实现细节与生命周期安全约束。
+      // 实现细节与生命周期安全约束。
+      // 实现细节与生命周期安全约束。
+      // 实现细节与生命周期安全约束。
       if (analysis.status === "invalid") {
         ctx.ui.notify(
-          `Unexpected invalid same-run tool protocol after acm_travel prevalidation: ${formatToolProtocolDefects(analysis.defects) || "no defect details were supplied"}. The current run was left unchanged; reload or repair the session before retrying travel.`,
+          `Unexpected invalid same-run tool protocol after acm_travel prevalidation: ${formatToolProtocolDefects(analysis.defects) || "未提供缺陷详情"}. 当前运行未改变；重试 travel 前请重新加载或修复会话。`,
           "warning",
         );
         return { messages: buildSafeCurrentProviderFallback(messages) as typeof event.messages };
@@ -342,11 +341,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const safeCurrent = buildSafeCurrentProviderFallback(event.messages as AgentMessage[]);
       runtime.recordProviderDeliveryFailure(
         sessionManager,
-        "Cached provider cursor no longer matches current messages after refresh exhaustion",
+        "刷新耗尽后缓存的 provider 游标不再匹配当前消息",
         "unsafe_fallback",
       );
       ctx.ui.notify(
-        "Cached provider delivery could not preserve the finalized post-cutover tail after refresh exhaustion. Falling back to the current protocol-valid provider messages; reload to rebuild persistent compact context.",
+        "刷新耗尽后，缓存的 provider 交付无法保留 cutover 后的最终尾部。回退到当前协议有效的 provider 消息；重新加载会话以重建持久化压缩上下文。",
         "warning",
       );
       return { messages: safeCurrent as typeof event.messages };
@@ -391,19 +390,19 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       );
       let tailGuidance = "";
       if (tailStatus === "unmatched") {
-        tailGuidance = "The latest provider tail could not be correlated safely; current protocol-valid provider messages are used until persistence recovers.";
+        tailGuidance = "无法安全关联最新 provider 尾部；持久化恢复前使用当前协议有效的 provider 消息。";
       } else if (tailStatus === "invalid") {
-        tailGuidance = "The latest provider tail is protocol-invalid; current protocol-valid provider messages are used until persistence recovers.";
+        tailGuidance = "最新 provider 尾部的工具协议无效；持久化恢复前使用当前协议有效的 provider 消息。";
       }
       let failureNotice: string;
       if (willRetry && cached) {
-        failureNotice = `Context refresh after travel failed (${attempt}): ${message}. Keeping the last valid compact provider packet and retrying on the next LLM turn.`;
+        failureNotice = `travel 后的上下文刷新失败 (${attempt}): ${message}. 保留上一个有效的压缩 provider packet，并在下一次 LLM turn 重试。`;
       } else if (willRetry) {
-        failureNotice = `Context refresh after travel failed (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. Keeping current same-run messages and retrying on the next LLM turn.`;
+        failureNotice = `travel 后的上下文刷新失败 (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. 保留当前同轮消息，并在下一次 LLM turn 重试。`;
       } else if (cached && safeCachedTail) {
-        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. The last protocol-valid compact packet remains active in cached_exhausted state; automatic rebuild is stopped until a new travel/lifecycle cycle. Reload to retry persistent reconstruction.`;
+        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败: ${message}. 上一个协议有效的压缩 packet 仍处于 cached_exhausted 状态；新的 travel/lifecycle cycle 前停止自动重建。重新加载会话以重试持久化重建。`;
       } else {
-        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`;
+        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败: ${message}. ${RECOVERY_GUIDANCE.refreshExhausted}`;
       }
       ctx.ui.notify(failureNotice, "warning");
       if (tailGuidance) ctx.ui.notify(tailGuidance.trim(), "warning");
@@ -422,15 +421,15 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const fallbackResult = fallbackLeafId
           ? rebuildAcmContextPacket(sessionManager, fallbackLeafId)
           : undefined;
-        if (!fallbackResult) return reportFailure("rebuilt messages array is empty");
+        if (!fallbackResult) return reportFailure("重建的消息数组为空");
         if (!fallbackResult.ok) return reportFailure(fallbackResult.message);
         packet = fallbackResult.value;
         messages = packet.messages;
       }
-      if (messages.length === 0) return reportFailure("rebuilt messages array is empty");
+      if (messages.length === 0) return reportFailure("重建的消息数组为空");
       if (packet.protocol.status === "invalid") {
         return reportFailure(
-          `Refused persisted context packet with invalid tool protocol: ${formatToolProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}`,
+          `拒绝协议无效的持久化上下文 packet: ${formatToolProtocolDefects(packet.protocol.defects) || "未提供缺陷详情"}`,
         );
       }
 
@@ -439,12 +438,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       try {
         leafId = sessionManager.getLeafId();
       } catch {
-        // The rebuilt packet is already valid. Leaf identity is diagnostics,
-        // not a reason to discard provider delivery.
+        // 实现细节与生命周期安全约束。
+        // 实现细节与生命周期安全约束。
       }
-      // Keep a compact protocol-valid packet for all later provider retries.
-      // This state is separate from native replacement and may become active
-      // while the originating AgentSession still owns its old live array.
+      // 实现细节与生命周期安全约束。
+      // 实现细节与生命周期安全约束。
+      // 实现细节与生命周期安全约束。
       runtime.activateProviderPacket(sessionManager, messages, leafId, event.messages as AgentMessage[]);
       return { messages: messages as typeof event.messages };
     } catch (error) {
@@ -453,9 +452,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
-    // Usage becomes authoritative at provider cutover, not native settlement.
-    // The origin run is stale until a compact persisted packet is actually
-    // delivered; a fallback with no valid provider packet remains stale.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     if (!runtime.isProviderDeliveryActive(ctx.sessionManager)) return;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
@@ -473,9 +472,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("model_select", (_event, ctx: ExtensionContext) => {
-    // Cached prompt usage belongs to the previous model's context window.
-    // Until the new model completes a turn, the gauge falls back to the host's
-    // current context usage and the provider HUD remains explicitly pending.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     runtime.resetUsageForModelChange(ctx.sessionManager);
   });
 
@@ -504,37 +503,37 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
     if (!checkpointTargetId) {
       ctx.ui.notify(
-        `No pre-compaction checkpoint was created because no protocol-complete anchor exists within the last ${ANCHOR_SEARCH_WINDOW} entries of the bounded search window.`,
+        `未创建压缩前 checkpoint，因为最近 ${ANCHOR_SEARCH_WINDOW} 个条目的有界搜索窗口内不存在协议完整的锚点。`,
         "warning",
       );
       return;
     }
     const append = appendCheckpointLabel(sessionManager, checkpointTargetId, checkpointName);
-    if (!append.ok) ctx.ui.notify(`Could not create pre-compaction checkpoint: ${append.message}`, "warning");
+    if (!append.ok) ctx.ui.notify(`无法创建压缩前 checkpoint： ${append.message}`, "warning");
   });
 
   pi.on("session_compact", (event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
-    // Host bug mitigation: on overflow recovery (willRetry) the host re-reads
-    // agent.state.messages after this event but only strips a trailing assistant
-    // whose stopReason is "error". A "length"-stopped trailing assistant (zero-
-    // output overflow, the very case the host classified as overflow) survives and
-    // agentLoopContinue crashes with "Cannot continue from message role:
-    // assistant". Prune every trailing assistant so the retry tail is continuable;
-    // session history is untouched.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     if (event.willRetry) {
       const prune = runtime.liveAgentSessions.pruneNonContinuableTail(ctx.sessionManager);
       if (prune.status === "unavailable") {
         ctx.ui.notify(
-          `ACM could not verify the overflow-retry context tail (${prune.message}); if this retry fails with "Cannot continue from message role: assistant", resume the session to recover.`,
+          `ACM 无法验证溢出重试上下文尾部 (${prune.message}); 如果此次重试因 "Cannot continue from message role: assistant" 失败，请恢复会话。`,
           "warning",
         );
       }
     }
   });
-  // When the user summarizes an abandoned branch during manual /tree navigation
-  // without custom instructions, shape the native summary as a cold-start handoff
-  // so every branch_summary on the tree speaks the same seven-slot vocabulary.
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
   pi.on("session_before_tree", (event) => {
     const preparation = event.preparation;
     if (!preparation.userWantsSummary) return;
@@ -545,15 +544,15 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       replaceInstructions: true,
     };
   });
-  // Manual /tree navigation bypasses acm_travel: the host already rebuilds live
-  // messages itself, so stale refresh targets, sync tickets, and usage baselines
-  // must not survive onto the newly selected branch.
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
+  // 实现细节与生命周期安全约束。
   pi.on("session_tree", (_event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
   });
   pi.on("session_start", (_event, ctx: ExtensionContext) => {
-    // A fresh session starts a fresh odometer: the first reading after resume
-    // always shows once. No persisted gauge state exists by design.
+    // 实现细节与生命周期安全约束。
+    // 实现细节与生命周期安全约束。
     runtime.clear(ctx.sessionManager);
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));

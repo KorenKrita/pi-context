@@ -14,7 +14,7 @@ export type ToolProtocolDefect =
   | { kind: "invalid_tool_name"; assistantIndex: number; contentIndex: number; toolCallId?: string }
   | { kind: "duplicate_tool_call_id"; assistantIndex: number; toolCallId: string };
 
-/** Render protocol defects consistently across receipts, rebuilds, and native replacement diagnostics. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function formatToolProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
   return defects.map((defect) => {
     if (defect.kind === "duplicate_tool_call_id") {
@@ -53,7 +53,7 @@ function assistantHasVisibleText(entry: SessionEntry): boolean {
     && block.text.trim().length > 0);
 }
 
-/** Whether the latest user turn still lacks a visible assistant response at this tool batch. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function hasOpenLatestUserTurn(entries: readonly SessionEntry[]): boolean {
   let latestUserIndex = -1;
   for (let index = entries.length - 1; index >= 0; index--) {
@@ -67,7 +67,7 @@ export function hasOpenLatestUserTurn(entries: readonly SessionEntry[]): boolean
   return !entries.slice(latestUserIndex + 1).some(assistantHasVisibleText);
 }
 
-/** Whether the latest user turn still lacks a visible assistant response at this tool batch. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function hasOpenUserTurnAtAssistant(
   entries: readonly SessionEntry[],
   assistantEntryIndex: number,
@@ -178,7 +178,7 @@ function findToolCallDefects(messages: readonly AgentMessage[]): ToolProtocolDef
   return defects;
 }
 
-/** Repair provider tool-call/result ordering and report every packet mutation. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProtocolAnalysis {
   const defects = findToolCallDefects(messages);
   if (defects.length > 0) {
@@ -270,7 +270,7 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
         role: "toolResult" as const,
         toolCallId: toolUse.id,
         toolName: toolUse.name,
-        content: [{ type: "text" as const, text: "[Interrupted by context travel]" }],
+        content: [{ type: "text" as const, text: "[已被上下文折叠打断]" }],
         timestamp: message.timestamp,
         isError: true,
       };
@@ -279,8 +279,8 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
     index += repairedResults.length;
   }
 
-  // The final packet is the only authority for tool-result pairing. This also
-  // removes calls from aborted/error turns whose results were just orphaned.
+  // 中文说明。
+  // 中文说明。
   stripUnpairedToolCalls(result, repairs);
 
   return {
@@ -291,12 +291,12 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
   };
 }
 
-/** Compatibility facade for consumers that only need the repaired packet. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function fixOrphanedToolUse(messages: readonly AgentMessage[]): AgentMessage[] {
   return analyzeToolProtocol(messages).messages;
 }
 
-/** Locate the assistant batch containing one tool call without interpreting session semantics. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function findContainingAssistantToolBatch(
   entries: readonly SessionEntry[],
   toolCallId: string,

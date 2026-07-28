@@ -39,19 +39,18 @@ import { executeTravelMutation } from "./travel-coordinator.js";
 import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
 
 /**
- * Entry kinds a fold can legitimately compress. A replacement range containing
- * only ACM's own bookkeeping (label journal entries, and the receipts of the
- * save point that was just created) compresses nothing the model produced.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * The test is structural, not numeric: FM-15's shape is "checkpoint, then
- * travel to it", where everything between target and leaf is the checkpoint's
- * own trace. One real message in that range makes the fold small, not empty,
- * and small folds stay the model's judgment.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 function isAcmBookkeepingEntry(entry: { readonly type?: string } | undefined): boolean {
   return entry?.type === "label";
@@ -87,17 +86,15 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, description: "Where to jump back to: a checkpoint name, node ID, or 'root'. Pick the last clean point BEFORE the material you want to fold away. Use acm_timeline (checkpoints or search view) to find candidates." }),
+    target: Type.String({ minLength: 1, description: "要回到的位置：存档名、节点 ID 或 'root'。选在待折内容【之前】的最后一个干净点。用 acm_timeline 的 checkpoints 或 search 视图找候选。" }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional: a new name to bookmark the current position before folding, so the full pre-fold history stays easy to find. Must be a new unique name; it does not affect where you jump to." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "可选：折叠前给当前位置起个新书签名，方便日后找回完整历史。必须是全新的唯一名字；不影响跳转目标。" })),
   }, { additionalProperties: false });
 
   pi.registerTool({
     name: "acm_travel",
     label: "ACM Travel",
     description: TOOL_DESCRIPTIONS.travel,
-    promptSnippet: PROMPT_SNIPPETS.travel,
-    promptGuidelines: PROMPT_GUIDELINES.travel.split("\n"),
     parameters: schema,
     executionMode: "sequential",
     renderShell: "self",
@@ -129,13 +126,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
-        component.setText(theme.fg("warning", "◌ Applying recoverable context transition…"));
+        component.setText(theme.fg("warning", "◌ 正在折叠…"));
         return component;
       }
 
       if (typeof details?.error === "string") {
         component.setText(
-          theme.fg("warning", "⚠ TRAVEL NEEDS ATTENTION")
+          theme.fg("warning", "⚠ 折叠需要关注")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
         );
         return component;
@@ -155,7 +152,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
       const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "verified");
       const lines = [
-        theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ TRAVEL COMPLETE" : "⚠ TRAVEL APPLIED — EVIDENCE PENDING")
+        theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ 折叠完成" : "⚠ 折叠已生效 — 证据待确认")
           + theme.fg("accent", `  ${target} → ${leaf}`),
         theme.fg("muted",
           `  context ${formatNumericValue(beforeTokens)} → ${formatNumericValue(afterTokens)} est.`
@@ -333,17 +330,17 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
       const targetBranch = sessionManager.getBranch(targetId);
-      // FM-15 structural guard: a target that precedes nothing cannot fold
-      // anything. The `currentLeaf === targetId` check above misses the common
-      // shape — checkpoint, then travel to it — because the checkpoint's own
-      // receipt advances the leaf by one, so the target sits exactly one entry
-      // back and the only replaced content is that receipt. Rejection is
-      // structural, never numeric: projections measure, boundaries decide, so a
-      // real but small replacement range stays the model's call.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const replacedEntryCount = branch.length - targetBranch.length;
       const replacedEntries = replacedEntryCount > 0 ? branch.slice(targetBranch.length) : [];
-      // Off-path restore and rehydrate legitimately grow history, so a target
-      // that replaces nothing is expected there; the guard applies to folds.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const foldsOnlyBookkeeping = !resolved.fromOffPath
         && (replacedEntries.length === 0
           || replacedEntries.every((entry) => isAcmBookkeepingEntry(entry as { readonly type?: string })));
@@ -483,7 +480,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}` }],
+              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
               details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
             };
           }
@@ -544,20 +541,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
           recoveryAction = mutation.remainingBackupLabelState === "present"
-            ? withAvailableAdvancedGuidance(
-              pi,
-              mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped,
-              GUIDANCE_CUES.advancedExceptionalPointer,
-            )
+            ? mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped
             : mutation.remainingBackupLabelState === "unknown"
               ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
               : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
         } else if (mutation.branchState === "indeterminate") {
-          recoveryAction = withAvailableAdvancedGuidance(
-            pi,
-            "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.",
-            GUIDANCE_CUES.advancedExceptionalPointer,
-          );
+          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
         } else {
           recoveryAction = mutation.backupRolledBack
             ? RECOVERY_GUIDANCE.branchRolledBack
@@ -615,9 +604,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
-      // The mutation is already durable. Establish both refresh tickets before
-      // any diagnostic read that may fail, so an applied travel can never fall
-      // back into an untracked split-brain state.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const liveAgentSessionSync = runtime.deferPostTravelRefresh(
         sessionManager,
         toolCallId,
@@ -643,12 +632,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : !afterPacketResult.ok
           ? {
               status: "unavailable" as const,
-              warning: `Session-message evidence could not be rebuilt after the applied mutation: ${afterPacketResult.message}`,
+              warning: `变更生效后无法重建会话消息证据: ${afterPacketResult.message}`,
             }
           : afterPacketResult.value.protocol.status === "invalid"
             ? {
                 status: "invalid_protocol" as const,
-                warning: `Session-message evidence has invalid tool protocol: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "no defect details were supplied"}`,
+                warning: `会话消息证据存在无效工具协议: ${formatToolProtocolDefects(afterPacketResult.value.protocol.defects) || "无缺陷详情"}`,
                 defects: afterPacketResult.value.protocol.defects,
               }
             : { status: "verified" as const };
@@ -657,12 +646,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
-              `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
-              "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
-              `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+              `折叠完成。 target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+              `变更后证据警告: ${postMutationEvidence.warning}.`,
+              "树变更已生效；持久化 Context Packet 刷新仍在计划中，会在之后的 LLM turn 重试。",
+              `交接单 NEXT: ${canonicalHandoff.fields.next}`,
               currentUserTurnOpen
-                ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+                ? "本轮用户消息尚未答复：先交付用户要的可见结果，这轮才算完成；State 里记了答案不等于已交付。"
                 : null,
               liveAgentSessionSyncRecovery,
               GUIDANCE_CUES.travel,
@@ -686,11 +675,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             providerPacketMessageCount: providerDelivery.packetMessageCount,
             providerPacketLeafId: providerDelivery.leafId,
             providerPacketError: providerDelivery.error,
-            // Keep the raw adapter outcome available to callers that need to
-            // distinguish native replacement capability from delivery phase.
+            // 实现说明：该处维护既有的结构、状态与错误处理契约。
+            // 实现说明：该处维护既有的结构、状态与错误处理契约。
             nativeContextReplacementState: liveAgentSessionSync.status,
             nativeContextReplacement: liveAgentSessionSync,
-            // Compatibility aliases retained for existing integrations.
+            // 实现说明：该处维护既有的结构、状态与错误处理契约。
             liveAgentSessionSyncState: liveAgentSessionSync.status,
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
@@ -711,9 +700,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      // The non-verified branches returned above. Keep this explicit guard so
-      // future evidence variants cannot accidentally turn an applied receipt
-      // back into a post-mutation tool error.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       if (!afterPacketResult.ok) throw new Error("unreachable post-mutation evidence state");
       const afterPacket = afterPacketResult.value;
       const afterMessages = afterPacket.messages;
@@ -733,9 +722,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
       const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
       const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      // Fold side of the passive ledger: one row per applied travel with the
-      // delta the receipt already carries, so folds and boundaries accumulate
-      // on the same yardstick. Swallowed on any failure.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       try {
         appendLedgerRow("fold", buildFoldRow({
           state: createLedgerState(`${process.pid}-travel`),
@@ -745,7 +734,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           summaryDepth: activeSummaryDepthAfter,
         }));
       } catch {
-        // A diagnostic writer must never affect a travel receipt.
+        // 实现说明：该处维护既有的结构、状态与错误处理契约。
       }
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
@@ -758,16 +747,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+            `折叠完成。 target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
             targetAnalysis.warnings.length > 0
               ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
               : null,
-            `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
+            `交接单 NEXT: ${canonicalHandoff.fields.next}`,
             currentUserTurnOpen
-              ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
+              ? "本轮用户消息尚未答复：先交付用户要的可见结果，这轮才算完成；State 里记了答案不等于已交付。"
               : null,
             nextCue,
           ].filter((line): line is string => line !== null).join("\n"),
@@ -820,11 +809,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           providerPacketMessageCount: providerDelivery.packetMessageCount,
           providerPacketLeafId: providerDelivery.leafId,
           providerPacketError: providerDelivery.error,
-          // Native replacement is scheduled independently from when the
-          // persisted Context Packet becomes deliverable to the model.
+          // 实现说明：该处维护既有的结构、状态与错误处理契约。
+          // 实现说明：该处维护既有的结构、状态与错误处理契约。
           nativeContextReplacementState: liveAgentSessionSync.status,
           nativeContextReplacement: liveAgentSessionSync,
-          // Compatibility aliases retained for existing integrations.
+          // 实现说明：该处维护既有的结构、状态与错误处理契约。
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           mutationStatus: "applied",

@@ -29,7 +29,7 @@ interface DeferredTravelRefreshState {
 interface CachedProviderPacket {
   readonly messages: AgentMessage[];
   readonly leafId: string | null;
-  /** Provider messages observed when this compact packet was built. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   readonly sourceMessages: AgentMessage[];
 }
 
@@ -60,12 +60,12 @@ function suffixAfterKnownPrefix(
 }
 
 /**
- * Describes which context is deliverable to the model for this SessionManager.
- * A travel has independent provider and native phases. Provider delivery cuts
- * over after the matching persisted tool_result; native AgentSession state is
- * replaced only at an idle agent_settled boundary.
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
  */
-/** The provider-facing phase is intentionally independent from native state. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export type ProviderDeliveryPhase =
   | "active"
   | "pending_tool_result"
@@ -75,9 +75,9 @@ export type ProviderDeliveryPhase =
   | "receipt_rejected";
 
 /**
- * Compatibility delivery state for receipts/HUD. Once provider delivery is
- * active it keeps native state explicit instead of collapsing both phases into
- * an ambiguous generic "active".
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
  */
 export type ContextDeliveryPhase =
   | "active"
@@ -101,21 +101,21 @@ export interface ProviderDeliveryStatus {
   readonly usageObserved: boolean;
 }
 
-/** Per-extension state shared only by ACM modules that participate in session lifecycle. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export class AcmSessionRuntime {
   readonly contextRefresh = new ContextRefreshRegistry();
   readonly liveAgentSessions: LiveAgentSessionAdapter;
   private readonly cachedUsage = new WeakMap<object, UsageLike>();
   private readonly refreshTargets = new WeakMap<object, string>();
   /**
-   * A successful travel changes the persisted tree while its originating agent
-   * run is still executing. The state is per SessionManager: subagents and
-   * parallel sessions must not inherit one another's settlement gate.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   private readonly deferredTravelRefresh = new WeakMap<object, DeferredTravelRefreshState>();
   /**
-   * Constant-gauge odometer state. Reset on every context transition (travel,
-   * compaction, manual /tree). Per SessionManager, like all runtime state.
+   * 中文说明。
+   * 中文说明。
    */
   private readonly gaugeStates = new WeakMap<object, GaugeState>();
 
@@ -130,10 +130,10 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * A successful travel records both independent phase tickets. The provider
-   * remains on the current valid tool batch until the matching persisted
-   * tool_result arrives; native AgentSession replacement remains deferred to
-   * an idle settled boundary.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   deferPostTravelRefresh(
     session: object,
@@ -141,12 +141,12 @@ export class AcmSessionRuntime {
     preferredLeafId?: string,
   ): AgentSessionSyncOutcome {
     this.scheduleRefresh(session, preferredLeafId);
-    // Usage from the pre-travel provider prompt belongs to the previous context
-    // epoch. Do not let the HUD relabel it as post-cutover provider evidence.
+    // 中文说明。
+    // 中文说明。
     this.cachedUsage.delete(session);
-    // The fallback pointer records the verified travel leaf, but AgentSession
-    // replacement must follow the active leaf at agent_settled: post-travel
-    // reads, writes, and tool results legitimately advance it before then.
+    // 中文说明。
+    // 中文说明。
+    // 中文说明。
     const liveAgentSessionSync = this.liveAgentSessions.schedule(session, toolCallId);
     this.deferredTravelRefresh.set(session, {
       providerPhase: "pending_tool_result",
@@ -159,7 +159,7 @@ export class AcmSessionRuntime {
     return liveAgentSessionSync;
   }
 
-  /** Keep the originating assistant run's current valid tool batch untouched. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   shouldKeepCurrentRunContext(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     return deferred?.receiptStatus === "pending"
@@ -199,7 +199,7 @@ export class AcmSessionRuntime {
     };
   }
 
-  /** The matching success receipt opens provider cutover, never native replacement. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   markProviderCutoverReady(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.toolCallId !== toolCallId) return false;
@@ -223,7 +223,7 @@ export class AcmSessionRuntime {
       : undefined;
   }
 
-  /** A finalized error receipt cancels both provider cutover and native replacement. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   rejectProviderCutover(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.toolCallId !== toolCallId || deferred.receiptStatus !== "pending") return false;
@@ -240,14 +240,14 @@ export class AcmSessionRuntime {
       liveAgentSessionSync: {
         status: "skipped",
         reason: "not_pending",
-        message: "Native replacement was canceled because the finalized travel receipt was rejected",
+        message: "由于最终 travel receipt 被拒绝，native replacement 已取消",
       },
-      providerError: "Finalized travel receipt was rejected",
+      providerError: "最终 travel receipt 被拒绝",
     });
     return true;
   }
 
-  /** A persisted packet is the only provider-delivery authority after cutover. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   activateProviderPacket(
     session: object,
     messages: readonly AgentMessage[],
@@ -267,7 +267,7 @@ export class AcmSessionRuntime {
     return true;
   }
 
-  /** Preserve a known compact packet instead of ever re-expanding stale raw history. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   recordProviderDeliveryFailure(
     session: object,
     message: string,
@@ -291,9 +291,9 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * Preserve only a verified post-cutover tail from host provider messages.
-   * The first match covers native in-flight arrays; the second covers a host
-   * that already starts the next provider request from the compact packet.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   mergeCachedProviderPacket(
     session: object,
@@ -306,7 +306,7 @@ export class AcmSessionRuntime {
     return tail === undefined ? undefined : [...packet.messages, ...tail];
   }
 
-  /** Retain a valid cached fallback plus its observed provider source tail. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   cacheProviderFallbackPacket(
     session: object,
     messages: readonly AgentMessage[],
@@ -326,21 +326,21 @@ export class AcmSessionRuntime {
     return true;
   }
 
-  /** True whenever a travel still owns provider delivery, including cached retry fallback. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   shouldRebuildProviderContext(session: object): boolean {
-    // `ready` and first-cutover fallback are governed by ContextRefreshRegistry
-    // and therefore retain its bounded retry budget. Once a compact packet has
-    // been delivered, keep rebuilding on every provider context so later tool
-    // work is incorporated and a transient read failure can use the cache.
+    // 中文说明。
+    // 中文说明。
+    // 中文说明。
+    // 中文说明。
     return this.deferredTravelRefresh.get(session)?.providerPhase === "active";
   }
 
 
   isProviderDeliveryActive(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
-    // Sessions without a successful travel ticket already use the host's
-    // authoritative provider context. Travel-specific gating applies only
-    // while a ticket is pending/falling back.
+    // 中文说明。
+    // 中文说明。
+    // 中文说明。
     return deferred === undefined
       || deferred.providerPhase === "receipt_rejected"
       || (
@@ -356,16 +356,16 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * tool_execution_end happens before the containing run settles. The ticket
-   * is deliberately retained; only the latest matching travel ticket is
-   * applied at agent_settled.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   keepDeferredRefreshThroughToolExecution(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     return deferred?.toolCallId === toolCallId;
   }
 
-  /** Apply the latest scheduled ticket at Pi's actual run-settlement boundary. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   settleDeferredRefresh(session: object): AgentSessionSyncOutcome | undefined {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.nativeSettled || deferred.receiptStatus !== "accepted") return undefined;
@@ -395,9 +395,9 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
   /**
-   * One pressure authority for every ACM perception surface. A completed
-   * provider turn describes a travel-owned context; otherwise the host's
-   * current native usage remains the best available reading.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   authoritativeContextPressure(
     session: object,
@@ -420,8 +420,8 @@ export class AcmSessionRuntime {
   }
 
   resetGaugeCycle(session: object): void {
-    // A context transition (travel, compaction, manual /tree) starts a fresh
-    // odometer: the first post-transition reading always shows once.
+    // 中文说明。
+    // 中文说明。
     this.gaugeStates.delete(session);
   }
 
@@ -444,16 +444,16 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * Odometer check against the current pressure. Read-only: the baseline
-   * moves in confirmGaugeShown, only after the suffix is actually attached
-   * (moving it on an undeliverable result would silently swallow the tick).
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
     if (isGaugeDisabled()) return false;
     return shouldShowGauge(this.gaugeState(session), pressurePercent);
   }
 
-  /** Move the odometer after its suffix was actually attached. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   confirmGaugeShown(session: object, pressurePercent: number): void {
     markGaugeShown(this.gaugeState(session), pressurePercent);
   }

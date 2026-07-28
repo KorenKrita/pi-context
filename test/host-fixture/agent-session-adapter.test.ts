@@ -101,7 +101,7 @@ describe("live AgentSession capability adapter", () => {
     expect(adapter.schedule(manager, "travel")).toMatchObject({
       status: "unavailable",
       reason: "unsupported_session_shape",
-      message: "AgentSession capability probe failed: probe getter exploded",
+      message: "AgentSession 能力探测失败: probe getter exploded",
     });
   });
 
@@ -128,7 +128,7 @@ describe("live AgentSession capability adapter", () => {
     expect(adapter.schedule(sessionManager, "replacement").status).toBe("pending");
     const failure = adapter.apply(sessionManager, "replacement");
     expect(failure).toMatchObject({ status: "failed", reason: "replace_messages_failed", message: "replacement refused" });
-    expect(getLiveAgentSyncRecoveryGuidance(failure)).toContain("Reload");
+    expect(getLiveAgentSyncRecoveryGuidance(failure)).toContain("重新加载会话");
 
     const ignoredManager = SessionManager.inMemory();
     ignoredManager.appendMessage({ role: "user", content: "must replace", timestamp: Date.now() });
@@ -141,7 +141,7 @@ describe("live AgentSession capability adapter", () => {
     expect(adapter.apply(ignoredManager, "ignored")).toMatchObject({
       status: "failed",
       reason: "replace_messages_failed",
-      message: "AgentSession.agent.state.messages did not retain the replacement message sequence",
+      message: "AgentSession.agent.state.messages 未保留 replacement message sequence",
     });
 
     const brokenManager = { getLeafId: () => { throw new Error("leaf unavailable"); } };

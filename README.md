@@ -48,10 +48,10 @@ Pi 自带的办法是 compaction：窗口快满时自动把历史压成一段摘
 每个工具结果的末尾会带一行小字：
 
 ```text
-[ctx 41% budget · 12% window]
+[ctx 41% used · fold→22%]
 ```
 
-左边是注意力预算的占用（预算 = 模型窗口和 400K 取小），右边是物理窗口的占用。数字变了才显示，不变就沉默。
+前面是注意力预算的占用（预算 = 模型窗口和 400K 取小），后面是折叠上一段后大约降到多少（没有可折的内容时省略）。数字变了才显示，不变就沉默。
 
 它只报数，从不建议做什么——什么时候整理，是 agent 自己的判断。设 `ACM_GAUGE_DISABLED=1` 可以关掉。
 
@@ -69,10 +69,10 @@ pi install .
 
 > 本 fork 只发布在 GitHub。npm 上未带 scope 的 `pi-context` 是上游项目，不要用 `npm install` 装这个 fork。
 
-也可以不安装、临时加载（加上 skills 目录才有进阶指引）：
+也可以不安装、临时加载：
 
 ```bash
-pi -e /path/to/pi-context/src/index.ts --skill /path/to/pi-context/skills
+pi -e /path/to/pi-context/src/index.ts
 ```
 
 ## 安全边界
@@ -91,7 +91,7 @@ bun run verify:acm
 
 完整 gate 覆盖：生成文本一致性检查、全部单元测试、TypeScript 类型检查、以及在真实 Pi `0.82.1` 上运行的 host fixture。
 
-架构细节、host 兼容性契约与维护规则见 [`AGENTS.md`](AGENTS.md)；判断语义的正典在 [`docs/acm-judgment-contract.md`](docs/acm-judgment-contract.md)。
+架构细节、host 兼容性契约与维护规则见 [`AGENTS.md`](AGENTS.md)；注入文案的唯一来源在 [`guidance/`](guidance/)。
 
 ## 致谢
 

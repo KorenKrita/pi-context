@@ -52,36 +52,7 @@ function captureExecute(register: (pi: ExtensionAPI) => void, commandNames: stri
   return execute;
 }
 
-function captureTimelineWithCommands(commandNames: string[]): ExecuteTool {
-  let execute: ExecuteTool | undefined;
-  registerTimelineTool({
-    registerTool(tool: { execute?: ExecuteTool }) {
-      execute = tool.execute;
-    },
-    getCommands() {
-      return commandNames.map((name) => ({ name })) as never;
-    },
-  } as unknown as ExtensionAPI, new AcmSessionRuntime());
-  if (!execute) throw new Error("timeline execute handler was not registered");
-  return execute;
-}
 
-function captureTimelineWithSkillPath(path: string): ExecuteTool {
-  let execute: ExecuteTool | undefined;
-  registerTimelineTool({
-    registerTool(tool: { execute?: ExecuteTool }) {
-      execute = tool.execute;
-    },
-    getCommands() {
-      return [{
-        name: "skill:context-management",
-        sourceInfo: { path },
-      }] as never;
-    },
-  } as unknown as ExtensionAPI, new AcmSessionRuntime());
-  if (!execute) throw new Error("timeline execute handler was not registered");
-  return execute;
-}
 
 function checkpointContext(initialLabel?: string) {
   const entry = userEntry("entry-1");
@@ -613,7 +584,6 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
 }
 
 const executeCheckpoint = captureExecute(registerCheckpointTool);
-const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
 const executeTravel = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime()));
 const HANDOFF = {
@@ -717,7 +687,7 @@ describe("ACM tool execution contracts", () => {
       const { ctx, getAppendCalls } = checkpointContext();
       const result = await executeCheckpoint("call-1", { name }, undefined, undefined, ctx);
       expect(result.details).toMatchObject({ error: "reserved_name", name });
-      expect(result.content[0]?.text).toContain("reserved");
+      expect(result.content[0]?.text).toContain("保留字");
       expect(getAppendCalls()).toBe(0);
     }
   });
@@ -772,7 +742,7 @@ describe("ACM tool execution contracts", () => {
       searchExhausted: true,
     });
     expect(result.content[0]?.text).toContain(
-      `within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call`,
+      `最近 ${ANCHOR_SEARCH_WINDOW} 个条目里找不到协议完整的前缀`,
     );
     const skipped = result.details?.skipped;
     expect(Array.isArray(skipped)).toBe(true);
@@ -782,32 +752,6 @@ describe("ACM tool execution contracts", () => {
     expect(getAppendCalls()).toBe(0);
   });
 
-  test("exposes collision routing only when the advanced Skill is available", async () => {
-    const root = userEntry("entry-collision-root");
-    const head = userEntry("entry-collision-head", root.id);
-    const entries = [root, head, labelEntry("label-collision", root.id, "existing-name")];
-    const ctx = {
-      sessionManager: {
-        getTree: () => [{ entry: root, children: [{ entry: head, children: [] }] }],
-        getEntries: () => entries,
-        getBranch: () => [root, head],
-        getLeafId: () => head.id,
-        getEntry: (id: string) => entries.find((entry) => entry.id === id),
-        appendLabelChange: () => { throw new Error("must not mutate"); },
-      },
-      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
-      ui: { notify() {} },
-    };
-
-    const core = await executeCheckpoint("collision-core", { name: "existing-name" }, undefined, undefined, ctx);
-    const product = await executeCheckpointWithSkill("collision-product", { name: "existing-name" }, undefined, undefined, ctx);
-
-    expect(core.details).toMatchObject({ error: "duplicate_name" });
-    expect(core.content[0]?.text).not.toContain("context-management");
-    expect(core.content[0]?.text).not.toContain("references/");
-    expect(product.content[0]?.text).toContain("`context-management` Skill");
-    expect(product.content[0]?.text).toContain("`references/target-selection.md`");
-  });
 
   test("rejects every case variant of root as an archive bookmark before any mutation", async () => {
     for (const name of ["root", "ROOT", "Root", "rOoT"]) {
@@ -893,7 +837,7 @@ describe("ACM tool execution contracts", () => {
       checkpointsMatchingEntries: 6,
       checkpointsDisplayedEntries: 2,
     });
-    expect(limited.content[0]?.text).toContain("... +4 more — use a narrower filter or query");
+    expect(limited.content[0]?.text).toContain("... 还有 4 条 — 用更窄的 filter 或 query 查看");
   });
 
   test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
@@ -952,7 +896,7 @@ describe("ACM tool execution contracts", () => {
     });
     expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
     expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
-    expect(result.content[0]?.text).toContain("+151 more");
+    expect(result.content[0]?.text).toContain("还有 151 条");
   });
 
   test("bounds timeline output for many labeled entries and a huge search query", async () => {
@@ -971,7 +915,7 @@ describe("ACM tool execution contracts", () => {
     expect(active.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
     expect(activeText.length).toBeLessThanOrEqual(activeBudget);
     expect(activeText).toContain(`truncated ${fixture.longLabel.length} chars`);
-    expect(activeText).toContain(`… [timeline output truncated at ${activeBudget} characters; active leaf ${fixture.leafId}. Use a narrower filter/query or a smaller view.]`);
+    expect(activeText).toContain(`… [timeline 输出在 ${activeBudget} 字符处截断；活动叶节点 ${fixture.leafId}。用更窄的 filter/query 或更小的视图。]`);
 
     const query = "q".repeat(100_000);
     const search = await executeTimeline(
@@ -988,35 +932,7 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
-  test("emits the advanced target pointer only when the Skill is actually available", async () => {
-    const withoutSkill = captureTimelineWithCommands([]);
-    const withSkill = captureTimelineWithCommands(["skill:context-management"]);
 
-    const absent = await withoutSkill("timeline-no-skill", { view: "active" }, undefined, undefined, timelineContext());
-    const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
-
-    expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
-    expect(available.content[0]?.text).toContain("`context-management` Skill");
-    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
-  });
-
-  test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
-    const path = "/tmp/ACM Skill/context management/SKILL.md";
-    const executeWithPath = captureTimelineWithSkillPath(path);
-
-    const result = await executeWithPath(
-      "timeline-with-router-path",
-      { view: "active" },
-      undefined,
-      undefined,
-      timelineContext(),
-    );
-
-    const text = result.content[0]?.text ?? "";
-    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
-    expect(text).toContain("relative to its directory");
-    expect(text).toContain("`references/target-selection.md`");
-  });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
     const result = await executeTravel(
@@ -1143,8 +1059,8 @@ describe("ACM tool execution contracts", () => {
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
     });
-    expect(result.content[0]?.text).toContain("Travel complete");
-    expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+    expect(result.content[0]?.text).toContain("折叠完成。");
+    expect(result.content[0]?.text).toContain(`交接单 NEXT: ${HANDOFF.next}`);
   });
 
   test("keeps an applied travel receipt when post-mutation branch diagnostics fail", async () => {
@@ -1170,7 +1086,7 @@ describe("ACM tool execution contracts", () => {
       postMutationEvidenceWarning: expect.stringContaining("post-mutation branch read failed"),
     });
     expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
-    expect(result.content[0]?.text).toContain("Travel complete");
+    expect(result.content[0]?.text).toContain("折叠完成。");
   });
 
   test("keeps an applied travel receipt and protocol defects when post-mutation packet evidence is invalid", async () => {
@@ -1194,8 +1110,8 @@ describe("ACM tool execution contracts", () => {
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],
     });
-    expect(result.content[0]?.text).toContain("Travel complete");
+    expect(result.content[0]?.text).toContain("折叠完成。");
     expect(result.content[0]?.text).toContain("invalid_tool_call_id");
-    expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+    expect(result.content[0]?.text).toContain(`交接单 NEXT: ${HANDOFF.next}`);
   });
 });

@@ -5,10 +5,10 @@ export type ContextWorkingBudgetPolicy = "actual-window" | "400k-cap";
 export interface ContextUsagePressure {
   tokens: number;
   contextWindow: number;
-  /** Hard usage percent against the real model window — the physical runway. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   usagePercent: number;
   workingBudgetTokens: number;
-  /** Pressure percent against the working budget — the soft attention envelope. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   pressurePercent: number;
   policy: ContextWorkingBudgetPolicy;
 }

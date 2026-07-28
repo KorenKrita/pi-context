@@ -30,8 +30,7 @@ import {
   isCheckpointableMessage,
 } from "./entry-resolution.js";
 import { findContainingAssistantToolBatch, type ToolProtocolDefect, type ToolProtocolRepair } from "./tool-protocol.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface SkippedCheckpointAnchor {
   id: string;
@@ -57,11 +56,11 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: Type.String({
       minLength: 1,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Name for this restore point, e.g. before-refactor or api-baseline. Must be unique in this session ('root' is reserved).",
+      description: "存档名，例如 before-refactor、api-baseline。本会话内唯一（'root' 是保留字）。",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "Node ID or existing checkpoint name to label. Omit to label the current position (recommended).",
+      description: "要标记的节点 ID 或已有存档名。不传就标记当前位置（推荐）。",
     })),
   }, { additionalProperties: false });
 
@@ -69,8 +68,6 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: "acm_checkpoint",
     label: "ACM Checkpoint",
     description: TOOL_DESCRIPTIONS.checkpoint,
-    promptSnippet: PROMPT_SNIPPETS.checkpoint,
-    promptGuidelines: PROMPT_GUIDELINES.checkpoint.split("\n"),
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
@@ -78,7 +75,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const target = sanitizeTerminalText(optionalString(args.target) ?? "latest protocol-complete pre-call leaf");
+      const target = sanitizeTerminalText(optionalString(args.target) ?? "最近的协议完整节点");
       const name = sanitizeTerminalText(args.name ?? "…");
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
@@ -95,19 +92,19 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
-        component.setText(theme.fg("warning", "◌ Creating checkpoint…"));
+        component.setText(theme.fg("warning", "◌ 正在存档…"));
         return component;
       }
 
       if (typeof details?.error === "string") {
         component.setText(
-          theme.fg("error", "✕ CHECKPOINT NOT CREATED")
+          theme.fg("error", "✕ 存档未创建")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
         );
         return component;
       }
 
-      const status = details?.status === "already_present" ? "REUSED" : "CREATED";
+      const status = details?.status === "already_present" ? "复用" : "已创建";
       const name = sanitizeTerminalText(typeof details?.name === "string" ? details.name : "checkpoint");
       const entryId = sanitizeTerminalText(typeof details?.entryId === "string" ? details.entryId : "unknown entry");
       const role = sanitizeTerminalText(typeof details?.role === "string" ? details.role : "node");
@@ -116,7 +113,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         : "unknown";
       const cue = sanitizeTerminalText(typeof details?.cue === "string" ? details.cue : "");
       const lines = [
-        theme.fg("success", `✓ CHECKPOINT ${status}`) + theme.fg("accent", `  ${name}`),
+        theme.fg("success", `✓ 存档${status}`) + theme.fg("accent", `  ${name}`),
         theme.fg("muted", `  ${role} · ${entryId} · context ${usage}`),
       ];
       if (cue) lines.push(theme.fg("dim", `  → ${cue}`));
@@ -136,7 +133,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const params = { ...rawParams, target: optionalString(rawParams.target) };
       if (isReservedTargetName(params.name)) {
         return {
-          content: [{ type: "text" as const, text: `Error: Checkpoint name '${params.name}' is reserved for the structural root target. Choose a different semantic name.` }],
+          content: [{ type: "text" as const, text: `错误：存档名 '${params.name}' 是保留字（root 是结构目标）。换一个有语义的名字。` }],
           details: { error: "reserved_name", name: params.name },
         };
       }
@@ -154,33 +151,33 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         entryId = resolved.id;
         if (!isValidEntryId(entryId)) {
           return {
-            content: [{ type: "text" as const, text: "Error: Cannot checkpoint root — session tree is empty." }],
+            content: [{ type: "text" as const, text: "错误：会话树是空的，无法在 root 上存档。" }],
             details: { error: "empty_session", requestedTarget: params.target },
           };
         }
         if (params.target.toLowerCase() === "root" && tree.length > 1) {
           ctx.ui.notify(
-            `Note: 'root' resolved to the first top-level node (${entryId}); this session has ${tree.length} top-level roots.`,
+            `提示：'root' 解析为第一个顶层节点（${entryId}）；本会话有 ${tree.length} 个顶层根。`,
             "info",
           );
         }
         targetEntry = findEntryInTree(tree, entryId);
         if (!targetEntry) {
-          const hint = " Use acm_timeline to locate the node you want to label; raw node IDs are valid targets.";
+          const hint = " 用 acm_timeline 找到想标记的节点；原始节点 ID 也是合法目标。";
           return {
-            content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
+            content: [{ type: "text" as const, text: `错误：目标 '${params.target}' 在会话树里不存在。${hint}` }],
             details: { error: "target_not_found", requestedTarget: params.target },
           };
         }
         if (!isCheckpointableMessage(targetEntry)) {
           const role = getMessageRoleLabel(targetEntry) ?? targetEntry.type;
           ctx.ui.notify(
-            `Warning: explicit checkpoint target '${params.target}' (${entryId}) is a ${role} node, not USER/AI. Prefer conversational turns; travel semantics may be unintuitive.`,
+            `警告：显式目标 '${params.target}'（${entryId}）是 ${role} 节点而非 USER/AI。优先选对话轮次节点；否则 travel 语义可能不符合直觉。`,
             "warning",
           );
         }
         if (resolved.fromOffPath) {
-          ctx.ui.notify(`Note: target '${params.target}' resolved from an off-path branch. Checkpoint will be placed on a non-active node.`, "warning");
+          ctx.ui.notify(`提示：目标 '${params.target}' 解析自非活动分支，存档会落在非活动节点上。`, "warning");
         }
       } else {
         const containingBatch = findContainingAssistantToolBatch(branch, toolCallId);
@@ -233,7 +230,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       }
 
       if (signal?.aborted || autoResolved?.aborted) {
-        return { content: [{ type: "text" as const, text: "acm_checkpoint aborted." }], details: { error: "aborted" } };
+        return { content: [{ type: "text" as const, text: "acm_checkpoint 已中止。" }], details: { error: "aborted" } };
       }
       if (!entryId) {
         const isEmpty = branch.length === 0;
@@ -241,10 +238,10 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           content: [{
             type: "text" as const,
             text: isEmpty
-              ? "No session entry to checkpoint. The conversation is empty."
+              ? "会话是空的，没有可存档的节点。"
               : autoResolved?.searchExhausted
-                ? `No protocol-complete session prefix exists within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.`
-                : "No protocol-complete session prefix exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
+                ? `本次调用前最近 ${ANCHOR_SEARCH_WINDOW} 个条目里找不到协议完整的前缀。先完成或显式恢复当前工具批次再重试；没有写入任何标签。`
+                : "本次调用前找不到协议完整的前缀。先完成或显式恢复当前工具批次再重试；没有写入任何标签。",
           }],
           details: {
             error: isEmpty ? "empty_session" : "no_protocol_complete_checkpoint_target",
@@ -263,7 +260,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           return {
             content: [{
               type: "text" as const,
-              text: `Checkpoint '${params.name}' already belongs to ${conflict.entryId} (${conflict.onActivePath ? "on-path" : "off-path"}). ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}`,
+              text: `存档名 '${params.name}' 已属于 ${conflict.entryId}（${conflict.onActivePath ? "活动路径上" : "非活动分支"}）。${RECOVERY_GUIDANCE.nameCollision}`,
             }],
             details: {
               error: "duplicate_name",
@@ -280,7 +277,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           return {
             content: [{
               type: "text" as const,
-              text: `Entry ${displaced.targetId} already carries checkpoint '${displaced.existingLabel}'; writing '${params.name}' would replace it, because the host keeps one label per entry. No label was written. Reuse '${displaced.existingLabel}' as the recovery pointer, or checkpoint a different node. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}`,
+              text: `节点 ${displaced.targetId} 已有存档 '${displaced.existingLabel}'；宿主每个节点只保留一个标签，写入 '${params.name}' 会顶掉它。没有写入任何标签。可以直接把 '${displaced.existingLabel}' 当恢复指针用，或换一个节点存档。${RECOVERY_GUIDANCE.nameCollision}`,
             }],
             details: {
               error: "label_displaces_existing",
@@ -305,7 +302,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         };
       }
 
-      const { status, label, labelEntryId } = append.value;
+      const { status, labelEntryId } = append.value;
       const resolvedEntry = targetEntry ?? findEntryInTree(tree, entryId);
       const role = autoResolved?.role ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined) ?? resolvedEntry?.type.toUpperCase() ?? "NODE";
       const usage = ctx.getContextUsage();
@@ -314,11 +311,8 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         : undefined;
       const usageText = usageLike ? formatContextUsage(usageLike, true) : "unknown";
       const cue = GUIDANCE_CUES.checkpoint;
-      // Fold projections and segment distance, restored from the preview that
-      // shipped until 7c3bdff7 (2026-07-12) dropped it in the single-file split.
-      // Facts only: what a fold at each reference point would leave, and how far
-      // back the nearest save point is. The receipt excludes the entry this call
-      // just labeled, so the numbers describe folding material, not this node.
+      // 折叠投影与距离，只报事实：在各参照点折叠后剩多少、距上个存档几步。
+      // 回执排除本次调用刚标记的条目，数字描述的是可折叠的材料，不是这个节点。
       let foldText = "";
       let foldDetails: { turn: string | null; task: string | null; stepsSinceSavePoint: number | null } = { turn: null, task: null, stepsSinceSavePoint: null };
       try {
@@ -341,31 +335,31 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
         const segments: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
           const name = references.turn.label ?? references.turn.entryId;
-          segments.push(`fold back to '${name}' → ~${Math.floor(estimates.turnPercent)}% used`);
+          segments.push(`折回 '${name}' → 约剩 ${Math.floor(estimates.turnPercent)}%`);
           foldDetails.turn = name;
         }
         if (estimates.taskPercent != null && references.task) {
           const name = references.task.label ?? references.task.entryId;
-          segments.push(`fold back to earliest '${name}' → ~${Math.floor(estimates.taskPercent)}% used`);
+          segments.push(`折回最早 '${name}' → 约剩 ${Math.floor(estimates.taskPercent)}%`);
           foldDetails.task = name;
         }
         foldDetails.stepsSinceSavePoint = nearest.stepsBack;
         const distance = nearest.name !== null && nearest.stepsBack !== null
-          ? `Segment: ${nearest.stepsBack} step(s) since save point '${nearest.name}'.`
-          : `Segment: no prior save point on this spine.`;
+          ? `距上个存档 '${nearest.name}' 已 ${nearest.stepsBack} 步。`
+          : `当前路径上没有更早的存档。`;
         foldText = ` ${distance}${segments.length > 0 ? ` ${segments.join("; ")}.` : ""}`;
       } catch {
         foldText = "";
       }
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
-        ? `${role}; latest protocol-complete pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
-        : `${role}; explicit target '${params.target}'`;
-      const action = status === "already_present" ? "Reused" : "Created";
+        ? `${role}；最近的协议完整节点${skippedCount ? `（跳过 ${skippedCount} 个更新但不安全/不可用的条目）` : ""}`
+        : `${role}；显式目标 '${params.target}'`;
+      const action = status === "already_present" ? "复用" : "已创建"; 
       return {
         content: [{
           type: "text" as const,
-          text: `${action} checkpoint '${params.name}' at ${entryId} via label entry ${labelEntryId} (${placement}). Label: ${label}. Context usage: ${usageText}.${foldText} ${cue}`,
+          text: `${action}存档 '${params.name}'，位于 ${entryId}（标签条目 ${labelEntryId}；${placement}）。当前用量：${usageText}。${foldText} ${cue}`,
         }],
         details: {
           foldReferences: foldDetails,

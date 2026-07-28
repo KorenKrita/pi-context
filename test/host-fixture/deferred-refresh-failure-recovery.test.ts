@@ -225,8 +225,8 @@ describe("deferred live synchronization fallback", () => {
       reason: "replace_messages_failed",
       message: "replacement refused",
     });
-    expect(notifications.at(-1)).toContain("Native context replacement after settled travel failed");
-    expect(notifications.at(-1)).toContain("Reload the session");
+    expect(notifications.at(-1)).toContain("settled travel 后的 native 上下文替换 failed");
+    expect(notifications.at(-1)).toContain("重新加载会话");
     const rebuiltResult = rebuildAcmContextPacket(sessionManager);
     if (!rebuiltResult.ok) throw new Error(rebuiltResult.message);
     const contextResult = await emit(handlers, "context", {
@@ -323,7 +323,7 @@ describe("deferred live synchronization fallback", () => {
     expect(refused.messages).toEqual(retained);
     expect(runtime.contextRefresh.isPending(sessionManager)).toBe(true);
     expect(runtime.getContextDeliveryPhase(sessionManager)).toBe("fallback");
-    expect(notifications.at(-1)).toContain("invalid tool protocol");
+    expect(notifications.at(-1)).toContain("协议无效");
     expect(notifications.at(-1)).toContain("invalid_tool_call_id");
 
     await emit(handlers, "turn_end", {
@@ -440,7 +440,7 @@ describe("deferred live synchronization fallback", () => {
       expect(runtime.contextRefresh.getAttemptCount(sessionManager)).toBe(attempt);
       expect(runtime.contextRefresh.isPending(sessionManager)).toBe(attempt < 3);
     }
-    expect(notifications.at(-1)).toContain("failed after 3 attempts");
+    expect(notifications.at(-1)).toContain("经 3 次尝试后仍失败");
 
     // Restore host capability after the bounded retry budget is exhausted.
     // No successful persisted rebuild occurred, so delivery must remain

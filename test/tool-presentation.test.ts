@@ -61,13 +61,11 @@ const timeline = captureTool((pi) => registerTimelineTool(pi, {} as never));
 const travel = captureTool((pi) => registerTravelTool(pi, {} as never));
 
 describe("ACM tool prompt metadata", () => {
-  test.each([checkpoint, timeline, travel])("$name opts into concise system-prompt metadata", (tool: CapturedTool) => {
-    expect(tool.promptSnippet?.length).toBeGreaterThan(0);
-    expect(tool.promptSnippet?.includes("\n")).toBe(false);
-    expect(tool.promptGuidelines?.length).toBeGreaterThan(0);
-    for (const guideline of tool.promptGuidelines ?? []) {
-      expect(guideline).toContain(tool.name);
-    }
+  // 注入面保持薄：教学在 CORE 注入与工具描述里，不注册 promptSnippet/promptGuidelines。
+  test.each([checkpoint, timeline, travel])("$name keeps the injection surface thin", (tool: CapturedTool) => {
+    expect(tool.promptSnippet).toBeUndefined();
+    expect(tool.promptGuidelines).toBeUndefined();
+    expect(tool.description.length).toBeGreaterThan(0);
   });
 
   test("acm_travel forces the containing tool batch to execute sequentially", () => {
@@ -112,7 +110,7 @@ describe("ACM tool rendering", () => {
       renderContext(args),
     );
     const output = render(result);
-    expect(output).toContain("✓ CHECKPOINT CREATED  parser-fix-start");
+    expect(output).toContain("✓ 存档已创建  parser-fix-start");
     expect(output).toContain("USER · entry-123 · context 30.0% (120.0K/400.0K)");
     expect(output).toContain("→ Save point applied.");
   });
@@ -147,7 +145,7 @@ describe("ACM tool rendering", () => {
       renderContext(args),
     );
     const collapsedOutput = render(collapsed);
-    expect(collapsedOutput).toContain("✓ TIMELINE READY  SEARCH");
+    expect(collapsedOutput).toContain("✓ 时间线就绪  SEARCH");
     expect(collapsedOutput).toContain("5 matches · truncated · summary depth 1");
     expect(collapsedOutput).toContain("match four");
     expect(collapsedOutput).not.toContain("match five");
@@ -229,7 +227,7 @@ describe("ACM tool rendering", () => {
       renderContext(args),
     );
     const output = render(result);
-    expect(output).toContain("✓ TRAVEL COMPLETE  parser-fix-start → summary-456");
+    expect(output).toContain("✓ 折叠完成  parser-fix-start → summary-456");
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
@@ -243,7 +241,7 @@ describe("ACM tool rendering", () => {
       theme,
       renderContext({ name: "duplicate" }),
     );
-    expect(render(checkpointError)).toContain("✕ CHECKPOINT NOT CREATED");
+    expect(render(checkpointError)).toContain("✕ 存档未创建");
 
     const travelWarning = travel.renderResult!(
       { content: [{ type: "text", text: "Error: branch prevalidation failed" }], details: { error: "branch_prevalidation_failed" } },
@@ -251,7 +249,7 @@ describe("ACM tool rendering", () => {
       theme,
       renderContext({ target: "root", handoff: {} }),
     );
-    expect(render(travelWarning)).toContain("⚠ TRAVEL NEEDS ATTENTION");
+    expect(render(travelWarning)).toContain("⚠ 折叠需要关注");
   });
 
   test("neutralizes terminal controls in dynamic call and result text", () => {

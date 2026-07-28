@@ -243,7 +243,7 @@ describe("checkpoint recovery anchoring", () => {
     if (!restored.ok) throw new Error(restored.message);
     expect(restored.value.protocol.status).toBe("complete");
     expect(JSON.stringify(restored.value.messages)).toContain("parser source read successfully");
-    expect(JSON.stringify(restored.value.messages)).not.toContain("Interrupted by context travel");
+    expect(JSON.stringify(restored.value.messages)).not.toContain("已被上下文折叠打断");
   });
 
   test("auto checkpoint skips a newer incomplete tool batch instead of labeling it", async () => {
@@ -451,8 +451,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: true,
     });
-    expect((result.content[0] as { text: string }).text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
-    expect((result.content[0] as { text: string }).text).toContain("Current user turn remains open");
+    expect((result.content[0] as { text: string }).text).toContain(`交接单 NEXT: ${HANDOFF.next}`);
+    expect((result.content[0] as { text: string }).text).toContain("本轮用户消息尚未答复");
     const summaryEntry = sessionManager.getEntry(sessionManager.getLeafId()!);
     expect(summaryEntry?.type).toBe("branch_summary");
     if (summaryEntry?.type !== "branch_summary") throw new Error("travel did not create a branch summary");
@@ -461,7 +461,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       role: "branchSummary",
       summary: expect.stringContaining("Goal: exercise live travel synchronization"),
     }));
-    expect(JSON.stringify(acmMessages(sessionManager))).toContain("CURRENT USER TURN IS STILL OPEN");
+    expect(JSON.stringify(acmMessages(sessionManager))).toContain("本轮用户消息尚未答复");
   });
 
   test("persists multiline structured handoff fields as canonical text", async () => {
@@ -587,8 +587,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     const latest = rebuilt.find((message) => message.role === "custom" && message.customType === "acm:continuation");
 
     expect(first).toBeDefined();
-    expect(JSON.stringify(latest)).toContain("REQUIRED NEXT: second action");
-    expect(JSON.stringify(latest)).not.toContain("REQUIRED NEXT: first action");
+    expect(JSON.stringify(latest)).toContain("立即执行: second action");
+    expect(JSON.stringify(latest)).not.toContain("立即执行: first action");
   });
 
   test("rejects malformed structured handoff fields before mutation", async () => {
@@ -1018,9 +1018,9 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       customType: "acm:continuation",
       display: false,
     }));
-    expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
-    expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
-    expect(JSON.stringify(rebuilt)).not.toContain("CURRENT USER TURN IS STILL OPEN");
+    expect(JSON.stringify(rebuilt)).toContain("当前工作状态");
+    expect(JSON.stringify(rebuilt)).toContain("立即执行: continue from the traveled branch");
+    expect(JSON.stringify(rebuilt)).not.toContain("本轮用户消息尚未答复");
     expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");
     expect(hasToolCall(rebuilt, TOOL_CALL_ID)).toBe(false);
     const storedTokensAfter = rebuilt.reduce((sum, message) => sum + estimateTokens(message), 0);

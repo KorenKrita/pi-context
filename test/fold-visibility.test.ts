@@ -192,8 +192,8 @@ test("the turn reference skips the current user turn", () => {
     const checkpointSource = readFileSync(new URL("../src/checkpoint-tool.ts", import.meta.url), "utf8");
     expect(checkpointSource).toContain("selectFoldReferences");
     expect(checkpointSource).toContain("findNearestSavePoint");
-    expect(checkpointSource).toContain("fold back to");
-    expect(checkpointSource).toContain("Segment:");
+    expect(checkpointSource).toContain("折回");
+    expect(checkpointSource).toContain("距上个存档");
 
     const timelineSource = readFileSync(new URL("../src/timeline-tool.ts", import.meta.url), "utf8");
     expect(timelineSource).toContain("selectFoldReferences");
@@ -205,8 +205,8 @@ test("the turn reference skips the current user turn", () => {
   });
 
   test("CORE explains every needle the gauge can render", () => {
-    // A number the model cannot read is noise. CORE owns the reading key.
-    const core = readFileSync(new URL("../skills/context-management/CORE.md", import.meta.url), "utf8");
+    // 模型读不懂的数字是噪音；仪表的读数销在 CORE 里。
+    const core = readFileSync(new URL("../guidance/CORE.md", import.meta.url), "utf8");
     for (const needle of ["% used", "fold→"]) {
       expect(core).toContain(needle);
     }
@@ -230,12 +230,5 @@ test("the turn reference skips the current user turn", () => {
     for (const numeric of ["pressurePercent", "usagePercent", "estimated", "workingBudget"]) {
       expect(guardBlock).not.toContain(numeric);
     }
-  });
-
-  test("FM-15 is registered with its structural boundary", () => {
-    const fm = readFileSync(new URL("../docs/acm-failure-mechanisms.md", import.meta.url), "utf8");
-    expect(fm).toContain("## FM-15");
-    expect(fm).toContain("Preview measures; boundary decides");
-    expect(fm).toContain("7c3bdff7");
   });
 });

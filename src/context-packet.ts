@@ -277,9 +277,8 @@ function trustedContinuationMetadata(
   ) return undefined;
   const key = continuationKey(message.summary, message.fromId, message.timestamp);
   const candidates = trusted.get(key);
-  // One message may only be projected when its persisted provenance has one
-  // unambiguous owner. Multiple marked candidates must stay archival: their
-  // order is evidence, not permission to make every handoff authoritative.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 候选必须保持存档形态：它们的顺序是证据，不是把每份交接单都当权威的许可。
   if (!candidates || candidates.length === 0) return undefined;
   if (candidates.length !== 1) return { candidates: candidates.length };
   const metadata = candidates[0];
@@ -295,20 +294,15 @@ function projectContinuation(message: AgentMessage, metadata: TrustedContinuatio
     role: "custom",
     customType: "acm:continuation",
     content: [
-      "[ACM CURRENT CONTINUATION — HIGHEST-PRIORITY SESSION STATE]",
+      "[ACM 折叠续接 — 当前工作状态]",
       "",
-      "Travel completed. This message is the active continuation of the user's work at this point in the session.",
-      "All earlier requests visible above are historical context. Do not execute or repeat them unless REQUIRED NEXT explicitly says to.",
-      "Where older surviving history conflicts with this handoff, the handoff supersedes that history.",
-      ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
-      ...(next ? [`REQUIRED NEXT: ${next}`] : []),
+      "折叠已完成。下面这份交接单就是你当前的工作状态，取代上面更早的历史；冲突时以交接单为准。",
+      ...(goal ? [`当前目标: ${goal}`] : []),
+      ...(next ? [`立即执行: ${next}`] : []),
       ...(metadata.currentUserTurnOpen ? [
-        "CURRENT USER TURN IS STILL OPEN: the request that triggered travel still requires a visible result. Do not stop, wait for another request, or treat recording the answer in State as delivery.",
+        "本轮用户消息尚未答复：触发折叠的那个请求仍欠一个可见结果，State 里记了答案不等于已交付。",
       ] : []),
-      "Act on REQUIRED NEXT now. Do not reread folded material, recreate old save points, or replay an earlier task unless REQUIRED NEXT requires it.",
-      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites: do not open them unless REQUIRED NEXT names them.",
-      "A later user message or later authoritative session state may supersede this continuation.",
-      "Verify only uncertainty recorded here or facts changed by later independent activity.",
+      "现在直接执行上面的下一步，不要重做或重读已折叠的内容；更晚的用户消息出现时以用户消息为准。",
       "",
       handoff,
     ].join("\n"),
@@ -327,10 +321,9 @@ export function normalizeExistingAcmPacket(
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
   });
-  // Active-path ordering resolves stacked continuation epochs: the latest
-  // provenance-valid ACM summary is the current authority, while older
-  // summaries remain archival. Ambiguity is reserved for the latest message
-  // itself having duplicate/unresolvable persisted provenance owners.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   const latestCandidate = candidates.at(-1);
   const projected = latestCandidate?.metadata
     ? messages.map((message, index) => index === latestCandidate.index
@@ -362,9 +355,8 @@ export function normalizeExistingAcmPacketForSession(
   try {
     return normalizeExistingAcmPacket(messages, sessionManager.getBranch());
   } catch {
-    // Existing host-projected messages remain usable in archival form. A
-    // transient or capability-incomplete branch read must not crash the
-    // context lifecycle merely to upgrade ACM continuation authority.
+    // 宿主已投影的消息仍以存档形态可用。分支读取瞬时失败或能力不完整时，
+    // 实现说明：该处维护既有的结构、状态与错误处理契约。
     return normalizeExistingAcmPacket(messages);
   }
 }

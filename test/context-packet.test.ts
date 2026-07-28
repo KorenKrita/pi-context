@@ -39,14 +39,14 @@ describe("ACM context packet", () => {
       customType: "acm:continuation",
       display: false,
     });
-    expect(JSON.stringify(packet.messages[1])).toContain("HIGHEST-PRIORITY SESSION STATE");
-    expect(JSON.stringify(packet.messages[1])).toContain("CURRENT GOAL: current");
-    expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: act");
-    expect(JSON.stringify(packet.messages[1])).toContain("All earlier requests visible above are historical context");
-    expect(JSON.stringify(packet.messages[1])).toContain("Evidence and Recover are optional receipts");
-    expect(JSON.stringify(packet.messages[1])).toContain("CURRENT USER TURN IS STILL OPEN");
+    expect(JSON.stringify(packet.messages[1])).toContain("当前工作状态");
+    expect(JSON.stringify(packet.messages[1])).toContain("当前目标: current");
+    expect(JSON.stringify(packet.messages[1])).toContain("立即执行: act");
+    expect(JSON.stringify(packet.messages[1])).toContain("取代上面更早的历史");
+    expect(JSON.stringify(packet.messages[1])).toContain("不要重做或重读已折叠的内容");
+    expect(JSON.stringify(packet.messages[1])).toContain("本轮用户消息尚未答复");
     expect(JSON.stringify(packet.messages[1])).toContain("NEXT: act");
-    expect(JSON.stringify(packet.messages[1])).toContain("A later user message");
+    expect(JSON.stringify(packet.messages[1])).toContain("更晚的用户消息");
     expect(packet.messages[2]).toBe(messages[2]);
   });
 
@@ -107,8 +107,8 @@ describe("ACM context packet", () => {
     expect(packet.continuation).toEqual({ status: "projected", count: 1 });
     expect(packet.messages[0]).toBe(messages[0]);
     expect(packet.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
-    expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: second action");
-    expect(JSON.stringify(packet.messages[1])).not.toContain("REQUIRED NEXT: first action");
+    expect(JSON.stringify(packet.messages[1])).toContain("立即执行: second action");
+    expect(JSON.stringify(packet.messages[1])).not.toContain("立即执行: first action");
   });
 
   test("keeps the latest continuation archival when its persisted provenance owner is ambiguous", () => {

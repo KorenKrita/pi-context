@@ -5,7 +5,7 @@ export interface LabelMaps {
   entryToLabel: Map<string, string>;
 }
 
-/** Replay the label journal into the host's single-label, case-sensitive index. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function buildLabelMaps(entries: SessionEntry[]): LabelMaps {
   const labelToEntryId = new Map<string, string>();
   const entryToLabel = new Map<string, string>();

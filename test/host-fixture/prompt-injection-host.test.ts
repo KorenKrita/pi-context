@@ -58,7 +58,7 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
     expect(injected).toBeDefined();
     expect(injected).toStartWith("base prompt");
     expect(injected).toContain(generated.ACM_CORE_MARKER);
-    expect(injected).toContain("Context Management Tools");
+    expect(injected).toContain("上下文管理工具");
     expect(injected?.split(generated.ACM_CORE_MARKER)).toHaveLength(2);
 
     const second = await runner.emitBeforeAgentStart("again", undefined, injected!, { cwd: tempDir });
@@ -68,7 +68,7 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
   }
 });
 
-test("ACM tools register generated prompt metadata on the exact Pi host", async () => {
+test("ACM tools register with a thin injection surface on the exact Pi host", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "pi-context-tool-host-"));
   try {
     const loaded = await discoverAndLoadExtensions(
@@ -84,12 +84,13 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
 
     const tools = new Map(runner.getAllRegisteredTools().map((tool) => [tool.definition.name, tool.definition]));
     expect([...tools.keys()].sort()).toEqual(["acm_checkpoint", "acm_timeline", "acm_travel"]);
-    expect(tools.get("acm_checkpoint")?.promptSnippet).toBe(generated.PROMPT_SNIPPETS.checkpoint);
-    expect(tools.get("acm_timeline")?.promptSnippet).toBe(generated.PROMPT_SNIPPETS.timeline);
-    expect(tools.get("acm_travel")?.promptSnippet).toBe(generated.PROMPT_SNIPPETS.travel);
-    expect(tools.get("acm_travel")?.promptGuidelines).toEqual(generated.PROMPT_GUIDELINES.travel.split("\n"));
+    // 注入面刻意保持薄：教学在 CORE 注入和工具描述里，不再注册 promptSnippet/promptGuidelines。
+    expect(tools.get("acm_checkpoint")?.promptSnippet).toBeUndefined();
+    expect(tools.get("acm_timeline")?.promptSnippet).toBeUndefined();
+    expect(tools.get("acm_travel")?.promptSnippet).toBeUndefined();
+    expect(tools.get("acm_travel")?.promptGuidelines).toBeUndefined();
     expect(tools.get("acm_travel")?.executionMode).toBe("sequential");
-    expect(tools.get("acm_travel")?.description).toContain("Call this tool alone");
+    expect(tools.get("acm_travel")?.description).toContain("单独调用");
     const travelParameters = tools.get("acm_travel")?.parameters as {
       required?: string[];
       properties?: Record<string, { anyOf?: Array<{ type?: string; required?: string[] }> }>;

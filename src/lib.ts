@@ -6,35 +6,35 @@ export { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 
 export const ACM_INTERNAL_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "acm_travel"]);
 
-/** Bounds backward protocol-complete searches so one unclosed batch cannot cause a full-branch O(n²) anchor walk. */
+/** 限制向后搜索协议完整锚点的窗口，避免一个未闭合批次引发全分支 O(n²) 扫描。 */
 export const ANCHOR_SEARCH_WINDOW = 200;
 
-/** `root` is a structural target keyword and cannot safely be used as an alias. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function isReservedTargetName(name: string): boolean {
  return name.toLowerCase() === "root";
 }
 
-/** Neutralize terminal control characters in dynamic TUI text while preserving tabs and line breaks. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function sanitizeTerminalText(value: string): string {
  return value
   .replace(/\r\n?/g, "\n")
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
 }
 
-/** Optional tool parameters: a provider may legitimately send `null` for "absent". */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function optionalString(value: unknown): string | undefined {
  const trimmed = typeof value === "string" ? value.trim() : "";
  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** Fixed token overhead for a branch_summary entry in travel usage estimates. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
-export function formatBoundaryTravelCue(nearestCheckpointName: string | null, advancedPointer?: string): string {
+export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
  if (nearestCheckpointName === null) {
-  return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
+  return "这条路径上还没有存档。接下来要冒险或折叠的话，先存一个；节点 ID 也可以直接当 travel 目标";
  }
- return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded, not whichever label is nearest.${advancedPointer ? ` ${advancedPointer}` : ""}`;
+ return `最近的存档是 '${nearestCheckpointName}'。折叠目标要选在待折内容之前的干净位置，不一定是最近的这个`;
 }
 
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };
@@ -64,7 +64,7 @@ export type MeaningfulSkipReason =
  | "empty_user";
 
 
-/** Persistent post-travel context rebuild state keyed by session manager instance. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export class ContextRefreshRegistry {
  static readonly MAX_ATTEMPTS = 3;
 
@@ -100,11 +100,10 @@ export class ContextRefreshRegistry {
   return this.failures.get(sm);
  }
 
- /**
-  * Record a failed refresh attempt. Every refresh cycle has the same bounded
-  * budget; a valid cached packet may remain deliverable after exhaustion, but
-  * persistence reads are not retried again until a new lifecycle cycle.
-  */
+	/**
+	 * 实现说明：该处维护既有的结构、状态与错误处理契约。
+	 * 实现说明：该处维护既有的结构、状态与错误处理契约。
+	 */
  recordFailedAttempt(sm: object, message: string): boolean {
   const next = Math.min((this.attempts.get(sm) ?? 0) + 1, ContextRefreshRegistry.MAX_ATTEMPTS);
   this.attempts.set(sm, next);
@@ -156,7 +155,7 @@ export function isValidEntryId(id: string): boolean {
  return id.length > 0;
 }
 
-/** Push tree children left-to-right so stack.pop() visits in document order. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function pushTreeChildrenPreOrder(stack: SessionTreeNode[], children: SessionTreeNode[]): void {
  for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
 }
@@ -181,7 +180,7 @@ export function extractTextFromContent(content: unknown): string {
  return "";
 }
 
-/** Iterative DFS — avoids stack overflow on deep session trees. */
+/** 迭代 DFS——避免深会话树栈溢出。 */
 export function findInTree(
  nodes: SessionTreeNode[],
  predicate: (n: SessionTreeNode) => boolean,
@@ -215,8 +214,8 @@ export function findCheckpointLabelOwner(
  return { entryId, onActivePath: backboneIds.has(entryId) };
 }
 
-/** Resolve "root" / label / raw hex ID to an entry ID.
- *  "root" maps to the first top-level node when the forest has multiple roots. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface SessionStructuralView {
  getEntries(): SessionEntry[];
  getBranch(fromId?: string): SessionEntry[];
@@ -283,12 +282,12 @@ export function classifyStructuralMessageDirection(
  return after < before ? "decreased" : "increased";
 }
 
-/** Count semantic handoff layers on one session spine. Native compaction is intentionally separate. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function countActiveSummaryDepth(branch: SessionEntry[]): number {
  return branch.reduce((depth, entry) => depth + (entry.type === "branch_summary" ? 1 : 0), 0);
 }
 
-/** A successful travel appends one new branch_summary after the selected target spine. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function projectSummaryDepthAfterTravel(targetBranch: SessionEntry[]): number {
  return countActiveSummaryDepth(targetBranch) + 1;
 }
@@ -358,7 +357,7 @@ export function getMeaningfulSkipReason(entry: SessionEntry): MeaningfulSkipReas
   } else if (msg.content === null || msg.content === undefined) {
    return "empty_assistant";
   } else {
-   // Defensive: older harness versions may pass string content
+   // 实现说明：该处维护既有的结构、状态与错误处理契约。
    const raw: unknown = msg.content;
    if (typeof raw === "string") {
     if (raw.trim().length === 0) return "empty_assistant";

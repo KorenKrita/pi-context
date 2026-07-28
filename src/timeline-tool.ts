@@ -26,8 +26,7 @@ import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from 
 import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { getAvailableAdvancedGuidance, withAvailableAdvancedGuidance } from "./advanced-guidance.js";
+import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -246,7 +245,7 @@ function fitTimelineOutputToBudget(
   leafId: string | null,
 ): { text: string; truncated: boolean } {
   if (text.length <= budget) return { text, truncated: false };
-  const footer = `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId ?? "none"}. Use a narrower filter/query or a smaller view.]`;
+  const footer = `\n… [timeline 输出在 ${budget} 字符处截断；活动叶节点 ${leafId ?? "none"}。用更窄的 filter/query 或更小的视图。]`;
   const prefixLength = Math.max(0, budget - footer.length);
   return { text: `${text.slice(0, prefixLength)}${footer}`, truncated: true };
 }
@@ -266,7 +265,7 @@ function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const limitSchema = Type.Optional(Type.Integer({
     minimum: 1,
-    description: "Max entries/matches to return (or tree depth). Default 50.",
+    description: "返回的最大条目/匹配数（tree 视图为深度）。默认 50。",
   }));
   const schema = Type.Object({
     view: Type.Optional(Type.Union([
@@ -274,19 +273,17 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       Type.Literal("checkpoints"),
       Type.Literal("search"),
       Type.Literal("tree"),
-    ], { description: "Which view: active (current context), checkpoints (restore points), search (whole tree), tree (branch structure). Default: active." })),
+    ], { description: "选视图：active（当前上下文）、checkpoints（存档列表）、search（全树搜索）、tree（分支结构）。默认 active。" })),
     limit: limitSchema,
-    verbose: Type.Optional(Type.Boolean({ description: "Include internal tool traffic and metadata (active view only)." })),
-    filter: Type.Optional(Type.String({ minLength: 1, description: "Filter checkpoints by label or entry ID, case-insensitive (checkpoints view only)." })),
-    query: Type.Optional(Type.String({ minLength: 1, description: "Text to find anywhere in the tree: labels, node IDs, or message content. Required when view=search." })),
+    verbose: Type.Optional(Type.Boolean({ description: "包含内部工具流量和元数据（仅 active 视图）。" })),
+    filter: Type.Optional(Type.String({ minLength: 1, description: "按存档名或条目 ID 过滤，大小写不敏感（仅 checkpoints 视图）。" })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "在整棵树里搜索的文本：存档名、节点 ID 或消息内容。view=search 时必填。" })),
   }, { additionalProperties: false });
 
   pi.registerTool({
     name: "acm_timeline",
     label: "ACM Timeline",
     description: TOOL_DESCRIPTIONS.timeline,
-    promptSnippet: PROMPT_SNIPPETS.timeline,
-    promptGuidelines: PROMPT_GUIDELINES.timeline.split("\n"),
     parameters: schema,
     renderShell: "self",
     renderCall(rawArgs, theme, context) {
@@ -319,13 +316,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const details = result.details as Record<string, unknown> | undefined;
 
       if (isPartial) {
-        component.setText(theme.fg("warning", "◌ Inspecting session evidence…"));
+        component.setText(theme.fg("warning", "◌ 正在查看会话…"));
         return component;
       }
 
       if (typeof details?.error === "string") {
         component.setText(
-          theme.fg("error", "✕ TIMELINE UNAVAILABLE")
+          theme.fg("error", "✕ 时间线不可用")
             + (raw ? `\n${theme.fg("muted", raw.split("\n", 1)[0] ?? raw)}` : ""),
         );
         return component;
@@ -374,7 +371,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         ? details.contextDeliveryPhase
         : "active");
       const lines = [
-        theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${displayView.toUpperCase()}`),
+        theme.fg("success", "✓ 时间线就绪") + theme.fg("accent", `  ${displayView.toUpperCase()}`),
         theme.fg("muted", `  ${evidence} · summary depth ${depth}`),
         theme.fg("dim", `  context ${usage} · delivery ${delivery}`),
       ];
@@ -411,7 +408,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         | { view: "tree"; limit: number };
       if (params.view === "search" && !params.query) {
         return {
-          content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
+          content: [{ type: "text" as const, text: "错误：view=search 时必须提供 'query'。" }],
           details: { error: "missing_query" },
         };
       }
@@ -420,7 +417,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
       const resultCharacterBudget = timelineResultCharacterBudget(ctx);
-      const advancedTargetPointer = getAvailableAdvancedGuidance(pi, GUIDANCE_CUES.advancedTargetPointer);
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -460,7 +456,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const displayedListings = listings.slice(0, checkpointListingLimit);
         checkpointsMatchingEntries = listings.length;
         checkpointsDisplayedEntries = displayedListings.length;
-        // One label per entry, so alias counts collapse onto entry counts.
+        // 实现细节与时间线呈现约束。
         checkpointsMatchingAliases = listings.length;
         checkpointsDisplayedAliases = displayedListings.length;
         checkpointAliasesOnMatchingEntries = listings.length;
@@ -531,32 +527,32 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             : "";
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; summary depth ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
         }
-        if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
+        if (listings.length > displayedListings.length) lines.push(`  ... 还有 ${listings.length - displayedListings.length} 条 — 用更窄的 filter 或 query 查看`);
       } else if (params.view === "search") {
         const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal);
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; 其他匹配已截断" : " 个匹配节点"}.`,
         );
         for (const match of search.matches) {
           const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
-        if (search.truncated) lines.push("  ... additional matches truncated");
+        if (search.truncated) lines.push("  ... 其他匹配已截断");
       } else if (params.view === "tree") {
         const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
-        if (treeTruncated) lines.unshift("⚠ tree truncated by depth/line limit — use view checkpoints or view search to see hidden nodes");
+        if (treeTruncated) lines.unshift("⚠ 树输出被深度/行数上限截断 — 用 checkpoints 或 search 视图查看隐藏节点");
       } else {
         const verbose = params.verbose ?? false;
         const visible = branch.filter((entry) => visibleOnActivePath(entry, labelMaps, leafId, verbose));
         activeVisibleEntries = visible.length;
         activeDisplayedEntries = Math.min(visible.length, effectiveLimit);
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
-        if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
+        if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} 前面的可见条目因 limit 被省略) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
           const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
@@ -591,9 +587,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
-      // Fold projections: what a fold at each structural reference point would
-      // leave, on the same working-budget yardstick the pressure line uses.
-      // Facts only — whether the extraction is complete stays CORE's bar.
+      // 实现细节与时间线呈现约束。
+      // 实现细节与时间线呈现约束。
+      // 实现细节与时间线呈现约束。
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
@@ -612,10 +608,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : { turnPercent: null, taskPercent: null };
         const segs: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
-          segs.push(`fold back to '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% used`);
+          segs.push(`折回 '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → 约剩 ${Math.floor(estimates.turnPercent)}%`);
         }
         if (estimates.taskPercent != null && references.task) {
-          segs.push(`fold back to earliest '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% used`);
+          segs.push(`折回最早的 '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → 约剩 ${Math.floor(estimates.taskPercent)}%`);
         }
         foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
       } catch {
@@ -627,28 +623,28 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
         `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
         `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
-        `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
-        `• Summary Depth:    ${activeSummaryDepth} active handoff summary layer(s) on the current spine`,
-        `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with abandoned summaries`,
-        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
+        `• Active Path:      ${branch.length} 个节点 — LLM 上下文沿这条主干`,
+        `• Summary Depth:    ${activeSummaryDepth} 层交接单摘要`,
+        `• Off-path Summaries: ${countOffPathSummaries(branch, tree, activeIds)} 个带废弃摘要的分支点`,
+        `• Recovery Distance: ${stepsSinceCheckpoint} 步距上个存档 '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
         `• Fold Projection:  ${foldProjectionText}`,
         `• ACM Judgment:     ${activeSummaryDepth > 0
-          ? `${GUIDANCE_CUES.rebaseCheck}${advancedTargetPointer ? ` ${advancedTargetPointer}` : ""}`
-          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null, advancedTargetPointer)}`,
+          ? GUIDANCE_CUES.rebaseCheck
+          : formatBoundaryTravelCue(nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : null)}`,
       ];
       if (resultBudgetApplied) {
-        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
+        hudParts.push(`• Result Budget:    requested ${requestedLimit}; 本次最多处理 ${effectiveLimit} 条（按上下文推导的预算 ${resultEntryBudget} 条）。其余用 filter/query 缩小范围。`);
       }
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
         const exhausted = attempts >= ContextRefreshRegistry.MAX_ATTEMPTS && !refreshPending;
         const refreshGuidance = exhausted
-          ? withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)
+          ? RECOVERY_GUIDANCE.refreshExhausted
           : "";
-        hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
+        hudParts.push(`• Context Sync:     上次 travel 刷新失败 — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       }
-      // Failure evidence and the currently deliverable provider state are
-      // complementary; show both while a bounded retry remains pending.
+      // 实现细节与时间线呈现约束。
+      // 实现细节与时间线呈现约束。
       const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
       if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);

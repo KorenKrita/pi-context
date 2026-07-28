@@ -62,7 +62,7 @@ describe("ACM tool parameter schema limits", () => {
     const query = timelineProperties.query!;
 
     expect(limit).toMatchObject({ minimum: 1 });
-    expect(limit.description).toContain("Default 50.");
+    expect(limit.description).toContain("默认 50。");
     expect(limit).not.toHaveProperty("maximum");
     for (const value of [filter, query]) {
       expect(value).toMatchObject({ minLength: 1 });
@@ -85,7 +85,7 @@ describe("ACM tool parameter schema limits", () => {
     const backup = properties(travel).backupCurrentHeadAs!;
     const description = String(backup.description ?? "");
 
-    expect(description).toContain("new unique name");
-    expect(description).toContain("does not affect where you jump to");
+    expect(description).toContain("全新的唯一名字");
+    expect(description).toContain("不影响跳转目标");
   });
 });

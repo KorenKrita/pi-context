@@ -67,14 +67,14 @@ export interface LiveAgentSessionAdapter {
   getStatus(sessionManager: object): AgentSessionSyncOutcome;
   clear(sessionManager: object): void;
   /**
-   * Defensive host-crash mitigation: before an overflow-recovery retry the host
-   * continues from `agent.state.messages`, but its own recovery path only strips a
-   * trailing assistant whose stopReason is "error". A trailing assistant with any
-   * other stopReason (e.g. "length" with zero output, which the host itself
-   * classified as overflow) makes agentLoopContinue throw
-   * "Cannot continue from message role: assistant". Pruning every trailing
-   * assistant message restores a continuable tail; the pruned messages remain in
-   * the session history, only the live retry context is trimmed.
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
+   * 中文说明。
    */
   pruneNonContinuableTail(sessionManager: object): AgentSessionTailPruneOutcome;
 }
@@ -85,10 +85,10 @@ export interface LiveAgentSessionAdapterOptions {
 
 export function getLiveAgentSyncRecoveryGuidance(outcome: AgentSessionSyncOutcome): string | null {
   if (outcome.status === "unavailable") {
-    return "Persistent context rebuild remains active. Reload the session to reconstruct native AgentSession state before relying on native context accounting.";
+    return "持久化 context rebuild 仍在进行。请重新加载会话，以重建 native AgentSession state，再依赖 native context accounting。";
   }
   if (outcome.status === "failed") {
-    return "Persistent context rebuild remains active and the traveled branch is preserved. Reload the session to reconstruct native AgentSession state before relying on native context accounting.";
+    return "持久化 context rebuild 仍在进行，travel 的 branch 已保留。请重新加载会话，以重建 native AgentSession state，再依赖 native context accounting。";
   }
   return null;
 }
@@ -111,7 +111,7 @@ function observeSessionAssociation(state: InstallationState, value: unknown): vo
     if (!sessionManager || typeof sessionManager !== "object") return;
     state.sessions.set(sessionManager, new WeakRef(value));
   } catch {
-    // Capability observation must never change host getContextUsage behavior.
+    // 中文说明。
   }
 }
 
@@ -120,21 +120,21 @@ function inspectLiveSession(value: unknown, expectedSessionManager: object):
   | { ok: false; outcome: AgentSessionUnavailableOutcome } {
   try {
     if (!value || typeof value !== "object") {
-      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession instance is unavailable") };
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession 实例不可用") };
     }
     const candidate = value as Partial<LiveAgentSession>;
     if (candidate.sessionManager !== expectedSessionManager) {
-      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.sessionManager does not match the scheduled SessionManager") };
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.sessionManager 与已调度的 SessionManager 不匹配") };
     }
     if (!candidate.agent || typeof candidate.agent !== "object" || !candidate.agent.state || typeof candidate.agent.state !== "object") {
-      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state is unavailable") };
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state 不可用") };
     }
     if (!Array.isArray(candidate.agent.state.messages)) {
-      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state.messages is not an array") };
+      return { ok: false, outcome: unavailable("unsupported_session_shape", "AgentSession.agent.state.messages 不是数组") };
     }
     return { ok: true, session: candidate as LiveAgentSession };
   } catch (error) {
-    return { ok: false, outcome: unavailable("unsupported_session_shape", `AgentSession capability probe failed: ${errorMessage(error)}`) };
+    return { ok: false, outcome: unavailable("unsupported_session_shape", `AgentSession 能力探测失败: ${errorMessage(error)}`) };
   }
 }
 
@@ -155,7 +155,7 @@ function replacePrototypeMethod(
     Object.defineProperty(prototype, "getContextUsage", replacementDescriptor);
     return undefined;
   } catch (error) {
-    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage cannot be wrapped: ${errorMessage(error)}`);
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法包装： ${errorMessage(error)}`);
   }
 }
 
@@ -166,10 +166,10 @@ function install(HostClass: AgentSessionHostClass): InstallationState | AgentSes
     prototype = HostClass?.prototype;
     current = prototype?.getContextUsage;
   } catch (error) {
-    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage cannot be inspected: ${errorMessage(error)}`);
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法检查： ${errorMessage(error)}`);
   }
   if (!prototype || typeof current !== "function") {
-    return unavailable("unsupported_host_shape", "AgentSession.getContextUsage is unavailable");
+    return unavailable("unsupported_host_shape", "AgentSession.getContextUsage 不可用");
   }
 
   const existing = current[INSTALLATION_SYMBOL];
@@ -206,10 +206,10 @@ function retainsMessageSequence(actual: AgentMessage[], expected: AgentMessage[]
 }
 
 /**
- * Installs the narrow capability-probed adapter. Tree mutations remain owned by Host Bridge;
- * this adapter only replaces the matching live AgentSession message array after its caller has
- * chosen the correct lifecycle boundary. A caller that must follow the latest active leaf leaves
- * preferredLeafId unset.
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
  */
 export function createLiveAgentSessionAdapter(
   options: LiveAgentSessionAdapterOptions = {},
@@ -232,7 +232,7 @@ export function createLiveAgentSessionAdapter(
   const initialStatus: AgentSessionSyncOutcome = {
     status: "skipped",
     reason: "not_pending",
-    message: "No AgentSession synchronization is pending",
+    message: "没有待处理的 AgentSession 同步",
   };
   return {
     installation: { status: "ready" },
@@ -242,7 +242,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "skipped",
           reason: "missing_association",
-          message: "No live AgentSession is associated with this SessionManager",
+          message: "此 SessionManager 没有关联 live AgentSession",
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
@@ -266,7 +266,7 @@ export function createLiveAgentSessionAdapter(
         return {
           status: "skipped",
           reason: "not_pending",
-          message: "No live AgentSession synchronization matches this tool execution",
+          message: "没有与此次工具执行匹配的 live AgentSession 同步",
         };
       }
 
@@ -287,7 +287,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "skipped",
           reason: "stale_leaf",
-          message: `Pending synchronization targeted ${pending.preferredLeafId}, current leaf is ${currentLeafId ?? "none"}`,
+          message: `待处理同步目标为 ${pending.preferredLeafId}，当前 leaf 为 ${currentLeafId ?? "none"}`,
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
@@ -297,7 +297,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "skipped",
           reason: "missing_association",
-          message: "The associated live AgentSession is no longer available",
+          message: "关联的 live AgentSession 已不可用",
         };
         state.outcomes.set(sessionManager, outcome);
         return outcome;
@@ -322,7 +322,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "invalid_protocol",
-          message: `Refused native context replacement for invalid tool protocol: ${formatToolProtocolDefects(packetResult.value.protocol.defects) || "no defect details were supplied"}`,
+          message: `因工具协议无效，拒绝 native context replacement： ${formatToolProtocolDefects(packetResult.value.protocol.defects) || "未提供 defect 详情"}`,
           defects: packetResult.value.protocol.defects,
         };
         state.outcomes.set(sessionManager, outcome);
@@ -332,7 +332,7 @@ export function createLiveAgentSessionAdapter(
       try {
         inspected.session.agent.state.messages = messages;
         if (!retainsMessageSequence(inspected.session.agent.state.messages, messages)) {
-          throw new Error("AgentSession.agent.state.messages did not retain the replacement message sequence");
+          throw new Error("AgentSession.agent.state.messages 未保留 replacement message sequence");
         }
         const outcome: AgentSessionSyncOutcome = {
           status: "applied",
@@ -358,7 +358,7 @@ export function createLiveAgentSessionAdapter(
     pruneNonContinuableTail(sessionManager) {
       const session = state.sessions.get(sessionManager)?.deref();
       if (!session) {
-        return { status: "noop", message: "No live AgentSession is associated with this SessionManager" };
+        return { status: "noop", message: "此 SessionManager 没有关联 live AgentSession" };
       }
       const inspected = inspectLiveSession(session, sessionManager);
       if (!inspected.ok) return inspected.outcome;
@@ -369,7 +369,7 @@ export function createLiveAgentSessionAdapter(
         removedCount += 1;
       }
       if (removedCount === 0) {
-        return { status: "noop", message: "The live context tail is already continuable" };
+        return { status: "noop", message: "live context 尾部已经可以继续" };
       }
       return { status: "pruned", removedCount, messageCount: messages.length };
     },

@@ -2,15 +2,12 @@
   "name": "pi-context",
   "version": "3.0.0",
   "private": true,
-  "description": "Agentic Context Management for Pi — checkpoint, timeline, and time-travel tools",
+  "description": "Pi 的主动上下文管理扩展——存档、查看、折叠三个工具",
   "files": [
     "src",
-    "skills",
-    "docs",
+    "guidance",
     "README.md",
-    "AGENTS.md",
-    "CONTEXT.md",
-    "implementation-notes.html"
+    "AGENTS.md"
   ],
   "scripts": {
     "test": "bun test",
@@ -46,9 +43,6 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ],
-    "skills": [
-      "./skills"
     ]
   },
   "repository": {

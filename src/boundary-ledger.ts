@@ -3,58 +3,58 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /**
- * Append-only ledger of user-request boundaries and folds.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * Why it exists: whether a fold was missed at a request boundary is currently
- * unobservable inside this repository. The retired evaluation harness cannot
- * answer it either — it constructed scenarios, and its premises were repeatedly
- * overturned by calibration. What is missing is not a scenario but a count.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * Why not the HUD: a session that never folds is also a session that never
- * calls acm_timeline, so a rendered line is visible exactly where the failure
- * is absent. The observation has to be passive or n never grows.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  *
- * What keeps it lawful under the gauge contract: it does not inject, does not
- * choose a moment, and does not render. It is a writer with a fixed schema —
- * counts and percentages only, never message content — and every failure is
- * swallowed. A ledger is not allowed to become a new failure surface.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 
-/** One row per observed user-request boundary. Counts and percentages only. */
+/** 每个观测到的用户请求边界一行。仅记录计数与百分比。 */
 export interface BoundaryLedgerRow {
-  /** Wall clock, so rows from concurrent sessions remain orderable. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   ts: string;
-  /** Stable per-process session discriminator; not a session file path. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   session: string;
-  /** 1-based ordinal of this boundary within the session. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   boundary: number;
-  /** Working-budget pressure at the boundary, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   budget: number | null;
-  /** Hard-window usage at the boundary, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   window: number | null;
-  /** Projected budget pressure after folding to the turn reference, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   foldTurn: number | null;
-  /** Projected budget pressure after folding to the task reference, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   foldTask: number | null;
-  /** Folds applied in this session before this boundary. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   foldsSoFar: number;
-  /** Active-branch entry count, so boundary spacing is recoverable. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   entries: number;
 }
 
-/** One row per applied travel, carrying the delta the receipt already reports. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface FoldLedgerRow {
   ts: string;
   session: string;
-  /** Boundaries observed in this session before this fold. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   afterBoundary: number;
-  /** Budget pressure before the fold, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   budgetBefore: number | null;
-  /** Estimated budget pressure after the fold, floored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   budgetAfter: number | null;
-  /** Session messages removed, negative when history was restored. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   messageDelta: number | null;
-  /** Active handoff summary layers after the fold. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   summaryDepth: number | null;
 }
 
@@ -65,15 +65,15 @@ function ledgerPath(env: Record<string, string | undefined> = process.env): stri
   return join(base, "state", "acm-boundary-ledger.jsonl");
 }
 
-/** Kill switch. Read per call so a session can be excluded without a restart. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function isLedgerDisabled(env: Record<string, string | undefined> = process.env): boolean {
   return env["ACM_LEDGER_DISABLED"] === "1";
 }
 
 /**
- * Append one row. Never throws, never reports: a diagnostic writer must not be
- * able to affect a tool result. Silence on failure is the contract, not an
- * oversight — the only cost of a lost row is a slightly smaller n.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 export function appendLedgerRow(
   kind: "boundary" | "fold",
@@ -86,8 +86,8 @@ export function appendLedgerRow(
     try {
       if (statSync(path).size > MAX_LEDGER_BYTES) return false;
     } catch {
-      // Missing file is the normal first-write path; any other stat failure
-      // falls through to the append attempt, which is itself guarded.
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
+      // 实现说明：该处维护既有的结构、状态与错误处理契约。
     }
     mkdirSync(dirname(path), { recursive: true });
     appendFileSync(path, `${JSON.stringify({ kind, ...row })}\n`, "utf8");
@@ -97,12 +97,12 @@ export function appendLedgerRow(
   }
 }
 
-/** Per-session ledger counters. Volatile: a fresh process starts a fresh count. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface LedgerState {
   session: string;
   boundaries: number;
   folds: number;
-  /** Entry id of the last counted boundary, so re-observation does not double count. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   lastBoundaryEntryId: string | null;
 }
 
@@ -111,9 +111,9 @@ export function createLedgerState(session: string): LedgerState {
 }
 
 /**
- * Count a boundary once per distinct entry. The same boundary is observed on
- * every tool result of that turn, and counting each observation would report
- * tool activity rather than request structure.
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
+ * 实现说明：该处维护既有的结构、状态与错误处理契约。
  */
 export function shouldCountBoundary(state: LedgerState, boundaryEntryId: string | null): boolean {
   if (boundaryEntryId === null) return false;

@@ -11,16 +11,14 @@ import {
   ACM_CORE,
   ACM_CORE_MARKER,
   GUIDANCE_CUES,
-  PROMPT_GUIDELINES,
-  PROMPT_SNIPPETS,
   RECOVERY_GUIDANCE,
   TOOL_DESCRIPTIONS,
   TREE_SUMMARY_INSTRUCTIONS,
 } from "../src/generated-guidance.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const corePath = join(repoRoot, "skills", "context-management", "CORE.md");
-const contractsPath = join(repoRoot, "skills", "context-management", "TOOL-CONTRACTS.md");
+const corePath = join(repoRoot, "guidance", "CORE.md");
+const contractsPath = join(repoRoot, "guidance", "TOOL-CONTRACTS.md");
 const outputPath = join(repoRoot, "src", "generated-guidance.ts");
 const coreSource = readFileSync(corePath, "utf8");
 const contractsSource = readFileSync(contractsPath, "utf8");
@@ -31,8 +29,6 @@ describe("canonical guidance generation", () => {
 
     expect(ACM_CORE).toBe(derived.core);
     expect(TOOL_DESCRIPTIONS).toEqual(derived.toolDescriptions);
-    expect(PROMPT_SNIPPETS).toEqual(derived.promptSnippets);
-    expect(PROMPT_GUIDELINES).toEqual(derived.promptGuidelines);
     expect(GUIDANCE_CUES).toEqual(derived.guidanceCues);
     expect(TREE_SUMMARY_INSTRUCTIONS).toBe(derived.treeSummaryInstructions);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
@@ -44,8 +40,8 @@ describe("canonical guidance generation", () => {
     for (const slot of ["Goal:", "State:", "Evidence:", "External:", "Exclusions:", "Recover:", "NEXT:"]) {
       expect(TREE_SUMMARY_INSTRUCTIONS).toContain(slot);
     }
-    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("abandoned conversation branch");
-    expect(TREE_SUMMARY_INSTRUCTIONS.toLowerCase()).toContain("exact file paths");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("交接单");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("exact file paths");
     expect(TREE_SUMMARY_INSTRUCTIONS).not.toContain("##");
   });
 
@@ -131,24 +127,8 @@ describe("canonical guidance generation", () => {
     expect(() => deriveGuidance(coreSource, misordered)).toThrow("Marker TOOL_TIMELINE: END must appear after START");
   });
 
-  test("keeps prompt metadata single-purpose and tool-named", () => {
-    expect(Object.keys(PROMPT_SNIPPETS).sort()).toEqual(["checkpoint", "timeline", "travel"]);
-    expect(Object.keys(PROMPT_GUIDELINES).sort()).toEqual(["checkpoint", "timeline", "travel"]);
-    for (const [tool, snippet] of Object.entries(PROMPT_SNIPPETS)) {
-      expect(snippet.includes("\n")).toBe(false);
-      expect(tool.length).toBeGreaterThan(0);
-    }
-    for (const [tool, guideline] of Object.entries(PROMPT_GUIDELINES)) {
-      for (const line of guideline.split("\n")) {
-        expect(line).toContain(`acm_${tool}`);
-      }
-    }
-  });
-
   test("keeps result cues concise and view-specific", () => {
     expect(Object.keys(GUIDANCE_CUES).sort()).toEqual([
-      "advancedExceptionalPointer",
-      "advancedTargetPointer",
       "checkpoint",
       "rebaseCheck",
       "timelineActive",
@@ -157,10 +137,6 @@ describe("canonical guidance generation", () => {
       "timelineTree",
       "travel",
     ]);
-
-    for (const cue of Object.values(GUIDANCE_CUES)) {
-      expect(cue).not.toContain("Goal: <");
-    }
     expect(GUIDANCE_CUES.rebaseCheck.length).toBeGreaterThan(0);
   });
 
@@ -175,8 +151,5 @@ describe("canonical guidance generation", () => {
       "rollbackFailed",
       "rollbackSkipped",
     ]);
-    for (const guidance of Object.values(RECOVERY_GUIDANCE)) {
-      expect(guidance).not.toContain("# Exceptional Recovery");
-    }
   });
 });

@@ -5,31 +5,31 @@ export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->"
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "What we're trying to accomplish, including anything still owed to the user.",
+    description: "这项工作要完成什么，包括还欠用户的交付。",
   }),
   state: Type.String({
     minLength: 1,
-    description: "What's known, what's still uncertain, and the exact values, paths, and names needed next. Multiline text is allowed.",
+    description: "已知什么、还有什么不确定，以及接下来要用的具体值、路径、名字。可以写多行。",
   }),
   evidence: Type.String({
     minLength: 1,
-    description: "File paths, commands, and IDs that back up State. Write 'none' when empty.",
+    description: "支撑 state 的文件路径、命令、ID。没有写 'none'。",
   }),
   external: Type.String({
     minLength: 1,
-    description: "Files changed, commands run, systems touched — lasting side effects outside the conversation. Write 'none' when empty.",
+    description: "对话之外的持久副作用——改过的文件、跑过的命令、动过的系统。没有写 'none'。",
   }),
   exclusions: Type.String({
     minLength: 1,
-    description: "Approaches tried and ruled out, so they aren't retried. Write 'none' when empty.",
+    description: "试过并排除的方向，避免重踩。没有写 'none'。",
   }),
   recover: Type.String({
     minLength: 1,
-    description: "Checkpoint names or node IDs that can recover the folded history. Write 'none' when empty.",
+    description: "能找回被折叠历史的存档名或节点 ID。没有写 'none'。",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The single concrete next action to take right now.",
+    description: "现在立刻要做的下一步，写成一个具体动作。",
   }),
 }, { additionalProperties: false });
 
@@ -37,10 +37,10 @@ export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
   Type.String({
     minLength: 1,
-    description: "Fallback for providers that serialize nested arguments: a JSON string encoding the same 7-field object. Not free-form text.",
+    description: "兼容回退：把同一个 7 字段对象 JSON 序列化成字符串也可以，但不接受自由文本。",
   }),
 ], {
-  description: "The 7-field handoff object. A JSON-string encoding of the same object is also accepted.",
+  description: "7 字段交接单对象；也接受同一对象的 JSON 字符串编码。",
 });
 
 export type HandoffInput = Static<typeof StructuredHandoffSchema>;

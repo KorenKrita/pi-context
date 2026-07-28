@@ -47,7 +47,7 @@ test("plain /tree summarize receives the handoff prompt through the exact Pi run
 
     expect(result.replaceInstructions).toBe(true);
     expect(result.customInstructions.startsWith(TREE_SUMMARY_INSTRUCTIONS)).toBe(true);
-    expect(result.customInstructions).toContain(`The abandoned branch tip is node ${oldLeafId}`);
+    expect(result.customInstructions).toContain(`废弃分支末端是节点 ${oldLeafId}`);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

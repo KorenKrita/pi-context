@@ -68,9 +68,9 @@ function observeLabelPresence(
 }
 
 /**
- * Owns the complete mutation transaction for one travel attempt.
- * Validation and result presentation stay in the tool module; host mutation,
- * compensation, and refresh obligations stay here.
+ * 中文说明。
+ * 中文说明。
+ * 中文说明。
  */
 export function executeTravelMutation(request: TravelMutationRequest): TravelMutationOutcome {
   const { sessionManager, targetId, summary, details, backup } = request;

@@ -44,12 +44,12 @@ export interface CheckpointLabelPrevalidation {
   targetId: string;
   name: string;
   status: "would_create" | "already_present";
-  /** The label the host currently reports for this entry, if any. */
+  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   existingLabel: string | undefined;
   existingLabelEntryId?: string;
 }
 
-/** The target already carries a different label; writing this name would erase it. */
+/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface CheckpointLabelDisplacement {
   targetId: string;
   name: string;
@@ -209,14 +209,14 @@ export function buildSessionMessages(
     entries = sm.getEntries();
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    return failure("host_operation_failed", `Failed to read session state: ${cause}`, { leafId: effectiveLeaf, cause });
+    return failure("host_operation_failed", `无法读取会话状态: ${cause}`, { leafId: effectiveLeaf, cause });
   }
   try {
     const byId = new Map(entries.map((entry) => [entry.id, entry]));
     return success(buildSessionContext(entries, effectiveLeaf, byId).messages as AgentMessage[]);
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    return failure("malformed_capability", `Failed to build session messages: ${cause}`, { leafId: effectiveLeaf, cause });
+    return failure("malformed_capability", `无法 build session messages: ${cause}`, { leafId: effectiveLeaf, cause });
   }
 }
 
@@ -226,20 +226,20 @@ export function prevalidateCheckpointLabel(
   name: string,
 ): HostResult<CheckpointLabelPrevalidation, { targetId: string; name: string } | ({ targetId: string; name: string } & HostObservationFailureDetails) | CheckpointLabelConflict | CheckpointLabelDisplacement> {
   if (isReservedTargetName(name)) {
-    return failure("reserved_name", `Checkpoint name '${name}' is reserved for the structural root target`, { targetId, name });
+    return failure("reserved_name", `Checkpoint 名称 '${name}' 为结构 root target 保留`, { targetId, name });
   }
   if (!getHostCapabilities(sm).appendLabelChange) {
-    return failure("missing_capability", "SessionManager does not support appendLabelChange — cannot create checkpoint label", { targetId, name });
+    return failure("missing_capability", "SessionManager 不支持 appendLabelChange — 无法 create checkpoint label", { targetId, name });
   }
   try {
-    if (!sm.getEntry(targetId)) return failure("entry_not_found", `Entry ${targetId} not found`, { targetId, name });
+    if (!sm.getEntry(targetId)) return failure("entry_not_found", `Entry ${targetId} 未找到`, { targetId, name });
 
     const entries = sm.getEntries();
     const maps = buildLabelMaps(entries);
     const existingOwner = maps.labelToEntryId.get(name);
     if (existingOwner && existingOwner !== targetId) {
       const activeIds = new Set(sm.getBranch().map((entry) => entry.id));
-      return failure("label_conflict", `Checkpoint name '${name}' already exists at ${existingOwner}`, {
+      return failure("label_conflict", `Checkpoint 名称 '${name}' 已存在于 ${existingOwner}`, {
         entryId: existingOwner,
         onActivePath: activeIds.has(existingOwner),
       });
@@ -256,19 +256,19 @@ export function prevalidateCheckpointLabel(
       }
       return success({ targetId, name, status: "already_present", existingLabel, existingLabelEntryId: existing.id });
     }
-    // The host keeps one label per entry, so writing this name would erase the
-    // existing one — and a save point that vanishes silently is worse than none.
+    // 实现说明：该处维护既有的结构、状态与错误处理契约。
+    // 实现说明：该处维护既有的结构、状态与错误处理契约。
     if (existingLabel !== undefined) {
       return failure(
         "label_displaces_existing",
-        `Entry ${targetId} already carries checkpoint '${existingLabel}'; writing '${name}' would replace it because the host keeps one label per entry`,
+        `Entry ${targetId} 已携带 checkpoint '${existingLabel}'; 写入 '${name}' 会替换它，因为 host 对每个 entry 只保留一个 label`,
         { targetId, name, existingLabel },
       );
     }
     return success({ targetId, name, status: "would_create", existingLabel: undefined });
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    return failure("host_operation_failed", `Failed to inspect checkpoint label state: ${cause}`, { targetId, name, cause });
+    return failure("host_operation_failed", `无法检查 checkpoint 标签状态: ${cause}`, { targetId, name, cause });
   }
 }
 
@@ -309,7 +309,7 @@ export function appendCheckpointLabel(
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Failed to snapshot label state before append: ${cause}`, {
+      ...failure("host_operation_failed", `追加前无法快照标签状态: ${cause}`, {
         targetId,
         name,
         priorLabel: prevalidation.value.existingLabel,
@@ -340,7 +340,7 @@ export function appendCheckpointLabel(
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Could not verify appendLabelChange after mutation attempt: ${cause}`, {
+      ...failure("host_operation_failed", `变更尝试后无法验证 appendLabelChange: ${cause}`, {
         targetId,
         name,
         priorLabel: prevalidation.value.existingLabel,
@@ -372,7 +372,7 @@ export function appendCheckpointLabel(
   return {
     ...failure(
       hostError ? "host_operation_failed" : "malformed_capability",
-      hostError ? `appendLabelChange failed: ${hostError}` : "appendLabelChange did not create the expected label journal entry",
+      hostError ? `appendLabelChange 失败: ${hostError}` : "appendLabelChange 未能 create the expected label journal entry",
       {
         targetId,
         name,
@@ -396,7 +396,7 @@ export function rollbackCheckpointLabel(
     return {
       ...failure(
         "missing_capability",
-        "SessionManager does not support appendLabelChange — cannot roll back checkpoint label",
+        "SessionManager 不支持 appendLabelChange — 无法 roll back checkpoint label",
         { targetId: token.targetId, label: token.name, expectedLabel: token.priorLabel },
       ),
       state: "not_applied",
@@ -409,7 +409,7 @@ export function rollbackCheckpointLabel(
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Failed to snapshot the label before checkpoint rollback: ${cause}`, {
+      ...failure("host_operation_failed", `回滚 checkpoint 前无法快照标签: ${cause}`, {
         targetId: token.targetId,
         label: token.name,
         expectedLabel: token.priorLabel,
@@ -418,13 +418,13 @@ export function rollbackCheckpointLabel(
       state: "not_applied",
     };
   }
-  // Only undo what this token actually wrote. If the entry no longer carries
-  // that label, something else moved it and a blind restore would clobber it.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   if (labelBefore !== token.name) {
     return {
       ...failure(
         "unsafe_rollback",
-        "The checkpoint label changed after append; rollback would overwrite another operation",
+        "checkpoint label 在 append 后发生变化；rollback 将覆盖另一项操作",
         {
           targetId: token.targetId,
           label: token.name,
@@ -437,8 +437,8 @@ export function rollbackCheckpointLabel(
     };
   }
 
-  // The host keeps one label per entry, so restoring is a single write: the
-  // prior label, or a clear when the entry carried none.
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
+  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   let hostError: string | undefined;
   let compensationError: string | undefined;
   const restorePriorLabel = (): void => {
@@ -460,7 +460,7 @@ export function rollbackCheckpointLabel(
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Could not verify checkpoint rollback after mutation attempt: ${cause}`, {
+      ...failure("host_operation_failed", `变更尝试后无法验证 checkpoint 回滚: ${cause}`, {
         targetId: token.targetId,
         label: token.name,
         expectedLabel: token.priorLabel,
@@ -478,7 +478,7 @@ export function rollbackCheckpointLabel(
   return {
     ...failure(
       hostError ? "host_operation_failed" : "malformed_capability",
-      hostError ? `appendLabelChange rollback failed: ${hostError}` : "appendLabelChange rollback did not restore the previous label",
+      hostError ? `appendLabelChange rollback 失败: ${hostError}` : "appendLabelChange rollback 未能 restore the previous label",
       {
         targetId: token.targetId,
         label: token.name,
@@ -498,14 +498,14 @@ export function prevalidateBranchWithSummary(
   branchFromId: string,
 ): HostResult<BranchWithSummaryPrevalidation, { branchFromId: string } | ({ branchFromId: string } & HostObservationFailureDetails)> {
   if (!getHostCapabilities(sm).branchWithSummary) {
-    return failure("missing_capability", "SessionManager does not support branchWithSummary — cannot travel", { branchFromId });
+    return failure("missing_capability", "SessionManager 不支持 branchWithSummary — 无法 travel", { branchFromId });
   }
   try {
-    if (!sm.getEntry(branchFromId)) return failure("entry_not_found", `Entry ${branchFromId} not found`, { branchFromId });
+    if (!sm.getEntry(branchFromId)) return failure("entry_not_found", `Entry ${branchFromId} 未找到`, { branchFromId });
     return success({ branchFromId, leafBefore: sm.getLeafId() });
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    return failure("host_operation_failed", `Failed to inspect branch state before travel: ${cause}`, { branchFromId, cause });
+    return failure("host_operation_failed", `travel 前无法检查分支状态: ${cause}`, { branchFromId, cause });
   }
 }
 
@@ -521,7 +521,7 @@ export function applyBranchWithSummary(
   const branch = getHostMethod<(id: string | null, summary: string, details?: unknown, fromExtension?: boolean) => unknown>(sm, "branchWithSummary");
   if (!branch) {
     return {
-      ...failure("missing_capability", "SessionManager no longer exposes branchWithSummary — travel was not applied", { branchFromId }),
+      ...failure("missing_capability", "SessionManager no longer exposes branchWithSummary — travel 未应用", { branchFromId }),
       state: "not_applied",
     };
   }
@@ -548,7 +548,7 @@ export function applyBranchWithSummary(
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {
-      ...failure("host_operation_failed", `Could not verify branchWithSummary after mutation attempt: ${cause}`, {
+      ...failure("host_operation_failed", `变更尝试后无法验证 branchWithSummary: ${cause}`, {
         branchFromId,
         leafBefore,
         ...(hostReturnedEntryId === undefined ? {} : { hostReturnedEntryId }),
@@ -585,10 +585,10 @@ export function applyBranchWithSummary(
     ...failure(
       hostError ? "host_operation_failed" : "branch_verification_failed",
       hostError
-        ? `branchWithSummary failed: ${hostError}`
+        ? `branchWithSummary 失败: ${hostError}`
         : exactSummary && leafAfter === leafBefore
           ? "branchWithSummary left the active leaf unchanged; the matching summary predates this mutation attempt"
-          : "branchWithSummary did not create the expected summary entry at the resulting leaf",
+          : "branchWithSummary 未能 create the expected summary entry at the resulting leaf",
       failureDetails,
     ),
     state: leafAfter === leafBefore ? "not_applied" : "indeterminate",
