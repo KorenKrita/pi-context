@@ -277,7 +277,6 @@ function trustedContinuationMetadata(
   ) return undefined;
   const key = continuationKey(message.summary, message.fromId, message.timestamp);
   const candidates = trusted.get(key);
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   // 候选必须保持存档形态：它们的顺序是证据，不是把每份交接单都当权威的许可。
   if (!candidates || candidates.length === 0) return undefined;
   if (candidates.length !== 1) return { candidates: candidates.length };
@@ -321,9 +320,6 @@ export function normalizeExistingAcmPacket(
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
   });
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   const latestCandidate = candidates.at(-1);
   const projected = latestCandidate?.metadata
     ? messages.map((message, index) => index === latestCandidate.index
@@ -356,7 +352,6 @@ export function normalizeExistingAcmPacketForSession(
     return normalizeExistingAcmPacket(messages, sessionManager.getBranch());
   } catch {
     // 宿主已投影的消息仍以存档形态可用。分支读取瞬时失败或能力不完整时，
-    // 实现说明：该处维护既有的结构、状态与错误处理契约。
     return normalizeExistingAcmPacket(messages);
   }
 }

@@ -1,30 +1,7 @@
 import { buildLabelMaps, estimateUsageAfterMessageChange, getEntryLabel, type LabelMaps, type UsageLike } from "./lib.js";
 
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- *
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
-
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- *
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
 const NOMINAL_HANDOFF_TOKENS = 400;
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface FoldEstimateEntry {
   readonly id: string;
   readonly type?: string;
@@ -32,24 +9,17 @@ export interface FoldEstimateEntry {
 }
 
 export interface FoldReference {
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   entryId: string;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   label: string | null;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface FoldReferences {
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   turn: FoldReference | null;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   task: FoldReference | null;
 }
 
 export interface FoldEstimates {
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   turnPercent: number | null;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   taskPercent: number | null;
 }
 
@@ -61,33 +31,13 @@ function labelOf(labelMaps: LabelMaps, entryId: string): string | null {
   return getEntryLabel(labelMaps, entryId) ?? null;
 }
 
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
 export function selectFoldReferences(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
   excludeId?: string,
 ): FoldReferences {
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   //
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   //
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   let currentTurnStart = -1;
   for (let index = branch.length - 1; index >= 0; index--) {
     if (isUserBoundary(branch[index]!)) {
@@ -130,7 +80,6 @@ export function selectFoldReferences(
   return { turn, task };
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function findNearestSavePoint(
   branch: readonly FoldEstimateEntry[],
   labelMaps: LabelMaps,
@@ -146,7 +95,6 @@ export function findNearestSavePoint(
 
 export interface FoldEstimateInputs {
   usage: UsageLike | undefined;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   workingBudgetTokens: number;
   currentMessages: Parameters<typeof estimateUsageAfterMessageChange>[1];
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
@@ -159,11 +107,6 @@ function projectedBudgetPercent(
   if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
   const after = inputs.messagesAt(reference.entryId);
   if (!after) return null;
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   const estimate = estimateUsageAfterMessageChange(
     inputs.usage,
     inputs.currentMessages,
@@ -174,7 +117,6 @@ function projectedBudgetPercent(
   return (estimate.tokens * 100) / inputs.workingBudgetTokens;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function estimateFoldGains(
   inputs: FoldEstimateInputs,
   references: FoldReferences,

@@ -5,10 +5,8 @@ export type ContextWorkingBudgetPolicy = "actual-window" | "400k-cap";
 export interface ContextUsagePressure {
   tokens: number;
   contextWindow: number;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   usagePercent: number;
   workingBudgetTokens: number;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   pressurePercent: number;
   policy: ContextWorkingBudgetPolicy;
 }

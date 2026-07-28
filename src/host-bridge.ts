@@ -44,12 +44,10 @@ export interface CheckpointLabelPrevalidation {
   targetId: string;
   name: string;
   status: "would_create" | "already_present";
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   existingLabel: string | undefined;
   existingLabelEntryId?: string;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface CheckpointLabelDisplacement {
   targetId: string;
   name: string;
@@ -256,8 +254,6 @@ export function prevalidateCheckpointLabel(
       }
       return success({ targetId, name, status: "already_present", existingLabel, existingLabelEntryId: existing.id });
     }
-    // 实现说明：该处维护既有的结构、状态与错误处理契约。
-    // 实现说明：该处维护既有的结构、状态与错误处理契约。
     if (existingLabel !== undefined) {
       return failure(
         "label_displaces_existing",
@@ -418,8 +414,6 @@ export function rollbackCheckpointLabel(
       state: "not_applied",
     };
   }
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   if (labelBefore !== token.name) {
     return {
       ...failure(
@@ -437,8 +431,6 @@ export function rollbackCheckpointLabel(
     };
   }
 
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
-  // 实现说明：该处维护既有的结构、状态与错误处理契约。
   let hostError: string | undefined;
   let compensationError: string | undefined;
   const restorePriorLabel = (): void => {

@@ -29,7 +29,7 @@ export const StructuredHandoffSchema = Type.Object({
   recover: Type.Optional(Type.String({
     description: "可选：能找回被折叠历史的存档名或节点 ID。",
   })),
-}, { additionalProperties: false });
+}); // 允许并忽略多余字段：多带一个字段不该让整次折叠失败。
 
 export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
@@ -58,12 +58,13 @@ export type HandoffField = keyof HandoffInput;
 export type HandoffDefect =
   | { field: HandoffField; reason: "empty" | "none_not_allowed" | "invalid_type" }
   | { field: "handoff"; reason: "invalid_json" }
-  | { field: "handoff"; reason: "unexpected_field"; name: string }
   | { field: "rawArchiveAlias"; reason: "invalid_archive_alias" };
 
 export interface CanonicalHandoff {
   fields: HandoffInput;
   text: string;
+  /** 传入但不认识、被忽略的字段名（不阻断折叠，仅供回执提示）。 */
+  ignoredFields: string[];
 }
 
 export type HandoffBuildResult =
@@ -133,14 +134,13 @@ export function buildCanonicalHandoff(
       defects.push({ field, reason: "none_not_allowed" });
     }
   }
+  // 多余字段忽略不拒绝：记入 ignoredFields 供回执提示。
   const knownFields = new Set<string>(FIELD_ORDER.map(({ field }) => field));
-  for (const name of Object.keys(inputRecord)) {
-    if (!knownFields.has(name)) defects.push({ field: "handoff", reason: "unexpected_field", name });
-  }
+  const ignoredFields = Object.keys(inputRecord).filter((name) => !knownFields.has(name));
   const rawArchiveAlias = facts.rawArchiveAlias === undefined
     ? undefined
     : normalize(facts.rawArchiveAlias);
-  if (facts.rawArchiveAlias !== undefined && (!rawArchiveAlias || !/^[A-Za-z0-9._-]+$/.test(rawArchiveAlias))) {
+  if (facts.rawArchiveAlias !== undefined && (!rawArchiveAlias || !/^[^\s\p{Cc}]+$/u.test(rawArchiveAlias))) {
     defects.push({ field: "rawArchiveAlias", reason: "invalid_archive_alias" });
   }
   if (defects.length > 0) return { ok: false, defects };
@@ -167,6 +167,7 @@ export function buildCanonicalHandoff(
         ACM_CONTINUATION_MARKER,
         ...FIELD_ORDER.map(({ field, label }) => renderField(label, fields[field])),
       ].join("\n"),
+      ignoredFields,
     },
   };
 }

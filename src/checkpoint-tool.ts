@@ -55,14 +55,14 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
   const schema = Type.Object({
     name: Type.String({
       minLength: 1,
-      pattern: "^[A-Za-z0-9._-]+$",
-      description: "存档名，例如 before-refactor、api-baseline。本会话内唯一（'root' 是保留字）。",
+      pattern: "^\\S+$",
+      description: "存档名，例如 before-refactor、重构前。本会话内唯一（'root' 是保留字）。",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
       description: "要标记的节点 ID 或已有存档名。不传就标记当前位置（推荐）。",
     })),
-  }, { additionalProperties: false });
+  }); // 多余参数忽略，不拒绝。
 
   pi.registerTool({
     name: "acm_checkpoint",

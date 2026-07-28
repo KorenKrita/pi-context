@@ -17,11 +17,6 @@ import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCount
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
 function appendSuffixPatch<T extends ToolResultEventContent>(
   content: readonly T[],
   suffix: string,
@@ -116,11 +111,6 @@ function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): Ag
     : [protocolRecoveryMessage()];
 }
 
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
 export function buildTreeSummaryInstructions(oldLeafId: string | null): string {
   if (!oldLeafId) return TREE_SUMMARY_INSTRUCTIONS;
   return `${TREE_SUMMARY_INSTRUCTIONS}\n\n废弃分支末端是节点 ${oldLeafId}。除非分支包含更具体的存档，否则请在 Recover 槽中写出它。`;
@@ -246,7 +236,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
     return patch;
   });
-
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
     // 实现细节与生命周期安全约束。

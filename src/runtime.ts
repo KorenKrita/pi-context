@@ -29,7 +29,6 @@ interface DeferredTravelRefreshState {
 interface CachedProviderPacket {
   readonly messages: AgentMessage[];
   readonly leafId: string | null;
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   readonly sourceMessages: AgentMessage[];
 }
 
@@ -65,7 +64,6 @@ function suffixAfterKnownPrefix(
  * 中文说明。
  * 中文说明。
  */
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export type ProviderDeliveryPhase =
   | "active"
   | "pending_tool_result"
@@ -101,7 +99,6 @@ export interface ProviderDeliveryStatus {
   readonly usageObserved: boolean;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export class AcmSessionRuntime {
   readonly contextRefresh = new ContextRefreshRegistry();
   readonly liveAgentSessions: LiveAgentSessionAdapter;
@@ -159,7 +156,6 @@ export class AcmSessionRuntime {
     return liveAgentSessionSync;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   shouldKeepCurrentRunContext(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     return deferred?.receiptStatus === "pending"
@@ -199,7 +195,6 @@ export class AcmSessionRuntime {
     };
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   markProviderCutoverReady(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.toolCallId !== toolCallId) return false;
@@ -223,7 +218,6 @@ export class AcmSessionRuntime {
       : undefined;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   rejectProviderCutover(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.toolCallId !== toolCallId || deferred.receiptStatus !== "pending") return false;
@@ -247,7 +241,6 @@ export class AcmSessionRuntime {
     return true;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   activateProviderPacket(
     session: object,
     messages: readonly AgentMessage[],
@@ -267,7 +260,6 @@ export class AcmSessionRuntime {
     return true;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   recordProviderDeliveryFailure(
     session: object,
     message: string,
@@ -306,7 +298,6 @@ export class AcmSessionRuntime {
     return tail === undefined ? undefined : [...packet.messages, ...tail];
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   cacheProviderFallbackPacket(
     session: object,
     messages: readonly AgentMessage[],
@@ -326,7 +317,6 @@ export class AcmSessionRuntime {
     return true;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   shouldRebuildProviderContext(session: object): boolean {
     // 中文说明。
     // 中文说明。
@@ -334,7 +324,6 @@ export class AcmSessionRuntime {
     // 中文说明。
     return this.deferredTravelRefresh.get(session)?.providerPhase === "active";
   }
-
 
   isProviderDeliveryActive(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
@@ -365,7 +354,6 @@ export class AcmSessionRuntime {
     return deferred?.toolCallId === toolCallId;
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   settleDeferredRefresh(session: object): AgentSessionSyncOutcome | undefined {
     const deferred = this.deferredTravelRefresh.get(session);
     if (!deferred || deferred.nativeSettled || deferred.receiptStatus !== "accepted") return undefined;
@@ -453,7 +441,6 @@ export class AcmSessionRuntime {
     return shouldShowGauge(this.gaugeState(session), pressurePercent);
   }
 
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   confirmGaugeShown(session: object, pressurePercent: number): void {
     markGaugeShown(this.gaugeState(session), pressurePercent);
   }

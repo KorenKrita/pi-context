@@ -16,7 +16,6 @@ import type { FoldEstimates } from "./fold-estimate.js";
  * 对「重要时刻」零编辑判断。
  */
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function isGaugeDisabled(env: Record<string, string | undefined> = process.env): boolean {
   return env["ACM_GAUGE_DISABLED"] === "1";
 }
@@ -26,9 +25,7 @@ export function isAcmTool(toolName: string): boolean {
   return toolName.startsWith("acm_");
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface GaugeState {
-  /** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
   lastShownPercent: number | null;
 }
 
@@ -38,7 +35,6 @@ export function createGaugeState(): GaugeState {
 
 /**
  * 里程表节奏：整数位与上次显示不同才显示。向下变化也显示——折叠后看着数字
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
  * 切换后的新读数正是值得渲染一次的事实。
  */
 export function shouldShowGauge(state: GaugeState, pressurePercent: number): boolean {

@@ -146,7 +146,7 @@ describe("travel batch safety", () => {
         toolCallId: TOOL_CALL_ID,
         toolCallCount: 2,
       });
-      expect((result.content[0] as { text: string }).text).toContain("alone in its assistant tool batch");
+      expect((result.content[0] as { text: string }).text).toContain("必须单独成批调用");
       expect(sessionManager.getLeafId()).toBe(leafId);
       expect(sessionManager.getEntries()).toEqual(entriesBefore);
       expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
@@ -621,7 +621,6 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       error: "invalid_handoff",
       defects: [
         { field: "next", reason: "invalid_type" },
-        { field: "handoff", reason: "unexpected_field", name: "unexpected" },
       ],
     });
     expect(sessionManager.getLeafId()).toBe(headId);
@@ -982,7 +981,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       activeSummaryDepthDelta: 1,
       currentUserTurnOpen: false,
     });
-    expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
+    expect((result.content[0] as { text: string }).text).toContain("摘要深度 0 → 1");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);

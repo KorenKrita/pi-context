@@ -9,25 +9,21 @@ export const ACM_INTERNAL_TOOLS = new Set(["acm_checkpoint", "acm_timeline", "ac
 /** 限制向后搜索协议完整锚点的窗口，避免一个未闭合批次引发全分支 O(n²) 扫描。 */
 export const ANCHOR_SEARCH_WINDOW = 200;
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function isReservedTargetName(name: string): boolean {
  return name.toLowerCase() === "root";
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function sanitizeTerminalText(value: string): string {
  return value
   .replace(/\r\n?/g, "\n")
   .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "");
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function optionalString(value: unknown): string | undefined {
  const trimmed = typeof value === "string" ? value.trim() : "";
  return trimmed.length > 0 ? trimmed : undefined;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
 export function formatBoundaryTravelCue(nearestCheckpointName: string | null): string {
@@ -47,7 +43,6 @@ export interface UsageLike {
  percent: number;
 }
 
-
 export interface ResolvedTarget {
  id: string;
  fromOffPath: boolean;
@@ -63,8 +58,6 @@ export type MeaningfulSkipReason =
  | "empty_assistant"
  | "empty_user";
 
-
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export class ContextRefreshRegistry {
  static readonly MAX_ATTEMPTS = 3;
 
@@ -100,10 +93,6 @@ export class ContextRefreshRegistry {
   return this.failures.get(sm);
  }
 
-	/**
-	 * 实现说明：该处维护既有的结构、状态与错误处理契约。
-	 * 实现说明：该处维护既有的结构、状态与错误处理契约。
-	 */
  recordFailedAttempt(sm: object, message: string): boolean {
   const next = Math.min((this.attempts.get(sm) ?? 0) + 1, ContextRefreshRegistry.MAX_ATTEMPTS);
   this.attempts.set(sm, next);
@@ -155,7 +144,6 @@ export function isValidEntryId(id: string): boolean {
  return id.length > 0;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function pushTreeChildrenPreOrder(stack: SessionTreeNode[], children: SessionTreeNode[]): void {
  for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
 }
@@ -194,7 +182,6 @@ export function findInTree(
  return undefined;
 }
 
-
 export function getEntryLabel(labelMaps: LabelMaps, entryId: string): string | undefined {
  return labelMaps.entryToLabel.get(entryId);
 }
@@ -202,7 +189,6 @@ export function getEntryLabel(labelMaps: LabelMaps, entryId: string): string | u
 export function formatEntryLabel(labelMaps: LabelMaps, entryId: string): string | undefined {
  return getEntryLabel(labelMaps, entryId);
 }
-
 
 export function findCheckpointLabelOwner(
  labelMaps: LabelMaps,
@@ -214,8 +200,6 @@ export function findCheckpointLabelOwner(
  return { entryId, onActivePath: backboneIds.has(entryId) };
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export interface SessionStructuralView {
  getEntries(): SessionEntry[];
  getBranch(fromId?: string): SessionEntry[];
@@ -282,16 +266,13 @@ export function classifyStructuralMessageDirection(
  return after < before ? "decreased" : "increased";
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function countActiveSummaryDepth(branch: SessionEntry[]): number {
  return branch.reduce((depth, entry) => depth + (entry.type === "branch_summary" ? 1 : 0), 0);
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function projectSummaryDepthAfterTravel(targetBranch: SessionEntry[]): number {
  return countActiveSummaryDepth(targetBranch) + 1;
 }
-
 
 export function sumMessageTokens(messages: AgentMessage[]): number {
  return messages.reduce((sum, msg) => sum + estimateTokens(msg), 0);
@@ -357,7 +338,6 @@ export function getMeaningfulSkipReason(entry: SessionEntry): MeaningfulSkipReas
   } else if (msg.content === null || msg.content === undefined) {
    return "empty_assistant";
   } else {
-   // 实现说明：该处维护既有的结构、状态与错误处理契约。
    const raw: unknown = msg.content;
    if (typeof raw === "string") {
     if (raw.trim().length === 0) return "empty_assistant";

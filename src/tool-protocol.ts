@@ -14,7 +14,6 @@ export type ToolProtocolDefect =
   | { kind: "invalid_tool_name"; assistantIndex: number; contentIndex: number; toolCallId?: string }
   | { kind: "duplicate_tool_call_id"; assistantIndex: number; toolCallId: string };
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function formatToolProtocolDefects(defects: readonly ToolProtocolDefect[]): string {
   return defects.map((defect) => {
     if (defect.kind === "duplicate_tool_call_id") {
@@ -53,7 +52,6 @@ function assistantHasVisibleText(entry: SessionEntry): boolean {
     && block.text.trim().length > 0);
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function hasOpenLatestUserTurn(entries: readonly SessionEntry[]): boolean {
   let latestUserIndex = -1;
   for (let index = entries.length - 1; index >= 0; index--) {
@@ -67,7 +65,6 @@ export function hasOpenLatestUserTurn(entries: readonly SessionEntry[]): boolean
   return !entries.slice(latestUserIndex + 1).some(assistantHasVisibleText);
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function hasOpenUserTurnAtAssistant(
   entries: readonly SessionEntry[],
   assistantEntryIndex: number,
@@ -178,7 +175,6 @@ function findToolCallDefects(messages: readonly AgentMessage[]): ToolProtocolDef
   return defects;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProtocolAnalysis {
   const defects = findToolCallDefects(messages);
   if (defects.length > 0) {
@@ -291,12 +287,10 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
   };
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function fixOrphanedToolUse(messages: readonly AgentMessage[]): AgentMessage[] {
   return analyzeToolProtocol(messages).messages;
 }
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export function findContainingAssistantToolBatch(
   entries: readonly SessionEntry[],
   toolCallId: string,

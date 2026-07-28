@@ -42,16 +42,6 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
 
-/**
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- *
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- * 实现说明：该处维护既有的结构、状态与错误处理契约。
- */
 function isAcmBookkeepingEntry(entry: { readonly type?: string } | undefined): boolean {
   return entry?.type === "label";
 }
@@ -88,8 +78,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
   const schema = Type.Object({
     target: Type.String({ minLength: 1, description: "要回到的位置：存档名、节点 ID 或 'root'。选在待折内容【之前】的最后一个干净点。用 acm_timeline 的 checkpoints 或 search 视图找候选。" }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "可选：折叠前给当前位置起个新书签名，方便日后找回完整历史。必须是全新的唯一名字；不影响跳转目标。" })),
-  }, { additionalProperties: false });
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^\\S+$", description: "可选：折叠前给当前位置起个新书签名，方便日后找回完整历史。必须是全新的唯一名字；不影响跳转目标。" })),
+  }); // 多余参数忽略，不拒绝。
 
   pi.registerTool({
     name: "acm_travel",
@@ -188,18 +178,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       if (
         rawBackup !== undefined
         && rawBackup !== null
-        && (backupCurrentHeadAs === undefined || !/^[A-Za-z0-9._-]+$/.test(backupCurrentHeadAs))
+        && (backupCurrentHeadAs === undefined || !/^[^\s\p{Cc}]+$/u.test(backupCurrentHeadAs))
       ) {
         paramDefects.push("backupCurrentHeadAs:invalid_type_or_format");
       }
-      for (const name of Object.keys(rawRecord)) {
-        if (name !== "target" && name !== "handoff" && name !== "backupCurrentHeadAs") {
-          paramDefects.push(`unexpected:${name}`);
-        }
-      }
+      // 多余顶层参数一律忽略：不给调用设门槛。
       if (paramDefects.length > 0) {
         return {
-          content: [{ type: "text" as const, text: `Error: acm_travel parameters are invalid: ${paramDefects.join(", ")}. Nothing was mutated.` }],
+          content: [{ type: "text" as const, text: `错误：acm_travel 参数无效：${paramDefects.join(", ")}。没有做任何变更。` }],
           details: { error: "invalid_params", defects: paramDefects },
         };
       }
@@ -210,7 +196,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
-          content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
+          content: [{ type: "text" as const, text: `错误：书签名 '${params.backupCurrentHeadAs}' 是保留字（root 是结构目标）。折叠已在变更前中止。` }],
           details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
         };
       }
@@ -219,7 +205,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       });
       if (!handoffResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
+          content: [{ type: "text" as const, text: `错误：交接单无效：${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}。修复所列字段后重新调用 acm_travel；没有做任何变更。` }],
           details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
@@ -236,7 +222,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         : false;
       if (containingToolCallCount !== null && containingToolCallCount > 1) {
         return {
-          content: [{ type: "text" as const, text: `Error: acm_travel must run alone in its assistant tool batch; found ${containingToolCallCount} tool calls in the containing assistant message. Travel aborted before mutation. Reissue acm_travel in a new assistant message without sibling tools.` }],
+          content: [{ type: "text" as const, text: `错误：acm_travel 必须单独成批调用；当前 assistant 消息里有 ${containingToolCallCount} 个工具调用。折叠已在变更前中止。请在新的 assistant 消息里单独重发 acm_travel。` }],
           details: { error: "mixed_tool_batch", toolCallId, toolCallCount: containingToolCallCount },
         };
       }
@@ -253,7 +239,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const targetIsStructuralRoot = tree[0]?.entry.id === targetId;
       if (requestedRoot && !isValidEntryId(targetId)) {
         return {
-          content: [{ type: "text" as const, text: "Error: Cannot travel to root — session tree is empty." }],
+          content: [{ type: "text" as const, text: "错误：会话树是空的，无法折叠到 root。" }],
           details: { error: "empty_session", requestedTarget: params.target },
         };
       }
@@ -262,15 +248,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
       const targetNode = findInTree(tree, (node) => node.entry.id === targetId);
       if (!targetNode) {
-        const hint = " Use acm_timeline to choose the last clean node before the material being folded; raw node IDs are valid targets.";
+        const hint = " 用 acm_timeline 找待折内容之前最近的干净节点；节点 ID 也可以直接作目标。";
         return {
-          content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
+          content: [{ type: "text" as const, text: `错误：目标 '${params.target}' 在会话树里不存在。${hint}` }],
           details: { error: "target_not_found", requestedTarget: params.target, resolvedTargetId: targetId },
         };
       }
 
       const currentLeaf = sessionManager.getLeafId();
-      if (!currentLeaf) return { content: [{ type: "text" as const, text: "Error: No active leaf in session. Cannot travel." }], details: { error: "no_active_leaf" } };
+      if (!currentLeaf) return { content: [{ type: "text" as const, text: "错误：会话没有活动叶节点，无法折叠。" }], details: { error: "no_active_leaf" } };
       if (currentLeaf === targetId) {
         return {
           content: [{ type: "text" as const, text: `Already at target ${targetId}. Nothing to travel.` }],
@@ -297,7 +283,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const currentPacketResult = rebuildAcmContextPacket(sessionManager);
       if (!currentPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentPacketResult.message}. Travel aborted.` }],
+          content: [{ type: "text" as const, text: `错误：无法重建当前会话消息：${currentPacketResult.message}。折叠已中止。` }],
           details: { error: "build_messages_failed", message: currentPacketResult.message, target: params.target, targetId },
         };
       }
@@ -306,7 +292,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return {
           content: [{
             type: "text" as const,
-            text: `Error: current active session has invalid tool-call identity and cannot be traveled safely: ${formatToolProtocolDefects(currentPacket.protocol.defects) || "no defect details were supplied"}. Repair the current session protocol before retrying; nothing was mutated.`,
+            text: `错误：当前活动会话存在无效工具调用标识，无法安全折叠：${formatToolProtocolDefects(currentPacket.protocol.defects) || "无缺陷详情"}。先修复会话协议再重试；没有做任何变更。`,
           }],
           details: {
             error: "current_protocol_invalid",
@@ -325,22 +311,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
       if (!targetPacketResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetPacketResult.message}. Travel aborted.` }],
+          content: [{ type: "text" as const, text: `错误：无法重建目标会话消息：${targetPacketResult.message}。折叠已中止。` }],
           details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
         };
       }
       const targetBranch = sessionManager.getBranch(targetId);
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const replacedEntryCount = branch.length - targetBranch.length;
       const replacedEntries = replacedEntryCount > 0 ? branch.slice(targetBranch.length) : [];
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const foldsOnlyBookkeeping = !resolved.fromOffPath
         && (replacedEntries.length === 0
           || replacedEntries.every((entry) => isAcmBookkeepingEntry(entry as { readonly type?: string })));
@@ -374,7 +351,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return {
           content: [{
             type: "text" as const,
-            text: `Error: target '${params.target}' has invalid tool-call identity and cannot become a travel base. Choose a different checkpoint/node or repair the persisted session protocol; nothing was mutated.`,
+            text: `错误：目标 '${params.target}' 存在无效工具调用标识，不能作为折叠基底。换一个存档/节点，或先修复持久化的会话协议；没有做任何变更。`,
           }],
           details: {
             error: "target_protocol_invalid",
@@ -411,14 +388,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         const backupCandidate = backupCandidateIndex >= 0 ? branch[backupCandidateIndex] : undefined;
         if (!backupCandidate) {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no protocol-complete session prefix exists before this travel call. Travel aborted.` }],
+            content: [{ type: "text" as const, text: `错误：书签 backupCurrentHeadAs '${params.backupCurrentHeadAs}' 放不下——本次调用之前没有协议完整的会话前缀。折叠已中止。` }],
             details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs, headId: originId },
           };
         }
         const backupPacketResult = rebuildAcmContextPacket(sessionManager, backupCandidate.id);
         if (!backupPacketResult.ok) {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupPacketResult.message}. Travel aborted.` }],
+            content: [{ type: "text" as const, text: `错误：书签 backupCurrentHeadAs '${params.backupCurrentHeadAs}' 无法重建折叠前上下文：${backupPacketResult.message}。折叠已中止。` }],
             details: {
               error: "backup_context_build_failed",
               name: params.backupCurrentHeadAs,
@@ -431,7 +408,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         backupProtocolNormalizations = backupProtocol.normalizations;
         if (backupProtocol.status === "invalid") {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
+            content: [{ type: "text" as const, text: `错误：书签 backupCurrentHeadAs '${params.backupCurrentHeadAs}' 在 ${backupCandidate.id} 处存在无效工具调用标识。先修复持久化会话协议再折叠。` }],
             details: {
               error: "backup_protocol_invalid",
               name: params.backupCurrentHeadAs,
@@ -442,7 +419,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         }
         if (backupProtocol.status === "repaired") {
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' would require tool-protocol repair at ${backupCandidate.id}. Finish or explicitly recover the interrupted tool batch before traveling.` }],
+            content: [{ type: "text" as const, text: `错误：书签 backupCurrentHeadAs '${params.backupCurrentHeadAs}' 需要在 ${backupCandidate.id} 处做工具协议修复。先完成或显式恢复被打断的工具批次再折叠。` }],
             details: {
               error: "backup_protocol_incomplete",
               name: params.backupCurrentHeadAs,
@@ -462,7 +439,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const branchPrevalidation = prevalidateBranchWithSummary(sessionManager, targetId);
       if (!branchPrevalidation.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: travel host prevalidation failed: ${branchPrevalidation.message}. No mutation was attempted. ${RECOVERY_GUIDANCE.hostCapability}` }],
+          content: [{ type: "text" as const, text: `错误：宿主预校验失败：${branchPrevalidation.message}。没有尝试任何变更。${RECOVERY_GUIDANCE.hostCapability}` }],
           details: {
             error: "branch_prevalidation_failed",
             hostError: branchPrevalidation.error,
@@ -480,7 +457,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
+              content: [{ type: "text" as const, text: `错误：书签名 '${params.backupCurrentHeadAs}' 已存在于 ${existing}。${RECOVERY_GUIDANCE.nameCollision}` }],
               details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
             };
           }
@@ -489,7 +466,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             return {
               content: [{
                 type: "text" as const,
-                text: `Error: archive bookmark '${params.backupCurrentHeadAs}' would replace checkpoint '${displaced.existingLabel}' on the pre-travel entry ${displaced.targetId}, because the host keeps one label per entry. No mutation was attempted. Choose a different backupCurrentHeadAs target, or move '${displaced.existingLabel}' first.`,
+                text: `错误：宿主每个条目只保留一个标签，书签 '${params.backupCurrentHeadAs}' 会顶掉折叠前条目 ${displaced.targetId} 上的存档 '${displaced.existingLabel}'。没有尝试任何变更。换一个 backupCurrentHeadAs 目标，或先移走 '${displaced.existingLabel}'。`,
               }],
               details: {
                 error: "backup_displaces_existing_label",
@@ -500,7 +477,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             };
           }
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark '${params.backupCurrentHeadAs}' failed prevalidation: ${backupCheck.message}. No mutation was attempted. ${RECOVERY_GUIDANCE.hostCapability}` }],
+            content: [{ type: "text" as const, text: `错误：书签 '${params.backupCurrentHeadAs}' 预校验失败：${backupCheck.message}。没有尝试任何变更。${RECOVERY_GUIDANCE.hostCapability}` }],
             details: { error: "backup_prevalidation_failed", name: params.backupCurrentHeadAs, message: backupCheck.message, recoveryAction: RECOVERY_GUIDANCE.hostCapability },
           };
         }
@@ -572,8 +549,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         }
         const refreshNote = mutation.refreshRequired ? ` ${RECOVERY_GUIDANCE.refreshPending}` : "";
         const prefix = mutation.error === "backup_label_failed"
-          ? `Error: archive bookmark '${params.backupCurrentHeadAs}' could not be set`
-          : "Error: branchWithSummary failed";
+          ? `错误：书签 '${params.backupCurrentHeadAs}' 设置失败`
+          : "错误：branchWithSummary 失败";
         return {
           content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}${refreshNote}` }],
           details: {
@@ -604,9 +581,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       const liveAgentSessionSync = runtime.deferPostTravelRefresh(
         sessionManager,
         toolCallId,
@@ -646,7 +620,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `折叠完成。 target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+              `折叠完成。target=${params.target} (${targetId})；新叶 ${resultingLeafId}。`,
               `变更后证据警告: ${postMutationEvidence.warning}.`,
               "树变更已生效；持久化 Context Packet 刷新仍在计划中，会在之后的 LLM turn 重试。",
               `交接单 NEXT: ${canonicalHandoff.fields.next}`,
@@ -675,11 +649,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             providerPacketMessageCount: providerDelivery.packetMessageCount,
             providerPacketLeafId: providerDelivery.leafId,
             providerPacketError: providerDelivery.error,
-            // 实现说明：该处维护既有的结构、状态与错误处理契约。
-            // 实现说明：该处维护既有的结构、状态与错误处理契约。
             nativeContextReplacementState: liveAgentSessionSync.status,
             nativeContextReplacement: liveAgentSessionSync,
-            // 实现说明：该处维护既有的结构、状态与错误处理契约。
             liveAgentSessionSyncState: liveAgentSessionSync.status,
             liveAgentSessionSync,
             recoveryAction: RECOVERY_GUIDANCE.refreshPending,
@@ -700,9 +671,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       if (!afterPacketResult.ok) throw new Error("unreachable post-mutation evidence state");
       const afterPacket = afterPacketResult.value;
       const afterMessages = afterPacket.messages;
@@ -720,11 +688,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageContextWindow = usageBefore?.contextWindow ?? estimatedUsageAfter?.contextWindow ?? null;
       const estimatedUsageAfterTokens = estimatedUsageAfter?.tokens ?? null;
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
-      const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
-      const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
-      // 实现说明：该处维护既有的结构、状态与错误处理契约。
       try {
         appendLedgerRow("fold", buildFoldRow({
           state: createLedgerState(`${process.pid}-travel`),
@@ -734,7 +697,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           summaryDepth: activeSummaryDepthAfter,
         }));
       } catch {
-        // 实现说明：该处维护既有的结构、状态与错误处理契约。
       }
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
@@ -747,7 +709,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `折叠完成。 target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+            `折叠完成。target=${params.target} (${targetId})；上下文 ${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est.（${formatSignedDelta(usageDelta.tokenDelta)} tokens）；摘要深度 ${activeSummaryDepthBefore} → ${activeSummaryDepthAfter}；备份 ${backupText}（${backupOutcome}）。`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -809,11 +771,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           providerPacketMessageCount: providerDelivery.packetMessageCount,
           providerPacketLeafId: providerDelivery.leafId,
           providerPacketError: providerDelivery.error,
-          // 实现说明：该处维护既有的结构、状态与错误处理契约。
-          // 实现说明：该处维护既有的结构、状态与错误处理契约。
           nativeContextReplacementState: liveAgentSessionSync.status,
           nativeContextReplacement: liveAgentSessionSync,
-          // 实现说明：该处维护既有的结构、状态与错误处理契约。
           liveAgentSessionSyncState: liveAgentSessionSync.status,
           liveAgentSessionSync,
           mutationStatus: "applied",

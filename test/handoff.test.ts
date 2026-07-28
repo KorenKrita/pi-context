@@ -43,6 +43,7 @@ describe("canonical handoff", () => {
           "Recover: parser-baseline",
           "NEXT: Update the README example",
         ].join("\n"),
+        ignoredFields: [],
       },
     });
   });
@@ -114,7 +115,6 @@ describe("canonical handoff", () => {
       defects: [
         { field: "goal", reason: "invalid_type" },
         { field: "next", reason: "invalid_type" },
-        { field: "handoff", reason: "unexpected_field", name: "unexpected" },
       ],
     });
   });

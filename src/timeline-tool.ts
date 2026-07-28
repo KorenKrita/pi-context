@@ -278,7 +278,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     verbose: Type.Optional(Type.Boolean({ description: "包含内部工具流量和元数据（仅 active 视图）。" })),
     filter: Type.Optional(Type.String({ minLength: 1, description: "按存档名或条目 ID 过滤，大小写不敏感（仅 checkpoints 视图）。" })),
     query: Type.Optional(Type.String({ minLength: 1, description: "在整棵树里搜索的文本：存档名、节点 ID 或消息内容。view=search 时必填。" })),
-  }, { additionalProperties: false });
+  }); // 多余参数忽略，不拒绝。
 
   pi.registerTool({
     name: "acm_timeline",
@@ -456,7 +456,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const displayedListings = listings.slice(0, checkpointListingLimit);
         checkpointsMatchingEntries = listings.length;
         checkpointsDisplayedEntries = displayedListings.length;
-        // 实现细节与时间线呈现约束。
         checkpointsMatchingAliases = listings.length;
         checkpointsDisplayedAliases = displayedListings.length;
         checkpointAliasesOnMatchingEntries = listings.length;
@@ -587,9 +586,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
-      // 实现细节与时间线呈现约束。
-      // 实现细节与时间线呈现约束。
-      // 实现细节与时间线呈现约束。
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
@@ -643,8 +639,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : "";
         hudParts.push(`• Context Sync:     上次 travel 刷新失败 — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       }
-      // 实现细节与时间线呈现约束。
-      // 实现细节与时间线呈现约束。
       const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
       if (refreshPending) {
         const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);

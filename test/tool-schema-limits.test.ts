@@ -34,7 +34,8 @@ function captureTool(register: (pi: ExtensionAPI) => void): CapturedTool {
 
 function properties(tool: CapturedTool): Record<string, SchemaObject> {
   const schema = tool.parameters as SchemaObject;
-  expect(schema.additionalProperties).toBe(false);
+  // 松绑：多余参数忽略而非拒绝，schema 不再收紧 additionalProperties。
+  expect(schema.additionalProperties).not.toBe(false);
   if (!schema.properties) throw new Error(`${tool.name} parameters are missing properties`);
   return schema.properties;
 }
@@ -49,7 +50,7 @@ describe("ACM tool parameter schema limits", () => {
     const name = checkpointProperties.name!;
     const target = checkpointProperties.target!;
 
-    expect(name).toMatchObject({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" });
+    expect(name).toMatchObject({ minLength: 1, pattern: "^\\S+$" });
     expect(name).not.toHaveProperty("maxLength");
     expect(target).toMatchObject({ minLength: 1 });
     expect(target).not.toHaveProperty("maxLength");
@@ -77,7 +78,7 @@ describe("ACM tool parameter schema limits", () => {
 
     expect(target).toMatchObject({ minLength: 1 });
     expect(target).not.toHaveProperty("maxLength");
-    expect(backup).toMatchObject({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" });
+    expect(backup).toMatchObject({ minLength: 1, pattern: "^\\S+$" });
     expect(backup).not.toHaveProperty("maxLength");
   });
 

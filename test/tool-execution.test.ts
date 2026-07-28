@@ -608,7 +608,6 @@ describe("ACM tool execution contracts", () => {
       { target: 42, handoff: HANDOFF },
       { target: null, handoff: HANDOFF },
       { target: "entry-1", handoff: HANDOFF, backupCurrentHeadAs: {} },
-      { target: "entry-1", handoff: HANDOFF, unexpected: true },
     ]) {
       const { ctx, getAppendCalls, getBranchCalls } = checkpointContext();
       const result = await executeTravel("invalid-params", params, undefined, undefined, ctx);
@@ -616,6 +615,18 @@ describe("ACM tool execution contracts", () => {
       expect(getAppendCalls()).toBe(0);
       expect(getBranchCalls()).toBe(0);
     }
+  });
+  test("ignores unexpected top-level travel parameters instead of rejecting them", async () => {
+    const { ctx } = checkpointContext();
+    const result = await executeTravel(
+      "extra-param",
+      { target: "entry-1", handoff: HANDOFF, unexpected: true },
+      undefined,
+      undefined,
+      ctx,
+    );
+    // 松绑：多余参数忽略；失败只能来自后续正常校验，而不是 invalid_params。
+    expect(result.details).not.toMatchObject({ error: "invalid_params" });
   });
   test("treats null optional tool parameters as omitted", async () => {
     const travel = await executeTravel(
@@ -764,7 +775,7 @@ describe("ACM tool execution contracts", () => {
         ctx,
       );
       expect(result.details).toMatchObject({ error: "reserved_backup_name", name });
-      expect(result.content[0]?.text).toContain("reserved");
+      expect(result.content[0]?.text).toContain("保留字");
       expect(getAppendCalls()).toBe(0);
       expect(getBranchCalls()).toBe(0);
     }
@@ -797,7 +808,7 @@ describe("ACM tool execution contracts", () => {
     const text = result.content[0]?.text ?? "";
     expect(text).toContain("state:empty");
     expect(text).toContain("next:none_not_allowed");
-    expect(text).toContain("nothing was mutated");
+    expect(text).toContain("没有做任何变更");
     expect(getAppendCalls()).toBe(0);
     expect(getBranchCalls()).toBe(0);
   });
@@ -1030,7 +1041,7 @@ describe("ACM tool execution contracts", () => {
       contextRefreshState: "not_scheduled",
       contextDeliveryPhase: "active",
     });
-    expect(result.content[0]?.text).toContain("nothing was mutated");
+    expect(result.content[0]?.text).toContain("没有做任何变更");
     expect(fixture.sessionManager.getEntries()).toEqual(entriesBefore);
     expect(fixture.sessionManager.getLeafId()).toBe("current-protocol-travel");
     expect(fixture.getAppendCalls()).toBe(0);

@@ -9,7 +9,6 @@ import { registerTravelTool } from "./travel-tool.js";
 export { fixOrphanedToolUse } from "./tool-protocol.js";
 export { ensureAcmCoreSegment } from "./prompt-registration.js";
 
-/** 实现说明：该处维护既有的结构、状态与错误处理契约。 */
 export default function registerAcmExtension(pi: ExtensionAPI): void {
   const runtime = new AcmSessionRuntime();
   registerAcmPrompt(pi);
