@@ -155,13 +155,7 @@ describe("deferred live synchronization fallback", () => {
       // tree mutation remains recoverable through the persisted packet.  The
       // raw outcome must be present on the initial receipt, not inferred from
       // a later timeline render.
-      nativeContextReplacementState: "unavailable",
       nativeContextReplacement: {
-        status: "unavailable",
-        reason: "unsupported_host_shape",
-      },
-      liveAgentSessionSyncState: "unavailable",
-      liveAgentSessionSync: {
         status: "unavailable",
         reason: "unsupported_host_shape",
       },

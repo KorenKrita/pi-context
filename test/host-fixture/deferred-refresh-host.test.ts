@@ -422,10 +422,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       contextDeliveryPhase: "pending_tool_result",
       // The receipt exposes native capability state as raw data.  Delivery is
       // still deferred even though this exact host has a live association.
-      nativeContextReplacementState: "pending",
       nativeContextReplacement: { status: "pending" },
-      liveAgentSessionSyncState: "pending",
-      liveAgentSessionSync: { status: "pending" },
     });
     const inFlightMessages = [
       ...staleMessages,

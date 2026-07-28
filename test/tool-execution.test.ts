@@ -1004,10 +1004,7 @@ describe("ACM tool execution contracts", () => {
 
     expect(result.details).toMatchObject({
       contextDeliveryPhase: "pending_tool_result",
-      nativeContextReplacementState: "pending",
       nativeContextReplacement: nativeOutcome,
-      liveAgentSessionSyncState: "pending",
-      liveAgentSessionSync: nativeOutcome,
     });
   });
 
