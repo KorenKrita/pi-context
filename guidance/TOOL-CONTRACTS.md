@@ -5,15 +5,15 @@
 ## 工具描述
 
 <!-- ACM:TOOL_CHECKPOINT:START -->
-存档：给会话当前位置起个名字，之后可以用 acm_travel 回来。免费、瞬间完成、不改变上下文。不传 `target` 就标记当前位置（推荐）；传节点 ID 或已有存档名可以标记更早的位置。
+存档：给会话当前位置起个名字，之后可以用 acm_travel 回来。免费、瞬间完成、不改变上下文。不传 `target` 就标记当前位置；也可以传节点 ID 标记更早的位置。危险操作前、要折叠前，顺手存一个。
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-查看会话。选一个视图：`active`（当前上下文里的内容）、`checkpoints`（存档列表）、`search`（全树搜索，含已折叠的历史）、`tree`（分支结构）。同时报告 token 用量和同步状态。
+查看会话。四个视图选一个：`active`（当前上下文里有什么）、`checkpoints`（存档列表）、`search`（全树搜索，已折叠的历史也能搜到）、`tree`（分支结构）。附带 token 用量。
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
-折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史替换成交接单（goal/state/next 必填，evidence/external/exclusions/recover 按需），上下文随之变小。原始历史留在会话树里可以找回。只折叠已经做完的事；如果还欠用户一个答复，先答复再折。单独调用，不要和其他工具放在同一批。回执：applied / not_applied / indeterminate。
+折叠：回到 `target`（存档名、节点 ID 或 'root'），把那之后的历史换成交接单（goal/state/next 必填，其余字段用到才写）。上下文变小，原始历史留在会话树里可以找回。还欠用户答复时先答复再折；单独调用，不与其他工具同批。
 <!-- ACM:TOOL_TRAVEL:END -->
 
 ## 结果提示
@@ -23,7 +23,7 @@
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->
-折叠完成。交接单就是当前工作状态：直接执行 next，不要回头重读折掉的内容；缺某个细节时用 recover 指针找回。
+折叠完成。交接单就是你现在的全部状态：直接做 next；缺细节时用 recover 指回去取，不要凭记忆重读。
 <!-- ACM:CUE_TRAVEL:END -->
 
 <!-- ACM:CUE_REBASE_CHECK:START -->
