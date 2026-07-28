@@ -68,9 +68,8 @@ function observeLabelPresence(
 }
 
 /**
- * 中文说明。
- * 中文说明。
- * 中文说明。
+ * 拥有一次 travel 尝试的完整变更事务。校验与结果呈现留在工具模块；宿主变更、补
+ * 偿和刷新义务在这里。
  */
 export function executeTravelMutation(request: TravelMutationRequest): TravelMutationOutcome {
   const { sessionManager, targetId, summary, details, backup } = request;

@@ -121,26 +121,22 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
   pi.on("tool_execution_end", (event, ctx: ExtensionContext) => {
     if (event.toolName !== "acm_travel") return;
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // Pi 在整轮 run 完全 settled 之前就发出这个事件。这里只保留最新的 ticket 和
+    // live 消息序列；真正的替换由 agent_settled 负责。
     runtime.keepDeferredRefreshThroughToolExecution(ctx.sessionManager, event.toolCallId);
   });
 
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
+  // 仪表压力的来源：travel 接管 provider 交付后用真实 provider 用量，否则用
+  // native 用量。provider 纪元还没等到 turn_end 时也回落到 native 用量——一次长
+  // run 不会更新缓存的 provider 用量，而 run 中途失明的仪表就失去了意义。
   const currentGaugePressure = (ctx: ExtensionContext) => {
     const session = ctx.sessionManager;
     const usage = typeof ctx.getContextUsage === "function" ? ctx.getContextUsage() : undefined;
     return runtime.authoritativeContextPressure(session, usage);
   };
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
+  // 仪表的折叠针：投影在各结构参照点折叠后还剩多少。参照点不依赖标签，没存过档的
+  // 会话同样能拿到两个数字。估算只覆盖仪表要渲染的两个参照点，某个参照点重建失败
+  // 就省略那根针。
   const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
     const session = ctx.sessionManager;
     try {
@@ -209,38 +205,33 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         entries: branch.length,
       }));
     } catch {
-      // 实现细节与生命周期安全约束。
+      // 诊断写入的失败绝不能波及工具结果。
     }
   };
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // tool_result 处理器是链式的，后面的扩展仍可能替换 content/details/isError，所
+    // 以 travel 的最终授权只从下一个 context 事件里已定稿的 toolResult 消息读取。
+    // 常驻仪表是唯一的装饰：只有数字，没有措辞。ACM 工具结果自带用量行，从不装饰；
+    // 错误结果也保持干净的回执。
     const session = ctx.sessionManager;
     if (isAcmTool(event.toolName) || event.isError) return;
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
     const folds = currentFoldEstimates(ctx, pressure);
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 被动边界台账：每个用户请求边界记一行，「跨过 N 个边界、折了 M 次」就能在零注
+    // 入的前提下累计。它绝不允许影响本条结果——所有失败都在内部吞掉。
     recordBoundary(ctx, pressure, folds);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 只在后缀真正附加成功后拨动里程表；没有文本部分、无法附加的结果让这一格留到下
+    // 一次工具完成时再显示。
     if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
     return patch;
   });
 
   pi.on("agent_settled", (_event, ctx: ExtensionContext) => {
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // settled 通知可能和排队中的续接或重试赛跑。宿主确认这个 SessionManager 真正空
+    // 闲之前不替换 live 消息；ticket 留到下一个空闲的 settled 边界。
     try {
       if (ctx.isIdle?.() === false) return;
     } catch {
@@ -256,7 +247,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         return;
       } else if (receipt.status === "unavailable") {
         ctx.ui.notify(
-          "agent settled 时无法检查已完成的 travel 回执。在回执可验证前，native 上下文替换保持 pending。",
+          "agent settled 时无法检查已完成的 travel 回执。回执通过验证之前，native 上下文替换保持 pending。",
           "warning",
         );
         return;
@@ -288,23 +279,19 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         runtime.rejectProviderCutover(sessionManager, pendingTravelToolCallId);
       }
     }
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // acm_travel 之后、模型还在决定下一步动作时，可能出现同轮 context 事件。这个有
+    // 效的工具批次只保留到对应的持久化回执出现；回执一到，provider 立即切换到最新
+    // 的持久化 Context Packet。native AgentSession 消息仍然等 agent_settled。
+    //
+    // branchWithSummary 之后宿主可能补写一个历史工具结果，留下孤儿。此时不提前重建
+    // 持久化上下文、不提前替换 native 消息，只在发出的克隆里修复那个孤儿，让
+    // provider 仍能收到有效的当前工具对。
     if (runtime.shouldKeepCurrentRunContext(sessionManager)) {
       const messages = event.messages as AgentMessage[];
       const analysis = analyzeToolProtocol(messages);
-      // 实现细节与生命周期安全约束。
-      // 实现细节与生命周期安全约束。
-      // 实现细节与生命周期安全约束。
-      // 实现细节与生命周期安全约束。
+      // 真正的 acm_travel 不可能带着无效调用标识进入同轮交付——travel 预校验会拒绝
+      // 那种当前 packet。这里保留显式诊断，是为直接构造的 runtime 和宿主漂移准备的，
+      // 而不是把无效 provider packet 静默放行。
       if (analysis.status === "invalid") {
         ctx.ui.notify(
           `Unexpected invalid same-run tool protocol after acm_travel prevalidation: ${formatToolProtocolDefects(analysis.defects) || "未提供缺陷详情"}. 当前运行未改变；重试 travel 前请重新加载或修复会话。`,
@@ -385,13 +372,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
       let failureNotice: string;
       if (willRetry && cached) {
-        failureNotice = `travel 后的上下文刷新失败 (${attempt}): ${message}. 保留上一个有效的压缩 provider packet，并在下一次 LLM turn 重试。`;
+        failureNotice = `travel 后的上下文刷新失败（第 ${attempt} 次）：${message}。保留上一份有效的紧凑 provider packet，下一个 LLM 轮次再试。`;
       } else if (willRetry) {
-        failureNotice = `travel 后的上下文刷新失败 (${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}): ${message}. 保留当前同轮消息，并在下一次 LLM turn 重试。`;
+        failureNotice = `travel 后的上下文刷新失败（${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS}）：${message}。保留当前同轮消息，下一个 LLM 轮次再试。`;
       } else if (cached && safeCachedTail) {
-        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败: ${message}. 上一个协议有效的压缩 packet 仍处于 cached_exhausted 状态；新的 travel/lifecycle cycle 前停止自动重建。重新加载会话以重试持久化重建。`;
+        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败：${message}。最近一份协议有效的紧凑 packet 保持在 cached_exhausted 状态；在新一轮 travel 或生命周期事件之前不再自动重建。重新加载会话可重试持久化重建。`;
       } else {
-        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败: ${message}. ${RECOVERY_GUIDANCE.refreshExhausted}`;
+        failureNotice = `travel 后的上下文刷新经 ${attempt} 次尝试后仍失败：${message}。${RECOVERY_GUIDANCE.refreshExhausted}`;
       }
       ctx.ui.notify(failureNotice, "warning");
       if (tailGuidance) ctx.ui.notify(tailGuidance.trim(), "warning");
@@ -427,12 +414,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       try {
         leafId = sessionManager.getLeafId();
       } catch {
-        // 实现细节与生命周期安全约束。
-        // 实现细节与生命周期安全约束。
+        // 重建出的 packet 已经有效。叶节点身份只是诊断信息，不构成放弃 provider 交付的
+        // 理由。
       }
-      // 实现细节与生命周期安全约束。
-      // 实现细节与生命周期安全约束。
-      // 实现细节与生命周期安全约束。
+      // 为后续所有 provider 重试保留一份协议有效的紧凑 packet。这个状态与 native 替
+      // 换相互独立，可能在源 AgentSession 还持有旧 live 数组时就已生效。
       runtime.activateProviderPacket(sessionManager, messages, leafId, event.messages as AgentMessage[]);
       return { messages: messages as typeof event.messages };
     } catch (error) {
@@ -441,9 +427,9 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 用量在 provider 切换时成为权威，而不是在 native settlement 时。紧凑持久化
+    // packet 真正交付之前，源 run 的用量是过时的；没有有效 provider packet 的回退
+    // 状态同样过时。
     if (!runtime.isProviderDeliveryActive(ctx.sessionManager)) return;
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
@@ -461,9 +447,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
 
   pi.on("model_select", (_event, ctx: ExtensionContext) => {
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 缓存的 prompt 用量属于上一个模型的上下文窗口。新模型完成一轮之前，仪表回落到
+    // 宿主当前的上下文用量，provider HUD 明确保持 pending。
     runtime.resetUsageForModelChange(ctx.sessionManager);
   });
 
@@ -498,31 +483,29 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return;
     }
     const append = appendCheckpointLabel(sessionManager, checkpointTargetId, checkpointName);
-    if (!append.ok) ctx.ui.notify(`无法创建压缩前 checkpoint： ${append.message}`, "warning");
+    if (!append.ok) ctx.ui.notify(`无法创建压缩前 checkpoint：${append.message}`, "warning");
   });
 
   pi.on("session_compact", (event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 宿主 bug 缓解：溢出恢复（willRetry）时宿主会在本事件后重读
+    // agent.state.messages，但它只剥掉 stopReason 为 "error" 的末尾 assistant。以
+    // "length" 停止的末尾 assistant（零输出溢出——恰恰是宿主自己判定为溢出的情形
+    // ）会留下来，让 agentLoopContinue 抛出
+    // "Cannot continue from message role: assistant"。这里剥掉所有末尾 assistant，
+    // 让重试尾部可以续跑；会话历史不受影响。
     if (event.willRetry) {
       const prune = runtime.liveAgentSessions.pruneNonContinuableTail(ctx.sessionManager);
       if (prune.status === "unavailable") {
         ctx.ui.notify(
-          `ACM 无法验证溢出重试上下文尾部 (${prune.message}); 如果此次重试因 "Cannot continue from message role: assistant" 失败，请恢复会话。`,
+          `ACM 无法验证溢出重试的上下文尾部（${prune.message}）；如果这次重试以 "Cannot continue from message role: assistant" 失败，恢复会话即可解决。`,
           "warning",
         );
       }
     }
   });
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
+  // 用户在手动 /tree 导航里总结废弃分支、又没写自定义指令时，把原生摘要塑造成冷
+  // 启动交接单，让树上每份 branch_summary 都说同一套七字段词汇。
   pi.on("session_before_tree", (event) => {
     const preparation = event.preparation;
     if (!preparation.userWantsSummary) return;
@@ -533,15 +516,14 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       replaceInstructions: true,
     };
   });
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
-  // 实现细节与生命周期安全约束。
+  // 手动 /tree 导航绕过 acm_travel：宿主自己会重建 live 消息，所以过期的刷新目标
+  // 、同步 ticket、用量基线都不能带到新选中的分支上。
   pi.on("session_tree", (_event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
   });
   pi.on("session_start", (_event, ctx: ExtensionContext) => {
-    // 实现细节与生命周期安全约束。
-    // 实现细节与生命周期安全约束。
+    // 新加载的会话从零开始计里程：恢复后的第一个读数总会显示一次。仪表状态设计上就
+    // 不持久化。
     runtime.clear(ctx.sessionManager);
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));

@@ -59,10 +59,9 @@ function suffixAfterKnownPrefix(
 }
 
 /**
- * 中文说明。
- * 中文说明。
- * 中文说明。
- * 中文说明。
+ * 描述这个 SessionManager 当前能交付给模型的上下文。一次 travel 有相互独立的
+ * provider 和 native 两个阶段：provider 交付在对应的持久化 tool_result 出现后
+ * 切换；native AgentSession 状态只在空闲的 agent_settled 边界替换。
  */
 export type ProviderDeliveryPhase =
   | "active"
@@ -73,9 +72,8 @@ export type ProviderDeliveryPhase =
   | "receipt_rejected";
 
 /**
- * 中文说明。
- * 中文说明。
- * 中文说明。
+ * 给回执和 HUD 用的兼容交付状态。provider 交付激活后仍显式保留 native 状态，而
+ * 不是把两个阶段折叠成一个含糊的 "active"。
  */
 export type ContextDeliveryPhase =
   | "active"
@@ -105,14 +103,13 @@ export class AcmSessionRuntime {
   private readonly cachedUsage = new WeakMap<object, UsageLike>();
   private readonly refreshTargets = new WeakMap<object, string>();
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 成功的 travel 在源 agent run 还在执行时就改变了持久化树。状态按
+   * SessionManager 隔离：子代理和并行会话不能继承彼此的 settlement 门。
    */
   private readonly deferredTravelRefresh = new WeakMap<object, DeferredTravelRefreshState>();
   /**
-   * 中文说明。
-   * 中文说明。
+   * 常驻仪表的里程表状态。每次上下文切换（travel、压缩、手动 /tree）都重置。和所
+   * 有 runtime 状态一样按 SessionManager 隔离。
    */
   private readonly gaugeStates = new WeakMap<object, GaugeState>();
 
@@ -127,10 +124,9 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 成功的 travel 记下两个独立阶段各自的 ticket。provider 停在当前有效的工具批次
+   * 上，直到对应的持久化 tool_result 出现；native AgentSession 的替换仍推迟到空
+   * 闲的 settled 边界。
    */
   deferPostTravelRefresh(
     session: object,
@@ -138,12 +134,11 @@ export class AcmSessionRuntime {
     preferredLeafId?: string,
   ): AgentSessionSyncOutcome {
     this.scheduleRefresh(session, preferredLeafId);
-    // 中文说明。
-    // 中文说明。
+    // travel 之前 provider prompt 的用量属于上一个上下文纪元。不能让 HUD 把它错标
+    // 成切换后的 provider 证据。
     this.cachedUsage.delete(session);
-    // 中文说明。
-    // 中文说明。
-    // 中文说明。
+    // 回退指针记录的是已验证的 travel 叶节点，但 AgentSession 替换必须跟随
+    // agent_settled 时的活动叶节点：travel 之后的读写和工具结果会合法地推进它。
     const liveAgentSessionSync = this.liveAgentSessions.schedule(session, toolCallId);
     this.deferredTravelRefresh.set(session, {
       providerPhase: "pending_tool_result",
@@ -234,9 +229,9 @@ export class AcmSessionRuntime {
       liveAgentSessionSync: {
         status: "skipped",
         reason: "not_pending",
-        message: "由于最终 travel receipt 被拒绝，native replacement 已取消",
+        message: "最终 travel 回执被拒绝，native 替换已取消",
       },
-      providerError: "最终 travel receipt 被拒绝",
+      providerError: "最终 travel 回执被拒绝",
     });
     return true;
   }
@@ -283,9 +278,9 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 只保留宿主 provider 消息中已验证的切换后尾部。第一种匹配覆盖 native 的
+   * in-flight 数组；第二种覆盖已经直接从紧凑 packet 开始下一个 provider 请求的宿
+   * 主。
    */
   mergeCachedProviderPacket(
     session: object,
@@ -318,18 +313,16 @@ export class AcmSessionRuntime {
   }
 
   shouldRebuildProviderContext(session: object): boolean {
-    // 中文说明。
-    // 中文说明。
-    // 中文说明。
-    // 中文说明。
+    // `ready` 与首次切换的回退由 ContextRefreshRegistry 管理，因此继承它的有界重试
+    // 预算。紧凑 packet 交付之后，每个 provider context 都继续重建，让后续工具产出
+    // 被纳入，瞬时读取失败也能用缓存。
     return this.deferredTravelRefresh.get(session)?.providerPhase === "active";
   }
 
   isProviderDeliveryActive(session: object): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
-    // 中文说明。
-    // 中文说明。
-    // 中文说明。
+    // 没有成功 travel ticket 的会话本来就在用宿主的权威 provider 上下文。travel 专
+    // 属的门控只在 ticket 处于 pending 或回退中时生效。
     return deferred === undefined
       || deferred.providerPhase === "receipt_rejected"
       || (
@@ -345,9 +338,8 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * tool_execution_end 发生在所在 run settled 之前。ticket 是刻意保留的；
+   * agent_settled 时只应用最新匹配的 travel ticket。
    */
   keepDeferredRefreshThroughToolExecution(session: object, toolCallId: string): boolean {
     const deferred = this.deferredTravelRefresh.get(session);
@@ -383,9 +375,8 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 所有 ACM 感知面共用同一个压力权威。完成过一轮的 provider 描述的是 travel 接
+   * 管后的上下文；否则宿主当前的 native 用量就是手头最好的读数。
    */
   authoritativeContextPressure(
     session: object,
@@ -408,8 +399,8 @@ export class AcmSessionRuntime {
   }
 
   resetGaugeCycle(session: object): void {
-    // 中文说明。
-    // 中文说明。
+    // 上下文切换（travel、压缩、手动 /tree）让里程表归零：切换后的第一个读数总会显
+    // 示一次。
     this.gaugeStates.delete(session);
   }
 
@@ -432,9 +423,8 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 对照当前压力做里程表检查。只读：基线在 confirmGaugeShown 里、后缀真正附加之
+   * 后才移动——在无法附加的结果上移动会静默吞掉这一格。
    */
   shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
     if (isGaugeDisabled()) return false;

@@ -67,14 +67,12 @@ export interface LiveAgentSessionAdapter {
   getStatus(sessionManager: object): AgentSessionSyncOutcome;
   clear(sessionManager: object): void;
   /**
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
-   * 中文说明。
+   * 宿主崩溃防御：溢出恢复重试前宿主从 `agent.state.messages` 续跑，但它自己的恢
+   * 复路径只剥掉 stopReason 为 "error" 的末尾 assistant。其他 stopReason 的末尾
+   * assistant（比如零输出的 "length"——恰恰被宿主自己归类为溢出）会让
+   * agentLoopContinue 抛出 "Cannot continue from message role: assistant"。剥掉
+   * 所有末尾 assistant 消息就能恢复可续跑的尾部；被剥掉的消息仍在会话历史里，修
+   * 剪的只是 live 重试上下文。
    */
   pruneNonContinuableTail(sessionManager: object): AgentSessionTailPruneOutcome;
 }
@@ -85,10 +83,10 @@ export interface LiveAgentSessionAdapterOptions {
 
 export function getLiveAgentSyncRecoveryGuidance(outcome: AgentSessionSyncOutcome): string | null {
   if (outcome.status === "unavailable") {
-    return "持久化 context rebuild 仍在进行。请重新加载会话，以重建 native AgentSession state，再依赖 native context accounting。";
+    return "持久化上下文重建还在进行。先重新加载会话、让 native AgentSession 状态重建完成，再依赖 native 的用量统计。";
   }
   if (outcome.status === "failed") {
-    return "持久化 context rebuild 仍在进行，travel 的 branch 已保留。请重新加载会话，以重建 native AgentSession state，再依赖 native context accounting。";
+    return "持久化上下文重建还在进行，travel 产生的分支已保留。先重新加载会话、让 native AgentSession 状态重建完成，再依赖 native 的用量统计。";
   }
   return null;
 }
@@ -111,7 +109,7 @@ function observeSessionAssociation(state: InstallationState, value: unknown): vo
     if (!sessionManager || typeof sessionManager !== "object") return;
     state.sessions.set(sessionManager, new WeakRef(value));
   } catch {
-    // 中文说明。
+    // 能力探测绝不能改变宿主 getContextUsage 的行为。
   }
 }
 
@@ -155,7 +153,7 @@ function replacePrototypeMethod(
     Object.defineProperty(prototype, "getContextUsage", replacementDescriptor);
     return undefined;
   } catch (error) {
-    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法包装： ${errorMessage(error)}`);
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法包装：${errorMessage(error)}`);
   }
 }
 
@@ -166,7 +164,7 @@ function install(HostClass: AgentSessionHostClass): InstallationState | AgentSes
     prototype = HostClass?.prototype;
     current = prototype?.getContextUsage;
   } catch (error) {
-    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法检查： ${errorMessage(error)}`);
+    return unavailable("unsupported_host_shape", `AgentSession.getContextUsage 无法检查：${errorMessage(error)}`);
   }
   if (!prototype || typeof current !== "function") {
     return unavailable("unsupported_host_shape", "AgentSession.getContextUsage 不可用");
@@ -206,10 +204,9 @@ function retainsMessageSequence(actual: AgentMessage[], expected: AgentMessage[]
 }
 
 /**
- * 中文说明。
- * 中文说明。
- * 中文说明。
- * 中文说明。
+ * 安装窄的、经能力探测的适配器。树变更仍归 Host Bridge 所有；这个适配器只在调
+ * 用方选好正确的生命周期边界后，替换匹配的 live AgentSession 消息数组。需要跟
+ * 随最新活动叶节点的调用方不设 preferredLeafId。
  */
 export function createLiveAgentSessionAdapter(
   options: LiveAgentSessionAdapterOptions = {},
@@ -322,7 +319,7 @@ export function createLiveAgentSessionAdapter(
         const outcome: AgentSessionSyncOutcome = {
           status: "failed",
           reason: "invalid_protocol",
-          message: `因工具协议无效，拒绝 native context replacement： ${formatToolProtocolDefects(packetResult.value.protocol.defects) || "未提供 defect 详情"}`,
+          message: `工具协议无效，已拒绝 native 上下文替换：${formatToolProtocolDefects(packetResult.value.protocol.defects) || "未提供缺陷详情"}`,
           defects: packetResult.value.protocol.defects,
         };
         state.outcomes.set(sessionManager, outcome);

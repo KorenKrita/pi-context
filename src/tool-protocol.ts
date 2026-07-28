@@ -275,8 +275,8 @@ export function analyzeToolProtocol(messages: readonly AgentMessage[]): ToolProt
     index += repairedResults.length;
   }
 
-  // 中文说明。
-  // 中文说明。
+  // 最终 packet 是工具结果配对的唯一权威。这一步也会移除中止/出错轮次里结果刚刚
+  // 变成孤儿的那些调用。
   stripUnpairedToolCalls(result, repairs);
 
   return {

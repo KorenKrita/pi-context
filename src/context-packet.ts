@@ -277,7 +277,8 @@ function trustedContinuationMetadata(
   ) return undefined;
   const key = continuationKey(message.summary, message.fromId, message.timestamp);
   const candidates = trusted.get(key);
-  // 候选必须保持存档形态：它们的顺序是证据，不是把每份交接单都当权威的许可。
+  // 一条消息只有在持久化来源有唯一归属时才允许投影。多个带标记的候选必须
+  // 保持存档形态：它们的先后顺序是证据，不是把每份交接单都当成权威的许可。
   if (!candidates || candidates.length === 0) return undefined;
   if (candidates.length !== 1) return { candidates: candidates.length };
   const metadata = candidates[0];
@@ -320,6 +321,9 @@ export function normalizeExistingAcmPacket(
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
   });
+  // 活动路径的先后顺序解决了叠层续接纪元的归属：最新的、来源可信的 ACM
+  // 摘要是当前权威，更早的摘要保持存档形态。“歧义”只留给最新消息本身
+  // 出现重复或无法归属的持久化来源的情形。
   const latestCandidate = candidates.at(-1);
   const projected = latestCandidate?.metadata
     ? messages.map((message, index) => index === latestCandidate.index
@@ -351,7 +355,8 @@ export function normalizeExistingAcmPacketForSession(
   try {
     return normalizeExistingAcmPacket(messages, sessionManager.getBranch());
   } catch {
-    // 宿主已投影的消息仍以存档形态可用。分支读取瞬时失败或能力不完整时，
+    // 宿主已投影的消息以存档形态照样可用。分支读取只是瞬时失败或能力不完整时，
+    // 不能仅仅为了升级 ACM 续接权威就让整个上下文生命周期崩溃。
     return normalizeExistingAcmPacket(messages);
   }
 }
