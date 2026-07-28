@@ -13,7 +13,6 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -164,50 +163,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return undefined;
     }
   };
-  const ledgerStates = new WeakMap<object, LedgerState>();
-  let ledgerSeq = 0;
-  const ledgerFor = (session: object): LedgerState => {
-    let state = ledgerStates.get(session);
-    if (!state) {
-      ledgerSeq += 1;
-      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${ledgerSeq}`);
-      ledgerStates.set(session, state);
-    }
-    return state;
-  };
-  const recordBoundary = (
-    ctx: ExtensionContext,
-    pressure: { pressurePercent: number; usagePercent: number },
-    folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
-  ): void => {
-    try {
-      const session = ctx.sessionManager as unknown as object;
-      const branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
-      if (!Array.isArray(branch) || branch.length === 0) return;
-      let boundaryId: string | null = null;
-      for (let index = branch.length - 1; index >= 0; index--) {
-        const entry = branch[index]!;
-        if (entry.type === "message" && entry.message?.role === "user") {
-          boundaryId = entry.id;
-          break;
-        }
-      }
-      const state = ledgerFor(session);
-      if (!shouldCountBoundary(state, boundaryId)) return;
-      const ordinal = markBoundaryCounted(state, boundaryId!);
-      appendLedgerRow("boundary", buildBoundaryRow({
-        state,
-        boundary: ordinal,
-        budgetPercent: pressure.pressurePercent,
-        windowPercent: pressure.usagePercent,
-        foldTurnPercent: folds?.turnPercent,
-        foldTaskPercent: folds?.taskPercent,
-        entries: branch.length,
-      }));
-    } catch {
-      // 诊断写入的失败绝不能波及工具结果。
-    }
-  };
   pi.on("tool_result", (event, ctx: ExtensionContext) => {
     // tool_result 处理器是链式的，后面的扩展仍可能替换 content/details/isError，所
     // 以 travel 的最终授权只从下一个 context 事件里已定稿的 toolResult 消息读取。
@@ -219,9 +174,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (!pressure) return;
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
     const folds = currentFoldEstimates(ctx, pressure);
-    // 被动边界台账：每个用户请求边界记一行，「跨过 N 个边界、折了 M 次」就能在零注
-    // 入的前提下累计。它绝不允许影响本条结果——所有失败都在内部吞掉。
-    recordBoundary(ctx, pressure, folds);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
     // 只在后缀真正附加成功后拨动里程表；没有文本部分、无法附加的结果让这一格留到下
     // 一次工具完成时再显示。

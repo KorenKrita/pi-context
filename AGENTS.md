@@ -28,7 +28,7 @@ bun run generate:guidance
 
 ## 不要动的东西
 
-- **运行时机制**：travel 事务（backup → branch → verify → compensate）、host-bridge 的 guarded capability access、live sync 的 `agent_settled` 边界、boundary-ledger。改这些先读对应源文件头部注释。
+- **运行时机制**：travel 事务（backup → branch → verify → compensate）、host-bridge 的 guarded capability access、live sync 的 `agent_settled` 边界。改这些先读对应源文件头部注释。
 - **持久化格式锚点**：handoff 七字段标签 `Goal:/State:/Evidence:/External:/Exclusions:/Recover:/NEXT:` 保持英文（`src/handoff.ts` 与 `src/context-packet.ts` 按它们解析）；`ACM_CORE_MARKER`、`ACM_CONTINUATION_MARKER` 不变。
 - **details 里的错误码/枚举值**：`applied`/`not_applied`/`indeterminate`、`label_conflict` 等 snake_case 值是程序契约，永远英文。
 - **版本钉死**：四个 `@earendil-works/*` 依赖精确固定 `0.82.1`（含 `test/host-fixture/`），不要改成范围版本。

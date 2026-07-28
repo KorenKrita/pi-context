@@ -40,7 +40,6 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
 
 function isAcmBookkeepingEntry(entry: { readonly type?: string } | undefined): boolean {
   return entry?.type === "label";
@@ -693,16 +692,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageContextWindow = usageBefore?.contextWindow ?? estimatedUsageAfter?.contextWindow ?? null;
       const estimatedUsageAfterTokens = estimatedUsageAfter?.tokens ?? null;
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
-      try {
-        appendLedgerRow("fold", buildFoldRow({
-          state: createLedgerState(`${process.pid}-travel`),
-          budgetBefore: usageBeforePercent,
-          budgetAfter: estimatedUsageAfter?.percent,
-          messageDelta: currentMessages.length - afterMessages.length,
-          summaryDepth: activeSummaryDepthAfter,
-        }));
-      } catch {
-      }
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
