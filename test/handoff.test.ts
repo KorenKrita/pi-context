@@ -43,7 +43,6 @@ describe("canonical handoff", () => {
           "Recover: parser-baseline",
           "NEXT: Update the README example",
         ].join("\n"),
-        ignoredFields: [],
       },
     });
   });
@@ -156,6 +155,36 @@ describe("canonical handoff", () => {
       ok: false,
       defects: [{ field: "handoff", reason: "invalid_json" }],
     });
+  });
+});
+
+describe("unknown handoff fields pass through", () => {
+  test("an unknown field is carried into state verbatim instead of being rejected", () => {
+    const result = buildCanonicalHandoff({
+      goal: "g",
+      state: "known",
+      next: "act",
+      hypotheses: "pool exhaustion vs retry loop",
+    } as never);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.fields.state).toBe("known\nhypotheses: pool exhaustion vs retry loop");
+    // canonical roundtrip 必须稳定：透传行以 state 续行形态渲染
+    expect(result.value.text).toContain("State: known\n  hypotheses: pool exhaustion vs retry loop");
+  });
+
+  test("a non-string unknown field is serialized, not dropped", () => {
+    const result = buildCanonicalHandoff({
+      goal: "g",
+      state: "known",
+      next: "act",
+      weights: { pool: 0.4, retry: 0.6 },
+    } as never);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.fields.state).toContain('weights: {"pool":0.4,"retry":0.6}');
   });
 });
 

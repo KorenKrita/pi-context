@@ -623,9 +623,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
               `折叠完成。target=${params.target} (${targetId})；新叶 ${resultingLeafId}。`,
               `变更后证据警告: ${postMutationEvidence.warning}.`,
               "树变更已生效；持久化 Context Packet 刷新仍在计划中，会在之后的 LLM turn 重试。",
-              canonicalHandoff.ignoredFields.length > 0
-                ? `交接单里不认识的字段已忽略：${canonicalHandoff.ignoredFields.join("、")}。`
-                : null,
               `交接单 NEXT: ${canonicalHandoff.fields.next}`,
               currentUserTurnOpen
                 ? "本轮用户消息尚未答复：先交付用户要的可见结果，这轮才算完成；State 里记了答案不等于已交付。"
@@ -666,7 +663,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
                 }
               : {}),
             handoffFormat: "structured-v1",
-            handoffIgnoredFields: canonicalHandoff.ignoredFields,
             handoffNext: canonicalHandoff.fields.next,
             currentUserTurnOpen,
             targetFacts: targetAnalysis.facts,
@@ -719,9 +715,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
             targetAnalysis.warnings.length > 0
               ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
-              : null,
-            canonicalHandoff.ignoredFields.length > 0
-              ? `交接单里不认识的字段已忽略：${canonicalHandoff.ignoredFields.join("、")}。`
               : null,
             `交接单 NEXT: ${canonicalHandoff.fields.next}`,
             currentUserTurnOpen
@@ -793,7 +786,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           targetFacts: targetAnalysis.facts,
           targetWarnings: targetAnalysis.warnings,
           handoffFormat: "structured-v1",
-          handoffIgnoredFields: canonicalHandoff.ignoredFields,
           canonicalHandoffLength: canonicalHandoff.text.length,
           handoffNext: canonicalHandoff.fields.next,
           currentUserTurnOpen,

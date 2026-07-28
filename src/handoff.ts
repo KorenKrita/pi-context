@@ -29,7 +29,7 @@ export const StructuredHandoffSchema = Type.Object({
   recover: Type.Optional(Type.String({
     description: "可选：能找回被折叠历史的存档名或节点 ID。",
   })),
-}); // 允许并忽略多余字段：多带一个字段不该让整次折叠失败。
+}); // 不校验多余字段：认识的按槽位放，不认识的原样并入 state——模型写什么，未来就拿到什么。
 
 export const HandoffSchema = Type.Union([
   StructuredHandoffSchema,
@@ -63,8 +63,6 @@ export type HandoffDefect =
 export interface CanonicalHandoff {
   fields: HandoffInput;
   text: string;
-  /** 传入但不认识、被忽略的字段名（不阻断折叠，仅供回执提示）。 */
-  ignoredFields: string[];
 }
 
 export type HandoffBuildResult =
@@ -134,9 +132,14 @@ export function buildCanonicalHandoff(
       defects.push({ field, reason: "none_not_allowed" });
     }
   }
-  // 多余字段忽略不拒绝：记入 ignoredFields 供回执提示。
+  // 不校验多余字段：模型写什么，交接单就带什么——原样并入 state 的续行。
   const knownFields = new Set<string>(FIELD_ORDER.map(({ field }) => field));
-  const ignoredFields = Object.keys(inputRecord).filter((name) => !knownFields.has(name));
+  const extraLines: string[] = [];
+  for (const [name, rawValue] of Object.entries(inputRecord)) {
+    if (knownFields.has(name)) continue;
+    const value = typeof rawValue === "string" ? normalize(rawValue) : JSON.stringify(rawValue);
+    if (value) extraLines.push(`${name}: ${value}`);
+  }
   const rawArchiveAlias = facts.rawArchiveAlias === undefined
     ? undefined
     : normalize(facts.rawArchiveAlias);
@@ -146,6 +149,9 @@ export function buildCanonicalHandoff(
   if (defects.length > 0) return { ok: false, defects };
 
   const fields = normalizedFields as HandoffInput;
+  if (extraLines.length > 0) {
+    fields.state = `${fields.state}\n${extraLines.join("\n")}`;
+  }
 
   for (const field of ["evidence", "external", "exclusions", "recover"] as const) {
     if (fields[field].toLowerCase() === "none") fields[field] = "none";
@@ -167,7 +173,6 @@ export function buildCanonicalHandoff(
         ACM_CONTINUATION_MARKER,
         ...FIELD_ORDER.map(({ field, label }) => renderField(label, fields[field])),
       ].join("\n"),
-      ignoredFields,
     },
   };
 }
