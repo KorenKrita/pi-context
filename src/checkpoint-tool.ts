@@ -273,16 +273,18 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
           };
         }
         if (append.error === "label_displaces_existing") {
+          // 该节点已有存档——可恢复性已经存在，直接复用，不让模型换名重试。
           const displaced = append.details as CheckpointLabelDisplacement;
           return {
             content: [{
               type: "text" as const,
-              text: `节点 ${displaced.targetId} 已有存档 '${displaced.existingLabel}'；宿主每个节点只保留一个标签，写入 '${params.name}' 会顶掉它。没有写入任何标签。可以直接把 '${displaced.existingLabel}' 当恢复指针用，或换一个节点存档。${RECOVERY_GUIDANCE.nameCollision}`,
+              text: `节点 ${displaced.targetId} 已有存档 '${displaced.existingLabel}'，直接用它即可（宿主每个节点只保留一个标签，没有新写）。`,
             }],
             details: {
-              error: "label_displaces_existing",
-              label: params.name,
-              name: params.name,
+              status: "existing_label_reused",
+              label: displaced.existingLabel,
+              requestedName: params.name,
+              name: displaced.existingLabel,
               entryId: displaced.targetId,
               existingLabel: displaced.existingLabel,
             },

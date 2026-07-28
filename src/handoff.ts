@@ -92,7 +92,7 @@ function renderField(label: string, value: string): string {
 
 export function buildCanonicalHandoff(
   input: HandoffWireInput,
-  facts: { rawArchiveAlias?: string } = {},
+  facts: { rawArchiveAlias?: string; originEntryId?: string } = {},
 ): HandoffBuildResult {
   const defects: HandoffDefect[] = [];
   let decodedInput: unknown = input;
@@ -163,6 +163,15 @@ export function buildCanonicalHandoff(
     fields.recover = fields.recover === "none"
       ? rawArchiveLine
       : `${fields.recover}\n${rawArchiveLine}`;
+  }
+  // 自动回程票：折叠前的叶节点 ID 写进 Recover，不用先存档也能回去。
+  const originEntryId = facts.originEntryId?.trim();
+  if (originEntryId) {
+    const originLine = `Origin: ${originEntryId}`;
+    const lines = fields.recover.split("\n").map((line) => line.trim());
+    if (!lines.includes(originLine) && !lines.includes(originEntryId) && !fields.recover.includes(originEntryId)) {
+      fields.recover = fields.recover === "none" ? originLine : `${fields.recover}\n${originLine}`;
+    }
   }
 
   return {

@@ -469,6 +469,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
     sessionManager.appendMessage({ role: "user", content: "multiline work", timestamp: Date.now() });
     sessionManager.appendMessage(travelToolCall());
+    const preTravelLeafId = sessionManager.getLeafId()!;
     const { context, travelTool } = createExtensionFixture(sessionManager);
 
     const result = await travelTool.execute(
@@ -505,7 +506,8 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
         "  - bun test",
         "External: none",
         "Exclusions: none",
-        "Recover: none",
+        // 自动回程票：折叠前叶节点写入 Recover
+        `Recover: Origin: ${preTravelLeafId}`,
         "NEXT: edit the README",
       ].join("\n"),
     });
@@ -743,7 +745,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
         "target_is_assistant_tool_batch",
       ],
     });
-    expect((result.content[0] as { text: string }).text).toContain("Target warnings: target_packet_repaired, target_prefix_open_user_turn, target_is_assistant_tool_batch");
+    expect((result.content[0] as { text: string }).text).toContain("目标结构提示：target_packet_repaired, target_prefix_open_user_turn, target_is_assistant_tool_batch");
   });
 
   test("rejects a raw backup whose immediate pre-travel packet needs protocol repair", async () => {

@@ -703,7 +703,7 @@ describe("ACM tool execution contracts", () => {
     }
   });
 
-  test("refuses a checkpoint that would displace an existing label without appending", async () => {
+  test("reuses the existing label on an already-labeled node instead of refusing", async () => {
     const fixture = checkpointContext("existing-checkpoint");
     const result = await executeCheckpoint(
       "checkpoint-displacement",
@@ -713,11 +713,14 @@ describe("ACM tool execution contracts", () => {
       fixture.ctx,
     );
 
+    // 松绑：可恢复性已经存在，返回可用的既有存档而不是报错让模型换名重试。
     expect(result.details).toMatchObject({
-      error: "label_displaces_existing",
+      status: "existing_label_reused",
       entryId: "entry-1",
       existingLabel: "existing-checkpoint",
+      name: "existing-checkpoint",
     });
+    expect(result.details).not.toMatchObject({ error: "label_displaces_existing" });
     expect(result.content[0]?.text).toContain("existing-checkpoint");
     expect(fixture.getAppendCalls()).toBe(0);
   });

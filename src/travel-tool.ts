@@ -209,7 +209,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
-      const canonicalHandoff = handoffResult.value;
+      let canonicalHandoff = handoffResult.value;
 
       const preTravelBranch = ctx.sessionManager.getBranch();
       const containingBatch = findContainingAssistantToolBatch(
@@ -275,6 +275,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       const originId = currentLeaf;
       const originLabel = formatEntryLabel(labelMaps, originId);
+      {
+        // 交接单自动带回程票：Recover 写入折叠前叶节点（originId）。
+        const withOrigin = buildCanonicalHandoff(params.handoff, {
+          ...(params.backupCurrentHeadAs ? { rawArchiveAlias: params.backupCurrentHeadAs } : {}),
+          originEntryId: originId,
+        });
+        if (withOrigin.ok) canonicalHandoff = withOrigin.value;
+      }
       const usageBeforeRaw = ctx.getContextUsage();
       const usageBefore = usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
         ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
@@ -702,7 +710,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
         && activeSummaryDepthAfter === targetSummaryDepth + 1
-        ? `Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
+        ? `Root rebase 用一份新交接单取代了之前的全部摘要层；摘要深度是 ${targetSummaryDepth + 1} 而不是 ${targetSummaryDepth}。`
         : null;
 
       return {
@@ -714,7 +722,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
             targetAnalysis.warnings.length > 0
-              ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
+              ? `目标结构提示：${targetAnalysis.warnings.join(", ")}（结构事实，不是语义判定）。`
               : null,
             `交接单 NEXT: ${canonicalHandoff.fields.next}`,
             currentUserTurnOpen

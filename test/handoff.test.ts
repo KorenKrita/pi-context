@@ -158,6 +158,30 @@ describe("canonical handoff", () => {
   });
 });
 
+describe("automatic origin return ticket", () => {
+  test("writes the pre-travel leaf into Recover when no pointer covers it", () => {
+    const result = buildCanonicalHandoff(
+      { goal: "g", state: "s", next: "n" },
+      { originEntryId: "entry-42" },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.fields.recover).toBe("Origin: entry-42");
+  });
+
+  test("does not duplicate the origin when recover already mentions it", () => {
+    const result = buildCanonicalHandoff(
+      { goal: "g", state: "s", next: "n", recover: "my-save entry-42" },
+      { originEntryId: "entry-42" },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.fields.recover).toBe("my-save entry-42");
+  });
+});
+
 describe("unknown handoff fields pass through", () => {
   test("an unknown field is carried into state verbatim instead of being rejected", () => {
     const result = buildCanonicalHandoff({
