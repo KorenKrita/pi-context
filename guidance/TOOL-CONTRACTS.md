@@ -31,17 +31,15 @@
 <!-- ACM:CUE_TIMELINE_ACTIVE:END -->
 
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:START -->
-折叠目标选在要折内容之前最近的干净点。标 raw archive 的存档指向折叠前的完整历史，用于找回旧细节，不要当折叠目标。
+把折叠目标选在要折的那段内容之前——取最近的一个干净点。标 raw archive 的存档指向折叠前的完整历史，用于找回旧细节，别当折叠目标。
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
-
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
 搜索覆盖整棵树，含已折叠的历史。结果里的节点 ID 可直接作为 acm_travel 或 acm_checkpoint 的目标。
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
-分支结构用于确认目标的先后关系；不要把折叠目标选在要折的范围里。
+分支结构用来判断哪个点在前、哪个点在后；别把折叠目标选在要折的范围里。
 <!-- ACM:CUE_TIMELINE_TREE:END -->
-
 ## 手动 /tree 摘要指令
 
 用户在 /tree 里选 "Summarize" 且没写自定义指令时，注入这份摘要提示，让原生分支摘要也长成交接单的样子。
@@ -52,16 +50,15 @@
 只写下面七行，按顺序，每行一个字段，不要其他标题：
 
 Goal: 这条分支想完成什么。
-State: 确定了什么（附依据）、还有什么不确定。写清仍然相关的 exact file paths、符号和数值。
+State: 确定了什么（附依据）、还有什么不确定。写清仍然相关的具体文件路径、符号和数值。
 Evidence: 可直接核实的指针——文件路径、命令、ID。没有写 none。
 External: 留下的外部影响——改过的文件、跑过的命令、动过的系统。没有写 none。
 Exclusions: 试过并放弃的方向，避免重蹈。没有写 none。
 Recover: 最有用的存档名或节点 ID。没有写 none。
 NEXT: 恢复这项工作时最具体的下一步。
 
-保留 exact file paths、函数名、报错信息和数字，它们比描述重要。整体保持简短。
+保留具体的文件路径、函数名、报错信息和数字——它们比描述重要。整体保持简短。
 <!-- ACM:TREE_SUMMARY_INSTRUCTIONS:END -->
-
 ## 恢复文案
 
 <!-- ACM:RECOVERY_NAME_COLLISION:START -->

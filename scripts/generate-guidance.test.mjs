@@ -41,7 +41,7 @@ describe("canonical guidance generation", () => {
       expect(TREE_SUMMARY_INSTRUCTIONS).toContain(slot);
     }
     expect(TREE_SUMMARY_INSTRUCTIONS).toContain("交接单");
-    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("exact file paths");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("具体的文件路径");
     expect(TREE_SUMMARY_INSTRUCTIONS).not.toContain("##");
   });
 
