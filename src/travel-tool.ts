@@ -599,6 +599,22 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
+      const backupOutcome = mutation.backupOutcome;
+      const backupText = formatBackupText(returnTicketName, backupEntryId, backupResolvedFromHead);
+      // Shared applied-receipt backup facts. Every applied receipt — verified
+      // or not — must carry the full return-ticket transaction: trusted
+      // receipt matching and [raw archive] classification require
+      // backupCurrentHeadAs/backupEntryId on the receipt itself, and a
+      // post-mutation evidence failure must not erase them.
+      const appliedBackupDetails = {
+        hasBackup: true,
+        backupCurrentHeadAs: returnTicketName,
+        backupEntryId,
+        backupResolvedFromHead,
+        backupOutcome,
+        backupProtocolStatus: "complete" as const,
+        backupProtocolNormalizations,
+      };
       // The mutation is already durable. Establish both refresh tickets before
       // any diagnostic read that may fail, so an applied travel can never fall
       // back into an untracked split-brain state.
@@ -641,7 +657,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
               `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
               "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
               `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
@@ -658,6 +674,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             target: params.target,
             targetId,
             originId,
+            ...appliedBackupDetails,
             summaryEntryId,
             resultingLeafId,
             activeSummaryDepthBefore,
@@ -707,8 +724,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageDelta = calculateUsageDelta(usageBefore, estimatedUsageAfter);
       const structuralMessageDelta = messagesAfter - messagesBefore;
       const structuralMessageDirection = classifyStructuralMessageDirection(messagesBefore, messagesAfter);
-      const backupText = formatBackupText(returnTicketName, backupEntryId, backupResolvedFromHead);
-      const backupOutcome = mutation.backupOutcome;
       const messageDelta = `${messagesBefore} → ${messagesAfter} (${formatSignedDelta(structuralMessageDelta)}, ${structuralMessageDirection})`;
       const usageBeforeTokens = usageBefore?.tokens ?? null;
       const usageBeforePercent = usageBefore?.percent ?? null;
@@ -764,13 +779,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           rootCount: requestedRoot ? tree.length : null,
           originId,
           originLabel,
-          hasBackup: true,
-          backupCurrentHeadAs: returnTicketName,
-          backupEntryId,
-          backupResolvedFromHead,
-          backupOutcome,
-          backupProtocolStatus: "complete",
-          backupProtocolNormalizations,
+          ...appliedBackupDetails,
           usageBefore: usageBeforeText,
           usageAfter: "pending_next_context_event",
           estimatedUsagePreview: estimatedPreviewText,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
+import { collectTrustedAcmTravelTransactions } from "../src/context-packet.js";
 import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/lib.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
@@ -398,14 +399,17 @@ function successfulTravelContext(
       entries.push(labelEntry(id, targetId, label));
       return id;
     },
-    branchWithSummary: (targetId: string, summary: string, details: unknown) => {
+    branchWithSummary: (targetId: string, summary: string, details: unknown, fromHook?: boolean) => {
       branchCalls++;
+      // Mirror the real host contract: fromId is the branch base (not the
+      // pre-travel leaf) and fromHook echoes the caller's flag.
       const entry: SessionEntry = {
         type: "branch_summary",
         id: "travel-summary",
         parentId: targetId,
         timestamp: "2026-01-01T00:00:01.000Z",
-        fromId: leafId,
+        fromId: targetId,
+        fromHook: fromHook === true,
         summary,
         details,
       } as SessionEntry;
@@ -1116,6 +1120,13 @@ describe("ACM tool execution contracts", () => {
       contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
+      // The return-ticket transaction must survive an evidence failure:
+      // trusted receipt matching and [raw archive] classification read these
+      // fields from the receipt itself.
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(result.content[0]?.text).toContain("Travel complete");
     expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
@@ -1142,6 +1153,10 @@ describe("ACM tool execution contracts", () => {
       contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation branch read failed"),
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
     expect(result.content[0]?.text).toContain("Travel complete");
@@ -1167,9 +1182,54 @@ describe("ACM tool execution contracts", () => {
       postMutationEvidenceStatus: "invalid_protocol",
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(result.content[0]?.text).toContain("Travel complete");
     expect(result.content[0]?.text).toContain("invalid_tool_call_id");
     expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+  });
+
+  test("an applied-but-unverified receipt still forms a trusted travel transaction", async () => {
+    const fixture = successfulTravelContext(false, true);
+    const result = await executeTravel(
+      "travel-unverified-trusted",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture,
+    );
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      postMutationEvidenceStatus: "invalid_protocol",
+    });
+
+    // Reconstruct the receipt exactly as it would be persisted, then verify
+    // it matches its summary provenance: this is what timeline [raw archive]
+    // classification and packet normalization depend on.
+    const summaryEntry = fixture.sessionManager.getEntry("travel-summary")!;
+    const receiptEntry = {
+      type: "message",
+      id: "receipt-unverified",
+      parentId: "travel-summary",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "travel-unverified-trusted",
+        toolName: "acm_travel",
+        content: result.content,
+        details: result.details,
+        isError: false,
+        timestamp: 2,
+      },
+    } as SessionEntry;
+    const transactions = collectTrustedAcmTravelTransactions([summaryEntry, receiptEntry]);
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      summaryEntryId: "travel-summary",
+      backupEntryId: "travel-head",
+    });
   });
 });
