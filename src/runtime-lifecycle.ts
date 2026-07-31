@@ -226,10 +226,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (isAcmTool(event.toolName) || event.isError) return;
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
-    // Structural facts: the current user boundary (for the constant marker
-    // and the forced first reading of each request) and the save-point count.
+    // The boundary id is a gate input, so it is resolved first — but it only
+    // needs a short backward scan for the last user entry. The save-point
+    // count replays the whole label journal, so it waits until the odometer
+    // has actually decided to render; most readings are silenced and must
+    // not pay O(entries) for a suffix that never appears.
     let boundaryId: string | null = null;
-    let savePoints: number | null = null;
     try {
       const branch = session.getBranch();
       for (let index = branch.length - 1; index >= 0; index--) {
@@ -239,6 +241,13 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           break;
         }
       }
+    } catch {
+      boundaryId = null;
+    }
+    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
+    let savePoints: number | null = null;
+    try {
+      const branch = session.getBranch();
       const labelMaps = buildGaugeLabelMaps(session.getEntries());
       let count = 0;
       for (const entry of branch) {
@@ -246,10 +255,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
       savePoints = count;
     } catch {
-      boundaryId = null;
       savePoints = null;
     }
-    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
     const structure: GaugeStructure = {
       boundary: runtime.isNewGaugeBoundary(session, boundaryId),
       savePoints,
