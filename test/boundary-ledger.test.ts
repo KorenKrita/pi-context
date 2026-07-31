@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AcmSessionRuntime } from "../src/runtime.js";
@@ -99,7 +99,11 @@ describe("boundary ledger", () => {
 
   test("an unwritable target fails silently instead of throwing", () => {
     // Hard requirement: the ledger is not allowed to become a failure surface.
-    const env = { PI_CODING_AGENT_DIR: "/dev/null/definitely-not-a-directory" };
+    // The base sits under an existing regular file so mkdirSync fails with
+    // ENOTDIR on every platform ("/dev/null/..." is creatable on Windows).
+    const blocker = join(mkdtempSync(join(tmpdir(), "ledger-blocker-")), "file");
+    writeFileSync(blocker, "x");
+    const env = { PI_CODING_AGENT_DIR: join(blocker, "child") };
     const state = createLedgerState("s5");
     expect(() => appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 1, windowPercent: 1,
