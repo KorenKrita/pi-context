@@ -191,5 +191,13 @@ export function deriveReturnTicketName(goal: string, taken: (name: string) => bo
     const candidate = `${base}-${ordinal}`;
     if (!taken(candidate)) return candidate;
   }
-  return `${base}-${Date.now().toString(36)}`;
+  // Timestamp fallback goes through the same collision check: a taken
+  // timestamp candidate (same-millisecond callers, imported labels) walks
+  // forward until a free name is found.
+  const stamp = Date.now().toString(36);
+  for (let ordinal = 0; ordinal < 1000; ordinal++) {
+    const candidate = ordinal === 0 ? `${base}-${stamp}` : `${base}-${stamp}-${ordinal}`;
+    if (!taken(candidate)) return candidate;
+  }
+  return `${base}-${stamp}-${Math.random().toString(36).slice(2, 8)}`;
 }
