@@ -30,13 +30,6 @@ export function optionalString(value: unknown): string | undefined {
 /** Fixed token overhead for a branch_summary entry in travel usage estimates. */
 const BRANCH_SUMMARY_ENTRY_OVERHEAD_TOKENS = 100;
 
-export function formatBoundaryTravelCue(nearestCheckpointName: string | null, advancedPointer?: string): string {
- if (nearestCheckpointName === null) {
-  return "no save point is on this path. If risk or a fold lies ahead, save first; the last clean pre-fold node ID is also a valid travel target";
- }
- return `nearest save point is '${nearestCheckpointName}' — a candidate, not the default. Choose the last clean node before the material being folded, not whichever label is nearest.${advancedPointer ? ` ${advancedPointer}` : ""}`;
-}
-
 type AssistantContentPart = TextContent | ThinkingContent | ToolCall | { type: string; [key: string]: unknown };
 
 export type StructuralMessageDirection = "decreased" | "increased" | "equal" | "unknown";

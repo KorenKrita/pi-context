@@ -202,7 +202,7 @@ test("the turn reference skips the current user turn", () => {
 
     const lifecycleSource = readFileSync(new URL("../src/runtime-lifecycle.ts", import.meta.url), "utf8");
     expect(lifecycleSource).toContain("currentFoldEstimates");
-    expect(lifecycleSource).toContain("buildGaugeSuffix(pressure, folds)");
+    expect(lifecycleSource).toContain("buildGaugeSuffix(pressure, folds, structure)");
   });
 
   test("CORE explains every needle the gauge can render", () => {
@@ -233,10 +233,4 @@ test("the turn reference skips the current user turn", () => {
     }
   });
 
-  test("FM-15 is registered with its structural boundary", () => {
-    const fm = readFileSync(new URL("../docs/acm-failure-mechanisms.md", import.meta.url), "utf8");
-    expect(fm).toContain("## FM-15");
-    expect(fm).toContain("Preview measures; boundary decides");
-    expect(fm).toContain("7c3bdff7");
-  });
 });

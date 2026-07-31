@@ -8,6 +8,7 @@ import {
 } from "./live-agent-session-adapter.js";
 import {
   createGaugeState,
+  isNewBoundary,
   isGaugeDisabled,
   markGaugeShown,
   shouldShowGauge,
@@ -448,13 +449,18 @@ export class AcmSessionRuntime {
    * moves in confirmGaugeShown, only after the suffix is actually attached
    * (moving it on an undeliverable result would silently swallow the tick).
    */
-  shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
+  shouldShowGaugeNow(session: object, pressurePercent: number, boundaryId?: string | null): boolean {
     if (isGaugeDisabled()) return false;
-    return shouldShowGauge(this.gaugeState(session), pressurePercent);
+    return shouldShowGauge(this.gaugeState(session), pressurePercent, boundaryId);
+  }
+
+  /** Is this reading the first one of a new user boundary? */
+  isNewGaugeBoundary(session: object, boundaryId?: string | null): boolean {
+    return isNewBoundary(this.gaugeState(session), boundaryId);
   }
 
   /** Move the odometer after its suffix was actually attached. */
-  confirmGaugeShown(session: object, pressurePercent: number): void {
-    markGaugeShown(this.gaugeState(session), pressurePercent);
+  confirmGaugeShown(session: object, pressurePercent: number, boundaryId?: string | null): void {
+    markGaugeShown(this.gaugeState(session), pressurePercent, boundaryId);
   }
 }

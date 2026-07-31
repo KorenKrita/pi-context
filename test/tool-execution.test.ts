@@ -66,22 +66,6 @@ function captureTimelineWithCommands(commandNames: string[]): ExecuteTool {
   return execute;
 }
 
-function captureTimelineWithSkillPath(path: string): ExecuteTool {
-  let execute: ExecuteTool | undefined;
-  registerTimelineTool({
-    registerTool(tool: { execute?: ExecuteTool }) {
-      execute = tool.execute;
-    },
-    getCommands() {
-      return [{
-        name: "skill:context-management",
-        sourceInfo: { path },
-      }] as never;
-    },
-  } as unknown as ExtensionAPI, new AcmSessionRuntime());
-  if (!execute) throw new Error("timeline execute handler was not registered");
-  return execute;
-}
 
 function checkpointContext(initialLabel?: string) {
   const entry = userEntry("entry-1");
@@ -613,7 +597,6 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
 }
 
 const executeCheckpoint = captureExecute(registerCheckpointTool);
-const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
 const executeTravel = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime()));
 const HANDOFF = {
@@ -656,10 +639,12 @@ describe("ACM tool execution contracts", () => {
       successfulTravelContext(),
     );
     expect(travel.details?.error).toBeUndefined();
+    // Null backup means "no custom name": the automatic return ticket is
+    // still recorded, and the receipt reports the derived name.
     expect(travel.details).toMatchObject({
       mutationStatus: "applied",
-      hasBackup: false,
-      backupCurrentHeadAs: null,
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
     });
 
     const checkpointFixture = checkpointContext();
@@ -782,7 +767,9 @@ describe("ACM tool execution contracts", () => {
     expect(getAppendCalls()).toBe(0);
   });
 
-  test("exposes collision routing only when the advanced Skill is available", async () => {
+  test("collision recovery is self-contained and points to no external skill files", async () => {
+    // The skill layer is deleted; a collision must resolve from the recovery
+    // text alone instead of routing the model to files that do not exist.
     const root = userEntry("entry-collision-root");
     const head = userEntry("entry-collision-head", root.id);
     const entries = [root, head, labelEntry("label-collision", root.id, "existing-name")];
@@ -800,13 +787,11 @@ describe("ACM tool execution contracts", () => {
     };
 
     const core = await executeCheckpoint("collision-core", { name: "existing-name" }, undefined, undefined, ctx);
-    const product = await executeCheckpointWithSkill("collision-product", { name: "existing-name" }, undefined, undefined, ctx);
 
     expect(core.details).toMatchObject({ error: "duplicate_name" });
+    expect(core.content[0]?.text).toContain("pick a new checkpoint name");
     expect(core.content[0]?.text).not.toContain("context-management");
     expect(core.content[0]?.text).not.toContain("references/");
-    expect(product.content[0]?.text).toContain("`context-management` Skill");
-    expect(product.content[0]?.text).toContain("`references/target-selection.md`");
   });
 
   test("rejects every case variant of root as an archive bookmark before any mutation", async () => {
@@ -988,34 +973,19 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
-  test("emits the advanced target pointer only when the Skill is actually available", async () => {
+  test("timeline output carries no skill routing regardless of advertised commands", async () => {
+    // The skill layer is deleted; the timeline reports facts and cues only,
+    // even when a host advertises a similarly named command.
     const withoutSkill = captureTimelineWithCommands([]);
     const withSkill = captureTimelineWithCommands(["skill:context-management"]);
 
-    const absent = await withoutSkill("timeline-no-skill", { view: "active" }, undefined, undefined, timelineContext());
-    const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
-
-    expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
-    expect(available.content[0]?.text).toContain("`context-management` Skill");
-    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
-  });
-
-  test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
-    const path = "/tmp/ACM Skill/context management/SKILL.md";
-    const executeWithPath = captureTimelineWithSkillPath(path);
-
-    const result = await executeWithPath(
-      "timeline-with-router-path",
-      { view: "active" },
-      undefined,
-      undefined,
-      timelineContext(),
-    );
-
-    const text = result.content[0]?.text ?? "";
-    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
-    expect(text).toContain("relative to its directory");
-    expect(text).toContain("`references/target-selection.md`");
+    for (const execute of [withoutSkill, withSkill]) {
+      const result = await execute("timeline-no-routing", { view: "active" }, undefined, undefined, timelineContext());
+      const text = result.content[0]?.text ?? "";
+      expect(text).not.toContain("references/");
+      expect(text).not.toContain("Skill");
+      expect(text).not.toContain("Router location");
+    }
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
@@ -1036,7 +1006,10 @@ describe("ACM tool execution contracts", () => {
     expect(result.content[0]?.text).not.toContain("remains because branch mutation");
   });
 
-  test("does not invent a backup pointer for indeterminate travel without a backup", async () => {
+  test("indeterminate travel reports the automatic return ticket as the recovery pointer", async () => {
+    // Every travel now records a return ticket, so even an indeterminate
+    // mutation names a concrete label to recover by instead of leaving the
+    // model without a pointer.
     const result = await executeTravel(
       "call-5",
       { target: "entry-1", handoff: HANDOFF },
@@ -1049,8 +1022,9 @@ describe("ACM tool execution contracts", () => {
       branchState: "indeterminate",
       contextDeliveryPhase: "active",
     });
-    expect(result.content[0]?.text).toContain("Branch mutation cannot be excluded");
-    expect(result.content[0]?.text).not.toContain("backup pointer");
+    const ticket = (result.details as { backupCurrentHeadAs?: string }).backupCurrentHeadAs;
+    expect(typeof ticket).toBe("string");
+    expect(result.content[0]?.text).toContain(`Backup label '${ticket}'`);
   });
 
   test("preserves the raw scheduled native replacement outcome alongside delivery phase", async () => {

@@ -147,12 +147,10 @@ describe("semantic rebase evidence", () => {
     );
 
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
-    expect(result.content[0].text).toContain("Summary Depth:    1 active handoff summary layer(s) on the current spine");
-    expect(result.content[0].text).not.toContain("normalized rebase");
-    expect(result.content[0].text).toContain(GUIDANCE_CUES.rebaseCheck);
-    expect(result.content[0].text).toContain("a rebase check is worthwhile");
-    expect(result.content[0].text).toContain("Rebase only if");
-    expect(result.content[0].text).not.toContain("Rebase instead");
+    expect(result.content[0].text).toContain("Handoff Layers:   1 handoff layer(s) on the current spine");
+    // The HUD reports facts only; judgment wording (old rebase cue) is retired.
+    expect(result.content[0].text).not.toContain("rebase");
+    expect(result.content[0].text).not.toContain("worthwhile");
   });
 
   test("checkpoint view exposes root as a structural candidate with projected depth", async () => {
@@ -177,7 +175,7 @@ describe("semantic rebase evidence", () => {
       rootProjectedSummaryDepth: 1,
     });
     expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
-    expect(result.content[0].text).toContain("summary depth 1 → 1 projected");
+    expect(result.content[0].text).toContain("handoff layers 1 → 1 projected");
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });
 
@@ -266,7 +264,7 @@ describe("semantic rebase evidence", () => {
       expect(text).not.toContain("later-semantic [raw archive]");
       expect(text).not.toContain("[raw archive on this entry]");
     }
-    expect(checkpoints.content[0].text).toContain("raw archive origin — restore/rehydrate only, not a fold/rebase base");
+    expect(checkpoints.content[0].text).toContain("raw archive — restores pre-fold history; fold targets are the entries before the folded material");
 
     const mismatched = await tool.execute(
       "timeline-raw-mismatched-receipt",

@@ -20,12 +20,28 @@ function handoff(overrides: Partial<HandoffInput> = {}): HandoffInput {
 }
 
 describe("canonical handoff", () => {
-  test("keeps Evidence optional and non-blocking for NEXT", () => {
-    expect(StructuredHandoffSchema.properties.evidence.description).toContain("never a verification checklist or a prerequisite to NEXT");
-    // v1 doctrine: a pointer licenses one bounded spot-check of a
-    // load-bearing claim, never a re-derivation of folded material.
-    expect(StructuredHandoffSchema.properties.evidence.description).toContain("one bounded spot-check");
-    expect(StructuredHandoffSchema.properties.evidence.description).toContain("not a re-derivation");
+  test("keeps the four supporting fields optional on the wire", () => {
+    // Three-required/four-optional is the schema-level activation-energy
+    // reduction; a wire shape that re-requires them regresses routine folds.
+    const optional = ["evidence", "external", "exclusions", "recover"] as const;
+    const required = new Set((StructuredHandoffSchema.required ?? []) as string[]);
+    for (const field of optional) expect(required.has(field)).toBe(false);
+    for (const field of ["goal", "state", "next"]) expect(required.has(field)).toBe(true);
+  });
+
+  test("omitted optional fields become none and required fields stay enforced", () => {
+    const minimal = buildCanonicalHandoff({ goal: "Fix parser", state: "Entry at src/parser.ts:88", next: "Add depth counter" });
+    expect(minimal.ok).toBe(true);
+    if (minimal.ok) {
+      expect(minimal.value.fields.evidence).toBe("none");
+      expect(minimal.value.fields.external).toBe("none");
+      expect(minimal.value.fields.exclusions).toBe("none");
+      expect(minimal.value.fields.recover).toBe("none");
+      expect(minimal.value.text).toContain("Evidence: none");
+      expect(minimal.value.text).toContain("NEXT: Add depth counter");
+    }
+    const missingRequired = buildCanonicalHandoff({ state: "x", next: "y" } as never);
+    expect(missingRequired.ok).toBe(false);
   });
 
   test("renders multiline fields without exposing continuation lines as new slots", () => {
