@@ -60,7 +60,7 @@ describe("boundary ledger", () => {
       expect(keys.every((k) => [
         "kind", "ts", "session", "boundary", "budget", "window", "foldTurn",
         "foldTask", "foldsSoFar", "entries", "afterBoundary", "budgetBefore",
-        "budgetAfter", "messageDelta", "summaryDepth",
+        "budgetAfter", "messageDelta", "summaryDepth", "direction",
       ].includes(k))).toBe(true);
     }
   });

@@ -46,6 +46,8 @@ export interface BoundaryLedgerRow {
 export interface FoldLedgerRow {
   ts: string;
   session: string;
+  /** "fold" shrank the working set; "restore" grew it (rehydrate/off-path travel). */
+  direction: "fold" | "restore";
   /** Boundaries observed in this session before this fold. */
   afterBoundary: number;
   /** Budget pressure before the fold, floored. */
@@ -164,15 +166,17 @@ export function buildFoldRow(input: {
   messageDelta: number | null | undefined;
   summaryDepth: number | null | undefined;
 }): FoldLedgerRow {
+  const messageDelta = typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
+    ? input.messageDelta
+    : null;
   return {
     ts: new Date().toISOString(),
     session: input.state.session,
+    direction: messageDelta !== null && messageDelta < 0 ? "restore" : "fold",
     afterBoundary: input.state.boundaries,
     budgetBefore: floorOrNull(input.budgetBefore),
     budgetAfter: floorOrNull(input.budgetAfter),
-    messageDelta: typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
-      ? input.messageDelta
-      : null,
+    messageDelta,
     summaryDepth: floorOrNull(input.summaryDepth),
   };
 }
