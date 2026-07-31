@@ -40,16 +40,22 @@ export function isAcmTool(toolName: string): boolean {
  * transition; boundary tracking resets only with the whole state (new
  * session, compaction, manual /tree) so one user request renders its
  * boundary marker at most once even across a mid-request travel.
+ *
+ * Boundary ids accumulate in a seen-set, not a single latest value: a fold
+ * whose target precedes the current request removes that user entry from
+ * the branch, so the next reading resolves an *older* user entry as the
+ * boundary. That entry was already seen — rendering its marker again would
+ * announce a request that is not new.
  */
 export interface GaugeState {
   /** Pressure percent at the last shown gauge; null means nothing shown this cycle. */
   lastShownPercent: number | null;
-  /** Entry id of the user boundary whose first reading was already rendered. */
-  lastBoundaryShownId: string | null;
+  /** Entry ids of user boundaries whose first reading was already rendered. */
+  seenBoundaryIds: Set<string>;
 }
 
 export function createGaugeState(): GaugeState {
-  return { lastShownPercent: null, lastBoundaryShownId: null };
+  return { lastShownPercent: null, seenBoundaryIds: new Set() };
 }
 
 /**
@@ -75,7 +81,7 @@ export function shouldShowGauge(
 ): boolean {
   if (!Number.isFinite(pressurePercent) || pressurePercent < 0) return false;
   if (state.lastShownPercent === null) return true;
-  if (boundaryId && boundaryId !== state.lastBoundaryShownId) return true;
+  if (boundaryId && !state.seenBoundaryIds.has(boundaryId)) return true;
   return Math.floor(pressurePercent) !== Math.floor(state.lastShownPercent);
 }
 
@@ -86,12 +92,12 @@ export function markGaugeShown(
   boundaryId?: string | null,
 ): void {
   state.lastShownPercent = pressurePercent;
-  if (boundaryId) state.lastBoundaryShownId = boundaryId;
+  if (boundaryId) state.seenBoundaryIds.add(boundaryId);
 }
 
 /** Is this reading the first one of a new user boundary? Pure fact for the marker. */
 export function isNewBoundary(state: GaugeState, boundaryId?: string | null): boolean {
-  return Boolean(boundaryId && boundaryId !== state.lastBoundaryShownId);
+  return Boolean(boundaryId && !state.seenBoundaryIds.has(boundaryId));
 }
 
 /** Structural facts the gauge renders beyond pressure. */

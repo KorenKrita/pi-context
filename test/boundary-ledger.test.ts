@@ -90,6 +90,10 @@ describe("boundary ledger", () => {
     expect(markBoundaryCounted(state, "u2")).toBe(2);
     expect(shouldCountBoundary(state, null)).toBe(false);
     expect(markFoldCounted(state)).toBe(1);
+    // A fold can re-expose an earlier user entry as the branch's last
+    // boundary. It was already counted — writing it again would inflate n
+    // with a phantom row for a request that is not new.
+    expect(shouldCountBoundary(state, "u1")).toBe(false);
   });
 
   test("an unwritable target fails silently instead of throwing", () => {

@@ -104,12 +104,17 @@ export interface LedgerState {
   session: string;
   boundaries: number;
   folds: number;
-  /** Entry id of the last counted boundary, so re-observation does not double count. */
-  lastBoundaryEntryId: string | null;
+  /**
+   * Entry ids of every counted boundary. A set, not a latest value: a fold
+   * can re-expose an older user entry as the branch's last boundary, and
+   * counting it again would write a phantom row for a request that is not
+   * new.
+   */
+  seenBoundaryEntryIds: Set<string>;
 }
 
 export function createLedgerState(session: string): LedgerState {
-  return { session, boundaries: 0, folds: 0, lastBoundaryEntryId: null };
+  return { session, boundaries: 0, folds: 0, seenBoundaryEntryIds: new Set() };
 }
 
 /**
@@ -119,11 +124,11 @@ export function createLedgerState(session: string): LedgerState {
  */
 export function shouldCountBoundary(state: LedgerState, boundaryEntryId: string | null): boolean {
   if (boundaryEntryId === null) return false;
-  return state.lastBoundaryEntryId !== boundaryEntryId;
+  return !state.seenBoundaryEntryIds.has(boundaryEntryId);
 }
 
 export function markBoundaryCounted(state: LedgerState, boundaryEntryId: string): number {
-  state.lastBoundaryEntryId = boundaryEntryId;
+  state.seenBoundaryEntryIds.add(boundaryEntryId);
   state.boundaries += 1;
   return state.boundaries;
 }

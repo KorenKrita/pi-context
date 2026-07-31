@@ -75,6 +75,20 @@ describe("context gauge", () => {
 		expect(shouldShowGauge(state, 12.0, "req-1")).toBe(true);
 		expect(isNewBoundary(state, "req-1")).toBe(false);
 	});
+
+	test("a fold that re-exposes an older user entry does not resurrect its boundary marker", () => {
+		// Cross-boundary fold: the current request's user entry leaves the
+		// branch and the previous request's entry becomes the branch's last
+		// user boundary again. It was already seen — it is not a new request.
+		const state = createGaugeState();
+		markGaugeShown(state, 20.0, "req-1");
+		markGaugeShown(state, 30.0, "req-2");
+		resetGaugeOdometer(state);
+		expect(isNewBoundary(state, "req-1")).toBe(false);
+		markGaugeShown(state, 12.0, "req-1");
+		// A genuinely new request still announces itself.
+		expect(isNewBoundary(state, "req-3")).toBe(true);
+	});
 	test("ACM results and the kill switch stay undecorated", () => {
 		expect(isAcmTool("acm_travel")).toBe(true);
 		expect(isAcmTool("acm_checkpoint")).toBe(true);
