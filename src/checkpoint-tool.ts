@@ -56,11 +56,11 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
     name: Type.String({
       minLength: 1,
       pattern: "^[A-Za-z0-9._-]+$",
-      description: "Semantic save-point name; unique and case-sensitive across the session tree ('root' is reserved). Name the state a future search should find, e.g. payments-retry-baseline. Suffixes are naming convention only; they never classify workflow state.",
+      description: "Semantic name a future search should find, e.g. parser-fix-baseline or p99-before-db-scan. Unique in this session; 'root' is reserved.",
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "History node ID or checkpoint name to label. Omit to anchor on the latest protocol-complete leaf before this call; pass an explicit target only to label a deliberately chosen older node.",
+      description: "Node ID or existing checkpoint name to label. Omit to mark the current position (recommended).",
     })),
   }, { additionalProperties: false });
 
