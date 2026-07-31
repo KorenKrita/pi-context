@@ -16,6 +16,7 @@ import {
   type GaugeState,
 } from "./context-gauge.js";
 import { calculateContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
+import { createLedgerState, type LedgerState } from "./boundary-ledger.js";
 
 interface DeferredTravelRefreshState {
   readonly providerPhase: ProviderDeliveryPhase;
@@ -120,6 +121,16 @@ export class AcmSessionRuntime {
    * compaction, manual /tree). Per SessionManager, like all runtime state.
    */
   private readonly gaugeStates = new WeakMap<object, GaugeState>();
+  /**
+   * Passive boundary/fold ledger counters, one per SessionManager so fold
+   * rows and boundary rows share a session discriminator and can be joined.
+   * Deliberately NOT touched by clear(): compaction, manual /tree, and
+   * session_start reset perception state, but the ledger's "session" is the
+   * SessionManager's lifetime in this process — changing the discriminator
+   * mid-session would sever the join the ledger exists to provide.
+   */
+  private readonly ledgerStates = new WeakMap<object, LedgerState>();
+  private ledgerSeq = 0;
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;
@@ -445,6 +456,21 @@ export class AcmSessionRuntime {
     if (!state) {
       state = createGaugeState();
       this.gaugeStates.set(session, state);
+    }
+    return state;
+  }
+
+  /**
+   * One ledger state per SessionManager: boundary rows (lifecycle) and fold
+   * rows (travel receipts) must carry the same session discriminator or the
+   * per-session boundary↔fold join — the ledger's whole purpose — breaks.
+   */
+  ledgerState(session: object): LedgerState {
+    let state = this.ledgerStates.get(session);
+    if (!state) {
+      this.ledgerSeq += 1;
+      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${this.ledgerSeq}`);
+      this.ledgerStates.set(session, state);
     }
     return state;
   }

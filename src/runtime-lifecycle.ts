@@ -14,7 +14,7 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
-import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
+import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -179,17 +179,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return undefined;
     }
   };
-  const ledgerStates = new WeakMap<object, LedgerState>();
-  let ledgerSeq = 0;
-  const ledgerFor = (session: object): LedgerState => {
-    let state = ledgerStates.get(session);
-    if (!state) {
-      ledgerSeq += 1;
-      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${ledgerSeq}`);
-      ledgerStates.set(session, state);
-    }
-    return state;
-  };
+  // Ledger counters live on the runtime so fold rows written from the travel
+  // receipt share this session discriminator and stay joinable.
   const recordBoundary = (
     ctx: ExtensionContext,
     pressure: { pressurePercent: number; usagePercent: number },
@@ -207,7 +198,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           break;
         }
       }
-      const state = ledgerFor(session);
+      const state = runtime.ledgerState(session);
       if (!shouldCountBoundary(state, boundaryId)) return;
       const ordinal = markBoundaryCounted(state, boundaryId!);
       appendLedgerRow("boundary", buildBoundaryRow({

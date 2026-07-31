@@ -41,7 +41,7 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
+import { appendLedgerRow, buildFoldRow, markFoldCounted } from "./boundary-ledger.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -736,13 +736,18 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       // delta the receipt already carries, so folds and boundaries accumulate
       // on the same yardstick. Swallowed on any failure.
       try {
-        appendLedgerRow("fold", buildFoldRow({
-          state: createLedgerState(`${process.pid}-travel`),
+        // The session's own ledger state: fold rows must share the boundary
+        // rows' discriminator or the per-session join breaks, and the fold
+        // count must advance so boundary rows report foldsSoFar truthfully.
+        const ledgerState = runtime.ledgerState(sessionManager);
+        const written = appendLedgerRow("fold", buildFoldRow({
+          state: ledgerState,
           budgetBefore: usageBeforePercent,
           budgetAfter: estimatedUsageAfter?.percent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
         }));
+        if (written) markFoldCounted(ledgerState);
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }

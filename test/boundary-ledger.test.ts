@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AcmSessionRuntime } from "../src/runtime.js";
 import {
   acmLedgerPath,
   appendLedgerRow,
@@ -118,6 +119,32 @@ describe("boundary ledger", () => {
       foldTurnPercent: 1, foldTaskPercent: 1, entries: 1,
     }), env)).toBe(false);
     expect(existsSync(acmLedgerPath(env))).toBe(false);
+  });
+
+  test("fold rows and boundary rows from one session share a discriminator and joinable counters", () => {
+    // The headline metric — sessions crossing high pressure with at least one
+    // fold — requires joining fold rows to boundary rows per session. One
+    // LedgerState per SessionManager is the contract that makes that possible.
+    const runtime = new AcmSessionRuntime();
+    const sessionA = {};
+    const sessionB = {};
+    const stateA = runtime.ledgerState(sessionA);
+    expect(runtime.ledgerState(sessionA)).toBe(stateA);
+    expect(runtime.ledgerState(sessionB).session).not.toBe(stateA.session);
+
+    // Boundary, then fold, then the next boundary: the fold row carries the
+    // boundary ordinal, and the later boundary row sees the fold count.
+    markBoundaryCounted(stateA, "u1");
+    const fold = buildFoldRow({ state: stateA, budgetBefore: 50, budgetAfter: 20, messageDelta: 10, summaryDepth: 1 });
+    expect(fold.session).toBe(stateA.session);
+    expect(fold.afterBoundary).toBe(1);
+    markFoldCounted(stateA);
+    const boundary = buildBoundaryRow({
+      state: stateA, boundary: markBoundaryCounted(stateA, "u2"),
+      budgetPercent: 21, windowPercent: 8, foldTurnPercent: null, foldTaskPercent: null, entries: 5,
+    });
+    expect(boundary.session).toBe(stateA.session);
+    expect(boundary.foldsSoFar).toBe(1);
   });
 
   test("the writer is append-only with no read or query path", () => {
