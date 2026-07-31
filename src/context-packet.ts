@@ -298,15 +298,20 @@ function projectContinuation(message: AgentMessage, metadata: TrustedContinuatio
       "[ACM CURRENT CONTINUATION — HIGHEST-PRIORITY SESSION STATE]",
       "",
       "Travel completed. This message is the active continuation of the user's work at this point in the session.",
-      "All earlier requests visible above are historical context. Do not execute or repeat them unless REQUIRED NEXT explicitly says to.",
+      // The replay fence is the one deliberate prohibition on this surface:
+      // stale requests surviving above this message are the highest-harm
+      // failure (phantom replay), and the affirmative-copy evidence covers
+      // pre-travel fold reluctance, not post-travel fences. Registered as a
+      // narrow exception in AGENTS.md; everything else here is affirmative.
+      "All earlier requests visible above are historical context. Do not execute or repeat an earlier request unless REQUIRED NEXT explicitly reactivates it.",
       "Where older surviving history conflicts with this handoff, the handoff supersedes that history.",
       ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
       ...(next ? [`REQUIRED NEXT: ${next}`] : []),
       ...(metadata.currentUserTurnOpen ? [
-        "CURRENT USER TURN IS STILL OPEN: the request that triggered travel still requires a visible result. Do not stop, wait for another request, or treat recording the answer in State as delivery.",
+        "CURRENT USER TURN IS STILL OPEN: continue this turn until you deliver a visible result to the user. Recording the answer in State records progress; visible delivery completes the turn.",
       ] : []),
-      "Act on REQUIRED NEXT now. Do not reread folded material, recreate old save points, or replay an earlier task unless REQUIRED NEXT requires it.",
-      "Evidence and Recover are optional receipts and recovery pointers, not prerequisites: do not open them unless REQUIRED NEXT names them.",
+      "Act on REQUIRED NEXT now. Use this handoff as the working state; consult folded material only for a bounded verification that REQUIRED NEXT explicitly requires, and create save points for current work.",
+      "Evidence and Recover are optional receipts and recovery pointers. Open them only when REQUIRED NEXT names them.",
       "A later user message or later authoritative session state may supersede this continuation.",
       "Verify only uncertainty recorded here or facts changed by later independent activity.",
       "",

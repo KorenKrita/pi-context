@@ -18,7 +18,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 
 ## 模型可见文案的宪法
 
-1. **正向肯定**：指令一律写"做什么"，不写"不要做什么"。幸存的禁止句必须是真实安全边界（如 travel 单独成批）。示例可以展示失败形态（定义 "vague"），指令不可以。
+1. **正向肯定**：指令一律写"做什么"，不写"不要做什么"。幸存的禁止句必须是真实安全边界（如 travel 单独成批）。示例可以展示失败形态（定义 "vague"），指令不可以。登记在案的禁止句例外：continuation replay fence（`context-packet.ts` 投影的 continuation 中恰好一条 "Do not execute or repeat an earlier request…"，防 travel 后 phantom replay——ledger 证据只覆盖 travel 前的 fold 压制，不外推到 travel 后围栏；`test/guidance-quality.test.ts` 以渲染级测试锁定"恰好一条"）。
 2. **感知面只报事实**：gauge 承载数字 + 恒定结构标记（`boundary`、`Npts`、双折叠针带消息数），零措辞、零阈值、零选时机。带判断的文字只住在 CORE。
 3. **一个事实一层**：CORE=判断（何时/为何），tool description=机制（怎么用+一个关键事实），参数 description=纯机制，promptSnippet=一行场景钩子，promptGuidelines=触发词清单（自带工具名），result cue=状态转移+下一步，recovery=具体恢复动作。例外必须显式声明（现有：回程票三层各司其职、file-backup 消歧三处、target 选择规则两处）。
 4. **上下文过去 ≠ 文件过去**：任何文案不得暗示 checkpoint/travel 能撤销命令或恢复文件。

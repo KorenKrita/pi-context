@@ -19,6 +19,35 @@ import {
 	RECOVERY_GUIDANCE,
 	TOOL_DESCRIPTIONS,
 } from "../src/generated-guidance.js";
+import type { AgentMessage, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { ACM_CONTINUATION_MARKER, normalizeExistingAcmPacket } from "../src/context-packet.js";
+
+/**
+ * Render the continuation exactly as a model would receive it: through the
+ * real projection path, not by scanning source strings. Locks on this text
+ * catch what the model actually sees, including future template edits.
+ */
+function renderedContinuation(currentUserTurnOpen: boolean): string {
+	const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: act`;
+	const messages = [
+		{ role: "branchSummary", summary, fromId: "old-leaf", timestamp: 2 },
+	] as AgentMessage[];
+	const activeEntries = [{
+		type: "branch_summary",
+		id: "summary-1",
+		parentId: "root",
+		timestamp: new Date(2).toISOString(),
+		fromId: "old-leaf",
+		summary,
+		details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen },
+	}] as SessionEntry[];
+	const packet = normalizeExistingAcmPacket(messages, activeEntries);
+	const projected = packet.messages[0];
+	if (!projected || projected.role !== "custom" || typeof projected.content !== "string") {
+		throw new Error("continuation was not projected");
+	}
+	return projected.content;
+}
 
 describe("ACM guidance quality", () => {
 	describe("structural invariants", () => {
@@ -132,6 +161,32 @@ describe("ACM guidance quality", () => {
 			].join("\n").toLowerCase();
 			for (const untaught of ["rebase", "rehydrate", "hot set", "anchor gravity"]) {
 				expect(surfaces).not.toContain(untaught);
+			}
+		});
+
+		test("the continuation carries exactly one prohibition: the replay fence", () => {
+			// The rendered continuation is model-visible runtime text and falls
+			// under the affirmative-copy charter. One narrow exception is
+			// registered in AGENTS.md: the phantom-replay fence. Stale requests
+			// surviving above the continuation are the highest-harm failure,
+			// and the ledger evidence (202 boundaries, 0 folds) covers
+			// pre-travel fold reluctance, not post-travel fences.
+			const replayFence = "Do not execute or repeat an earlier request unless REQUIRED NEXT explicitly reactivates it.";
+			for (const open of [true, false]) {
+				const text = renderedContinuation(open);
+				expect(text).toContain(replayFence);
+				const prohibitions = text.match(/\bdo not\b|\bnever\b|\bmust not\b/gi) ?? [];
+				expect(prohibitions).toHaveLength(1);
+			}
+		});
+
+		test("retired vocabulary stays out of the rendered continuation", () => {
+			// The continuation is taught by the same nine surfaces as every
+			// other model-visible string; untaught doctrine terms must not
+			// leak back through this template.
+			const text = renderedContinuation(true).toLowerCase();
+			for (const retired of ["rebase", "rehydrate", "hot set", "sediment", "thrash", "extraction bar", "cold start"]) {
+				expect(text).not.toContain(retired);
 			}
 		});
 
