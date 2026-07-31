@@ -11,6 +11,7 @@ import {
   isNewBoundary,
   isGaugeDisabled,
   markGaugeShown,
+  resetGaugeOdometer,
   shouldShowGauge,
   type GaugeState,
 } from "./context-gauge.js";
@@ -232,7 +233,7 @@ export class AcmSessionRuntime {
     this.refreshTargets.delete(session);
     this.liveAgentSessions.clear(session);
     this.cachedUsage.delete(session);
-    this.gaugeStates.delete(session);
+    this.resetGaugeCycle(session);
     this.deferredTravelRefresh.set(session, {
       ...deferred,
       providerPhase: "receipt_rejected",
@@ -413,7 +414,7 @@ export class AcmSessionRuntime {
 
   resetUsageForModelChange(session: object): void {
     this.cachedUsage.delete(session);
-    this.gaugeStates.delete(session);
+    this.resetGaugeCycle(session);
     const deferred = this.deferredTravelRefresh.get(session);
     if (deferred?.providerUsageObserved) {
       this.deferredTravelRefresh.set(session, { ...deferred, providerUsageObserved: false });
@@ -421,9 +422,13 @@ export class AcmSessionRuntime {
   }
 
   resetGaugeCycle(session: object): void {
-    // A context transition (travel, compaction, manual /tree) starts a fresh
-    // odometer: the first post-transition reading always shows once.
-    this.gaugeStates.delete(session);
+    // A context transition (travel, model change) restarts the pressure
+    // odometer: the first post-transition reading always shows once. Boundary
+    // tracking survives so the same user request never re-renders its
+    // boundary marker after a mid-request transition; full boundary resets
+    // happen only in clear() (new session, compaction, manual /tree).
+    const state = this.gaugeStates.get(session);
+    if (state) resetGaugeOdometer(state);
   }
 
   clear(session: object): void {

@@ -35,7 +35,12 @@ export function isAcmTool(toolName: string): boolean {
   return toolName.startsWith("acm_");
 }
 
-/** Per-session gauge state. Reset on every context transition (travel, compaction, manual /tree). */
+/**
+ * Per-session gauge state. The pressure odometer resets on every context
+ * transition; boundary tracking resets only with the whole state (new
+ * session, compaction, manual /tree) so one user request renders its
+ * boundary marker at most once even across a mid-request travel.
+ */
 export interface GaugeState {
   /** Pressure percent at the last shown gauge; null means nothing shown this cycle. */
   lastShownPercent: number | null;
@@ -45,6 +50,15 @@ export interface GaugeState {
 
 export function createGaugeState(): GaugeState {
   return { lastShownPercent: null, lastBoundaryShownId: null };
+}
+
+/**
+ * Reset only the pressure odometer so the next reading always shows once.
+ * Boundary tracking survives: a context transition (travel, model change)
+ * inside one user request must not re-render that request's boundary marker.
+ */
+export function resetGaugeOdometer(state: GaugeState): void {
+  state.lastShownPercent = null;
 }
 
 /**
