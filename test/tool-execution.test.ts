@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
+import { collectTrustedAcmTravelTransactions } from "../src/context-packet.js";
 import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/lib.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
@@ -66,22 +67,6 @@ function captureTimelineWithCommands(commandNames: string[]): ExecuteTool {
   return execute;
 }
 
-function captureTimelineWithSkillPath(path: string): ExecuteTool {
-  let execute: ExecuteTool | undefined;
-  registerTimelineTool({
-    registerTool(tool: { execute?: ExecuteTool }) {
-      execute = tool.execute;
-    },
-    getCommands() {
-      return [{
-        name: "skill:context-management",
-        sourceInfo: { path },
-      }] as never;
-    },
-  } as unknown as ExtensionAPI, new AcmSessionRuntime());
-  if (!execute) throw new Error("timeline execute handler was not registered");
-  return execute;
-}
 
 function checkpointContext(initialLabel?: string) {
   const entry = userEntry("entry-1");
@@ -414,14 +399,17 @@ function successfulTravelContext(
       entries.push(labelEntry(id, targetId, label));
       return id;
     },
-    branchWithSummary: (targetId: string, summary: string, details: unknown) => {
+    branchWithSummary: (targetId: string, summary: string, details: unknown, fromHook?: boolean) => {
       branchCalls++;
+      // Mirror the real host contract: fromId is the branch base (not the
+      // pre-travel leaf) and fromHook echoes the caller's flag.
       const entry: SessionEntry = {
         type: "branch_summary",
         id: "travel-summary",
         parentId: targetId,
         timestamp: "2026-01-01T00:00:01.000Z",
-        fromId: leafId,
+        fromId: targetId,
+        fromHook: fromHook === true,
         summary,
         details,
       } as SessionEntry;
@@ -613,7 +601,6 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
 }
 
 const executeCheckpoint = captureExecute(registerCheckpointTool);
-const executeCheckpointWithSkill = captureExecute(registerCheckpointTool, ["skill:context-management"]);
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
 const executeTravel = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime()));
 const HANDOFF = {
@@ -656,10 +643,12 @@ describe("ACM tool execution contracts", () => {
       successfulTravelContext(),
     );
     expect(travel.details?.error).toBeUndefined();
+    // Null backup means "no custom name": the automatic return ticket is
+    // still recorded, and the receipt reports the derived name.
     expect(travel.details).toMatchObject({
       mutationStatus: "applied",
-      hasBackup: false,
-      backupCurrentHeadAs: null,
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
     });
 
     const checkpointFixture = checkpointContext();
@@ -782,7 +771,9 @@ describe("ACM tool execution contracts", () => {
     expect(getAppendCalls()).toBe(0);
   });
 
-  test("exposes collision routing only when the advanced Skill is available", async () => {
+  test("collision recovery is self-contained and points to no external skill files", async () => {
+    // The skill layer is deleted; a collision must resolve from the recovery
+    // text alone instead of routing the model to files that do not exist.
     const root = userEntry("entry-collision-root");
     const head = userEntry("entry-collision-head", root.id);
     const entries = [root, head, labelEntry("label-collision", root.id, "existing-name")];
@@ -800,13 +791,11 @@ describe("ACM tool execution contracts", () => {
     };
 
     const core = await executeCheckpoint("collision-core", { name: "existing-name" }, undefined, undefined, ctx);
-    const product = await executeCheckpointWithSkill("collision-product", { name: "existing-name" }, undefined, undefined, ctx);
 
     expect(core.details).toMatchObject({ error: "duplicate_name" });
+    expect(core.content[0]?.text).toContain("pick a new checkpoint name");
     expect(core.content[0]?.text).not.toContain("context-management");
     expect(core.content[0]?.text).not.toContain("references/");
-    expect(product.content[0]?.text).toContain("`context-management` Skill");
-    expect(product.content[0]?.text).toContain("`references/target-selection.md`");
   });
 
   test("rejects every case variant of root as an archive bookmark before any mutation", async () => {
@@ -988,34 +977,19 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
-  test("emits the advanced target pointer only when the Skill is actually available", async () => {
+  test("timeline output carries no skill routing regardless of advertised commands", async () => {
+    // The skill layer is deleted; the timeline reports facts and cues only,
+    // even when a host advertises a similarly named command.
     const withoutSkill = captureTimelineWithCommands([]);
     const withSkill = captureTimelineWithCommands(["skill:context-management"]);
 
-    const absent = await withoutSkill("timeline-no-skill", { view: "active" }, undefined, undefined, timelineContext());
-    const available = await withSkill("timeline-with-skill", { view: "active" }, undefined, undefined, timelineContext());
-
-    expect(absent.content[0]?.text).not.toContain("references/target-selection.md");
-    expect(available.content[0]?.text).toContain("`context-management` Skill");
-    expect(available.content[0]?.text).toContain("`references/target-selection.md`");
-  });
-
-  test("puts the uniquely advertised Skill router location directly in the active timeline pointer", async () => {
-    const path = "/tmp/ACM Skill/context management/SKILL.md";
-    const executeWithPath = captureTimelineWithSkillPath(path);
-
-    const result = await executeWithPath(
-      "timeline-with-router-path",
-      { view: "active" },
-      undefined,
-      undefined,
-      timelineContext(),
-    );
-
-    const text = result.content[0]?.text ?? "";
-    expect(text).toContain(`Router location: ${JSON.stringify(path)}`);
-    expect(text).toContain("relative to its directory");
-    expect(text).toContain("`references/target-selection.md`");
+    for (const execute of [withoutSkill, withSkill]) {
+      const result = await execute("timeline-no-routing", { view: "active" }, undefined, undefined, timelineContext());
+      const text = result.content[0]?.text ?? "";
+      expect(text).not.toContain("references/");
+      expect(text).not.toContain("Skill");
+      expect(text).not.toContain("Router location");
+    }
   });
 
   test("does not claim an unobservable backup label definitely remains after skipped rollback", async () => {
@@ -1036,7 +1010,10 @@ describe("ACM tool execution contracts", () => {
     expect(result.content[0]?.text).not.toContain("remains because branch mutation");
   });
 
-  test("does not invent a backup pointer for indeterminate travel without a backup", async () => {
+  test("indeterminate travel reports the automatic return ticket as the recovery pointer", async () => {
+    // Every travel now records a return ticket, so even an indeterminate
+    // mutation names a concrete label to recover by instead of leaving the
+    // model without a pointer.
     const result = await executeTravel(
       "call-5",
       { target: "entry-1", handoff: HANDOFF },
@@ -1049,8 +1026,9 @@ describe("ACM tool execution contracts", () => {
       branchState: "indeterminate",
       contextDeliveryPhase: "active",
     });
-    expect(result.content[0]?.text).toContain("Branch mutation cannot be excluded");
-    expect(result.content[0]?.text).not.toContain("backup pointer");
+    const ticket = (result.details as { backupCurrentHeadAs?: string }).backupCurrentHeadAs;
+    expect(typeof ticket).toBe("string");
+    expect(result.content[0]?.text).toContain(`Backup label '${ticket}'`);
   });
 
   test("preserves the raw scheduled native replacement outcome alongside delivery phase", async () => {
@@ -1142,6 +1120,13 @@ describe("ACM tool execution contracts", () => {
       contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
+      // The return-ticket transaction must survive an evidence failure:
+      // trusted receipt matching and [raw archive] classification read these
+      // fields from the receipt itself.
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(result.content[0]?.text).toContain("Travel complete");
     expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
@@ -1168,6 +1153,10 @@ describe("ACM tool execution contracts", () => {
       contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation branch read failed"),
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
     expect(result.content[0]?.text).toContain("Travel complete");
@@ -1193,9 +1182,54 @@ describe("ACM tool execution contracts", () => {
       postMutationEvidenceStatus: "invalid_protocol",
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],
+      hasBackup: true,
+      backupCurrentHeadAs: "preserve-the-current-task-raw",
+      backupEntryId: "travel-head",
+      backupOutcome: "created",
     });
     expect(result.content[0]?.text).toContain("Travel complete");
     expect(result.content[0]?.text).toContain("invalid_tool_call_id");
     expect(result.content[0]?.text).toContain(`Applied handoff NEXT: ${HANDOFF.next}`);
+  });
+
+  test("an applied-but-unverified receipt still forms a trusted travel transaction", async () => {
+    const fixture = successfulTravelContext(false, true);
+    const result = await executeTravel(
+      "travel-unverified-trusted",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture,
+    );
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      postMutationEvidenceStatus: "invalid_protocol",
+    });
+
+    // Reconstruct the receipt exactly as it would be persisted, then verify
+    // it matches its summary provenance: this is what timeline [raw archive]
+    // classification and packet normalization depend on.
+    const summaryEntry = fixture.sessionManager.getEntry("travel-summary")!;
+    const receiptEntry = {
+      type: "message",
+      id: "receipt-unverified",
+      parentId: "travel-summary",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      message: {
+        role: "toolResult",
+        toolCallId: "travel-unverified-trusted",
+        toolName: "acm_travel",
+        content: result.content,
+        details: result.details,
+        isError: false,
+        timestamp: 2,
+      },
+    } as SessionEntry;
+    const transactions = collectTrustedAcmTravelTransactions([summaryEntry, receiptEntry]);
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0]).toMatchObject({
+      summaryEntryId: "travel-summary",
+      backupEntryId: "travel-head",
+    });
   });
 });

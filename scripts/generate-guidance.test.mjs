@@ -37,7 +37,7 @@ describe("canonical guidance generation", () => {
     expect(TREE_SUMMARY_INSTRUCTIONS).toBe(derived.treeSummaryInstructions);
     expect(RECOVERY_GUIDANCE).toEqual(derived.recoveryGuidance);
     expect(ACM_CORE_MARKER).toBe("<!-- PI-CONTEXT:ACM-CORE:v1 -->");
-    expect(RECOVERY_GUIDANCE.hostCapability).toContain("supported Pi version");
+    expect(RECOVERY_GUIDANCE.hostCapability).toContain("Pi version");
   });
 
   test("keeps manual navigation summaries handoff-shaped and standalone", () => {
@@ -45,7 +45,7 @@ describe("canonical guidance generation", () => {
       expect(TREE_SUMMARY_INSTRUCTIONS).toContain(slot);
     }
     expect(TREE_SUMMARY_INSTRUCTIONS).toContain("abandoned conversation branch");
-    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("Preserve exact file paths");
+    expect(TREE_SUMMARY_INSTRUCTIONS).toContain("Keep exact paths");
     expect(TREE_SUMMARY_INSTRUCTIONS).not.toContain("##");
   });
 
@@ -147,10 +147,7 @@ describe("canonical guidance generation", () => {
 
   test("keeps result cues concise and view-specific", () => {
     expect(Object.keys(GUIDANCE_CUES).sort()).toEqual([
-      "advancedExceptionalPointer",
-      "advancedTargetPointer",
       "checkpoint",
-      "rebaseCheck",
       "timelineActive",
       "timelineCheckpoints",
       "timelineSearch",
@@ -161,14 +158,11 @@ describe("canonical guidance generation", () => {
     for (const cue of Object.values(GUIDANCE_CUES)) {
       expect(cue).not.toContain("Goal: <");
     }
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("cold-start handoff");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Rebase only if");
-    expect(GUIDANCE_CUES.rebaseCheck).not.toContain("Rebase instead");
-    expect(GUIDANCE_CUES.rebaseCheck).toContain("Root is a candidate");
-    expect(GUIDANCE_CUES.timelineActive).toContain("`active`");
-    expect(GUIDANCE_CUES.timelineCheckpoints).toContain("`checkpoints`");
-    expect(GUIDANCE_CUES.timelineSearch).toContain("`search`");
-    expect(GUIDANCE_CUES.timelineTree).toContain("`tree`");
+    // Each cue carries a state transition and next action, not a judgment gate.
+    expect(GUIDANCE_CUES.checkpoint).toContain("context unchanged");
+    expect(GUIDANCE_CUES.travel).toContain("execute next");
+    expect(GUIDANCE_CUES.timelineCheckpoints).toContain("Raw-archive");
+    expect(GUIDANCE_CUES.timelineSearch).toContain("whole tree");
   });
 
   test("keeps recovery branches separately selectable", () => {

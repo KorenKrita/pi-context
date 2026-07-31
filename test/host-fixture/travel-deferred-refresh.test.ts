@@ -415,19 +415,16 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       fixture.context,
     );
 
-    expect(second.details).toMatchObject({
-      error: "backup_protocol_incomplete",
-      normalizations: [expect.objectContaining({
-        kind: "removed_applied_acm_travel_receipt",
-        toolCallId: firstCallId,
-      })],
-      repairs: [expect.objectContaining({
-        kind: "removed_orphan_result",
-        toolCallId: firstCallId,
-        toolName: "acm_travel",
-      })],
-    });
-    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "must-not-trust-foreign-duplicate")).toBe(false);
+    // Return tickets anchor like automatic checkpoints: the damaged stretch
+    // (foreign duplicate receipt) is skipped and the ticket lands on the
+    // latest protocol-complete entry instead of blocking the travel.
+    expect(second.details?.error).toBeUndefined();
+    const ticketLabel = sessionManager.getEntries().find(
+      (entry) => entry.type === "label" && entry.label === "must-not-trust-foreign-duplicate",
+    ) as { targetId?: string } | undefined;
+    expect(ticketLabel).toBeDefined();
+    const ticketPacket = rebuildAcmContextPacket(sessionManager, ticketLabel!.targetId!);
+    expect(ticketPacket.ok && ticketPacket.value.protocol.status === "complete").toBe(true);
   });
 
   test("accepts a JSON-encoded structured handoff from providers that serialize nested arguments", async () => {
@@ -505,7 +502,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
         "  - bun test",
         "External: none",
         "Exclusions: none",
-        "Recover: none",
+        "Recover: Raw archive: continue-multiline-work-raw",
         "NEXT: edit the README",
       ].join("\n"),
     });
@@ -747,9 +744,10 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect((result.content[0] as { text: string }).text).toContain("Target warnings: target_packet_repaired, target_prefix_open_user_turn, target_is_assistant_tool_batch");
   });
 
-  test("rejects a raw backup whose immediate pre-travel packet needs protocol repair", async () => {
+  test("anchors the return ticket past an unfinished tool batch onto the protocol-complete prefix", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
+    const midId = sessionManager.appendMessage({ role: "user", content: "and the lexer", timestamp: Date.now() });
     sessionManager.appendMessage({
       role: "assistant",
       content: [{ type: "toolCall", id: "unfinished-read", name: "read", arguments: { path: "src/parser.ts" } }],
@@ -771,16 +769,89 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       context,
     );
 
+    // The unfinished tool batch cannot host the ticket; anchoring walks back
+    // to the protocol-complete mid entry — still strictly after the fold
+    // target — instead of blocking the travel.
+    expect(result.details?.error).toBeUndefined();
     expect(result.details).toMatchObject({
-      error: "backup_protocol_incomplete",
-      repairs: [expect.objectContaining({
-        kind: "synthesized_missing_result",
-        toolCallId: "unfinished-read",
-      })],
+      backupCurrentHeadAs: "unsafe-raw",
+      backupEntryId: midId,
     });
+    void travelCallId;
+    const label = sessionManager.getEntries().find(
+      (entry) => entry.type === "label" && entry.label === "unsafe-raw",
+    ) as { targetId?: string } | undefined;
+    expect(label?.targetId).toBe(midId);
+  });
+
+  test("aborts before mutation when no protocol-complete prefix can host the return ticket", async () => {
+    const sessionManager = SessionManager.inMemory();
+    // The whole prefix is one unfinished tool batch: no candidate can host
+    // the return ticket without repair.
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-scan", name: "read", arguments: { path: "src/scan.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: "root", handoff: HANDOFF, backupCurrentHeadAs: "stranded-raw" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "no_protocol_complete_backup_target",
+      name: "stranded-raw",
+    });
+    expect((result.content[0] as { text: string }).text).toContain("nothing was mutated");
+    // Nothing mutated: no label, no summary branch, same leaf, same entries.
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
     expect(sessionManager.getLeafId()).toBe(travelCallId);
-    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "unsafe-raw")).toBe(false);
-    expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
+  });
+
+  test("the return ticket never lands at or before the fold target", async () => {
+    // Everything after the target needs protocol repair, so the backward walk
+    // would reach the target itself — but a ticket at or before the target
+    // survives the fold and can restore nothing. The travel must abort
+    // instead of advertising a fake raw archive.
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "start the task", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-work", name: "read", arguments: { path: "src/work.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({ error: "no_protocol_complete_backup_target" });
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getLeafId()).toBe(travelCallId);
   });
 
   test("rejects duplicate tool-call ids in the current packet before raw backup resolution", async () => {
@@ -982,7 +1053,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       activeSummaryDepthDelta: 1,
       currentUserTurnOpen: false,
     });
-    expect((result.content[0] as { text: string }).text).toContain("summaryDepth=0 → 1 (delta=+1)");
+    expect((result.content[0] as { text: string }).text).toContain("handoffLayers=0 → 1 (delta=+1)");
     expect(liveSession.agent.state.messages).toBe(staleMessages);
 
     await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);

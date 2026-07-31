@@ -148,7 +148,7 @@ describe("ACM tool rendering", () => {
     );
     const collapsedOutput = render(collapsed);
     expect(collapsedOutput).toContain("✓ TIMELINE READY  SEARCH");
-    expect(collapsedOutput).toContain("5 matches · truncated · summary depth 1");
+    expect(collapsedOutput).toContain("5 matches · truncated · handoff layers 1");
     expect(collapsedOutput).toContain("match four");
     expect(collapsedOutput).not.toContain("match five");
     expect(collapsedOutput).toContain("expand for full output");
@@ -182,7 +182,7 @@ describe("ACM tool rendering", () => {
     );
 
     const output = render(result);
-    expect(output).toContain("2/4 aliases shown · summary depth 0");
+    expect(output).toContain("2/4 aliases shown · handoff layers 0");
     expect(output).not.toContain("0/0 entries");
   });
 
@@ -232,7 +232,7 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("✓ TRAVEL COMPLETE  parser-fix-start → summary-456");
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
-    expect(output).toContain("summary depth 2 → 1 · backup parser-fix-done");
+    expect(output).toContain("handoff layers 2 → 1 · backup parser-fix-done");
     expect(output).toContain("delivery pending_tool_result · evidence verified · persisted refresh pending");
   });
 

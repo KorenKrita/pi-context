@@ -6,6 +6,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import {
+  ANCHOR_SEARCH_WINDOW,
   buildLabelMaps,
   calculateUsageDelta,
   classifyStructuralMessageDirection,
@@ -21,7 +22,7 @@ import {
   resolveTargetId,
   sanitizeTerminalText,
 } from "./lib.js";
-import { buildCanonicalHandoff, HandoffSchema, type HandoffWireInput } from "./handoff.js";
+import { buildCanonicalHandoff, deriveReturnTicketName, HandoffSchema, type HandoffWireInput } from "./handoff.js";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
   prevalidateBranchWithSummary,
@@ -40,8 +41,7 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
-import { appendLedgerRow, buildFoldRow, createLedgerState } from "./boundary-ledger.js";
+import { appendLedgerRow, buildFoldRow, markFoldCounted } from "./boundary-ledger.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -87,9 +87,9 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
-    target: Type.String({ minLength: 1, description: "Checkpoint name, history node ID, or 'root'. Choose the last clean node before the material being folded, not the nearest label. A raw archive alias created by backupCurrentHeadAs restores pre-travel history: target it only for deliberate rehydrate/restore, never as a fold/rebase base. For a rebase, take the earliest candidate whose projected summary depth does not grow and whose handoff passes cold start; root is a candidate, not a default. On large trees use acm_timeline with view checkpoints or search." }),
+    target: Type.String({ minLength: 1, description: "Where to return to: checkpoint name, node ID, or 'root'. Pick the point immediately before the material being folded — the checkpoints view lists candidates with projected gains." }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional brand-new recovery alias for the latest protocol-complete point on the current origin path before mutation; unique and semantic, never a workflow state ('root' is reserved). This field never selects the destination: Put an existing checkpoint, archive alias, or return alias in target and omit this field. Use it only when a new alias is needed for this exact pre-travel path." })),
+    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional unique custom name for the automatic return ticket; 'root' is reserved. Omit to use the name derived from the handoff goal." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -162,7 +162,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             + ` (${formatSignedDelta(tokenDelta)}) · messages ${formatNumericValue(beforeMessages)} → ${formatNumericValue(afterMessages)} (${direction})`,
         ),
         theme.fg("dim",
-          `  summary depth ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
+          `  handoff layers ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
             + ` · backup ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · persisted refresh pending`,
         ),
       ];
@@ -213,20 +213,20 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
-          content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
+          content: [{ type: "text" as const, text: `Error: Return ticket name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
           details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
         };
       }
-      const handoffResult = buildCanonicalHandoff(params.handoff, {
-        ...(params.backupCurrentHeadAs ? { rawArchiveAlias: params.backupCurrentHeadAs } : {}),
-      });
+      // First pass validates fields and exposes the goal; the canonical text is
+      // rebuilt below once the return-ticket name is known.
+      const handoffResult = buildCanonicalHandoff(params.handoff);
       if (!handoffResult.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
           details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
-      const canonicalHandoff = handoffResult.value;
+      let canonicalHandoff = handoffResult.value;
 
       const preTravelBranch = ctx.sessionManager.getBranch();
       const containingBatch = findContainingAssistantToolBatch(
@@ -388,6 +388,92 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           },
         };
       }
+      let backupEntryId: string | undefined;
+      let backupProtocolStatus: "complete" | "repaired" = "complete";
+      let backupResolvedFromHead: string | undefined;
+      let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
+      let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
+      // Every fold records a return ticket: the pre-travel head is always
+      // labeled, with the explicit name when supplied, the head's existing
+      // label when one is already there, or a name derived from the goal.
+      {
+        if (signal?.aborted) {
+          return {
+            content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
+            details: { error: "aborted", target: params.target, targetId },
+          };
+        }
+        // Same anchoring rule as acm_checkpoint's automatic placement: walk
+        // backward for the latest protocol-complete entry, skipping candidates
+        // that would need repair, bounded by the shared search window.
+        //
+        // On-path folds have a hard lower bound: the ticket must sit strictly
+        // after the travel target, inside the replaced range. A ticket at or
+        // before the target survives the fold anyway and can restore nothing
+        // — advertising it as a raw archive would be a lie. Off-path travel
+        // replaces the whole current spine, so every entry on it qualifies.
+        //
+        // When the target packet is itself "repaired" — damage in the
+        // surviving prefix, already accepted with explicit warnings — every
+        // candidate after it inherits that repair, so "complete" is
+        // unreachable by construction. A repaired candidate is then
+        // acceptable: the archive carries exactly the damage the fold
+        // already acknowledged, and the receipt records the real status.
+        const targetProtocolStatus = targetPacketResult.value.protocol.status;
+        const lowestIndex = resolved.fromOffPath ? 0 : targetBranch.length;
+        const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
+        for (let index = startIndex, inspected = 0; index >= lowestIndex && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
+          if (signal?.aborted) break;
+          const candidate = branch[index]!;
+          const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
+          if (!packet.ok) continue;
+          const status = packet.value.protocol.status;
+          if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) continue;
+          backupProtocolStatus = status;
+          backupProtocolNormalizations = packet.value.protocol.normalizations;
+          backupEntryId = candidate.id;
+          break;
+        }
+        if (!backupEntryId) {
+          return {
+            content: [{ type: "text" as const, text: "Error: the return ticket could not be placed — no protocol-complete entry exists in the history this travel would replace. Finish or explicitly recover the interrupted tool batch, or choose a later target, then retry; nothing was mutated." }],
+            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs ?? null, headId: originId, lowestIndex },
+          };
+        }
+        if (backupEntryId !== originId) {
+          backupResolvedFromHead = originId;
+          ctx.ui.notify(`Note: the return ticket was placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
+        }
+      }
+
+      // Resolve the return-ticket name: explicit override, the head's existing
+      // label (reused rather than displaced), or a slug derived from the goal.
+      const headExistingLabel = backupEntryId ? labelMaps.entryToLabel.get(backupEntryId) : undefined;
+      const returnTicketName = params.backupCurrentHeadAs
+        ?? headExistingLabel
+        ?? deriveReturnTicketName(canonicalHandoff.fields.goal, (name) => labelMaps.labelToEntryId.has(name) || isReservedTargetName(name));
+      // A reused head label from an imported/foreign session may not satisfy
+      // the alias pattern. It is reused in place without a write (the host
+      // would reject any replacement name as displacement anyway), so the
+      // travel proceeds and only the canonical Raw archive line is omitted.
+      // An explicit caller name stays authoritative and still fails loudly.
+      const advertisableAlias = params.backupCurrentHeadAs !== undefined
+        || /^[A-Za-z0-9._-]+$/.test(returnTicketName)
+        ? returnTicketName
+        : undefined;
+      {
+        const rebuilt = buildCanonicalHandoff(
+          params.handoff,
+          advertisableAlias === undefined ? {} : { rawArchiveAlias: advertisableAlias },
+        );
+        if (!rebuilt.ok) {
+          return {
+            content: [{ type: "text" as const, text: `Error: return ticket name '${returnTicketName}' is not a valid alias: ${rebuilt.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Nothing was mutated.` }],
+            details: { error: "invalid_return_ticket", name: returnTicketName, defects: rebuilt.defects },
+          };
+        }
+        canonicalHandoff = rebuilt.value;
+      }
       const estimatedUsagePreview = estimateUsageAtTravelTarget(
         usageBefore,
         currentMessages,
@@ -398,69 +484,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
       const targetSummaryDepth = countActiveSummaryDepth(targetBranch);
-
-      let backupEntryId: string | undefined;
-      let backupResolvedFromHead: string | undefined;
-      let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
-      let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
-      if (params.backupCurrentHeadAs) {
-        if (signal?.aborted) {
-          return {
-            content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
-            details: { error: "aborted", target: params.target, targetId },
-          };
-        }
-        const backupCandidateIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
-        const backupCandidate = backupCandidateIndex >= 0 ? branch[backupCandidateIndex] : undefined;
-        if (!backupCandidate) {
-          return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not be placed — no protocol-complete session prefix exists before this travel call. Travel aborted.` }],
-            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs, headId: originId },
-          };
-        }
-        const backupPacketResult = rebuildAcmContextPacket(sessionManager, backupCandidate.id);
-        if (!backupPacketResult.ok) {
-          return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' could not build the pre-travel context: ${backupPacketResult.message}. Travel aborted.` }],
-            details: {
-              error: "backup_context_build_failed",
-              name: params.backupCurrentHeadAs,
-              candidateId: backupCandidate.id,
-              message: backupPacketResult.message,
-            },
-          };
-        }
-        const backupProtocol = backupPacketResult.value.protocol;
-        backupProtocolNormalizations = backupProtocol.normalizations;
-        if (backupProtocol.status === "invalid") {
-          return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' contains invalid tool-call identity at ${backupCandidate.id}. Repair the persisted session protocol before traveling.` }],
-            details: {
-              error: "backup_protocol_invalid",
-              name: params.backupCurrentHeadAs,
-              candidateId: backupCandidate.id,
-              defects: backupProtocol.defects,
-            },
-          };
-        }
-        if (backupProtocol.status === "repaired") {
-          return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark backupCurrentHeadAs '${params.backupCurrentHeadAs}' would require tool-protocol repair at ${backupCandidate.id}. Finish or explicitly recover the interrupted tool batch before traveling.` }],
-            details: {
-              error: "backup_protocol_incomplete",
-              name: params.backupCurrentHeadAs,
-              candidateId: backupCandidate.id,
-              normalizations: backupProtocol.normalizations,
-              repairs: backupProtocol.repairs,
-            },
-          };
-        }
-        backupEntryId = backupCandidate.id;
-        if (backupEntryId !== originId) {
-          backupResolvedFromHead = originId;
-          ctx.ui.notify(`Note: backupCurrentHeadAs '${params.backupCurrentHeadAs}' placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
-        }
-      }
 
       const branchPrevalidation = prevalidateBranchWithSummary(sessionManager, targetId);
       if (!branchPrevalidation.ok) {
@@ -476,15 +499,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
 
-      if (params.backupCurrentHeadAs && backupEntryId) {
-        const backupCheck = prevalidateCheckpointLabel(sessionManager, backupEntryId, params.backupCurrentHeadAs);
+      if (backupEntryId) {
+        const backupCheck = prevalidateCheckpointLabel(sessionManager, backupEntryId, returnTicketName);
         if (!backupCheck.ok) {
           if (backupCheck.error === "label_conflict") {
             const conflict = backupCheck.details as CheckpointLabelConflict;
             const existing = `${conflict.entryId}${conflict.onActivePath ? " (on-path)" : " (off-path)"}`;
             return {
-              content: [{ type: "text" as const, text: `Error: archive bookmark name '${params.backupCurrentHeadAs}' already exists at ${existing}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.nameCollision, GUIDANCE_CUES.advancedTargetPointer)}` }],
-              details: { error: "duplicate_backup_name", name: params.backupCurrentHeadAs, owner: conflict },
+              content: [{ type: "text" as const, text: `Error: return ticket name '${returnTicketName}' already exists at ${existing}. ${RECOVERY_GUIDANCE.nameCollision}` }],
+              details: { error: "duplicate_backup_name", name: returnTicketName, owner: conflict },
             };
           }
           if (backupCheck.error === "label_displaces_existing") {
@@ -492,19 +515,19 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             return {
               content: [{
                 type: "text" as const,
-                text: `Error: archive bookmark '${params.backupCurrentHeadAs}' would replace checkpoint '${displaced.existingLabel}' on the pre-travel entry ${displaced.targetId}, because the host keeps one label per entry. No mutation was attempted. Choose a different backupCurrentHeadAs target, or move '${displaced.existingLabel}' first.`,
+                text: `Error: return ticket '${returnTicketName}' would replace checkpoint '${displaced.existingLabel}' on the pre-travel entry ${displaced.targetId}, because the host keeps one label per entry. No mutation was attempted. Retry with backupCurrentHeadAs omitted to reuse '${displaced.existingLabel}', or move it first.`,
               }],
               details: {
                 error: "backup_displaces_existing_label",
-                name: params.backupCurrentHeadAs,
+                name: returnTicketName,
                 candidateId: displaced.targetId,
                 existingLabel: displaced.existingLabel,
               },
             };
           }
           return {
-            content: [{ type: "text" as const, text: `Error: archive bookmark '${params.backupCurrentHeadAs}' failed prevalidation: ${backupCheck.message}. No mutation was attempted. ${RECOVERY_GUIDANCE.hostCapability}` }],
-            details: { error: "backup_prevalidation_failed", name: params.backupCurrentHeadAs, message: backupCheck.message, recoveryAction: RECOVERY_GUIDANCE.hostCapability },
+            content: [{ type: "text" as const, text: `Error: return ticket '${returnTicketName}' failed prevalidation: ${backupCheck.message}. No mutation was attempted. ${RECOVERY_GUIDANCE.hostCapability}` }],
+            details: { error: "backup_prevalidation_failed", name: returnTicketName, message: backupCheck.message, recoveryAction: RECOVERY_GUIDANCE.hostCapability },
           };
         }
         backupPrevalidation = backupCheck.value;
@@ -526,15 +549,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ...(originLabel === undefined ? {} : { originLabel }),
         target: params.target,
         targetId,
-        backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
+        backupCurrentHeadAs: returnTicketName,
       };
       const mutation = executeTravelMutation({
         sessionManager,
         targetId,
         summary: canonicalHandoff.text,
         details: travelDetails,
-        ...(params.backupCurrentHeadAs && backupEntryId && backupPrevalidation
-          ? { backup: { targetId: backupEntryId, name: params.backupCurrentHeadAs, prevalidation: backupPrevalidation } }
+        ...(backupEntryId && backupPrevalidation
+          ? { backup: { targetId: backupEntryId, name: returnTicketName, prevalidation: backupPrevalidation } }
           : {}),
       });
 
@@ -544,20 +567,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
           recoveryAction = mutation.remainingBackupLabelState === "present"
-            ? withAvailableAdvancedGuidance(
-              pi,
-              mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped,
-              GUIDANCE_CUES.advancedExceptionalPointer,
-            )
+            ? (mutation.backupRollbackFailed ? RECOVERY_GUIDANCE.rollbackFailed : RECOVERY_GUIDANCE.rollbackSkipped)
             : mutation.remainingBackupLabelState === "unknown"
               ? `Backup alias presence could not be verified. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`
               : `The backup alias is absent. Use ${backupRecoveryNode} as the recovery pointer and inspect the active leaf before retrying.`;
         } else if (mutation.branchState === "indeterminate") {
-          recoveryAction = withAvailableAdvancedGuidance(
-            pi,
-            "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.",
-            GUIDANCE_CUES.advancedExceptionalPointer,
-          );
+          recoveryAction = "Branch mutation cannot be excluded. Inspect the active leaf and reported summary entry before retrying.";
         } else {
           recoveryAction = mutation.backupRolledBack
             ? RECOVERY_GUIDANCE.branchRolledBack
@@ -566,24 +581,24 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         let backupNote = "";
         if (mutation.backupRollbackFailed) {
           backupNote = mutation.remainingBackupLabelState === "present"
-            ? ` Backup label '${params.backupCurrentHeadAs}' remains at ${backupEntryId}; rollback failed.`
+            ? ` Backup label '${returnTicketName}' remains at ${backupEntryId}; rollback failed.`
             : mutation.remainingBackupLabelState === "unknown"
-              ? ` Backup label '${params.backupCurrentHeadAs}' may remain; rollback failed and label verification was unavailable.`
-              : ` Rollback failed, but backup label '${params.backupCurrentHeadAs}' is not currently present.`;
+              ? ` Backup label '${returnTicketName}' may remain; rollback failed and label verification was unavailable.`
+              : ` Rollback failed, but backup label '${returnTicketName}' is not currently present.`;
         } else if (mutation.backupRollbackSkipped && mutation.backupRollbackSkipReason === "branch_mutation_observed") {
           backupNote = mutation.remainingBackupLabelState === "present"
-            ? ` Backup label '${params.backupCurrentHeadAs}' remains because branch mutation was observed or cannot be excluded.`
+            ? ` Backup label '${returnTicketName}' remains because branch mutation was observed or cannot be excluded.`
             : mutation.remainingBackupLabelState === "unknown"
-              ? ` Backup label '${params.backupCurrentHeadAs}' may remain because branch mutation was observed and label verification was unavailable.`
-              : ` Backup label '${params.backupCurrentHeadAs}' is not currently present; preserve ${backupRecoveryNode} instead.`;
+              ? ` Backup label '${returnTicketName}' may remain because branch mutation was observed and label verification was unavailable.`
+              : ` Backup label '${returnTicketName}' is not currently present; preserve ${backupRecoveryNode} instead.`;
         } else if (mutation.backupRollbackSkipped) {
-          backupNote = ` Backup label '${params.backupCurrentHeadAs}' may remain because its mutation state is indeterminate.`;
+          backupNote = ` Backup label '${returnTicketName}' may remain because its mutation state is indeterminate.`;
         } else if (mutation.backupRolledBack) {
-          backupNote = ` Backup label '${params.backupCurrentHeadAs}' was rolled back.`;
+          backupNote = ` Backup label '${returnTicketName}' was rolled back.`;
         }
         const refreshNote = mutation.refreshRequired ? ` ${RECOVERY_GUIDANCE.refreshPending}` : "";
         const prefix = mutation.error === "backup_label_failed"
-          ? `Error: archive bookmark '${params.backupCurrentHeadAs}' could not be set`
+          ? `Error: return ticket '${returnTicketName}' could not be set`
           : "Error: branchWithSummary failed";
         return {
           content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}${refreshNote}` }],
@@ -592,7 +607,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             hostError: mutation.hostError,
             branchState: mutation.branchState,
             branchFailure: mutation.branchFailure,
-            backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
+            backupCurrentHeadAs: returnTicketName,
             backupEntryId,
             backupOutcome: mutation.backupOutcome,
             backupLabelWritten: mutation.backupOutcome === "created",
@@ -615,6 +630,22 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       runtime.resetGaugeCycle(sessionManager);
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
+      const backupOutcome = mutation.backupOutcome;
+      const backupText = formatBackupText(returnTicketName, backupEntryId, backupResolvedFromHead);
+      // Shared applied-receipt backup facts. Every applied receipt — verified
+      // or not — must carry the full return-ticket transaction: trusted
+      // receipt matching and [raw archive] classification require
+      // backupCurrentHeadAs/backupEntryId on the receipt itself, and a
+      // post-mutation evidence failure must not erase them.
+      const appliedBackupDetails = {
+        hasBackup: true,
+        backupCurrentHeadAs: returnTicketName,
+        backupEntryId,
+        backupResolvedFromHead,
+        backupOutcome,
+        backupProtocolStatus,
+        backupProtocolNormalizations,
+      };
       // The mutation is already durable. Establish both refresh tickets before
       // any diagnostic read that may fail, so an applied travel can never fall
       // back into an untracked split-brain state.
@@ -631,7 +662,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         activeSummaryDepthAfter = countActiveSummaryDepth(sessionManager.getBranch());
       } catch (error) {
         const cause = error instanceof Error ? error.message : String(error);
-        postMutationDiagnosticWarning = `Active summary depth could not be read after the applied mutation: ${cause}`;
+        postMutationDiagnosticWarning = `Handoff layer count could not be read after the applied mutation: ${cause}`;
       }
       const activeSummaryDepthDelta = activeSummaryDepthAfter - activeSummaryDepthBefore;
       const afterPacketResult = rebuildAcmContextPacket(sessionManager);
@@ -657,7 +688,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
               `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
               "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
               `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
@@ -674,6 +705,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             target: params.target,
             targetId,
             originId,
+            ...appliedBackupDetails,
             summaryEntryId,
             resultingLeafId,
             activeSummaryDepthBefore,
@@ -723,8 +755,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageDelta = calculateUsageDelta(usageBefore, estimatedUsageAfter);
       const structuralMessageDelta = messagesAfter - messagesBefore;
       const structuralMessageDirection = classifyStructuralMessageDirection(messagesBefore, messagesAfter);
-      const backupText = formatBackupText(params.backupCurrentHeadAs, backupEntryId, backupResolvedFromHead);
-      const backupOutcome = mutation.backupOutcome;
       const messageDelta = `${messagesBefore} → ${messagesAfter} (${formatSignedDelta(structuralMessageDelta)}, ${structuralMessageDirection})`;
       const usageBeforeTokens = usageBefore?.tokens ?? null;
       const usageBeforePercent = usageBefore?.percent ?? null;
@@ -737,13 +767,18 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       // delta the receipt already carries, so folds and boundaries accumulate
       // on the same yardstick. Swallowed on any failure.
       try {
-        appendLedgerRow("fold", buildFoldRow({
-          state: createLedgerState(`${process.pid}-travel`),
+        // The session's own ledger state: fold rows must share the boundary
+        // rows' discriminator or the per-session join breaks, and the fold
+        // count must advance so boundary rows report foldsSoFar truthfully.
+        const ledgerState = runtime.ledgerState(sessionManager);
+        const written = appendLedgerRow("fold", buildFoldRow({
+          state: ledgerState,
           budgetBefore: usageBeforePercent,
           budgetAfter: estimatedUsageAfter?.percent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
         }));
+        if (written) markFoldCounted(ledgerState);
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }
@@ -751,14 +786,14 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
         && activeSummaryDepthAfter === targetSummaryDepth + 1
-        ? `Root rebase replaced prior active handoff layers with one new handoff; resulting summary depth is ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
+        ? `This fold to root replaced prior handoff layers with one new handoff; handoff layers are now ${targetSummaryDepth + 1} rather than ${targetSummaryDepth}.`
         : null;
 
       return {
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; summaryDepth=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; handoffLayers=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -780,13 +815,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           rootCount: requestedRoot ? tree.length : null,
           originId,
           originLabel,
-          hasBackup: !!params.backupCurrentHeadAs,
-          backupCurrentHeadAs: params.backupCurrentHeadAs ?? null,
-          backupEntryId,
-          backupResolvedFromHead,
-          backupOutcome,
-          backupProtocolStatus: params.backupCurrentHeadAs ? "complete" : null,
-          backupProtocolNormalizations,
+          ...appliedBackupDetails,
           usageBefore: usageBeforeText,
           usageAfter: "pending_next_context_event",
           estimatedUsagePreview: estimatedPreviewText,

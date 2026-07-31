@@ -58,7 +58,7 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
     expect(injected).toBeDefined();
     expect(injected).toStartWith("base prompt");
     expect(injected).toContain(generated.ACM_CORE_MARKER);
-    expect(injected).toContain("Compression is intelligence");
+    expect(injected).toContain("The fold test");
     expect(injected?.split(generated.ACM_CORE_MARKER)).toHaveLength(2);
 
     const second = await runner.emitBeforeAgentStart("again", undefined, injected!, { cwd: tempDir });
@@ -89,7 +89,7 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     expect(tools.get("acm_travel")?.promptSnippet).toBe(generated.PROMPT_SNIPPETS.travel);
     expect(tools.get("acm_travel")?.promptGuidelines).toEqual(generated.PROMPT_GUIDELINES.travel.split("\n"));
     expect(tools.get("acm_travel")?.executionMode).toBe("sequential");
-    expect(tools.get("acm_travel")?.description).toContain("alone in its assistant tool batch");
+    expect(tools.get("acm_travel")?.description).toContain("alone in its tool batch");
     const travelParameters = tools.get("acm_travel")?.parameters as {
       required?: string[];
       properties?: Record<string, { anyOf?: Array<{ type?: string; required?: string[] }> }>;
@@ -99,15 +99,9 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     const handoffVariants = travelParameters.properties?.handoff?.anyOf ?? [];
     const structuredHandoff = handoffVariants.find((variant) => variant.type === "object");
     const serializedHandoff = handoffVariants.find((variant) => variant.type === "string");
-    expect(structuredHandoff?.required?.sort()).toEqual([
-      "evidence",
-      "exclusions",
-      "external",
-      "goal",
-      "next",
-      "recover",
-      "state",
-    ]);
+    // Three-required/four-optional wire shape: the schema the host actually
+    // serves must not regress to seven-required.
+    expect(structuredHandoff?.required?.sort()).toEqual(["goal", "next", "state"]);
     expect(serializedHandoff).toBeDefined();
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

@@ -38,8 +38,9 @@ Pi 自带的办法是 compaction：窗口快满时自动把历史压成一段摘
 }
 ```
 
-- **goal / state / next** 必须有真实内容：目标是什么、现在什么状态、下一步做什么。
-- **evidence / external / exclusions / recover** 是辅助信息：证据在哪、改过哪些文件、放弃过哪些方向、想回头时去哪——没有就写 `none`。
+- **goal / state / next** 必填：目标是什么、现在什么状态、下一步做什么。
+- **evidence / external / exclusions / recover** 可选：证据在哪、改过哪些文件、放弃过哪些方向、想回头时去哪——用到才写，省略自动记为 `none`。简单场景三个字段就够。
+- 每次折叠都会自动给折叠前的位置记一张"回程票"（archive alias），写进 Recover 行——想找回原文时直接 travel 过去。
 
 合格标准只有一条：一个完全不知道前情的新 agent，只靠这张单子就能无缝接着干。写不出来这样的单子，说明这段过程还没消化完，还不到折叠的时候。
 
@@ -48,10 +49,10 @@ Pi 自带的办法是 compaction：窗口快满时自动把历史压成一段摘
 每个工具结果的末尾会带一行小字：
 
 ```text
-[ctx 41% budget · 12% window]
+[ctx 41% budget · 12% window · boundary · 2pts · fold@turn→24%/38 · fold@task→11%/92]
 ```
 
-左边是注意力预算的占用（预算 = 模型窗口和 400K 取小），右边是物理窗口的占用。数字变了才显示，不变就沉默。
+依次是：注意力预算占用（预算 = 模型窗口和 400K 取小）、物理窗口占用、`boundary` 标记（每个新请求的首次读数）、路径上的存档数，以及两根折叠针——折到上一段开头 / 折到最早存档点，各自显示折后压力和会折掉的消息数。整数位变了才显示，每个新请求的首次读数必显示。
 
 它只报数，从不建议做什么——什么时候整理，是 agent 自己的判断。设 `ACM_GAUGE_DISABLED=1` 可以关掉。
 
@@ -69,10 +70,10 @@ pi install .
 
 > 本 fork 只发布在 GitHub。npm 上未带 scope 的 `pi-context` 是上游项目，不要用 `npm install` 装这个 fork。
 
-也可以不安装、临时加载（加上 skills 目录才有进阶指引）：
+也可以不安装、临时加载：
 
 ```bash
-pi -e /path/to/pi-context/src/index.ts --skill /path/to/pi-context/skills
+pi -e /path/to/pi-context/src/index.ts
 ```
 
 ## 安全边界
@@ -91,7 +92,7 @@ bun run verify:acm
 
 完整 gate 覆盖：生成文本一致性检查、全部单元测试、TypeScript 类型检查、以及在真实 Pi `0.82.1` 上运行的 host fixture。
 
-架构细节、host 兼容性契约与维护规则见 [`AGENTS.md`](AGENTS.md)；判断语义的正典在 [`docs/acm-judgment-contract.md`](docs/acm-judgment-contract.md)。
+架构细节、host 兼容性契约、文案宪法与维护规则见 [`AGENTS.md`](AGENTS.md)。
 
 ## 致谢
 

@@ -49,8 +49,12 @@ export interface FoldReferences {
 export interface FoldEstimates {
   /** Projected budget-pressure percent after folding to the turn reference. */
   turnPercent: number | null;
+  /** Messages the turn fold would remove (before the one handoff it adds). */
+  turnMessagesRemoved: number | null;
   /** Projected budget-pressure percent after folding to the task reference. */
   taskPercent: number | null;
+  /** Messages the task fold would remove (before the one handoff it adds). */
+  taskMessagesRemoved: number | null;
 }
 
 function isUserBoundary(entry: FoldEstimateEntry): boolean {
@@ -152,10 +156,10 @@ export interface FoldEstimateInputs {
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
 }
 
-function projectedBudgetPercent(
+function projectedFold(
   inputs: FoldEstimateInputs,
   reference: FoldReference | null,
-): number | null {
+): { percent: number; messagesRemoved: number } | null {
   if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
   const after = inputs.messagesAt(reference.entryId);
   if (!after) return null;
@@ -171,7 +175,10 @@ function projectedBudgetPercent(
     NOMINAL_HANDOFF_TOKENS,
   );
   if (!estimate) return null;
-  return (estimate.tokens * 100) / inputs.workingBudgetTokens;
+  return {
+    percent: (estimate.tokens * 100) / inputs.workingBudgetTokens,
+    messagesRemoved: Math.max(0, inputs.currentMessages.length - after.length),
+  };
 }
 
 /** Project both needles against the working budget the gauge already reports. */
@@ -179,9 +186,13 @@ export function estimateFoldGains(
   inputs: FoldEstimateInputs,
   references: FoldReferences,
 ): FoldEstimates {
+  const turn = projectedFold(inputs, references.turn);
+  const task = projectedFold(inputs, references.task);
   return {
-    turnPercent: projectedBudgetPercent(inputs, references.turn),
-    taskPercent: projectedBudgetPercent(inputs, references.task),
+    turnPercent: turn?.percent ?? null,
+    turnMessagesRemoved: turn?.messagesRemoved ?? null,
+    taskPercent: task?.percent ?? null,
+    taskMessagesRemoved: task?.messagesRemoved ?? null,
   };
 }
 

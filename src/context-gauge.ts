@@ -5,26 +5,24 @@ import type { FoldEstimates } from "./fold-estimate.js";
  * Constant context gauge — the only perception surface ACM injects.
  *
  * Design contract (AGENTS.md gauge contract): the gauge is furniture, not an
- * event. It renders facts and nothing else: working-budget pressure (the soft
- * attention envelope, breakable for a clean extraction), hard window usage
- * (the physical runway), and the projected pressure a fold at each structural
- * reference point would leave (turn granularity and task granularity). No
- * verbs, no evaluation, no thresholds, no escalation — any injected wording
- * beyond the numbers gets read as an instruction by an obedient model, which
- * is exactly the failure mode this design retired (burst cues, boundary cues,
- * tier reminders).
+ * event. It renders facts and nothing else: working-budget pressure, hard
+ * window usage, a constant `boundary` marker on the first reading of each
+ * user request, the save-point count, and the projected pressure plus
+ * messages removed for a fold at each structural reference point. No verbs,
+ * no evaluation, no thresholds, no escalation — any injected wording beyond
+ * numbers and constant structural markers gets read as an instruction by an
+ * obedient model, which is exactly the failure mode this design retired.
  *
  * The fold needles are projections, not recommendations: they report what a
- * fold would return, never whether it is earned. Whether the extraction is
- * complete stays CORE's bar. They are unconditional — a needle that appears
- * only past a threshold would be choosing its moment, and a gauge that
- * chooses its moments becomes an event again. An early-session
- * `fold@turn→4%` is a parked speedometer reading zero, not noise.
+ * fold would return, never whether it is earned. Readiness stays CORE's fold
+ * test. Needles are unconditional — a needle that appears only past a
+ * threshold would be choosing its moment, and a gauge that chooses its
+ * moments becomes an event again.
  *
- * Cadence is an odometer: the suffix appears only when the integer percent
- * changes (in either direction). Display frequency therefore tracks
- * consumption speed with zero editorial judgment about "important moments" —
- * a gauge that chooses its moments becomes an event again.
+ * Cadence is an odometer: the suffix appears when the integer percent
+ * changes (either direction), and always on the first reading of each user
+ * request — the boundary is a structural fact, not an editorial choice, so
+ * rendering it unconditionally keeps the gauge event-free.
  */
 
 /** Kill switch: ACM_GAUGE_DISABLED=1 silences the gauge. Read per call so tests can toggle it. */
@@ -37,54 +35,115 @@ export function isAcmTool(toolName: string): boolean {
   return toolName.startsWith("acm_");
 }
 
-/** Per-session gauge state. Reset on every context transition (travel, compaction, manual /tree). */
+/**
+ * Per-session gauge state. The pressure odometer resets on every context
+ * transition; boundary tracking resets only with the whole state (new
+ * session, compaction, manual /tree) so one user request renders its
+ * boundary marker at most once even across a mid-request travel.
+ *
+ * Boundary ids accumulate in a seen-set, not a single latest value: a fold
+ * whose target precedes the current request removes that user entry from
+ * the branch, so the next reading resolves an *older* user entry as the
+ * boundary. That entry was already seen — rendering its marker again would
+ * announce a request that is not new.
+ */
 export interface GaugeState {
   /** Pressure percent at the last shown gauge; null means nothing shown this cycle. */
   lastShownPercent: number | null;
+  /** Entry ids of user boundaries whose first reading was already rendered. */
+  seenBoundaryIds: Set<string>;
 }
 
 export function createGaugeState(): GaugeState {
-  return { lastShownPercent: null };
+  return { lastShownPercent: null, seenBoundaryIds: new Set() };
+}
+
+/**
+ * Reset only the pressure odometer so the next reading always shows once.
+ * Boundary tracking survives: a context transition (travel, model change)
+ * inside one user request must not re-render that request's boundary marker.
+ */
+export function resetGaugeOdometer(state: GaugeState): void {
+  state.lastShownPercent = null;
 }
 
 /**
  * Odometer cadence: show when the integer part of the budget percent differs
- * from the last shown one. Downward changes show too — watching the number
- * drop after a fold is honest feedback, not noise. A fresh cycle always shows
- * on the first opportunity (null baseline): after a context transition the
- * new reading is exactly the fact worth rendering once.
+ * from the last shown one, and always on the first reading after a new user
+ * boundary. Downward changes show too — watching the number drop after a
+ * fold is honest feedback, not noise. A fresh cycle always shows on the
+ * first opportunity (null baseline).
  */
-export function shouldShowGauge(state: GaugeState, pressurePercent: number): boolean {
+export function shouldShowGauge(
+  state: GaugeState,
+  pressurePercent: number,
+  boundaryId?: string | null,
+): boolean {
   if (!Number.isFinite(pressurePercent) || pressurePercent < 0) return false;
   if (state.lastShownPercent === null) return true;
+  if (boundaryId && !state.seenBoundaryIds.has(boundaryId)) return true;
   return Math.floor(pressurePercent) !== Math.floor(state.lastShownPercent);
 }
 
 /** Move the odometer — call only after the suffix was actually attached to a result. */
-export function markGaugeShown(state: GaugeState, pressurePercent: number): void {
+export function markGaugeShown(
+  state: GaugeState,
+  pressurePercent: number,
+  boundaryId?: string | null,
+): void {
   state.lastShownPercent = pressurePercent;
+  if (boundaryId) state.seenBoundaryIds.add(boundaryId);
+}
+
+/** Is this reading the first one of a new user boundary? Pure fact for the marker. */
+export function isNewBoundary(state: GaugeState, boundaryId?: string | null): boolean {
+  return Boolean(boundaryId && !state.seenBoundaryIds.has(boundaryId));
+}
+
+/** Structural facts the gauge renders beyond pressure. */
+export interface GaugeStructure {
+  /** True when this is the first reading of the current user request. */
+  boundary: boolean;
+  /** Save points on the active path; omitted from the line when null. */
+  savePoints: number | null;
 }
 
 /**
- * Pressure needles first: budget is the advisory attention envelope, window is
- * the physical truth. When the window itself is at or under the budget cap the
- * two coincide and only the window fact remains.
+ * Pressure needles first: budget is the advisory attention envelope, window
+ * is the physical truth. When the window itself is at or under the budget
+ * cap the two coincide and only the window fact remains.
  *
- * Fold needles follow when a reference point exists on the spine: `fold@turn`
- * projects a fold to the most recent user-request boundary or save point,
- * `fold@task` projects one to the earliest. A needle with no reference point
- * (a short spine, or both granularities resolving to the same node) is omitted
- * rather than rendered as zero — absent is a fact, fabricated is not.
+ * Then the constant structural markers: `boundary` on each request's first
+ * reading, and the save-point count when known.
+ *
+ * Fold needles last, each as remaining pressure and messages removed:
+ * `fold@turn→24%/38` reads "folding to the turn reference leaves 24% budget
+ * and removes 38 messages". A needle with no reference point is omitted —
+ * absent is a fact, fabricated is not.
  */
-export function buildGaugeSuffix(pressure: ContextUsagePressure, folds?: FoldEstimates): string {
+export function buildGaugeSuffix(
+  pressure: ContextUsagePressure,
+  folds?: FoldEstimates,
+  structure?: GaugeStructure,
+): string {
   const parts = pressure.policy === "400k-cap"
     ? [`${Math.floor(pressure.pressurePercent)}% budget`, `${Math.floor(pressure.usagePercent)}% window`]
     : [`${Math.floor(pressure.usagePercent)}% window`];
+  if (structure?.boundary) parts.push("boundary");
+  if (structure?.savePoints != null && structure.savePoints >= 0) {
+    parts.push(`${structure.savePoints}pts`);
+  }
   if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
-    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%`);
+    const messages = folds.turnMessagesRemoved != null && folds.turnMessagesRemoved >= 0
+      ? `/${folds.turnMessagesRemoved}`
+      : "";
+    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%${messages}`);
   }
   if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
-    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%`);
+    const messages = folds.taskMessagesRemoved != null && folds.taskMessagesRemoved >= 0
+      ? `/${folds.taskMessagesRemoved}`
+      : "";
+    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%${messages}`);
   }
   return `\n[ctx ${parts.join(" · ")}]`;
 }

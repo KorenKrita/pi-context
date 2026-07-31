@@ -8,13 +8,13 @@ import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from ".
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
 import { ANCHOR_SEARCH_WINDOW, buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
-import { GUIDANCE_CUES, RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
+import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
-import { withAvailableAdvancedGuidance } from "./advanced-guidance.js";
-import { buildGaugeSuffix, isAcmTool } from "./context-gauge.js";
+import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { appendLedgerRow, buildBoundaryRow, createLedgerState, markBoundaryCounted, shouldCountBoundary, type LedgerState } from "./boundary-ledger.js";
+import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
+import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -179,17 +179,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return undefined;
     }
   };
-  const ledgerStates = new WeakMap<object, LedgerState>();
-  let ledgerSeq = 0;
-  const ledgerFor = (session: object): LedgerState => {
-    let state = ledgerStates.get(session);
-    if (!state) {
-      ledgerSeq += 1;
-      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${ledgerSeq}`);
-      ledgerStates.set(session, state);
-    }
-    return state;
-  };
+  // Ledger counters live on the runtime so fold rows written from the travel
+  // receipt share this session discriminator and stay joinable.
   const recordBoundary = (
     ctx: ExtensionContext,
     pressure: { pressurePercent: number; usagePercent: number },
@@ -207,7 +198,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
           break;
         }
       }
-      const state = ledgerFor(session);
+      const state = runtime.ledgerState(session);
       if (!shouldCountBoundary(state, boundaryId)) return;
       const ordinal = markBoundaryCounted(state, boundaryId!);
       appendLedgerRow("boundary", buildBoundaryRow({
@@ -235,16 +226,50 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     if (isAcmTool(event.toolName) || event.isError) return;
     const pressure = currentGaugePressure(ctx);
     if (!pressure) return;
-    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent)) return;
+    // The boundary id is a gate input, so it is resolved first — but it only
+    // needs a short backward scan for the last user entry. The save-point
+    // count replays the whole label journal, so it waits until the odometer
+    // has actually decided to render; most readings are silenced and must
+    // not pay O(entries) for a suffix that never appears.
+    let boundaryId: string | null = null;
+    try {
+      const branch = session.getBranch();
+      for (let index = branch.length - 1; index >= 0; index--) {
+        const entry = branch[index]!;
+        if (entry.type === "message" && (entry as { message?: { role?: string } }).message?.role === "user") {
+          boundaryId = entry.id;
+          break;
+        }
+      }
+    } catch {
+      boundaryId = null;
+    }
+    if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
+    let savePoints: number | null = null;
+    try {
+      const branch = session.getBranch();
+      const labelMaps = buildGaugeLabelMaps(session.getEntries());
+      let count = 0;
+      for (const entry of branch) {
+        if (labelMaps.entryToLabel.get(entry.id) !== undefined) count++;
+      }
+      savePoints = count;
+    } catch {
+      savePoints = null;
+    }
+    const structure: GaugeStructure = {
+      boundary: runtime.isNewGaugeBoundary(session, boundaryId),
+      savePoints,
+    };
     const folds = currentFoldEstimates(ctx, pressure);
     // Passive boundary ledger: one row per distinct user-request boundary, so
     // "boundaries crossed N, folds M" accumulates without any injection. Never
     // allowed to affect this result — every failure is swallowed inside.
     recordBoundary(ctx, pressure, folds);
-    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds));
+    const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds, structure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.
-    if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent);
+    if (patch) runtime.confirmGaugeShown(session, pressure.pressurePercent, boundaryId);
     return patch;
   });
 
@@ -403,7 +428,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } else if (cached && safeCachedTail) {
         failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. The last protocol-valid compact packet remains active in cached_exhausted state; automatic rebuild is stopped until a new travel/lifecycle cycle. Reload to retry persistent reconstruction.`;
       } else {
-        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. ${withAvailableAdvancedGuidance(pi, RECOVERY_GUIDANCE.refreshExhausted, GUIDANCE_CUES.advancedExceptionalPointer)}`;
+        failureNotice = `Context refresh after travel failed after ${attempt} attempts: ${message}. ${RECOVERY_GUIDANCE.refreshExhausted}`;
       }
       ctx.ui.notify(failureNotice, "warning");
       if (tailGuidance) ctx.ui.notify(tailGuidance.trim(), "warning");

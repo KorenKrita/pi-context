@@ -8,12 +8,15 @@ import {
 } from "./live-agent-session-adapter.js";
 import {
   createGaugeState,
+  isNewBoundary,
   isGaugeDisabled,
   markGaugeShown,
+  resetGaugeOdometer,
   shouldShowGauge,
   type GaugeState,
 } from "./context-gauge.js";
 import { calculateContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
+import { createLedgerState, type LedgerState } from "./boundary-ledger.js";
 
 interface DeferredTravelRefreshState {
   readonly providerPhase: ProviderDeliveryPhase;
@@ -118,6 +121,16 @@ export class AcmSessionRuntime {
    * compaction, manual /tree). Per SessionManager, like all runtime state.
    */
   private readonly gaugeStates = new WeakMap<object, GaugeState>();
+  /**
+   * Passive boundary/fold ledger counters, one per SessionManager so fold
+   * rows and boundary rows share a session discriminator and can be joined.
+   * Deliberately NOT touched by clear(): compaction, manual /tree, and
+   * session_start reset perception state, but the ledger's "session" is the
+   * SessionManager's lifetime in this process — changing the discriminator
+   * mid-session would sever the join the ledger exists to provide.
+   */
+  private readonly ledgerStates = new WeakMap<object, LedgerState>();
+  private ledgerSeq = 0;
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;
@@ -231,7 +244,7 @@ export class AcmSessionRuntime {
     this.refreshTargets.delete(session);
     this.liveAgentSessions.clear(session);
     this.cachedUsage.delete(session);
-    this.gaugeStates.delete(session);
+    this.resetGaugeCycle(session);
     this.deferredTravelRefresh.set(session, {
       ...deferred,
       providerPhase: "receipt_rejected",
@@ -412,7 +425,7 @@ export class AcmSessionRuntime {
 
   resetUsageForModelChange(session: object): void {
     this.cachedUsage.delete(session);
-    this.gaugeStates.delete(session);
+    this.resetGaugeCycle(session);
     const deferred = this.deferredTravelRefresh.get(session);
     if (deferred?.providerUsageObserved) {
       this.deferredTravelRefresh.set(session, { ...deferred, providerUsageObserved: false });
@@ -420,9 +433,13 @@ export class AcmSessionRuntime {
   }
 
   resetGaugeCycle(session: object): void {
-    // A context transition (travel, compaction, manual /tree) starts a fresh
-    // odometer: the first post-transition reading always shows once.
-    this.gaugeStates.delete(session);
+    // A context transition (travel, model change) restarts the pressure
+    // odometer: the first post-transition reading always shows once. Boundary
+    // tracking survives so the same user request never re-renders its
+    // boundary marker after a mid-request transition; full boundary resets
+    // happen only in clear() (new session, compaction, manual /tree).
+    const state = this.gaugeStates.get(session);
+    if (state) resetGaugeOdometer(state);
   }
 
   clear(session: object): void {
@@ -444,17 +461,37 @@ export class AcmSessionRuntime {
   }
 
   /**
+   * One ledger state per SessionManager: boundary rows (lifecycle) and fold
+   * rows (travel receipts) must carry the same session discriminator or the
+   * per-session boundary↔fold join — the ledger's whole purpose — breaks.
+   */
+  ledgerState(session: object): LedgerState {
+    let state = this.ledgerStates.get(session);
+    if (!state) {
+      this.ledgerSeq += 1;
+      state = createLedgerState(`${process.pid}-${Date.now().toString(36)}-${this.ledgerSeq}`);
+      this.ledgerStates.set(session, state);
+    }
+    return state;
+  }
+
+  /**
    * Odometer check against the current pressure. Read-only: the baseline
    * moves in confirmGaugeShown, only after the suffix is actually attached
    * (moving it on an undeliverable result would silently swallow the tick).
    */
-  shouldShowGaugeNow(session: object, pressurePercent: number): boolean {
+  shouldShowGaugeNow(session: object, pressurePercent: number, boundaryId?: string | null): boolean {
     if (isGaugeDisabled()) return false;
-    return shouldShowGauge(this.gaugeState(session), pressurePercent);
+    return shouldShowGauge(this.gaugeState(session), pressurePercent, boundaryId);
+  }
+
+  /** Is this reading the first one of a new user boundary? */
+  isNewGaugeBoundary(session: object, boundaryId?: string | null): boolean {
+    return isNewBoundary(this.gaugeState(session), boundaryId);
   }
 
   /** Move the odometer after its suffix was actually attached. */
-  confirmGaugeShown(session: object, pressurePercent: number): void {
-    markGaugeShown(this.gaugeState(session), pressurePercent);
+  confirmGaugeShown(session: object, pressurePercent: number, boundaryId?: string | null): void {
+    markGaugeShown(this.gaugeState(session), pressurePercent, boundaryId);
   }
 }

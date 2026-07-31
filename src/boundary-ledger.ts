@@ -46,6 +46,8 @@ export interface BoundaryLedgerRow {
 export interface FoldLedgerRow {
   ts: string;
   session: string;
+  /** "fold" shrank the working set; "restore" grew it (rehydrate/off-path travel). */
+  direction: "fold" | "restore";
   /** Boundaries observed in this session before this fold. */
   afterBoundary: number;
   /** Budget pressure before the fold, floored. */
@@ -102,12 +104,17 @@ export interface LedgerState {
   session: string;
   boundaries: number;
   folds: number;
-  /** Entry id of the last counted boundary, so re-observation does not double count. */
-  lastBoundaryEntryId: string | null;
+  /**
+   * Entry ids of every counted boundary. A set, not a latest value: a fold
+   * can re-expose an older user entry as the branch's last boundary, and
+   * counting it again would write a phantom row for a request that is not
+   * new.
+   */
+  seenBoundaryEntryIds: Set<string>;
 }
 
 export function createLedgerState(session: string): LedgerState {
-  return { session, boundaries: 0, folds: 0, lastBoundaryEntryId: null };
+  return { session, boundaries: 0, folds: 0, seenBoundaryEntryIds: new Set() };
 }
 
 /**
@@ -117,11 +124,11 @@ export function createLedgerState(session: string): LedgerState {
  */
 export function shouldCountBoundary(state: LedgerState, boundaryEntryId: string | null): boolean {
   if (boundaryEntryId === null) return false;
-  return state.lastBoundaryEntryId !== boundaryEntryId;
+  return !state.seenBoundaryEntryIds.has(boundaryEntryId);
 }
 
 export function markBoundaryCounted(state: LedgerState, boundaryEntryId: string): number {
-  state.lastBoundaryEntryId = boundaryEntryId;
+  state.seenBoundaryEntryIds.add(boundaryEntryId);
   state.boundaries += 1;
   return state.boundaries;
 }
@@ -164,15 +171,17 @@ export function buildFoldRow(input: {
   messageDelta: number | null | undefined;
   summaryDepth: number | null | undefined;
 }): FoldLedgerRow {
+  const messageDelta = typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
+    ? input.messageDelta
+    : null;
   return {
     ts: new Date().toISOString(),
     session: input.state.session,
+    direction: messageDelta !== null && messageDelta < 0 ? "restore" : "fold",
     afterBoundary: input.state.boundaries,
     budgetBefore: floorOrNull(input.budgetBefore),
     budgetAfter: floorOrNull(input.budgetAfter),
-    messageDelta: typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
-      ? input.messageDelta
-      : null,
+    messageDelta,
     summaryDepth: floorOrNull(input.summaryDepth),
   };
 }

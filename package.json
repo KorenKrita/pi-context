@@ -6,11 +6,8 @@
   "files": [
     "src",
     "skills",
-    "docs",
     "README.md",
-    "AGENTS.md",
-    "CONTEXT.md",
-    "implementation-notes.html"
+    "AGENTS.md"
   ],
   "scripts": {
     "test": "bun test",
@@ -46,9 +43,6 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ],
-    "skills": [
-      "./skills"
     ]
   },
   "repository": {
