@@ -744,7 +744,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect((result.content[0] as { text: string }).text).toContain("Target warnings: target_packet_repaired, target_prefix_open_user_turn, target_is_assistant_tool_batch");
   });
 
-  test("rejects a raw backup whose immediate pre-travel packet needs protocol repair", async () => {
+  test("anchors the return ticket past an unfinished tool batch onto the protocol-complete prefix", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
     sessionManager.appendMessage({
@@ -780,6 +780,42 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       (entry) => entry.type === "label" && entry.label === "unsafe-raw",
     ) as { targetId?: string } | undefined;
     expect(label?.targetId).toBe(rootId);
+  });
+
+  test("aborts before mutation when no protocol-complete prefix can host the return ticket", async () => {
+    const sessionManager = SessionManager.inMemory();
+    // The whole prefix is one unfinished tool batch: no candidate can host
+    // the return ticket without repair.
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-scan", name: "read", arguments: { path: "src/scan.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: "root", handoff: HANDOFF, backupCurrentHeadAs: "stranded-raw" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({
+      error: "no_protocol_complete_backup_target",
+      name: "stranded-raw",
+    });
+    expect((result.content[0] as { text: string }).text).toContain("nothing was mutated");
+    // Nothing mutated: no label, no summary branch, same leaf, same entries.
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getLeafId()).toBe(travelCallId);
   });
 
   test("rejects duplicate tool-call ids in the current packet before raw backup resolution", async () => {
