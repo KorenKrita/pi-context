@@ -43,7 +43,7 @@ Use acm_timeline to choose a travel target and as the first source for details f
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-Use acm_travel when a debugging phase converges, a file batch is distilled, a plan settles, or a new request needs only the previous stretch's conclusions. A routine handoff can be just goal, state, and next; include each optional field that carries something.
+Use acm_travel when a result is ready to deliver, a debugging phase converges, a file batch is distilled, a plan settles, or a new request needs only the previous stretch's conclusions. A routine handoff can be just goal, state, and next; include each optional field that carries something.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues

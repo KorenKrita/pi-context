@@ -104,6 +104,49 @@ describe("ACM guidance quality", () => {
 			expect(ACM_CORE).toContain("not a missed fold");
 		});
 
+		test("the delivery moment reruns the same fold test and keeps direct exits", () => {
+			// Failure modes guarded: (a) "delivery ready" read as the test
+			// passing automatically — the shortcut both adversarial reviews
+			// rejected; (b) forced marking/folding of simple answers.
+			expect(ACM_CORE).toContain("often makes the fold test cheap");
+			expect(ACM_CORE).toContain("Run the same one question");
+			expect(ACM_CORE).toContain("follow-ups included");
+			expect(ACM_CORE).toContain("Vague → deliver directly and continue");
+			expect(ACM_CORE).toContain("A direct answer with no stretch behind it just goes out");
+		});
+
+		test("the delivery fold keeps handoff field roles and the applied gate", () => {
+			// Failure modes guarded: the whole report pasted into next (it gets
+			// replicated into REQUIRED NEXT and the receipt), and delivery
+			// attempted from a fold that did not apply.
+			expect(ACM_CORE).toContain("deliver it without rereading");
+			expect(ACM_CORE).toContain("use `state` to deliver the prepared result to the user");
+			expect(ACM_CORE).toContain("after an applied fold, follow `next`");
+		});
+
+		test("opening a long stretch teaches the mark-first workflow under the same test", () => {
+			// Failure modes guarded: exploration with no boundary to fold or
+			// return to; failure alone treated as a travel trigger; dead-end
+			// side effects presented as staying behind.
+			expect(ACM_CORE).toContain("set a checkpoint first");
+			expect(ACM_CORE).toContain("the same fold test");
+			expect(ACM_CORE).toContain("concrete without rereading");
+			expect(ACM_CORE).toContain("`exclusions` and any lasting side effects in `external`");
+			expect(ACM_CORE).toContain("only the conversation detail leaves the working set");
+		});
+
+		test("the boundary is a second look, and needle facts live only in the gauge paragraph", () => {
+			// Failure modes guarded: boundary re-promoted to the primary fold
+			// moment (the anti-distribution position the redesign moved away
+			// from), and fresh needle promises outside the gauge contract.
+			expect(ACM_CORE).toContain("a second look at what the delivery moment already asked");
+			const paragraphs = ACM_CORE.split("\n\n");
+			for (const paragraph of paragraphs) {
+				if (paragraph.includes("**The gauge.**")) continue;
+				expect(paragraph).not.toContain("fold@turn");
+			}
+		});
+
 		test("every fold records a return ticket and the cue directs forward execution", () => {
 			expect(ACM_CORE).toContain("return ticket");
 			expect(TOOL_DESCRIPTIONS.travel).toContain("automatic return ticket");
@@ -117,6 +160,7 @@ describe("ACM guidance quality", () => {
 		test("prompt surfaces carry scenario triggers, not contracts", () => {
 			// The retrieval surfaces must answer "when do I use this" in
 			// scenario words a tool chooser can match.
+			expect(PROMPT_GUIDELINES.travel).toContain("a result is ready to deliver");
 			expect(PROMPT_GUIDELINES.travel).toContain("debugging phase converges");
 			expect(PROMPT_GUIDELINES.checkpoint).toContain("phase boundaries");
 			expect(PROMPT_SNIPPETS.travel.toLowerCase()).toContain("fold");
@@ -143,6 +187,14 @@ describe("ACM guidance quality", () => {
 				"thrash",
 				"never as a fold/rebase base",
 				"is not yet earned",
+				// Shortcut/cadence phrasings rejected across four adversarial
+				// review rounds of the delivery-moment revision:
+				"fold test passing in real time",
+				"concrete by construction",
+				"Either way the close ends marked",
+				"Vague, or",
+				"noise stays behind",
+				"worth keeping",
 			]) {
 				expect(surfaces).not.toContain(retired);
 			}
