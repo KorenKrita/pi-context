@@ -213,7 +213,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       };
       if (params.backupCurrentHeadAs && isReservedTargetName(params.backupCurrentHeadAs)) {
         return {
-          content: [{ type: "text" as const, text: `Error: Archive bookmark name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
+          content: [{ type: "text" as const, text: `Error: Return ticket name '${params.backupCurrentHeadAs}' is reserved for the structural root target. Travel aborted before mutation.` }],
           details: { error: "reserved_backup_name", name: params.backupCurrentHeadAs },
         };
       }
@@ -452,8 +452,20 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const returnTicketName = params.backupCurrentHeadAs
         ?? headExistingLabel
         ?? deriveReturnTicketName(canonicalHandoff.fields.goal, (name) => labelMaps.labelToEntryId.has(name) || isReservedTargetName(name));
+      // A reused head label from an imported/foreign session may not satisfy
+      // the alias pattern. It is reused in place without a write (the host
+      // would reject any replacement name as displacement anyway), so the
+      // travel proceeds and only the canonical Raw archive line is omitted.
+      // An explicit caller name stays authoritative and still fails loudly.
+      const advertisableAlias = params.backupCurrentHeadAs !== undefined
+        || /^[A-Za-z0-9._-]+$/.test(returnTicketName)
+        ? returnTicketName
+        : undefined;
       {
-        const rebuilt = buildCanonicalHandoff(params.handoff, { rawArchiveAlias: returnTicketName });
+        const rebuilt = buildCanonicalHandoff(
+          params.handoff,
+          advertisableAlias === undefined ? {} : { rawArchiveAlias: advertisableAlias },
+        );
         if (!rebuilt.ok) {
           return {
             content: [{ type: "text" as const, text: `Error: return ticket name '${returnTicketName}' is not a valid alias: ${rebuilt.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Nothing was mutated.` }],

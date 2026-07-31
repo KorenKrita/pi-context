@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ACM_CONTINUATION_MARKER,
   buildCanonicalHandoff,
+  deriveReturnTicketName,
   StructuredHandoffSchema,
   type HandoffInput,
 } from "../src/handoff";
@@ -176,5 +177,17 @@ describe("canonical handoff", () => {
       ok: false,
       defects: [{ field: "handoff", reason: "invalid_json" }],
     });
+  });
+
+  test("return-ticket slugs fall back to the plain stem when the goal has no alphanumeric signal", () => {
+    // Non-Latin goals collapse entirely under the alias charset; punctuation
+    // residue like "----...-----raw" reads as corrupted data in the
+    // checkpoints view. Both take the plain stem instead.
+    const free = () => false;
+    expect(deriveReturnTicketName("修复解析器嵌套注释", free)).toBe("fold-raw");
+    expect(deriveReturnTicketName("--- ... ---", free)).toBe("fold-raw");
+    expect(deriveReturnTicketName("fix the parser", free)).toBe("fix-the-parser-raw");
+    // Mixed goals keep whatever alphanumeric words survive.
+    expect(deriveReturnTicketName("修复 parser 的 bug", free)).toBe("parser-bug-raw");
   });
 });

@@ -185,7 +185,11 @@ export function deriveReturnTicketName(goal: string, taken: (name: string) => bo
     .split(/\s+/)
     .filter((word) => word.length > 0)
     .slice(0, 4);
-  const base = words.length > 0 ? `${words.join("-")}-raw` : "fold-raw";
+  // A slug with no alphanumeric signal (non-Latin goals collapse entirely,
+  // punctuation-only goals leave residue like "----...") is not a name a
+  // human can pick from the checkpoints view; fall back to the plain stem.
+  const slug = words.join("-");
+  const base = /[a-z0-9]/.test(slug) ? `${slug}-raw` : "fold-raw";
   if (!taken(base) && base !== "root") return base;
   for (let ordinal = 2; ordinal < 1000; ordinal++) {
     const candidate = `${base}-${ordinal}`;
