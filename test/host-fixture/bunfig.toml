@@ -1,0 +1,5 @@
+[test]
+# A bare `bun test` in this directory must be as safe as the verify script:
+# fixture pressure is synthetic, and one unguarded run poisons the real
+# boundary ledger. The verify script's explicit --preload stays for clarity.
+preload = ["./ledger-guard.ts"]
