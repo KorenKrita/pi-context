@@ -101,15 +101,20 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     getLiveAgentSyncStatus: () => ({ status: "idle" }),
     ...overrides,
   } as Record<string, unknown>;
-  // Mirror AcmSessionRuntime.authoritativeContextPressure so the HUD reads one
+  // Mirror AcmSessionRuntime's single authority decision so the HUD reads one
   // authority here too; overrides above may replace the delivery status it uses.
+  if (!("isProviderUsageAuthoritative" in runtime)) {
+    runtime.isProviderUsageAuthoritative = () => {
+      const status = (runtime.getProviderDeliveryStatus as () => { persistentMutationApplied: boolean; usageObserved: boolean })();
+      return status.persistentMutationApplied && status.usageObserved;
+    };
+  }
   runtime.authoritativeContextPressure = (
     _session: object,
     hostUsage: { tokens?: number | null; contextWindow?: number | null; percent?: number | null } | undefined,
   ) => {
-    const status = (runtime.getProviderDeliveryStatus as () => { persistentMutationApplied: boolean; usageObserved: boolean })();
     const cached = (runtime.getUsage as () => { tokens: number; contextWindow: number; percent: number } | undefined)();
-    const usage = status.persistentMutationApplied && status.usageObserved ? cached ?? hostUsage : hostUsage;
+    const usage = (runtime.isProviderUsageAuthoritative as (s: object) => boolean)({}) ? cached ?? hostUsage : hostUsage;
     return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
   };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);

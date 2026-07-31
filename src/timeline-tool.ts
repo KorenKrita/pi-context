@@ -586,7 +586,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
       const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
       const providerEpoch = providerDelivery.persistentMutationApplied;
-      const providerTurnUsageAuthoritative = providerEpoch && providerDelivery.usageObserved;
+      const providerTurnUsageAuthoritative = runtime.isProviderUsageAuthoritative(sessionManager);
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
       // Fold projections: what a fold at each structural reference point would
       // leave, on the same working-budget yardstick the pressure line uses.

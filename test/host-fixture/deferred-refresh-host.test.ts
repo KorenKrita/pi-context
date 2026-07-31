@@ -312,6 +312,98 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     });
   });
 
+  test("pressure authority returns to the native estimate once native replacement is applied", async () => {
+    // Between provider cutover and native replacement the native estimate
+    // describes the pre-travel branch, so cached provider usage governs.
+    // After agent_settled applies the replacement, the native estimate is
+    // real-time and correct again — staying cached would keep a one-call lag
+    // with no compensating benefit.
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 30_000, contextWindow: 100_000, percent: 30 };
+    };
+    const branch = createBranch("authority-return");
+    const staleMessages = branch.sessionManager.buildSessionContext().messages as AgentMessage[];
+    const fixture = createFixture(branch.sessionManager, {
+      getContextUsage: () => ({ tokens: 30_000, contextWindow: 100_000, percent: 30 }),
+    });
+    const liveSession = captureLiveSession(branch.sessionManager, staleMessages);
+
+    const receipt = await fixture.travelTool.execute(
+      "authority-return-travel",
+      { target: branch.rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    await emit(fixture.handlers, "context", {
+      messages: [completedTravelResult("authority-return-travel", receipt.details)],
+    }, fixture.context);
+    await emit(fixture.handlers, "turn_end", {
+      message: { role: "assistant", usage: { input: 80_000, cacheRead: 0, cacheWrite: 0 } },
+    }, fixture.context);
+
+    // Provider-active, not yet settled: cached 80K governs over native 30K.
+    let timeline = await fixture.timelineTool.execute(
+      "authority-mid", { view: "active" }, undefined, undefined, fixture.context,
+    );
+    expect(timeline.details).toMatchObject({
+      contextUsageAuthority: "provider_turn_end",
+      authoritativeContextPressure: { pressurePercent: 80 },
+    });
+
+    await emit(fixture.handlers, "agent_settled", {}, fixture.context);
+    expect(liveSession.agent.state.messages).not.toBe(staleMessages);
+
+    // Replacement applied: the native estimate is authoritative again.
+    timeline = await fixture.timelineTool.execute(
+      "authority-after", { view: "active" }, undefined, undefined, fixture.context,
+    );
+    expect(timeline.details).toMatchObject({
+      contextUsageAuthority: "native_context",
+      authoritativeContextPressure: { pressurePercent: 30 },
+    });
+  });
+
+  test("a zero-usage error turn does not poison the cached provider pressure", async () => {
+    // Provider error/aborted turns report all-zero usage — the absence of a
+    // reading, not a reading. Caching zero would render '0% budget' beside
+    // truthful fold needles.
+    AgentSession.prototype.getContextUsage = function () {
+      return { tokens: 10_000, contextWindow: 100_000, percent: 10 };
+    };
+    const branch = createBranch("zero-usage-guard");
+    const fixture = createFixture(branch.sessionManager, {
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 100_000, percent: 10 }),
+    });
+    captureLiveSession(branch.sessionManager, branch.sessionManager.buildSessionContext().messages as AgentMessage[]);
+
+    const receipt = await fixture.travelTool.execute(
+      "zero-usage-travel",
+      { target: branch.rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    await emit(fixture.handlers, "context", {
+      messages: [completedTravelResult("zero-usage-travel", receipt.details)],
+    }, fixture.context);
+    await emit(fixture.handlers, "turn_end", {
+      message: { role: "assistant", usage: { input: 60_000, cacheRead: 0, cacheWrite: 0 } },
+    }, fixture.context);
+    // The error turn: all-zero usage must not displace the 60K reading.
+    await emit(fixture.handlers, "turn_end", {
+      message: { role: "assistant", stopReason: "error", usage: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 } },
+    }, fixture.context);
+
+    const timeline = await fixture.timelineTool.execute(
+      "zero-usage-timeline", { view: "active" }, undefined, undefined, fixture.context,
+    );
+    expect(timeline.details).toMatchObject({
+      contextUsageAuthority: "provider_turn_end",
+      authoritativeContextPressure: { pressurePercent: 60 },
+    });
+  });
+
   test("does not let origin-run turn usage consume the seeded travel baseline", async () => {
     AgentSession.prototype.getContextUsage = function () {
       return { tokens: 1_000, contextWindow: 100_000, percent: 1 };

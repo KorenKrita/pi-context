@@ -408,19 +408,41 @@ export class AcmSessionRuntime {
     return this.cachedUsage.get(session);
   }
   /**
-   * One pressure authority for every ACM perception surface. A completed
-   * provider turn describes a travel-owned context; otherwise the host's
-   * current native usage remains the best available reading.
+   * One pressure authority for every ACM perception surface. Between a
+   * travel's provider cutover and its native replacement, the host's native
+   * estimate describes the pre-travel branch, so only actual provider
+   * turn_end usage is trusted — one LLM call behind, bounded by the current
+   * tool batch, self-healing. Once the native live messages are verifiably
+   * the post-travel world, the native estimate is real-time and correct
+   * again, and staying on the cached value would keep a lag with no
+   * compensating benefit.
    */
   authoritativeContextPressure(
     session: object,
     hostUsage: ContextUsageInput | undefined,
   ): ContextUsagePressure | undefined {
-    const providerDelivery = this.getProviderDeliveryStatus(session);
-    const usage = providerDelivery.persistentMutationApplied && providerDelivery.usageObserved
+    const usage = this.isProviderUsageAuthoritative(session)
       ? this.getUsage(session) ?? hostUsage
       : hostUsage;
     return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
+  }
+
+  /**
+   * Single authority decision for every perception surface (gauge, timeline
+   * HUD): cached provider turn_end usage governs only inside the window where
+   * the native estimate still describes the pre-travel branch.
+   */
+  isProviderUsageAuthoritative(session: object): boolean {
+    const providerDelivery = this.getProviderDeliveryStatus(session);
+    return providerDelivery.persistentMutationApplied
+      && providerDelivery.usageObserved
+      && !this.nativeReplacementApplied(session);
+  }
+
+  /** Native live messages verifiably describe the post-travel world. */
+  private nativeReplacementApplied(session: object): boolean {
+    const deferred = this.deferredTravelRefresh.get(session);
+    return deferred?.nativeSettled === true && deferred.liveAgentSessionSync.status === "applied";
   }
 
   resetUsageForModelChange(session: object): void {
