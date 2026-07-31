@@ -747,6 +747,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
   test("anchors the return ticket past an unfinished tool batch onto the protocol-complete prefix", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "inspect the parser", timestamp: Date.now() });
+    const midId = sessionManager.appendMessage({ role: "user", content: "and the lexer", timestamp: Date.now() });
     sessionManager.appendMessage({
       role: "assistant",
       content: [{ type: "toolCall", id: "unfinished-read", name: "read", arguments: { path: "src/parser.ts" } }],
@@ -769,17 +770,18 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     );
 
     // The unfinished tool batch cannot host the ticket; anchoring walks back
-    // to the protocol-complete root instead of blocking the travel.
+    // to the protocol-complete mid entry — still strictly after the fold
+    // target — instead of blocking the travel.
     expect(result.details?.error).toBeUndefined();
     expect(result.details).toMatchObject({
       backupCurrentHeadAs: "unsafe-raw",
-      backupEntryId: rootId,
+      backupEntryId: midId,
     });
     void travelCallId;
     const label = sessionManager.getEntries().find(
       (entry) => entry.type === "label" && entry.label === "unsafe-raw",
     ) as { targetId?: string } | undefined;
-    expect(label?.targetId).toBe(rootId);
+    expect(label?.targetId).toBe(midId);
   });
 
   test("aborts before mutation when no protocol-complete prefix can host the return ticket", async () => {
@@ -814,6 +816,40 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     });
     expect((result.content[0] as { text: string }).text).toContain("nothing was mutated");
     // Nothing mutated: no label, no summary branch, same leaf, same entries.
+    expect(sessionManager.getEntries()).toEqual(entriesBefore);
+    expect(sessionManager.getLeafId()).toBe(travelCallId);
+  });
+
+  test("the return ticket never lands at or before the fold target", async () => {
+    // Everything after the target needs protocol repair, so the backward walk
+    // would reach the target itself — but a ticket at or before the target
+    // survives the fold and can restore nothing. The travel must abort
+    // instead of advertising a fake raw archive.
+    const sessionManager = SessionManager.inMemory();
+    const rootId = sessionManager.appendMessage({ role: "user", content: "start the task", timestamp: Date.now() });
+    sessionManager.appendMessage({
+      role: "assistant",
+      content: [{ type: "toolCall", id: "unfinished-work", name: "read", arguments: { path: "src/work.ts" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    });
+    const travelCallId = sessionManager.appendMessage(travelToolCall());
+    const entriesBefore = sessionManager.getEntries();
+    const { context, travelTool } = createExtensionFixture(sessionManager);
+
+    const result = await travelTool.execute(
+      TOOL_CALL_ID,
+      { target: rootId, handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details).toMatchObject({ error: "no_protocol_complete_backup_target" });
     expect(sessionManager.getEntries()).toEqual(entriesBefore);
     expect(sessionManager.getLeafId()).toBe(travelCallId);
   });

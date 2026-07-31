@@ -389,6 +389,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
       let backupEntryId: string | undefined;
+      let backupProtocolStatus: "complete" | "repaired" = "complete";
       let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
       let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
@@ -405,20 +406,38 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // Same anchoring rule as acm_checkpoint's automatic placement: walk
         // backward for the latest protocol-complete entry, skipping candidates
         // that would need repair, bounded by the shared search window.
+        //
+        // On-path folds have a hard lower bound: the ticket must sit strictly
+        // after the travel target, inside the replaced range. A ticket at or
+        // before the target survives the fold anyway and can restore nothing
+        // — advertising it as a raw archive would be a lie. Off-path travel
+        // replaces the whole current spine, so every entry on it qualifies.
+        //
+        // When the target packet is itself "repaired" — damage in the
+        // surviving prefix, already accepted with explicit warnings — every
+        // candidate after it inherits that repair, so "complete" is
+        // unreachable by construction. A repaired candidate is then
+        // acceptable: the archive carries exactly the damage the fold
+        // already acknowledged, and the receipt records the real status.
+        const targetProtocolStatus = targetPacketResult.value.protocol.status;
+        const lowestIndex = resolved.fromOffPath ? 0 : targetBranch.length;
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
-        for (let index = startIndex, inspected = 0; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
+        for (let index = startIndex, inspected = 0; index >= lowestIndex && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
           if (signal?.aborted) break;
           const candidate = branch[index]!;
           const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-          if (!packet.ok || packet.value.protocol.status !== "complete") continue;
+          if (!packet.ok) continue;
+          const status = packet.value.protocol.status;
+          if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) continue;
+          backupProtocolStatus = status;
           backupProtocolNormalizations = packet.value.protocol.normalizations;
           backupEntryId = candidate.id;
           break;
         }
         if (!backupEntryId) {
           return {
-            content: [{ type: "text" as const, text: "Error: the return ticket could not be placed — no protocol-complete session prefix exists before this travel call. Finish or explicitly recover the interrupted tool batch, then retry; nothing was mutated." }],
-            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs ?? null, headId: originId },
+            content: [{ type: "text" as const, text: "Error: the return ticket could not be placed — no protocol-complete entry exists in the history this travel would replace. Finish or explicitly recover the interrupted tool batch, or choose a later target, then retry; nothing was mutated." }],
+            details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs ?? null, headId: originId, lowestIndex },
           };
         }
         if (backupEntryId !== originId) {
@@ -612,7 +631,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         backupEntryId,
         backupResolvedFromHead,
         backupOutcome,
-        backupProtocolStatus: "complete" as const,
+        backupProtocolStatus,
         backupProtocolNormalizations,
       };
       // The mutation is already durable. Establish both refresh tickets before
