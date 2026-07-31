@@ -42,6 +42,7 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { appendLedgerRow, buildFoldRow, markFoldCounted } from "./boundary-ledger.js";
+import { calculateContextUsagePressure } from "./context-pressure.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -771,10 +772,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // rows' discriminator or the per-session join breaks, and the fold
         // count must advance so boundary rows report foldsSoFar truthfully.
         const ledgerState = runtime.ledgerState(sessionManager);
+        // Boundary rows record working-budget pressure; the receipt's raw
+        // percents are hard-window usage. On a 1M-window model the two differ
+        // 2.5x, and a join across mismatched units reads as a contradiction
+        // ("crossed 51%, folded at 22%"). Convert to the boundary yardstick.
+        const pressureBefore = calculateContextUsagePressure(usageBefore?.tokens, usageBefore?.contextWindow, usageBefore?.percent);
+        const pressureAfter = calculateContextUsagePressure(estimatedUsageAfter?.tokens, estimatedUsageAfter?.contextWindow, estimatedUsageAfter?.percent);
         const written = appendLedgerRow("fold", buildFoldRow({
           state: ledgerState,
-          budgetBefore: usageBeforePercent,
-          budgetAfter: estimatedUsageAfter?.percent,
+          budgetBefore: pressureBefore?.pressurePercent,
+          budgetAfter: pressureAfter?.pressurePercent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
         }));
