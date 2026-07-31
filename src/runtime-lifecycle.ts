@@ -485,6 +485,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const message = event.message;
     if (message.role !== "assistant" || !message.usage) return;
     const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0) + (message.usage.cacheWrite ?? 0);
+    // Error/aborted turns report all-zero usage. Zero prompt tokens is not a
+    // reading — caching it would flip the gauge to 0% until the next real
+    // turn, while the fold needles (estimated from message text) stay
+    // truthful, rendering a self-contradictory line.
+    if (promptTokens <= 0) return;
     const contextWindow = ctx.getContextUsage()?.contextWindow;
     const pressure = calculateContextUsagePressure(promptTokens, contextWindow);
     if (pressure) {
