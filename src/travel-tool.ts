@@ -406,6 +406,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       let backupResolvedFromHead: string | undefined;
       let backupPrevalidation: CheckpointLabelPrevalidation | undefined;
       let backupProtocolNormalizations: typeof currentPacket.protocol.normalizations = [];
+      let backupProtocolRepairs: typeof currentPacket.protocol.repairs = [];
       // Every fold records a return ticket: the pre-travel head is always
       // labeled, with the explicit name when supplied, the head's existing
       // label when one is already there, or a name derived from the goal.
@@ -435,28 +436,51 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // target. Prefer the latest complete candidate; fall back to the
         // latest rebuildable repaired one; hard-fail only when nothing in
         // the replaced range can rebuild at all.
-        let repairedFallback: { entryId: string; normalizations: typeof currentPacket.protocol.normalizations } | undefined;
+        //
+        // When the target packet is itself "repaired", a repaired candidate
+        // is accepted immediately (not as a fallback): the archive carries
+        // exactly the damage the fold already acknowledged, and this keeps
+        // ticket placement byte-identical to the pre-fallback behavior on
+        // every previously-succeeding path.
+        const targetProtocolStatus = targetPacketResult.value.protocol.status;
+        let repairedFallback: { entryId: string; repairs: typeof currentPacket.protocol.repairs; normalizations: typeof currentPacket.protocol.normalizations } | undefined;
+        let scanAborted = false;
         const lowestIndex = resolved.fromOffPath ? 0 : targetBranch.length;
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
         for (let index = startIndex, inspected = 0; index >= lowestIndex && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
-          if (signal?.aborted) break;
+          if (signal?.aborted) {
+            scanAborted = true;
+            break;
+          }
           const candidate = branch[index]!;
           const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
           if (!packet.ok) continue;
           const status = packet.value.protocol.status;
-          if (status !== "complete") {
+          if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) {
             if (status === "repaired" && repairedFallback === undefined) {
-              repairedFallback = { entryId: candidate.id, normalizations: packet.value.protocol.normalizations };
+              repairedFallback = {
+                entryId: candidate.id,
+                repairs: packet.value.protocol.repairs,
+                normalizations: packet.value.protocol.normalizations,
+              };
             }
             continue;
           }
           backupProtocolStatus = status;
+          backupProtocolRepairs = packet.value.protocol.repairs;
           backupProtocolNormalizations = packet.value.protocol.normalizations;
           backupEntryId = candidate.id;
           break;
         }
+        if (scanAborted) {
+          return {
+            content: [{ type: "text" as const, text: "acm_travel aborted during backup target resolution." }],
+            details: { error: "aborted", target: params.target, targetId },
+          };
+        }
         if (!backupEntryId && repairedFallback) {
           backupProtocolStatus = "repaired";
+          backupProtocolRepairs = repairedFallback.repairs;
           backupProtocolNormalizations = repairedFallback.normalizations;
           backupEntryId = repairedFallback.entryId;
         }
@@ -670,6 +694,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         backupResolvedFromHead,
         backupOutcome,
         backupProtocolStatus,
+        backupProtocolRepairs,
         backupProtocolNormalizations,
       };
       // The mutation is already durable. Establish both refresh tickets before

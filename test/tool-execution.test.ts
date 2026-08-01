@@ -768,25 +768,34 @@ describe("ACM tool execution contracts", () => {
     // The ticket prefers the newest rebuildable candidate near HEAD so the
     // archive covers the work after the damage, not just the clean prefix.
     expect(result.details?.backupEntryId).toBe("mid-span-later-b");
+    // The receipt names why the anchor is repaired: the actual tool-protocol
+    // repair evidence, not just a bare status.
+    const repairs = result.details?.backupProtocolRepairs;
+    expect(Array.isArray(repairs)).toBe(true);
+    expect((repairs as unknown[]).length).toBeGreaterThan(0);
     expect(fixture.getBranchCalls()).toBe(1);
   });
 
   test("a complete candidate still wins over a newer repaired one for the return ticket", async () => {
-    // Priority lock: the two-tier fallback must not degrade into
-    // latest-rebuildable-wins. With no mid-span damage the ticket stays on
-    // the protocol-complete head exactly as before.
+    // Priority lock with a real contest: fold to root so the replaced range
+    // contains both the newer repaired candidates (after the damage) and the
+    // older complete one (mid-span-clean, before the damage). The two-tier
+    // fallback must not degrade into latest-rebuildable-wins: the complete
+    // candidate is chosen exactly as the pre-fallback code chose it.
+    const toolCallId = "priority-travel";
+    const fixture = midSpanDamagedTravelContext(toolCallId);
     const result = await executeTravel(
-      "priority-travel",
-      { target: "travel-root", handoff: HANDOFF },
+      toolCallId,
+      { target: "mid-span-root", handoff: HANDOFF },
       undefined,
       undefined,
-      successfulTravelContext(),
+      fixture.context,
     );
     expect(result.details?.error).toBeUndefined();
     expect(result.details).toMatchObject({
       mutationStatus: "applied",
       backupProtocolStatus: "complete",
-      backupEntryId: "travel-head",
+      backupEntryId: "mid-span-clean",
     });
   });
 

@@ -820,31 +820,44 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(sessionManager.getLeafId()).toBe(travelCallId);
   });
 
-  test("the return ticket lands strictly after the target on a repaired candidate when repair is all the range offers", async () => {
-    // Everything after the target needs protocol repair. The two-tier
-    // fallback accepts the latest rebuildable repaired candidate — the fold
-    // is removing exactly this damage, so an archive carrying the same
-    // deterministic repairs is honest. The boundary property survives: the
-    // ticket sits strictly inside the replaced range, never at or before
-    // the target.
+  test("a mid-span dangling provider-error call folds with a repaired ticket that restores end to end", async () => {
+    // Full field-failure shape on the exact host: a clean early boundary, a
+    // provider-error assistant whose bash call never got a result, then real
+    // work after the damage. Every ticket candidate strictly after the
+    // target rebuilds as "repaired"; the two-tier fallback anchors on the
+    // newest one, the receipt names the repair evidence, and the archive is
+    // genuinely restorable — the closing loop travels back to the ticket and
+    // rebuilds a lawful packet containing the post-damage work.
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "start the task", timestamp: Date.now() });
-    const unfinishedId = sessionManager.appendMessage({
+    sessionManager.appendMessage({
       role: "assistant",
-      content: [{ type: "toolCall", id: "unfinished-work", name: "read", arguments: { path: "src/work.ts" } }],
+      content: [{ type: "toolCall", id: "mid-span-lost", name: "bash", arguments: { command: "true" } }],
       api: "test",
       provider: "test",
       model: "test",
       usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
-      stopReason: "toolUse",
+      stopReason: "error",
       timestamp: Date.now(),
     });
+    // A stale orphan result keeps later prefixes "repaired" instead of
+    // letting the host projection silently drop the bare dangling call —
+    // the same shape the field session persisted.
+    sessionManager.appendMessage({
+      role: "toolResult",
+      toolCallId: "mid-span-never-issued",
+      toolName: "bash",
+      content: [{ type: "text", text: "stale interrupted result" }],
+      isError: true,
+      timestamp: Date.now(),
+    });
+    const laterWorkId = sessionManager.appendMessage({ role: "user", content: "post-damage work detail", timestamp: Date.now() });
     sessionManager.appendMessage(travelToolCall());
     const { context, travelTool } = createExtensionFixture(sessionManager);
 
     const result = await travelTool.execute(
       TOOL_CALL_ID,
-      { target: rootId, handoff: HANDOFF },
+      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "damaged-span-archive" },
       undefined,
       undefined,
       context,
@@ -854,12 +867,34 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(result.details).toMatchObject({
       mutationStatus: "applied",
       backupProtocolStatus: "repaired",
-      backupEntryId: unfinishedId,
+      backupEntryId: laterWorkId,
+      backupCurrentHeadAs: "damaged-span-archive",
     });
-    // Strictly after the target: the archive can actually restore something.
-    expect(unfinishedId).not.toBe(rootId);
-    const branch = sessionManager.getBranch(unfinishedId as string);
-    expect(branch.some((entry) => entry.id === rootId)).toBe(true);
+    // The receipt names why the anchor is repaired, not just that it is.
+    const repairs = result.details?.backupProtocolRepairs;
+    expect(Array.isArray(repairs)).toBe(true);
+    expect((repairs as unknown[]).length).toBeGreaterThan(0);
+    // Strictly after the target: the archive covers the post-damage work.
+    const ticketBranch = sessionManager.getBranch(laterWorkId as string);
+    expect(ticketBranch.some((entry) => entry.id === rootId)).toBe(true);
+
+    // Close the loop: restore by traveling to the archive alias. The restore
+    // must apply and rebuild a lawful packet that contains the post-damage
+    // work the fold had removed — repaired anchors are real archives.
+    sessionManager.appendMessage(travelToolCall("restore-damaged-span"));
+    const restore = await travelTool.execute(
+      "restore-damaged-span",
+      { target: "damaged-span-archive", handoff: HANDOFF },
+      undefined,
+      undefined,
+      context,
+    );
+    expect(restore.details?.error).toBeUndefined();
+    expect(restore.details).toMatchObject({ mutationStatus: "applied" });
+    const restored = rebuildAcmContextPacket(sessionManager);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) throw new Error("restored packet failed to rebuild");
+    expect(JSON.stringify(restored.value.messages)).toContain("post-damage work detail");
   });
 
   test("rejects duplicate tool-call ids in the current packet before raw backup resolution", async () => {
