@@ -42,7 +42,7 @@ import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.j
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { appendLedgerRow, buildFoldRow, markFoldCounted } from "./boundary-ledger.js";
-import { calculateContextUsagePressure } from "./context-pressure.js";
+import { calculateContextUsagePressure, foldProjectionScaleName } from "./context-pressure.js";
 
 /**
  * Entry kinds a fold can legitimately compress. A replacement range containing
@@ -297,7 +297,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageBefore = usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
         ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
         : undefined;
-      const usageBeforeText = formatContextUsage(usageBefore, true);
+      const usageBeforeText = formatContextUsage(usageBefore);
       const currentPacketResult = rebuildAcmContextPacket(sessionManager);
       if (!currentPacketResult.ok) {
         return {
@@ -481,7 +481,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         targetPacketResult.value.messages,
         canonicalHandoff.text,
       );
-      const estimatedPreviewText = formatContextUsage(estimatedUsagePreview, true);
+      const estimatedPreviewText = formatContextUsage(estimatedUsagePreview);
       const messagesBefore = currentMessages.length;
       const activeSummaryDepthBefore = countActiveSummaryDepth(branch);
       const targetSummaryDepth = countActiveSummaryDepth(targetBranch);
@@ -752,7 +752,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const afterMessages = afterPacket.messages;
       const messagesAfter = afterMessages.length;
       const estimatedUsageAfter = estimateUsageAfterMessageChange(usageBefore, currentMessages, afterMessages);
-      const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter, true);
+      const estimatedUsageAfterText = formatContextUsage(estimatedUsageAfter);
       const usageDelta = calculateUsageDelta(usageBefore, estimatedUsageAfter);
       const structuralMessageDelta = messagesAfter - messagesBefore;
       const structuralMessageDirection = classifyStructuralMessageDirection(messagesBefore, messagesAfter);
@@ -762,8 +762,23 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const usageContextWindow = usageBefore?.contextWindow ?? estimatedUsageAfter?.contextWindow ?? null;
       const estimatedUsageAfterTokens = estimatedUsageAfter?.tokens ?? null;
       const estimatedUsageAfterPercent = estimatedUsageAfter?.percent ?? null;
-      const usageBeforePercentText = usageBeforePercent === null ? "unknown" : `${usageBeforePercent.toFixed(1)}%`;
-      const estimatedUsageAfterPercentText = estimatedUsageAfterPercent === null ? "unknown" : `${estimatedUsageAfterPercent.toFixed(1)}%`;
+      // Receipt percentages read on the working-budget scale — the same
+      // yardstick the gauge and the boundary ledger use, with the scale named
+      // in the text. The legacy hard-window fields above stay in details for
+      // compatibility but no longer drive presentation.
+      const pressureBefore = calculateContextUsagePressure(usageBefore?.tokens, usageBefore?.contextWindow, usageBefore?.percent);
+      const pressureAfter = calculateContextUsagePressure(estimatedUsageAfter?.tokens, estimatedUsageAfter?.contextWindow, estimatedUsageAfter?.percent);
+      const budgetBeforePercent = pressureBefore?.pressurePercent ?? null;
+      const estimatedBudgetAfterPercent = pressureAfter?.pressurePercent ?? null;
+      const budgetPercentagePointDelta = budgetBeforePercent !== null && estimatedBudgetAfterPercent !== null
+        ? estimatedBudgetAfterPercent - budgetBeforePercent
+        : null;
+      const receiptScale = foldProjectionScaleName((pressureBefore ?? pressureAfter)?.policy ?? "400k-cap");
+      const truncatePercent = (percent: number | null): string => percent === null
+        ? "unknown"
+        : `${Math.floor(percent * 10) / 10}% ${receiptScale}`;
+      const usageBeforePercentText = truncatePercent(budgetBeforePercent);
+      const estimatedUsageAfterPercentText = truncatePercent(estimatedBudgetAfterPercent);
       // Fold side of the passive ledger: one row per applied travel with the
       // delta the receipt already carries, so folds and boundaries accumulate
       // on the same yardstick. Swallowed on any failure.
@@ -772,16 +787,12 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // rows' discriminator or the per-session join breaks, and the fold
         // count must advance so boundary rows report foldsSoFar truthfully.
         const ledgerState = runtime.ledgerState(sessionManager);
-        // Boundary rows record working-budget pressure; the receipt's raw
-        // percents are hard-window usage. On a 1M-window model the two differ
-        // 2.5x, and a join across mismatched units reads as a contradiction
-        // ("crossed 51%, folded at 22%"). Convert to the boundary yardstick.
-        const pressureBefore = calculateContextUsagePressure(usageBefore?.tokens, usageBefore?.contextWindow, usageBefore?.percent);
-        const pressureAfter = calculateContextUsagePressure(estimatedUsageAfter?.tokens, estimatedUsageAfter?.contextWindow, estimatedUsageAfter?.percent);
+        // Boundary rows and the receipt now share the working-budget yardstick;
+        // reuse the receipt's pressure conversions directly.
         const written = appendLedgerRow("fold", buildFoldRow({
           state: ledgerState,
-          budgetBefore: pressureBefore?.pressurePercent,
-          budgetAfter: pressureAfter?.pressurePercent,
+          budgetBefore: budgetBeforePercent,
+          budgetAfter: estimatedBudgetAfterPercent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
         }));
@@ -800,7 +811,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(usageDelta.percentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; handoffLayers=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; backup=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(budgetPercentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; handoffLayers=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
             summaryDepthNote,
             liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
@@ -832,6 +843,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           usageContextWindow,
           estimatedUsageAfterTokens,
           estimatedUsageAfterPercent,
+          budgetBeforePercent,
+          estimatedBudgetAfterPercent,
+          budgetPercentagePointDelta,
           tokenDelta: usageDelta.tokenDelta,
           percentagePointDelta: usageDelta.percentagePointDelta,
           structuralMessagesBefore: messagesBefore,

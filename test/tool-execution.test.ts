@@ -634,6 +634,32 @@ describe("ACM tool execution contracts", () => {
       expect(getBranchCalls()).toBe(0);
     }
   });
+
+  test("travel receipt reports pressure on the working-budget scale with its name", async () => {
+    // Receipt, gauge, and ledger share one yardstick: the percentage is
+    // token-derived on the working budget and names its scale in the text.
+    // Fixture usage is 100/1000 — an actual-window policy, so the scale
+    // reads "window" and the budget fields equal the token-derived percent.
+    const result = await executeTravel(
+      "travel-budget-receipt",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      successfulTravelContext(),
+    );
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      budgetBeforePercent: 10,
+      // Legacy hard-window fields survive unchanged — never renamed in place.
+      usageBeforePercent: 10,
+    });
+    const details = result.details as { estimatedBudgetAfterPercent: number | null; budgetPercentagePointDelta: number | null };
+    expect(typeof details.estimatedBudgetAfterPercent).toBe("number");
+    expect(typeof details.budgetPercentagePointDelta).toBe("number");
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain("contextPercent=10% window →");
+  });
   test("treats null optional tool parameters as omitted", async () => {
     const travel = await executeTravel(
       "null-backup",

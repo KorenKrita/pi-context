@@ -113,7 +113,8 @@ describe("ACM tool rendering", () => {
     );
     const output = render(result);
     expect(output).toContain("✓ CHECKPOINT CREATED  parser-fix-start");
-    expect(output).toContain("USER · entry-123 · context 30.0% (120.0K/400.0K)");
+    // Canonical grammar: scale-named percentage plus the raw pair, same scale.
+    expect(output).toContain("USER · entry-123 · context 30% window · 120K/400K");
     expect(output).toContain("→ Save point applied.");
   });
 
@@ -184,6 +185,61 @@ describe("ACM tool rendering", () => {
     const output = render(result);
     expect(output).toContain("2/4 aliases shown · handoff layers 0");
     expect(output).not.toContain("0/0 entries");
+  });
+
+  test("timeline renderer reads the authoritative pressure, not the retired contextUsage detail", () => {
+    const args = { view: "active", limit: 50 };
+    const baseDetails = {
+      view: "active",
+      activePathNodes: 3,
+      activeDisplayedEntries: 3,
+      activeVisibleEntries: 3,
+      activeSummaryDepth: 0,
+      contextDeliveryPhase: "active",
+    };
+    const pressure = {
+      tokens: 300_000,
+      contextWindow: 1_000_000,
+      usagePercent: 30,
+      workingBudgetTokens: 400_000,
+      pressurePercent: 75,
+      policy: "400k-cap",
+    };
+    const withAuthority = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]" }],
+        details: { ...baseDetails, contextUsageAuthority: "provider_turn_end", authoritativeContextPressure: pressure },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    expect(render(withAuthority)).toContain("context 75% budget(400K) · 300K/1M window");
+
+    // Declared provider authority with a missing payload must read unknown —
+    // silently falling back to another source would misattribute the number.
+    const missingPayload = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]" }],
+        details: { ...baseDetails, contextUsageAuthority: "provider_turn_end", authoritativeContextPressure: null, contextPressure: pressure },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    expect(render(missingPayload)).toContain("context unknown");
+
+    // Native authority may fall back to the native pressure payload.
+    const nativeFallback = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]" }],
+        details: { ...baseDetails, contextUsageAuthority: "native_context", authoritativeContextPressure: null, contextPressure: pressure },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    expect(render(nativeFallback)).toContain("context 75% budget(400K) · 300K/1M window");
   });
 
   test("travel renders the target, archive pointer, and structural deltas", () => {

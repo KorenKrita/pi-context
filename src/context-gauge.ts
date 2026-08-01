@@ -1,4 +1,4 @@
-import type { ContextUsagePressure } from "./context-pressure.js";
+import { contextPressureSegments, formatFoldNeedle, type ContextUsagePressure } from "./context-pressure.js";
 import type { FoldEstimates } from "./fold-estimate.js";
 
 /**
@@ -109,41 +109,36 @@ export interface GaugeStructure {
 }
 
 /**
- * Pressure needles first: budget is the advisory attention envelope, window
- * is the physical truth. When the window itself is at or under the budget
- * cap the two coincide and only the window fact remains.
+ * Pressure segments first, from the canonical formatter: one scale-named
+ * percentage plus the raw used/window token pair. On a large window the
+ * percentage reads against the working budget and may pass 100%; the raw
+ * pair names the hard limit. On a small window budget and window coincide
+ * and the single percentage is labeled `window`.
  *
  * Then the constant structural markers: `boundary` on each request's first
  * reading, and the save-point count when known.
  *
- * Fold needles last, each as remaining pressure and messages removed:
- * `fold@turn→24%/38` reads "folding to the turn reference leaves 24% budget
- * and removes 38 messages". A needle with no reference point is omitted —
- * absent is a fact, fabricated is not.
+ * Fold needles last, each as remaining pressure on the same scale as the
+ * leading percentage, followed by the message delta: `fold@turn→24% -38msg`
+ * reads "folding to the turn reference leaves 24% and removes 38 messages".
+ * A needle with no reference point is omitted — absent is a fact,
+ * fabricated is not.
  */
 export function buildGaugeSuffix(
   pressure: ContextUsagePressure,
   folds?: FoldEstimates,
   structure?: GaugeStructure,
 ): string {
-  const parts = pressure.policy === "400k-cap"
-    ? [`${Math.floor(pressure.pressurePercent)}% budget`, `${Math.floor(pressure.usagePercent)}% window`]
-    : [`${Math.floor(pressure.usagePercent)}% window`];
+  const parts: string[] = [...contextPressureSegments(pressure, 0)];
   if (structure?.boundary) parts.push("boundary");
   if (structure?.savePoints != null && structure.savePoints >= 0) {
     parts.push(`${structure.savePoints}pts`);
   }
   if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
-    const messages = folds.turnMessagesRemoved != null && folds.turnMessagesRemoved >= 0
-      ? `/${folds.turnMessagesRemoved}`
-      : "";
-    parts.push(`fold@turn→${Math.floor(folds.turnPercent)}%${messages}`);
+    parts.push(formatFoldNeedle("turn", folds.turnPercent, folds.turnMessagesRemoved));
   }
   if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
-    const messages = folds.taskMessagesRemoved != null && folds.taskMessagesRemoved >= 0
-      ? `/${folds.taskMessagesRemoved}`
-      : "";
-    parts.push(`fold@task→${Math.floor(folds.taskPercent)}%${messages}`);
+    parts.push(formatFoldNeedle("task", folds.taskPercent, folds.taskMessagesRemoved));
   }
   return `\n[ctx ${parts.join(" · ")}]`;
 }

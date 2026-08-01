@@ -84,17 +84,23 @@ wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可�
 
 ### Gauge
 
-形态：`[ctx 43% budget · 17% window · boundary · 3pts · fold@turn→24%/38 · fold@task→11%/92]`
+形态（canonical 两例）：
 
-- `policy === "400k-cap"` 时 budget+window 双针，否则仅 window
+- 大窗口：`[ctx 75% budget(400K) · 300K/1M window · boundary · 3pts · fold@turn→24% -38msg · fold@task→11% -92msg]`
+- 小窗口（window ≤ 400K）：`[ctx 43% window · 86K/200K · boundary · 3pts · fold@turn→24% -38msg]`
+
+- 单百分比：永远只有一个 pressure 百分比，自带尺名。`policy === "400k-cap"` 时为 `N% budget(400K)`（budget = min(window, 400K)），否则为 `N% window`；百分比一律从 tokens 计算（`pressurePercent`），不用 host percent（estimate 路径 clamp 到 100 且可能与裸数不一致）
+- 裸 token 段 `used/window` 是 >100% 解毒剂，绝不砍；大窗口上 budget 读数可超过 100% 且不 clamp；小窗口 100% 是硬墙
+- token 缩写截断不四舍五入（`399999→399.9K`，`400000→400K`），单位选择基于原始值（`999999→999.9K`）；去尾零（`1M` 不是 `1.0M`）；canonical 实现唯一（`formatTokenCount`，`src/context-pressure.ts`）
 - `boundary`：每个 user request 的首个 gauge reading 上出现的恒定结构标记
 - `Npts`：active path 上的 save point 数
-- 双折叠针：剩余压力% + 折掉的消息数；参照点不存在时省略该针
-- 节奏：整数位变化即显示（双向）+ **每个 request 首读强制显示**（boundary entry id 变化触发）
+- 双折叠针：`fold@turn→X% -Nmsg`，剩余压力与 leading 百分比同尺 + 消息 delta（`-Nmsg`；0 或未知时省略尾数，不产生 `-0msg`）；参照点不存在时省略该针；斜杠全行只表示部分/整体
+- 节奏：budget（小窗口即 window）百分比整数位变化即显示（双向）+ **每个 request 首读强制显示**（boundary entry id 变化触发）
 - 重置点：明确成功的 travel、`session_compact`、`/tree` 导航、`session_start`
 - 豁免：`acm_*` 结果与 error 结果永不装饰
 - provider-active 阶段 pressure 只采用最近 provider `turn_end` usage
 - kill switch：`ACM_GAUGE_DISABLED=1`，按调用时读取
+- 五面同 grammar：gauge 后缀、checkpoint 回执/renderer、travel 回执（budget 口径 details 字段 `budgetBeforePercent` 等；旧 hard-window 字段保留不改义）、timeline HUD/renderer/checkpoints 视图、ledger；每面的百分比与裸分子必须来自同一个 `ContextUsagePressure`
 
 ### Travel 事务与 settled sync
 

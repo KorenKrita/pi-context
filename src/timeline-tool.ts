@@ -22,7 +22,7 @@ import {
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { calculateContextUsagePressure, formatContextUsagePressure } from "./context-pressure.js";
+import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
@@ -332,9 +332,26 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const view = typeof details?.view === "string" ? details.view : "active";
       const displayView = sanitizeTerminalText(view);
       const depth = typeof details?.activeSummaryDepth === "number" ? details.activeSummaryDepth : 0;
-      const usage = details?.contextUsage && typeof details.contextUsage === "object"
-        ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
-        : "unknown";
+      // Authority-aware pressure for the renderer: the authoritative payload
+      // wins; when the authority is not the provider, the native pressure is
+      // an acceptable fallback; a declared provider authority with a missing
+      // payload renders unknown rather than silently downgrading the source.
+      const asPressure = (value: unknown): ContextUsagePressure | undefined => {
+        if (!value || typeof value !== "object") return undefined;
+        const candidate = value as Partial<ContextUsagePressure>;
+        return typeof candidate.tokens === "number"
+          && typeof candidate.contextWindow === "number"
+          && typeof candidate.pressurePercent === "number"
+          && typeof candidate.workingBudgetTokens === "number"
+          && (candidate.policy === "400k-cap" || candidate.policy === "actual-window")
+          ? candidate as ContextUsagePressure
+          : undefined;
+      };
+      const authoritative = asPressure(details?.authoritativeContextPressure);
+      const providerAuthority = details?.contextUsageAuthority === "provider_turn_end";
+      const fallback = providerAuthority ? undefined : asPressure(details?.contextPressure);
+      const rendererPressure = authoritative ?? fallback;
+      const usage = rendererPressure ? formatContextUsagePressure(rendererPressure, 1) : "unknown";
       let evidence: string;
       if (view === "checkpoints") {
         const hasEntryCounts = typeof details?.checkpointsDisplayedEntries === "number"
@@ -476,7 +493,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const aliasCountText = filter
           ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
           : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${boundedTimelineValue(params.filter ?? "")}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage, true)}, handoff layers ${activeSummaryDepth}:`);
+        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${boundedTimelineValue(params.filter ?? "")}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage)}, handoff layers ${activeSummaryDepth}:`);
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
@@ -491,7 +508,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           if (rootResult.ok) {
             const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
             estimateText = estimated
-              ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
+              ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated)} est. (+summary)`
               : `~${rootMessages.length} msgs`;
           }
           const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
@@ -516,7 +533,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const estimateText = !cachedTarget.ok
             ? "message estimate unavailable"
             : estimated
-              ? `~${cachedTarget.messages.length} msgs, ~${formatContextUsage(estimated, true)} est. (+summary)`
+              ? `~${cachedTarget.messages.length} msgs, ~${formatContextUsage(estimated)} est. (+summary)`
               : `~${cachedTarget.messages.length} msgs`;
           let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
           if (projectedSummaryDepth === undefined) {
@@ -590,7 +607,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
       // Fold projections: what a fold at each structural reference point would
       // leave, on the same working-budget yardstick the pressure line uses.
-      // Facts only — whether the extraction is complete stays CORE's bar.
+      // Numerator and denominator both come from the authoritative pressure —
+      // mixing the official numerator with the authoritative denominator reads
+      // as a contradiction the moment the two sources diverge (same pattern as
+      // the gauge adapter in runtime-lifecycle). Facts only — whether the
+      // extraction is complete stays CORE's bar.
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
@@ -598,7 +619,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const hudCurrent = rebuildAcmContextPacket(sessionManager);
         const estimates = authoritativePressure && hudCurrent.ok
           ? estimateFoldGains({
-              usage: officialUsage,
+              usage: {
+                tokens: authoritativePressure.tokens,
+                contextWindow: authoritativePressure.contextWindow,
+                percent: 0,
+              },
               workingBudgetTokens: authoritativePressure.workingBudgetTokens,
               currentMessages: hudCurrent.value.messages,
               messagesAt: (id: string) => {
@@ -607,12 +632,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               },
             }, references)
           : { turnPercent: null, taskPercent: null };
+        const scale = authoritativePressure ? foldProjectionScaleName(authoritativePressure.policy) : "budget";
         const segs: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% budget`);
+          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% ${scale}`);
         }
         if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% budget`);
+          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% ${scale}`);
         }
         foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
       } catch {
@@ -621,9 +647,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
-        `• Context Usage:    ${formatContextUsage(officialUsage, true)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
+        `• Context Usage:    ${formatContextUsage(officialUsage)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
         `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage, true) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
+        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
         `• Handoff Layers:   ${activeSummaryDepth} handoff layer(s) on the current spine`,
         `• Off-path Handoffs: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with archived handoffs`,

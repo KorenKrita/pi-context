@@ -20,8 +20,20 @@ import type { ContextUsagePressure } from "../src/context-pressure.js";
  */
 
 function pressure(pressurePercent: number, usagePercent: number, policy: ContextUsagePressure["policy"]): ContextUsagePressure {
+  // Consistent fixture: tokens and denominators agree with the percentages,
+  // because the rendered percentage is derived from tokens.
+  if (policy === "400k-cap") {
+    return {
+      tokens: Math.round(pressurePercent * 4000),
+      contextWindow: 1_000_000,
+      usagePercent,
+      workingBudgetTokens: 400_000,
+      pressurePercent,
+      policy,
+    };
+  }
   return {
-    tokens: 1000,
+    tokens: Math.round(pressurePercent * 1000),
     contextWindow: 100_000,
     usagePercent,
     workingBudgetTokens: 100_000,
@@ -49,28 +61,51 @@ function aiEntry(id: string): FoldEstimateEntry {
 
 describe("fold-gain visibility", () => {
   test("the gauge renders both fold needles alongside the pressure needles", () => {
-    const suffix = buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: 9.1 });
-    expect(suffix).toBe("\n[ctx 51% budget · 20% window · fold@turn→22% · fold@task→9%]");
+    const suffix = buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), {
+      turnPercent: 22.8,
+      turnMessagesRemoved: 38,
+      taskPercent: 9.1,
+      taskMessagesRemoved: 92,
+    });
+    expect(suffix).toBe("\n[ctx 51% budget(400K) · 207.6K/1M window · fold@turn→22% -38msg · fold@task→9% -92msg]");
   });
 
   test("a missing reference point omits its needle instead of rendering zero", () => {
-    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: 22.8, taskPercent: null }))
-      .toBe("\n[ctx 51% budget · 20% window · fold@turn→22%]");
-    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), { turnPercent: null, taskPercent: null }))
-      .toBe("\n[ctx 51% budget · 20% window]");
+    const partial = { turnPercent: 22.8, turnMessagesRemoved: 38, taskPercent: null, taskMessagesRemoved: null };
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), partial))
+      .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window · fold@turn→22% -38msg]");
+    const none = { turnPercent: null, turnMessagesRemoved: null, taskPercent: null, taskMessagesRemoved: null };
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), none))
+      .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window]");
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap")))
-      .toBe("\n[ctx 51% budget · 20% window]");
+      .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window]");
+  });
+
+  test("a zero message delta omits the -Nmsg tail instead of fabricating -0msg", () => {
+    const zero = { turnPercent: 22.8, turnMessagesRemoved: 0, taskPercent: null, taskMessagesRemoved: null };
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), zero))
+      .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window · fold@turn→22%]");
   });
 
   test("fold needles are unconditional: no threshold, floor, or tier gates them", () => {
     // A needle that appeared only past a threshold would be choosing its
     // moment, and a gauge that chooses its moments becomes an event again.
-    const early = buildGaugeSuffix(pressure(2.4, 1.1, "400k-cap"), { turnPercent: 2.3, taskPercent: 0.4 });
-    expect(early).toBe("\n[ctx 2% budget · 1% window · fold@turn→2% · fold@task→0%]");
+    const early = buildGaugeSuffix(pressure(2.4, 1.1, "400k-cap"), {
+      turnPercent: 2.3,
+      turnMessagesRemoved: 4,
+      taskPercent: 0.4,
+      taskMessagesRemoved: 11,
+    });
+    expect(early).toBe("\n[ctx 2% budget(400K) · 9.6K/1M window · fold@turn→2% -4msg · fold@task→0% -11msg]");
   });
 
   test("fold needles carry no verb, evaluation, or recommendation", () => {
-    const suffix = buildGaugeSuffix(pressure(80, 30, "400k-cap"), { turnPercent: 12, taskPercent: 4 });
+    const suffix = buildGaugeSuffix(pressure(80, 30, "400k-cap"), {
+      turnPercent: 12,
+      turnMessagesRemoved: 20,
+      taskPercent: 4,
+      taskMessagesRemoved: 60,
+    });
     for (const advisory of ["fold now", "should", "consider", "recommend", "worth", "cheap", "expensive", "?"]) {
       expect(suffix.toLowerCase()).not.toContain(advisory);
     }
@@ -199,6 +234,14 @@ test("the turn reference skips the current user turn", () => {
     const timelineSource = readFileSync(new URL("../src/timeline-tool.ts", import.meta.url), "utf8");
     expect(timelineSource).toContain("selectFoldReferences");
     expect(timelineSource).toContain("Fold Projection");
+    // Blocker lock: the HUD fold projection must draw numerator and
+    // denominator from the same authoritative pressure, never the official
+    // usage beside an authoritative denominator — mixed sources read as a
+    // contradiction the moment provider and native usage diverge.
+    expect(timelineSource).toContain("tokens: authoritativePressure.tokens");
+    // Prose projections name their scale from the pressure's policy.
+    expect(timelineSource).toContain("foldProjectionScaleName");
+    expect(checkpointSource).toContain("foldProjectionScaleName");
 
     const lifecycleSource = readFileSync(new URL("../src/runtime-lifecycle.ts", import.meta.url), "utf8");
     expect(lifecycleSource).toContain("currentFoldEstimates");

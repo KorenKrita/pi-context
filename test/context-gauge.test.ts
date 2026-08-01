@@ -16,16 +16,43 @@ import { calculateContextUsagePressure } from "../src/context-pressure.js";
 // says, when it appears, and what must never be decorated.
 
 describe("context gauge", () => {
-	test("renders two needles under the 400k cap and one when the window is the budget", () => {
+	test("renders one scale-named percentage plus the raw token pair on both window shapes", () => {
+		// The two canonical examples from the gauge contract.
+		const canonical = calculateContextUsagePressure(300_000, 1_000_000, 30);
+		expect(buildGaugeSuffix(canonical!)).toBe("\n[ctx 75% budget(400K) · 300K/1M window]");
+		const small = calculateContextUsagePressure(86_000, 200_000, 43);
+		expect(buildGaugeSuffix(small!)).toBe("\n[ctx 43% window · 86K/200K]");
+
 		const capped = calculateContextUsagePressure(410_000, 1_000_000, 41);
 		expect(capped?.policy).toBe("400k-cap");
-		// 410K/400K budget = 102%, 410K/1M window = 41% — over-budget stays
-		// a visible fact, never clamped: the budget is information, not a wall.
-		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% budget · 41% window]");
+		// 410K/400K budget = 102% — over-budget stays a visible fact, never
+		// clamped: the budget is information, not a wall. The raw used/window
+		// pair is the antidote that keeps the >100% reading honest.
+		expect(buildGaugeSuffix(capped!)).toBe("\n[ctx 102% budget(400K) · 410K/1M window]");
 
 		const plain = calculateContextUsagePressure(50_000, 200_000, 25);
 		expect(plain?.policy).toBe("actual-window");
-		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% window]");
+		expect(buildGaugeSuffix(plain!)).toBe("\n[ctx 25% window · 50K/200K]");
+	});
+
+	test("the percentage derives from tokens, not a disagreeing host percent", () => {
+		// Host says 42 but 86K/200K is 43%: the rendered percentage must agree
+		// with the raw pair beside it, or the line contradicts itself.
+		const pressure = calculateContextUsagePressure(86_000, 200_000, 42);
+		expect(buildGaugeSuffix(pressure!)).toBe("\n[ctx 43% window · 86K/200K]");
+	});
+
+	test("token abbreviation truncates and never crosses a denominator upward", () => {
+		// 399,999 must not render as the 400K it has not reached.
+		const nearCap = calculateContextUsagePressure(399_999, 1_000_000);
+		expect(buildGaugeSuffix(nearCap!)).toBe("\n[ctx 99% budget(400K) · 399.9K/1M window]");
+		const atCap = calculateContextUsagePressure(400_000, 1_000_000);
+		expect(buildGaugeSuffix(atCap!)).toBe("\n[ctx 100% budget(400K) · 400K/1M window]");
+		// Unit choice uses the raw value: 999,999 stays K, 1,000,000 becomes 1M.
+		const nearWindow = calculateContextUsagePressure(999_999, 1_000_000);
+		expect(buildGaugeSuffix(nearWindow!)).toBe("\n[ctx 249% budget(400K) · 999.9K/1M window]");
+		const small = calculateContextUsagePressure(199_999, 200_000);
+		expect(buildGaugeSuffix(small!)).toBe("\n[ctx 99% window · 199.9K/200K]");
 	});
 
 	test("odometer cadence: shows on integer change in either direction, silent otherwise", () => {
@@ -47,10 +74,10 @@ describe("context gauge", () => {
 	test("boundary marker and save-point count render between the pressure and fold needles", () => {
 		const pressure = calculateContextUsagePressure(410_000, 1_000_000, 41);
 		expect(buildGaugeSuffix(pressure!, undefined, { boundary: true, savePoints: 3 }))
-			.toBe("\n[ctx 102% budget · 41% window · boundary · 3pts]");
+			.toBe("\n[ctx 102% budget(400K) · 410K/1M window · boundary · 3pts]");
 		// No boundary, unknown save points → pure pressure needles, no filler.
 		expect(buildGaugeSuffix(pressure!, undefined, { boundary: false, savePoints: null }))
-			.toBe("\n[ctx 102% budget · 41% window]");
+			.toBe("\n[ctx 102% budget(400K) · 410K/1M window]");
 	});
 
 	test("a new user boundary forces one reading; the same boundary never repeats its marker", () => {

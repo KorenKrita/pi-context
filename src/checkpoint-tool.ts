@@ -16,7 +16,7 @@ import {
   resolveTargetId,
 } from "./lib.js";
 import { rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
-import { calculateContextUsagePressure } from "./context-pressure.js";
+import { calculateContextUsagePressure, foldProjectionScaleName } from "./context-pressure.js";
 import { estimateFoldGains, findNearestSavePoint, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import {
   appendCheckpointLabel,
@@ -111,7 +111,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const entryId = sanitizeTerminalText(typeof details?.entryId === "string" ? details.entryId : "unknown entry");
       const role = sanitizeTerminalText(typeof details?.role === "string" ? details.role : "node");
       const usage = details?.contextUsage && typeof details.contextUsage === "object"
-        ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number }, true)
+        ? formatContextUsage(details.contextUsage as { tokens: number; contextWindow: number; percent: number })
         : "unknown";
       const cue = sanitizeTerminalText(typeof details?.cue === "string" ? details.cue : "");
       const lines = [
@@ -311,7 +311,7 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
       const usageLike = usage && usage.tokens != null && usage.percent != null
         ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
         : undefined;
-      const usageText = usageLike ? formatContextUsage(usageLike, true) : "unknown";
+      const usageText = usageLike ? formatContextUsage(usageLike) : "unknown";
       const cue = GUIDANCE_CUES.checkpoint;
       // Fold projections and segment distance, restored from the preview that
       // shipped until 7c3bdff7 (2026-07-12) dropped it in the single-file split.
@@ -337,15 +337,16 @@ export function registerCheckpointTool(pi: ExtensionAPI): void {
               },
             }, references)
           : { turnPercent: null, taskPercent: null };
+        const scale = pressure ? foldProjectionScaleName(pressure.policy) : "budget";
         const segments: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
           const name = references.turn.label ?? references.turn.entryId;
-          segments.push(`fold@turn '${name}' → ~${Math.floor(estimates.turnPercent)}% budget`);
+          segments.push(`fold@turn '${name}' → ~${Math.floor(estimates.turnPercent)}% ${scale}`);
           foldDetails.turn = name;
         }
         if (estimates.taskPercent != null && references.task) {
           const name = references.task.label ?? references.task.entryId;
-          segments.push(`fold@task '${name}' → ~${Math.floor(estimates.taskPercent)}% budget`);
+          segments.push(`fold@task '${name}' → ~${Math.floor(estimates.taskPercent)}% ${scale}`);
           foldDetails.task = name;
         }
         foldDetails.stepsSinceSavePoint = nearest.stepsBack;

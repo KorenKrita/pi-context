@@ -302,7 +302,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     );
     const timelineText = timeline.content[0]?.type === "text" ? timeline.content[0].text : "";
     expect(timelineText).toContain("native AgentSession estimate");
-    expect(timelineText).toContain("ACM Pressure:     70.0%");
+    expect(timelineText).toContain("ACM Pressure:     70% window · 70K/100K");
     expect(timelineText).toContain("(native context)");
     expect(timeline.details).toMatchObject({
       contextUsageAuthority: "native_context",

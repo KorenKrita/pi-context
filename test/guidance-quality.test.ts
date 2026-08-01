@@ -72,9 +72,16 @@ describe("ACM guidance quality", () => {
 		});
 
 		test("teaches the gauge format it renders, including boundary and fold needles", () => {
-			for (const needle of ["% budget", "% window", "boundary", "pts", "fold@turn", "fold@task"]) {
+			for (const needle of ["% budget(400K)", "% window", "boundary", "pts", "fold@turn", "fold@task", "-38msg"]) {
 				expect(ACM_CORE).toContain(needle);
 			}
+			// The delegate reading rule: every percentage names its scale, and the
+			// raw numbers beside it report that same scale.
+			expect(ACM_CORE).toContain("Every percentage names the scale it measures");
+			// The >100% doctrine must qualify the budget-labeled reading and name
+			// the hard-limit reading of a window-labeled percentage.
+			expect(ACM_CORE).toContain("may pass 100%");
+			expect(ACM_CORE).toContain("names the hard limit");
 		});
 
 		test("keeps context-past and file-past separated in doctrine and travel mechanics", () => {

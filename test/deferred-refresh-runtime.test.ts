@@ -1037,8 +1037,9 @@ describe("deferred post-travel context delivery", () => {
     }) as { content: Array<{ type: "text"; text: string }> };
     // Pressure needles must match the timeline's authoritative reading. Fold
     // needles may follow in the same suffix, so assert the pressure prefix
-    // rather than the whole bracket.
-    expect(patch.content[0]?.text).toContain("[ctx 90% window");
+    // rather than the whole bracket. Small window: one scale-named percentage
+    // plus the raw pair on the same scale.
+    expect(patch.content[0]?.text).toContain("[ctx 90% window · 90K/100K");
   });
 
   test("fold needles reach the tool result end to end", async () => {
