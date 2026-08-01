@@ -44,7 +44,8 @@ interface AutomaticCheckpointAnchor {
   entryId: string | null;
   role?: string;
   snippet?: string;
-  protocolStatus?: "complete";
+  protocolStatus?: "complete" | "repaired";
+  protocolRepairs?: ToolProtocolRepair[];
   normalizations: AcmProtocolNormalization[];
   skipped: SkippedCheckpointAnchor[];
   aborted?: boolean;
@@ -204,6 +205,12 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
         const skipped: SkippedCheckpointAnchor[] = [];
         autoResolved = { entryId: null, normalizations: [], skipped };
+        // Two-tier fallback (invalid-only hard floor): prefer the latest
+        // protocol-complete candidate; when a mid-span defect leaves every
+        // candidate "repaired", anchor on the latest rebuildable repaired
+        // one instead of failing — the label must not become unreachable
+        // because of one dangling provider-error tool call upstream.
+        let repairedFallback: { entry: SessionEntry; repairs?: ToolProtocolRepair[]; normalizations: AcmProtocolNormalization[] } | undefined;
         let index = startIndex;
         let inspected = 0;
         for (; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
@@ -226,6 +233,13 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
             continue;
           }
           if (packet.value.protocol.status === "repaired") {
+            if (repairedFallback === undefined) {
+              repairedFallback = {
+                entry: candidate,
+                repairs: packet.value.protocol.repairs,
+                normalizations: packet.value.protocol.normalizations,
+              };
+            }
             skipped.push({
               id: candidate.id,
               reason: "protocol_repaired",
@@ -242,6 +256,20 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
             skipped,
           };
           break;
+        }
+        if (!autoResolved.entryId && !autoResolved.aborted && repairedFallback) {
+          const candidate = repairedFallback.entry;
+          autoResolved = {
+            entryId: candidate.id,
+            role: getMessageRoleLabel(candidate) ?? candidate.type.toUpperCase(),
+            snippet: describeEntrySnippet(candidate),
+            protocolStatus: "repaired",
+            ...(repairedFallback.repairs !== undefined ? { protocolRepairs: repairedFallback.repairs } : {}),
+            normalizations: repairedFallback.normalizations,
+            // The fallback anchor is no longer "skipped"; keep the other
+            // skip evidence but drop its own entry from that list.
+            skipped: skipped.filter((skip) => skip.id !== candidate.id),
+          };
         }
         if (!autoResolved.entryId && !autoResolved.aborted && inspected === ANCHOR_SEARCH_WINDOW && index >= 0) {
           autoResolved.searchExhausted = true;
@@ -260,8 +288,8 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
             text: isEmpty
               ? "No session entry to checkpoint. The conversation is empty."
               : autoResolved?.searchExhausted
-                ? `No protocol-complete session prefix exists within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.`
-                : "No protocol-complete session prefix exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
+                ? `No entry that can rebuild a lawful context packet exists within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.`
+              : "No entry that can rebuild a lawful context packet exists before this checkpoint call. Finish or explicitly recover the current tool batch, then retry; no label was written.",
           }],
           details: {
             error: isEmpty ? "empty_session" : "no_protocol_complete_checkpoint_target",
@@ -378,7 +406,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       }
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
-        ? `${role}; latest protocol-complete pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
+        ? `${role}; latest ${autoResolved.protocolStatus === "repaired" ? "protocol-repaired" : "protocol-complete"} pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
         : `${role}; explicit target '${params.target}'`;
       const action = status === "already_present" ? "Reused" : "Created";
       return {
@@ -398,6 +426,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
           target: params.target ?? "auto",
           targetResolution: params.target ? "explicit" : "automatic_protocol_complete",
           protocolStatus: autoResolved?.protocolStatus ?? null,
+          protocolRepairs: autoResolved?.protocolRepairs ?? [],
           protocolNormalizations: autoResolved?.normalizations ?? [],
           contextUsage: usage ? { percent: usage.percent, tokens: usage.tokens, contextWindow: usage.contextWindow } : null,
           contextUsageAvailable: usage !== undefined,

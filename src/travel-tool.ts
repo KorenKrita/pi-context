@@ -417,8 +417,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           };
         }
         // Same anchoring rule as acm_checkpoint's automatic placement: walk
-        // backward for the latest protocol-complete entry, skipping candidates
-        // that would need repair, bounded by the shared search window.
+        // backward for the latest protocol-complete entry, bounded by the
+        // shared search window.
         //
         // On-path folds have a hard lower bound: the ticket must sit strictly
         // after the travel target, inside the replaced range. A ticket at or
@@ -426,13 +426,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // — advertising it as a raw archive would be a lie. Off-path travel
         // replaces the whole current spine, so every entry on it qualifies.
         //
-        // When the target packet is itself "repaired" — damage in the
-        // surviving prefix, already accepted with explicit warnings — every
-        // candidate after it inherits that repair, so "complete" is
-        // unreachable by construction. A repaired candidate is then
-        // acceptable: the archive carries exactly the damage the fold
-        // already acknowledged, and the receipt records the real status.
-        const targetProtocolStatus = targetPacketResult.value.protocol.status;
+        // Two-tier fallback, aligned with the invalid-only hard floor from
+        // travel-target-facts: "repaired" is deterministic normalization
+        // evidence, not damage — the raw entries stay untouched and restore
+        // rebuilds a lawful packet with the same repairs. A single mid-span
+        // provider-error tool call would otherwise poison every candidate
+        // after it and permanently block folding toward any clean earlier
+        // target. Prefer the latest complete candidate; fall back to the
+        // latest rebuildable repaired one; hard-fail only when nothing in
+        // the replaced range can rebuild at all.
+        let repairedFallback: { entryId: string; normalizations: typeof currentPacket.protocol.normalizations } | undefined;
         const lowestIndex = resolved.fromOffPath ? 0 : targetBranch.length;
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
         for (let index = startIndex, inspected = 0; index >= lowestIndex && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
@@ -441,21 +444,31 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
           if (!packet.ok) continue;
           const status = packet.value.protocol.status;
-          if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) continue;
+          if (status !== "complete") {
+            if (status === "repaired" && repairedFallback === undefined) {
+              repairedFallback = { entryId: candidate.id, normalizations: packet.value.protocol.normalizations };
+            }
+            continue;
+          }
           backupProtocolStatus = status;
           backupProtocolNormalizations = packet.value.protocol.normalizations;
           backupEntryId = candidate.id;
           break;
         }
+        if (!backupEntryId && repairedFallback) {
+          backupProtocolStatus = "repaired";
+          backupProtocolNormalizations = repairedFallback.normalizations;
+          backupEntryId = repairedFallback.entryId;
+        }
         if (!backupEntryId) {
           return {
-            content: [{ type: "text" as const, text: "Error: the return ticket could not be placed — no protocol-complete entry exists in the history this travel would replace. Finish or explicitly recover the interrupted tool batch, or choose a later target, then retry; nothing was mutated." }],
+            content: [{ type: "text" as const, text: "Error: the return ticket could not be placed — no entry in the history this travel would replace can rebuild a lawful context packet. Finish or explicitly recover the interrupted tool batch, or choose a later target, then retry; nothing was mutated." }],
             details: { error: "no_protocol_complete_backup_target", name: params.backupCurrentHeadAs ?? null, headId: originId, lowestIndex },
           };
         }
         if (backupEntryId !== originId) {
           backupResolvedFromHead = originId;
-          ctx.ui.notify(`Note: the return ticket was placed on protocol-complete entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
+          ctx.ui.notify(`Note: the return ticket was placed on ${backupProtocolStatus === "complete" ? "protocol-complete" : "protocol-repaired"} entry ${backupEntryId} instead of HEAD ${originId}.`, "info");
         }
       }
 

@@ -584,9 +584,11 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
     },
     getLeafId: () => checkpointCall.id,
     getEntry: (id: string) => entries.find((entry) => entry.id === id),
-    appendLabelChange: () => {
+    appendLabelChange: (targetId: string, label: string | undefined) => {
       appendCalls++;
-      return "must-not-append-poisoned-anchor";
+      const id = `poisoned-anchor-label-${appendCalls}`;
+      entries.push(labelEntry(id, targetId, label));
+      return id;
     },
   };
   return {
@@ -597,6 +599,114 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
     },
     getAppendCalls: () => appendCalls,
     getCandidatePrefixReads: () => candidatePrefixReads,
+  };
+}
+
+
+function midSpanDamagedTravelContext(toolCallId: string) {
+  // Reproduces the field failure: a clean early target, one mid-span
+  // provider-error assistant with a dangling tool call, then plenty of
+  // ordinary work. Every candidate after the damage rebuilds as "repaired",
+  // and the old complete-only rule left the return ticket nowhere to go.
+  const root = userEntry("mid-span-root");
+  const cleanTurn = userEntry("mid-span-clean", root.id, "2026-01-01T00:00:01.000Z");
+  const danglingAssistant = {
+    type: "message",
+    id: "mid-span-dangling",
+    parentId: cleanTurn.id,
+    timestamp: "2026-01-01T00:00:02.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "mid-span-lost-call", name: "bash", arguments: { command: "true" } }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "error",
+      timestamp: 2,
+    },
+  } as SessionEntry;
+  // A stale orphan result keeps later prefixes "repaired" instead of letting
+  // the host projection silently drop the bare dangling call.
+  const orphanResult = {
+    type: "message",
+    id: "mid-span-orphan",
+    parentId: danglingAssistant.id,
+    timestamp: "2026-01-01T00:00:03.000Z",
+    message: {
+      role: "toolResult",
+      toolCallId: "mid-span-missing",
+      toolName: "bash",
+      content: [{ type: "text", text: "stale" }],
+      isError: true,
+      timestamp: 3,
+    },
+  } as SessionEntry;
+  const laterWorkA = userEntry("mid-span-later-a", orphanResult.id, "2026-01-01T00:00:04.000Z");
+  const laterWorkB = userEntry("mid-span-later-b", laterWorkA.id, "2026-01-01T00:00:05.000Z");
+  const travelCall = {
+    type: "message",
+    id: "mid-span-travel",
+    parentId: laterWorkB.id,
+    timestamp: "2026-01-01T00:00:06.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: toolCallId, name: "acm_travel", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 6,
+    },
+  } as SessionEntry;
+  const entries: SessionEntry[] = [root, cleanTurn, danglingAssistant, orphanResult, laterWorkA, laterWorkB, travelCall];
+  let leafId = travelCall.id;
+  let appendCalls = 0;
+  let branchCalls = 0;
+  let tree: SessionTreeNode | undefined;
+  for (let index = entries.length - 1; index >= 0; index--) {
+    tree = { entry: entries[index]!, children: tree ? [tree] : [] };
+  }
+  const sessionManager = {
+    getTree: () => tree ? [tree] : [],
+    getEntries: () => entries,
+    getBranch: (fromId?: string) => {
+      const id = fromId ?? leafId;
+      const stopIndex = entries.findIndex((entry) => entry.id === id);
+      return stopIndex < 0 ? entries : entries.slice(0, stopIndex + 1);
+    },
+    getLeafId: () => leafId,
+    getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    appendLabelChange: (targetId: string, label: string | undefined) => {
+      appendCalls++;
+      const id = `mid-span-label-${appendCalls}`;
+      entries.push(labelEntry(id, targetId, label));
+      return id;
+    },
+    branchWithSummary: (targetId: string, summary: string, details: unknown, fromHook?: boolean) => {
+      branchCalls++;
+      const entry: SessionEntry = {
+        type: "branch_summary",
+        id: "mid-span-summary",
+        parentId: targetId,
+        timestamp: "2026-01-01T00:00:07.000Z",
+        fromId: targetId,
+        fromHook: fromHook === true,
+        summary,
+        details,
+      } as SessionEntry;
+      entries.push(entry);
+      leafId = entry.id;
+      return entry.id;
+    },
+  };
+  return {
+    context: {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    },
+    getAppendCalls: () => appendCalls,
+    getBranchCalls: () => branchCalls,
   };
 }
 
@@ -633,6 +743,51 @@ describe("ACM tool execution contracts", () => {
       expect(getAppendCalls()).toBe(0);
       expect(getBranchCalls()).toBe(0);
     }
+  });
+
+  test("a clean target still folds when mid-span damage leaves only repaired ticket candidates", async () => {
+    // Field failure lock: the fold removes the damage, so the archive
+    // carrying the same deterministic repairs is honest — refusing it made
+    // folding toward any clean earlier target permanently unreachable.
+    const toolCallId = "mid-span-fold";
+    const fixture = midSpanDamagedTravelContext(toolCallId);
+    // Target the last clean node before the damage — exactly the field
+    // shape: every ticket candidate strictly after the target is repaired.
+    const result = await executeTravel(
+      toolCallId,
+      { target: "mid-span-clean", handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      backupProtocolStatus: "repaired",
+    });
+    // The ticket prefers the newest rebuildable candidate near HEAD so the
+    // archive covers the work after the damage, not just the clean prefix.
+    expect(result.details?.backupEntryId).toBe("mid-span-later-b");
+    expect(fixture.getBranchCalls()).toBe(1);
+  });
+
+  test("a complete candidate still wins over a newer repaired one for the return ticket", async () => {
+    // Priority lock: the two-tier fallback must not degrade into
+    // latest-rebuildable-wins. With no mid-span damage the ticket stays on
+    // the protocol-complete head exactly as before.
+    const result = await executeTravel(
+      "priority-travel",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      successfulTravelContext(),
+    );
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      backupProtocolStatus: "complete",
+      backupEntryId: "travel-head",
+    });
   });
 
   test("travel receipt reports pressure on the working-budget scale with its name", async () => {
@@ -818,7 +973,11 @@ describe("ACM tool execution contracts", () => {
     expect(result.details).toMatchObject({ status: "already_present", alreadyPresent: true, label: "same-checkpoint" });
     expect(fixture.getAppendCalls()).toBe(0);
   });
-  test("bounds automatic checkpoint anchoring after an unclosed tool batch", async () => {
+  test("anchors on the latest repaired entry when an unclosed batch poisons the whole window, with bounded work", async () => {
+    // Two-tier fallback: one mid-span dangling tool call must not make
+    // checkpoints unreachable for the rest of the session. The anchor lands
+    // on the latest rebuildable repaired candidate, the receipt carries the
+    // repair evidence, and the scan stays bounded by the shared window.
     const toolCallId = "bounded-anchor-call";
     const { context, getAppendCalls, getCandidatePrefixReads } = poisonedAutomaticCheckpointContext(toolCallId);
 
@@ -830,20 +989,25 @@ describe("ACM tool execution contracts", () => {
       context,
     );
 
+    expect(result.details?.error).toBeUndefined();
     expect(result.details).toMatchObject({
-      error: "no_protocol_complete_checkpoint_target",
-      searchWindow: ANCHOR_SEARCH_WINDOW,
-      searchExhausted: true,
+      status: "created",
+      protocolStatus: "repaired",
+      targetResolution: "automatic_protocol_complete",
     });
-    expect(result.content[0]?.text).toContain(
-      `within the last ${ANCHOR_SEARCH_WINDOW} entries before this checkpoint call`,
-    );
-    const skipped = result.details?.skipped;
+    // The anchor is the newest candidate before the checkpoint call itself.
+    expect(result.details?.entryId).toBe("poisoned-anchor-400");
+    expect(result.content[0]?.text).toContain("protocol-repaired");
+    const skipped = (result.details?.autoResolved as { skipped?: unknown[] } | undefined)?.skipped;
     expect(Array.isArray(skipped)).toBe(true);
-    if (!Array.isArray(skipped)) throw new Error("bounded checkpoint result omitted skipped candidates");
-    expect(skipped).toHaveLength(ANCHOR_SEARCH_WINDOW);
-    expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW);
-    expect(getAppendCalls()).toBe(0);
+    if (!Array.isArray(skipped)) throw new Error("checkpoint result omitted skipped candidates");
+    // Everything newer that was inspected and rejected stays as evidence,
+    // minus the fallback anchor itself.
+    expect(skipped.length).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW - 1);
+    // The anchor scan itself stays window-bounded; the success receipt adds
+    // only a constant number of fold-projection rebuilds on top.
+    expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW + 4);
+    expect(getAppendCalls()).toBe(1);
   });
 
   test("collision recovery is self-contained and points to no external skill files", async () => {

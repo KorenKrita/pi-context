@@ -820,14 +820,16 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(sessionManager.getLeafId()).toBe(travelCallId);
   });
 
-  test("the return ticket never lands at or before the fold target", async () => {
-    // Everything after the target needs protocol repair, so the backward walk
-    // would reach the target itself — but a ticket at or before the target
-    // survives the fold and can restore nothing. The travel must abort
-    // instead of advertising a fake raw archive.
+  test("the return ticket lands strictly after the target on a repaired candidate when repair is all the range offers", async () => {
+    // Everything after the target needs protocol repair. The two-tier
+    // fallback accepts the latest rebuildable repaired candidate — the fold
+    // is removing exactly this damage, so an archive carrying the same
+    // deterministic repairs is honest. The boundary property survives: the
+    // ticket sits strictly inside the replaced range, never at or before
+    // the target.
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "start the task", timestamp: Date.now() });
-    sessionManager.appendMessage({
+    const unfinishedId = sessionManager.appendMessage({
       role: "assistant",
       content: [{ type: "toolCall", id: "unfinished-work", name: "read", arguments: { path: "src/work.ts" } }],
       api: "test",
@@ -837,8 +839,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       stopReason: "toolUse",
       timestamp: Date.now(),
     });
-    const travelCallId = sessionManager.appendMessage(travelToolCall());
-    const entriesBefore = sessionManager.getEntries();
+    sessionManager.appendMessage(travelToolCall());
     const { context, travelTool } = createExtensionFixture(sessionManager);
 
     const result = await travelTool.execute(
@@ -849,9 +850,16 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       context,
     );
 
-    expect(result.details).toMatchObject({ error: "no_protocol_complete_backup_target" });
-    expect(sessionManager.getEntries()).toEqual(entriesBefore);
-    expect(sessionManager.getLeafId()).toBe(travelCallId);
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      backupProtocolStatus: "repaired",
+      backupEntryId: unfinishedId,
+    });
+    // Strictly after the target: the archive can actually restore something.
+    expect(unfinishedId).not.toBe(rootId);
+    const branch = sessionManager.getBranch(unfinishedId as string);
+    expect(branch.some((entry) => entry.id === rootId)).toBe(true);
   });
 
   test("rejects duplicate tool-call ids in the current packet before raw backup resolution", async () => {
