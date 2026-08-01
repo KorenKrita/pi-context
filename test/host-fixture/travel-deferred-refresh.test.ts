@@ -870,10 +870,11 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       backupEntryId: laterWorkId,
       backupCurrentHeadAs: "damaged-span-archive",
     });
-    // The receipt names why the anchor is repaired, not just that it is.
-    const repairs = result.details?.backupProtocolRepairs;
+    // The receipt names why the anchor is repaired, not just that it is:
+    // the dangling provider-error call is the load-bearing evidence.
+    const repairs = result.details?.backupProtocolRepairs as Array<{ kind: string; toolCallId?: string }>;
     expect(Array.isArray(repairs)).toBe(true);
-    expect((repairs as unknown[]).length).toBeGreaterThan(0);
+    expect(repairs.some((repair) => repair.kind === "stripped_unpaired_tool_call" && repair.toolCallId === "mid-span-lost")).toBe(true);
     // Strictly after the target: the archive covers the post-damage work.
     const ticketBranch = sessionManager.getBranch(laterWorkId as string);
     expect(ticketBranch.some((entry) => entry.id === rootId)).toBe(true);
@@ -894,6 +895,9 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     const restored = rebuildAcmContextPacket(sessionManager);
     expect(restored.ok).toBe(true);
     if (!restored.ok) throw new Error("restored packet failed to rebuild");
+    // Lawful means deliverable: the restored packet carries the same
+    // deterministic repairs, never an invalid protocol.
+    expect(restored.value.protocol.status).toBe("repaired");
     expect(JSON.stringify(restored.value.messages)).toContain("post-damage work detail");
   });
 

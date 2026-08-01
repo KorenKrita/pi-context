@@ -799,6 +799,62 @@ describe("ACM tool execution contracts", () => {
     });
   });
 
+  test("a repaired target keeps the newest repaired ticket candidate over an older complete one", async () => {
+    // Regression lock for the target-repaired fast path (removed once in
+    // e7fc917d and restored in 912a5301): when the fold target itself is
+    // repaired, the archive carries exactly the damage the fold already
+    // acknowledged, and the ticket stays on the NEWEST repaired candidate —
+    // scanning past it to an older complete candidate would silently move
+    // placement on a previously-succeeding path. Real contest: the range
+    // holds newer repaired candidates and an older complete one.
+    const toolCallId = "repaired-target-fold";
+    const fixture = midSpanDamagedTravelContext(toolCallId);
+    // Target the orphan result itself: its packet needs the same repair, so
+    // targetProtocolStatus === "repaired" and the fast path governs.
+    const result = await executeTravel(
+      toolCallId,
+      { target: "mid-span-orphan", handoff: HANDOFF },
+      undefined,
+      undefined,
+      fixture.context,
+    );
+    expect(result.details?.error).toBeUndefined();
+    expect(result.details).toMatchObject({
+      mutationStatus: "applied",
+      backupProtocolStatus: "repaired",
+      // Newest candidate in the replaced range, not an older complete one.
+      backupEntryId: "mid-span-later-b",
+    });
+  });
+
+  test("an abort observed inside the ticket scan returns aborted without mutating", async () => {
+    // The scan break must not fall through to the domain error or apply the
+    // repaired fallback: an early abort is an abort.
+    const toolCallId = "scan-abort-fold";
+    const fixture = midSpanDamagedTravelContext(toolCallId);
+    const controller = new AbortController();
+    const manager = (fixture.context as { sessionManager: { getBranch: (fromId?: string) => unknown } }).sessionManager;
+    const originalGetBranch = manager.getBranch.bind(manager);
+    let reads = 0;
+    // Let target resolution and packet prevalidation pass, then abort while
+    // the backward ticket scan is rebuilding candidate prefixes.
+    manager.getBranch = (fromId?: string) => {
+      reads++;
+      if (reads > 4) controller.abort();
+      return originalGetBranch(fromId);
+    };
+    const result = await executeTravel(
+      toolCallId,
+      { target: "mid-span-clean", handoff: HANDOFF },
+      controller.signal,
+      undefined,
+      fixture.context,
+    );
+    expect(result.details).toMatchObject({ error: "aborted" });
+    expect(fixture.getAppendCalls()).toBe(0);
+    expect(fixture.getBranchCalls()).toBe(0);
+  });
+
   test("travel receipt reports pressure on the working-budget scale with its name", async () => {
     // Receipt, gauge, and ledger share one yardstick: the percentage is
     // token-derived on the working budget and names its scale in the text.
