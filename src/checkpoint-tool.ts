@@ -112,9 +112,12 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       const role = sanitizeTerminalText(typeof details?.role === "string" ? details.role : "node");
       // The receipt records the authoritative pressure in details; the legacy
       // contextUsage detail (raw host usage) survives for compatibility but
-      // can describe the pre-travel branch during a provider epoch, so the
-      // renderer prefers the authoritative payload and re-derives from its
-      // tokens/window — malformed payloads fail closed to unknown.
+      // can describe the pre-travel branch during a provider epoch. Fallback
+      // is presence-based: a receipt without the contextPressure key is a
+      // legacy replay and may use the raw detail, but a receipt that carries
+      // the key with a malformed payload fails closed to unknown — degrading
+      // to the raw detail there would re-attribute the number to the wrong
+      // authority.
       const asRendererPressure = (value: unknown) => {
         if (!value || typeof value !== "object") return undefined;
         const candidate = value as { tokens?: unknown; contextWindow?: unknown };
@@ -123,8 +126,10 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
           typeof candidate.contextWindow === "number" ? candidate.contextWindow : null,
         );
       };
-      const rendererPressure = asRendererPressure(details?.contextPressure)
-        ?? asRendererPressure(details?.contextUsage);
+      const hasAuthoritativeDetail = details !== undefined && "contextPressure" in details && details.contextPressure !== null;
+      const rendererPressure = hasAuthoritativeDetail
+        ? asRendererPressure(details.contextPressure)
+        : asRendererPressure(details?.contextUsage);
       const usage = rendererPressure ? formatContextUsagePressure(rendererPressure, 1) : "unknown";
       const cue = sanitizeTerminalText(typeof details?.cue === "string" ? details.cue : "");
       const lines = [

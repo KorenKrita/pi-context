@@ -77,7 +77,7 @@ describe("ACM guidance quality", () => {
 			}
 			// The delegate reading rule: every percentage names its scale, and the
 			// raw numbers beside it report that same scale.
-			expect(ACM_CORE).toContain("Every percentage names the scale it measures");
+			expect(ACM_CORE).toContain("The leading percentage names the scale it measures");
 			// The >100% doctrine must qualify the budget-labeled reading and name
 			// the hard-limit reading of a window-labeled percentage.
 			expect(ACM_CORE).toContain("may pass 100%");

@@ -154,7 +154,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
       const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
-      const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "verified");
+      // A result without an evidence status must not claim verification: only an
+      // explicit "verified" from the receipt earns the success style.
+      const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "unknown");
       const lines = [
         theme.fg(evidenceStatus === "verified" ? "success" : "warning", evidenceStatus === "verified" ? "✓ TRAVEL COMPLETE" : "⚠ TRAVEL APPLIED — EVIDENCE PENDING")
           + theme.fg("accent", `  ${target} → ${leaf}`),

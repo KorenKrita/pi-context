@@ -114,6 +114,9 @@ export function formatFoldNeedle(
   percent: number,
   messagesRemoved: number | null,
 ): string {
+  // Defensive floor for a canonical exported formatter: a needle that cannot
+  // state a real non-negative percent must not fabricate NaN%/-1%.
+  if (!Number.isFinite(percent) || percent < 0) return "";
   const wholeMessages = messagesRemoved != null && Number.isFinite(messagesRemoved)
     ? Math.floor(messagesRemoved)
     : 0;

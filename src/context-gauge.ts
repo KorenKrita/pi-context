@@ -134,11 +134,9 @@ export function buildGaugeSuffix(
   if (structure?.savePoints != null && structure.savePoints >= 0) {
     parts.push(`${structure.savePoints}pts`);
   }
-  if (folds?.turnPercent != null && Number.isFinite(folds.turnPercent)) {
-    parts.push(formatFoldNeedle("turn", folds.turnPercent, folds.turnMessagesRemoved));
-  }
-  if (folds?.taskPercent != null && Number.isFinite(folds.taskPercent)) {
-    parts.push(formatFoldNeedle("task", folds.taskPercent, folds.taskMessagesRemoved));
-  }
+  const turnNeedle = folds?.turnPercent != null ? formatFoldNeedle("turn", folds.turnPercent, folds.turnMessagesRemoved) : "";
+  if (turnNeedle) parts.push(turnNeedle);
+  const taskNeedle = folds?.taskPercent != null ? formatFoldNeedle("task", folds.taskPercent, folds.taskMessagesRemoved) : "";
+  if (taskNeedle) parts.push(taskNeedle);
   return `\n[ctx ${parts.join(" · ")}]`;
 }

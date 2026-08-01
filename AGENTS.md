@@ -41,14 +41,14 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 
 | 路径 | 责任 |
 |---|---|
-| `src/checkpoint-tool.ts` | checkpoint schema、自动 protocol-complete 锚定、fold 投影回执 |
+| `src/checkpoint-tool.ts` | checkpoint schema、自动 protocol-complete 锚定、runtime-authoritative pressure 回执与 fold 投影 |
 | `src/timeline-tool.ts` | strict single-view timeline、HUD、投影收益 |
 | `src/travel-tool.ts` | handoff 验证、自动回程票、travel evidence、settled sync 调度 |
 | `src/handoff.ts` | 三必填四可选 wire schema、"none" 缺省、canonical 七行文本、`deriveReturnTicketName` |
 | `src/context-packet.ts` | LLM-bound packet 重建、tool protocol normalization、ACM continuation 投影 |
 | `src/travel-coordinator.ts` | backup → branch → verify → compensate 单次事务 |
 | `src/host-bridge.ts` | readonly SessionManager 到 mutation capability 的唯一 guarded seam |
-| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、gauge state（含 boundary 追踪）、settled sync |
+| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、gauge state（含 boundary 追踪）、settled sync；`authoritativeContextPressure` 是 gauge/HUD/checkpoint/travel 共用的唯一 pressure authority |
 | `src/runtime-lifecycle.ts` | context rebuild、gauge 装配（boundary/savePoints/双针）、settled sync、compaction、`/tree`、cleanup |
 | `src/context-gauge.ts` | 仪表格式化、里程表节奏、boundary 强制首读 |
 | `src/context-pressure.ts` | working-budget pressure（400K cap policy） |
@@ -94,13 +94,13 @@ wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可�
 - token 缩写截断不四舍五入（`399999→399.9K`，`400000→400K`），单位选择基于原始值（`999999→999.9K`）；去尾零（`1M` 不是 `1.0M`）；canonical 实现唯一（`formatTokenCount`，`src/context-pressure.ts`）
 - `boundary`：每个 user request 的首个 gauge reading 上出现的恒定结构标记
 - `Npts`：active path 上的 save point 数
-- 双折叠针：`fold@turn→X% -Nmsg`，剩余压力与 leading 百分比同尺 + 消息 delta（`-Nmsg`；0 或未知时省略尾数，不产生 `-0msg`）；参照点不存在时省略该针；斜杠全行只表示部分/整体
+- 双折叠针：`fold@turn→X% -Nmsg`，剩余压力与 leading 百分比同尺 + 消息 delta（`-Nmsg`；0 或未知时省略尾数，不产生 `-0msg`）；参照点不存在、与另一针重合去重、或该次投影 rebuild 失败时省略该针；斜杠全行只表示部分/整体
 - 节奏：budget（小窗口即 window）百分比整数位变化即显示（双向）+ **每个 request 首读强制显示**（boundary entry id 变化触发）
 - 重置点：明确成功的 travel、`session_compact`、`/tree` 导航、`session_start`
 - 豁免：`acm_*` 结果与 error 结果永不装饰
 - provider-active 阶段 pressure 只采用最近 provider `turn_end` usage
 - kill switch：`ACM_GAUGE_DISABLED=1`，按调用时读取
-- 五面同 grammar：gauge 后缀、checkpoint 回执/renderer、travel 回执（budget 口径 details 字段 `budgetBeforePercent` 等；旧 hard-window 字段保留不改义）、timeline HUD/renderer/checkpoints 视图、ledger；每面的百分比与裸分子必须来自同一个 `ContextUsagePressure`
+- 四个模型可见面同 grammar：gauge 后缀、checkpoint 回执/renderer、travel 回执（budget 口径 details 字段 `budgetBeforePercent` 等；旧 hard-window 字段保留不改义）、timeline HUD/renderer/checkpoints 视图；每面的百分比与裸分子必须来自同一个 `ContextUsagePressure`。ledger 不是呈现面：它共用同一 pressure authority/口径并以 `gauge` cohort 字段标注 grammar 世代，schema 只存计数与百分比、无裸分子
 
 ### Travel 事务与 settled sync
 
@@ -127,7 +127,7 @@ wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可�
 
 ### Timeline 契约
 
-strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——只报事实，不含判断行。checkpoints 视图列出投影收益并标注 `[raw archive]`。每次调用受 context-derived entry/character budget 约束。
+strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。每次调用受 context-derived entry/character budget 约束。
 
 ### Manual `/tree`
 

@@ -906,6 +906,13 @@ describe("deferred post-travel context delivery", () => {
     const current = /Current: \d+ msgs, (\d+(?:\.\d+)?)% budget/.exec(checkpointsText);
     expect(current).not.toBeNull();
     expect(Number(current![1])).toBeGreaterThan(60);
+
+    // The output character budget must shrink with the same authoritative
+    // tokens: provider 300K of a 400K working window leaves 100K remaining
+    // → min(40K, 25K) = 25K tokens → 100K chars. The stale native 90K would
+    // wrongly relax it to min(40K, 77.5K) = 40K tokens → 160K chars.
+    const budget = (timeline.details as { resultCharacterBudget?: number }).resultCharacterBudget;
+    expect(budget).toBe(100_000);
   });
 
   test("retains the delivery phase through rebuild failures and consumes it only after a later rebuild succeeds", async () => {

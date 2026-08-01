@@ -224,8 +224,12 @@ function timelineResultEntryBudget(ctx: ExtensionContext): number {
   );
 }
 
-function timelineResultCharacterBudget(ctx: ExtensionContext): number {
-  const usage = ctx.getContextUsage();
+function timelineResultCharacterBudget(ctx: ExtensionContext, authoritative?: { tokens: number; contextWindow: number }): number {
+  // The character budget must shrink with the same tokens the gauge and HUD
+  // report: during a provider epoch the raw native estimate still describes
+  // the pre-travel branch, and sizing output against it would widen the
+  // budget exactly when the real context is fullest.
+  const usage = authoritative ?? ctx.getContextUsage();
   const contextWindow = typeof usage?.contextWindow === "number" && Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
     ? usage.contextWindow
     : 100_000;
@@ -331,7 +335,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
       const view = typeof details?.view === "string" ? details.view : "active";
       const displayView = sanitizeTerminalText(view);
-      const depth = typeof details?.activeSummaryDepth === "number" ? details.activeSummaryDepth : 0;
+      const asCount = (value: unknown): number => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+      const depth = asCount(details?.activeSummaryDepth);
       // Authority-aware pressure for the renderer: the authoritative payload
       // wins; when the authority is not the provider, the native pressure is
       // an acceptable fallback; a declared provider authority with a missing
@@ -354,8 +359,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (view === "checkpoints") {
         const hasEntryCounts = typeof details?.checkpointsDisplayedEntries === "number"
           && typeof details?.checkpointsMatchingEntries === "number";
-        const shownAliases = typeof details?.checkpointsDisplayedAliases === "number" ? details.checkpointsDisplayedAliases : 0;
-        const totalAliases = typeof details?.checkpointsMatchingAliases === "number" ? details.checkpointsMatchingAliases : 0;
+        const shownAliases = asCount(details?.checkpointsDisplayedAliases);
+        const totalAliases = asCount(details?.checkpointsMatchingAliases);
         const root = typeof details?.rootCandidateEntryId === "string" ? ` · root ${sanitizeTerminalText(details.rootCandidateEntryId)}` : "";
         if (hasEntryCounts) {
           const shownEntries = details.checkpointsDisplayedEntries as number;
@@ -371,15 +376,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           evidence = `${shownAliases}/${totalAliases} aliases shown${root}`;
         }
       } else if (view === "search") {
-        const matches = typeof details?.searchDisplayedMatches === "number" ? details.searchDisplayedMatches : 0;
+        const matches = asCount(details?.searchDisplayedMatches);
         evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
       } else if (view === "tree") {
-        const lines = typeof details?.outputLines === "number" ? details.outputLines : 0;
+        const lines = asCount(details?.outputLines);
         evidence = `${lines} rendered lines${details?.treeTruncated ? " · truncated" : ""}`;
       } else {
-        const nodes = typeof details?.activePathNodes === "number" ? details.activePathNodes : 0;
-        const shown = typeof details?.activeDisplayedEntries === "number" ? details.activeDisplayedEntries : 0;
-        const visible = typeof details?.activeVisibleEntries === "number" ? details.activeVisibleEntries : 0;
+        const nodes = asCount(details?.activePathNodes);
+        const shown = asCount(details?.activeDisplayedEntries);
+        const visible = asCount(details?.activeVisibleEntries);
         evidence = `${nodes} active nodes · ${shown}/${visible} visible entries shown`;
       }
 
@@ -432,7 +437,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const resultEntryBudget = timelineResultEntryBudget(ctx);
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
-      const resultCharacterBudget = timelineResultCharacterBudget(ctx);
+      const budgetAuthority = runtime.authoritativeContextPressure(ctx.sessionManager, toUsageLike(ctx.getContextUsage()));
+      const resultCharacterBudget = timelineResultCharacterBudget(
+        ctx,
+        budgetAuthority ? { tokens: budgetAuthority.tokens, contextWindow: budgetAuthority.contextWindow } : undefined,
+      );
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
@@ -653,7 +662,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const hudParts = [
         "[Context Dashboard]",
         `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
-        `• Context Usage:    ${formatContextUsage(officialUsage)} (${providerEpoch ? "native AgentSession estimate" : "official hard window"})`,
+        `• Context Usage:    ${formatContextUsage(officialUsage)} (${providerEpoch ? "native AgentSession estimate" : "native context estimate"})`,
         `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
         `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
         `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,

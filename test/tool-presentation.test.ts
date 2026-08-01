@@ -114,8 +114,32 @@ describe("ACM tool rendering", () => {
     const output = render(result);
     expect(output).toContain("✓ CHECKPOINT CREATED  parser-fix-start");
     // Canonical grammar: scale-named percentage plus the raw pair, same scale.
+    // No contextPressure key at all → legacy replay, raw detail is allowed.
     expect(output).toContain("USER · entry-123 · context 30% window · 120K/400K");
     expect(output).toContain("→ Save point applied.");
+
+    // Presence-based degradation: a receipt that carries contextPressure
+    // prefers it over the legacy raw detail even when both are valid…
+    const render2 = (details: Record<string, unknown>) => render(checkpoint.renderResult!(
+      { content: [{ type: "text", text: "Created" }], details },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    ));
+    const divergent = render2({
+      status: "created", name: "n", entryId: "e", role: "USER",
+      contextUsage: { tokens: 120_000, contextWindow: 400_000, percent: 30 },
+      contextPressure: { tokens: 300_000, contextWindow: 1_000_000 },
+    });
+    expect(divergent).toContain("context 75% budget(400K) · 300K/1M window");
+    // …and a present-but-malformed authoritative payload fails closed to
+    // unknown instead of re-attributing the number to the raw host detail.
+    const malformedPressure = render2({
+      status: "created", name: "n", entryId: "e", role: "USER",
+      contextUsage: { tokens: 120_000, contextWindow: 400_000, percent: 30 },
+      contextPressure: { tokens: Number.NaN, contextWindow: 1_000_000 },
+    });
+    expect(malformedPressure).toContain("context unknown");
   });
 
   test("timeline keeps the collapsed view compact and exposes full output when expanded", () => {
@@ -304,6 +328,7 @@ describe("ACM tool rendering", () => {
           activeSummaryDepthAfter: 1,
           backupCurrentHeadAs: "parser-fix-done",
           contextDeliveryPhase: "pending_tool_result",
+          postMutationEvidenceStatus: "verified",
         },
       },
       { expanded: false, isPartial: false },
@@ -316,6 +341,25 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("handoff layers 2 → 1 · backup parser-fix-done");
     expect(output).toContain("delivery pending_tool_result · evidence verified · persisted refresh pending");
+
+    // A receipt that carries no evidence status must not claim verification:
+    // the renderer downgrades to the pending style with evidence unknown.
+    const noEvidence = travel.renderResult!(
+      {
+        content: [{ type: "text", text: "Travel complete." }],
+        details: {
+          target: "parser-fix-start",
+          resultingLeafId: "summary-456",
+          contextDeliveryPhase: "pending_tool_result",
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    const noEvidenceOutput = render(noEvidence);
+    expect(noEvidenceOutput).toContain("⚠ TRAVEL APPLIED — EVIDENCE PENDING");
+    expect(noEvidenceOutput).toContain("evidence unknown");
   });
 
   test("renderers surface actionable error states instead of success chrome", () => {
