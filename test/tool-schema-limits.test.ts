@@ -39,7 +39,7 @@ function properties(tool: CapturedTool): Record<string, SchemaObject> {
   return schema.properties;
 }
 
-const checkpoint = captureTool(registerCheckpointTool);
+const checkpoint = captureTool((pi) => registerCheckpointTool(pi, {} as never));
 const timeline = captureTool((pi) => registerTimelineTool(pi, {} as never));
 const travel = captureTool((pi) => registerTravelTool(pi, {} as never));
 

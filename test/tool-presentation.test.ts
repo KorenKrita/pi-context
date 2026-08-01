@@ -56,7 +56,7 @@ function render(component: Component, width = 240): string {
   return component.render(width).join("\n");
 }
 
-const checkpoint = captureTool(registerCheckpointTool);
+const checkpoint = captureTool((pi) => registerCheckpointTool(pi, {} as never));
 const timeline = captureTool((pi) => registerTimelineTool(pi, {} as never));
 const travel = captureTool((pi) => registerTravelTool(pi, {} as never));
 

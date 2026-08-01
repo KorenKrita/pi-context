@@ -294,8 +294,18 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const originId = currentLeaf;
       const originLabel = formatEntryLabel(labelMaps, originId);
       const usageBeforeRaw = ctx.getContextUsage();
-      const usageBefore = usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
-        ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
+      // Same pressure authority as the gauge: between an earlier travel's
+      // provider cutover and its native replacement, the host estimate still
+      // describes the pre-travel branch. The receipt, its estimates, and the
+      // fold ledger row must all start from the authoritative tokens.
+      const authoritativeBefore = runtime.authoritativeContextPressure(
+        sessionManager,
+        usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
+          ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
+          : undefined,
+      );
+      const usageBefore = authoritativeBefore
+        ? { tokens: authoritativeBefore.tokens, contextWindow: authoritativeBefore.contextWindow, percent: authoritativeBefore.usagePercent }
         : undefined;
       const usageBeforeText = formatContextUsage(usageBefore);
       const currentPacketResult = rebuildAcmContextPacket(sessionManager);

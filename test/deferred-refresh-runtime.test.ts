@@ -890,6 +890,22 @@ describe("deferred post-travel context delivery", () => {
     // Messages on this spine are tiny, so the authoritative projection stays
     // near 75% while an official-numerator projection would sit near 22%.
     expect(Number(projection![1])).toBeGreaterThan(60);
+
+    // The checkpoints view's Current line must read the same authority —
+    // an authoritative HUD beside a native-numerator Current line in one
+    // result would be a visible self-contradiction. 300K tokens → 75%
+    // budget; the native estimate would read 22%.
+    const checkpoints = await timelineExecute(
+      "diverged-checkpoints",
+      { view: "checkpoints" } as never,
+      undefined,
+      undefined,
+      lifecycle.context,
+    );
+    const checkpointsText = checkpoints.content[0]?.text ?? "";
+    const current = /Current: \d+ msgs, (\d+(?:\.\d+)?)% budget/.exec(checkpointsText);
+    expect(current).not.toBeNull();
+    expect(Number(current![1])).toBeGreaterThan(60);
   });
 
   test("retains the delivery phase through rebuild failures and consumes it only after a later rebuild succeeds", async () => {

@@ -13,7 +13,7 @@ export { ensureAcmCoreSegment } from "./prompt-registration.js";
 export default function registerAcmExtension(pi: ExtensionAPI): void {
   const runtime = new AcmSessionRuntime();
   registerAcmPrompt(pi);
-  registerCheckpointTool(pi);
+  registerCheckpointTool(pi, runtime);
   registerTimelineTool(pi, runtime);
   registerTravelTool(pi, runtime);
   registerAcmLifecycle(pi, runtime);

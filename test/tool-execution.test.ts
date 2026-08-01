@@ -600,7 +600,7 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
   };
 }
 
-const executeCheckpoint = captureExecute(registerCheckpointTool);
+const executeCheckpoint = captureExecute((pi) => registerCheckpointTool(pi, new AcmSessionRuntime()));
 const executeTimeline = captureExecute((pi) => registerTimelineTool(pi, new AcmSessionRuntime()));
 const executeTravel = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime()));
 const HANDOFF = {
@@ -660,6 +660,55 @@ describe("ACM tool execution contracts", () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain("contextPercent=10% window →");
   });
+
+  test("travel receipt and checkpoint receipt read provider usage during a provider epoch", async () => {
+    // Between an earlier travel's provider cutover and its native
+    // replacement, ctx.getContextUsage() still describes the pre-travel
+    // branch. Receipts starting from that stale numerator would contradict
+    // the gauge: provider says 300K/1M (75% budget), native says 90K/1M.
+    const prepareProviderEpoch = (runtime: AcmSessionRuntime, session: object, leafId: string) => {
+      runtime.deferPostTravelRefresh(session, "prior-travel", leafId);
+      runtime.markProviderCutoverReady(session, "prior-travel");
+      runtime.activateProviderPacket(session, [{ role: "user", content: "packet", timestamp: 1 }], leafId);
+      runtime.setUsage(session, { tokens: 300_000, contextWindow: 1_000_000, percent: 30 });
+      runtime.markProviderUsageObserved(session);
+    };
+
+    const travelRuntime = new AcmSessionRuntime();
+    const travelExecute = captureExecute((pi) => registerTravelTool(pi, travelRuntime));
+    const travelFixture = successfulTravelContext();
+    (travelFixture as { getContextUsage: () => unknown }).getContextUsage =
+      () => ({ tokens: 90_000, contextWindow: 1_000_000, percent: 9 });
+    prepareProviderEpoch(travelRuntime, travelFixture.sessionManager, "travel-head");
+    const travel = await travelExecute(
+      "provider-epoch-travel",
+      { target: "travel-root", handoff: HANDOFF },
+      undefined,
+      undefined,
+      travelFixture,
+    );
+    expect(travel.details?.error).toBeUndefined();
+    // 300K/400K working budget = 75%, not the native 90K-derived 22.5%.
+    expect(travel.details).toMatchObject({ budgetBeforePercent: 75, usageBeforeTokens: 300_000 });
+
+    const checkpointRuntime = new AcmSessionRuntime();
+    const checkpointExecute = captureExecute((pi) => registerCheckpointTool(pi, checkpointRuntime));
+    const checkpointFixture = checkpointContext();
+    (checkpointFixture.ctx as { getContextUsage: () => unknown }).getContextUsage =
+      () => ({ tokens: 90_000, contextWindow: 1_000_000, percent: 9 });
+    prepareProviderEpoch(checkpointRuntime, checkpointFixture.ctx.sessionManager, "entry-1");
+    const checkpoint = await checkpointExecute(
+      "provider-epoch-checkpoint",
+      { name: "provider-epoch-mark" },
+      undefined,
+      undefined,
+      checkpointFixture.ctx,
+    );
+    expect(checkpoint.details?.error).toBeUndefined();
+    const checkpointText = (checkpoint.content[0] as { text: string }).text;
+    expect(checkpointText).toContain("Context usage: 75% budget(400K) · 300K/1M window");
+  });
+
   test("treats null optional tool parameters as omitted", async () => {
     const travel = await executeTravel(
       "null-backup",

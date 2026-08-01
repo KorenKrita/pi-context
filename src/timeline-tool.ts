@@ -477,7 +477,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         checkpointsDisplayedAliases = displayedListings.length;
         checkpointAliasesOnMatchingEntries = listings.length;
         checkpointAliasNamesShown = displayedListings.length;
-        const usage = toUsageLike(ctx.getContextUsage());
+        // Same pressure authority as the gauge and HUD: during a provider
+        // epoch the host estimate still describes the pre-travel branch, so
+        // Current usage and every target estimate below must read the
+        // authoritative tokens — mixing them with the HUD's authoritative
+        // line in one result would be a visible self-contradiction.
+        const checkpointsPressure = runtime.authoritativeContextPressure(sessionManager, toUsageLike(ctx.getContextUsage()));
+        const usage = checkpointsPressure
+          ? { tokens: checkpointsPressure.tokens, contextWindow: checkpointsPressure.contextWindow, percent: checkpointsPressure.usagePercent }
+          : undefined;
         const currentResult = rebuildAcmContextPacket(sessionManager, leafId);
         if (!currentResult.ok) {
           return {
