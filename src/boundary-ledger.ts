@@ -20,8 +20,17 @@ import { dirname, join } from "node:path";
  * swallowed. A ledger is not allowed to become a new failure surface.
  */
 
+/**
+ * Gauge format cohort for ledger analysis. Rows written before this field
+ * existed are the legacy cohort — absence means legacy, never null.
+ * "v2": single scale-named budget percentage + raw token pair grammar.
+ */
+export const ACM_GAUGE_FORMAT_VERSION = "v2" as const;
+
 /** One row per observed user-request boundary. Counts and percentages only. */
 export interface BoundaryLedgerRow {
+  /** Gauge format cohort this row was observed under. */
+  gauge: typeof ACM_GAUGE_FORMAT_VERSION;
   /** Wall clock, so rows from concurrent sessions remain orderable. */
   ts: string;
   /** Stable per-process session discriminator; not a session file path. */
@@ -44,6 +53,8 @@ export interface BoundaryLedgerRow {
 
 /** One row per applied travel, carrying the delta the receipt already reports. */
 export interface FoldLedgerRow {
+  /** Gauge format cohort this row was observed under. */
+  gauge: typeof ACM_GAUGE_FORMAT_VERSION;
   ts: string;
   session: string;
   /** "fold" shrank the working set; "restore" grew it (rehydrate/off-path travel). */
@@ -152,6 +163,7 @@ export function buildBoundaryRow(input: {
   entries: number;
 }): BoundaryLedgerRow {
   return {
+    gauge: ACM_GAUGE_FORMAT_VERSION,
     ts: new Date().toISOString(),
     session: input.state.session,
     boundary: input.boundary,
@@ -175,6 +187,7 @@ export function buildFoldRow(input: {
     ? input.messageDelta
     : null;
   return {
+    gauge: ACM_GAUGE_FORMAT_VERSION,
     ts: new Date().toISOString(),
     session: input.state.session,
     direction: messageDelta !== null && messageDelta < 0 ? "restore" : "fold",

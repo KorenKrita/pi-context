@@ -38,7 +38,7 @@ describe("boundary ledger", () => {
     expect(rows).toHaveLength(1);
     // Percentages are floored so a row matches what the gauge rendered.
     expect(rows[0]).toMatchObject({
-      kind: "boundary", session: "s1", boundary: 1,
+      kind: "boundary", gauge: "v2", session: "s1", boundary: 1,
       budget: 23, window: 9, foldTurn: 16, foldTask: 16, foldsSoFar: 0, entries: 42,
     });
   });
@@ -56,13 +56,17 @@ describe("boundary ledger", () => {
 
     const raw = readFileSync(acmLedgerPath(env), "utf8");
     for (const row of raw.trim().split("\n")) {
-      const keys = Object.keys(JSON.parse(row));
+      const parsed = JSON.parse(row);
+      const keys = Object.keys(parsed);
       // An allowlist, not a denylist: a future field carrying text must fail here.
       expect(keys.every((k) => [
-        "kind", "ts", "session", "boundary", "budget", "window", "foldTurn",
+        "kind", "gauge", "ts", "session", "boundary", "budget", "window", "foldTurn",
         "foldTask", "foldsSoFar", "entries", "afterBoundary", "budgetBefore",
         "budgetAfter", "messageDelta", "summaryDepth", "direction",
       ].includes(k))).toBe(true);
+      // The cohort field is a static enum, never free text: both row kinds
+      // carry the same constant, and legacy rows simply lack the key.
+      expect(parsed.gauge).toBe("v2");
     }
   });
 
