@@ -114,8 +114,11 @@ export function formatFoldNeedle(
   percent: number,
   messagesRemoved: number | null,
 ): string {
-  const messages = messagesRemoved != null && Number.isFinite(messagesRemoved) && messagesRemoved > 0
-    ? ` -${Math.floor(messagesRemoved)}msg`
-    : "";
+  const wholeMessages = messagesRemoved != null && Number.isFinite(messagesRemoved)
+    ? Math.floor(messagesRemoved)
+    : 0;
+  // Floor before the positivity check: a fractional 0.5 must not render the
+  // fabricated saving "-0msg" that a zero delta is contractually spared.
+  const messages = wholeMessages > 0 ? ` -${wholeMessages}msg` : "";
   return `fold@${kind}→${Math.floor(percent)}%${messages}`;
 }

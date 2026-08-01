@@ -85,6 +85,10 @@ describe("fold-gain visibility", () => {
     const zero = { turnPercent: 22.8, turnMessagesRemoved: 0, taskPercent: null, taskMessagesRemoved: null };
     expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), zero))
       .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window · fold@turn→22%]");
+    // A fractional delta floors to zero and must take the same omission path.
+    const fractional = { turnPercent: 22.8, turnMessagesRemoved: 0.5, taskPercent: null, taskMessagesRemoved: null };
+    expect(buildGaugeSuffix(pressure(51.9, 20.4, "400k-cap"), fractional))
+      .toBe("\n[ctx 51% budget(400K) · 207.6K/1M window · fold@turn→22%]");
   });
 
   test("fold needles are unconditional: no threshold, floor, or tier gates them", () => {
@@ -234,11 +238,9 @@ test("the turn reference skips the current user turn", () => {
     const timelineSource = readFileSync(new URL("../src/timeline-tool.ts", import.meta.url), "utf8");
     expect(timelineSource).toContain("selectFoldReferences");
     expect(timelineSource).toContain("Fold Projection");
-    // Blocker lock: the HUD fold projection must draw numerator and
-    // denominator from the same authoritative pressure, never the official
-    // usage beside an authoritative denominator — mixed sources read as a
-    // contradiction the moment provider and native usage diverge.
-    expect(timelineSource).toContain("tokens: authoritativePressure.tokens");
+    // Same-source projection (blocker b) is locked behaviorally in
+    // deferred-refresh-runtime.test.ts: "HUD fold projection follows the
+    // authoritative numerator when provider and native usage diverge".
     // Prose projections name their scale from the pressure's policy.
     expect(timelineSource).toContain("foldProjectionScaleName");
     expect(checkpointSource).toContain("foldProjectionScaleName");

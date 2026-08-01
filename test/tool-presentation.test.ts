@@ -240,6 +240,32 @@ describe("ACM tool rendering", () => {
       renderContext(args),
     );
     expect(render(nativeFallback)).toContain("context 75% budget(400K) · 300K/1M window");
+
+    // A payload with a stale or inconsistent pressurePercent cannot disagree
+    // with the raw pair beside it: the renderer re-derives the percentage
+    // from tokens/window, so 30% here still renders as 75%.
+    const inconsistent = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]" }],
+        details: { ...baseDetails, contextUsageAuthority: "provider_turn_end", authoritativeContextPressure: { ...pressure, pressurePercent: 30 } },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    expect(render(inconsistent)).toContain("context 75% budget(400K) · 300K/1M window");
+
+    // Non-finite or non-positive payload values fail closed to unknown.
+    const malformed = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]" }],
+        details: { ...baseDetails, contextUsageAuthority: "provider_turn_end", authoritativeContextPressure: { ...pressure, tokens: Number.NaN } },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    expect(render(malformed)).toContain("context unknown");
   });
 
   test("travel renders the target, archive pointer, and structural deltas", () => {

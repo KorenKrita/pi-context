@@ -842,6 +842,56 @@ describe("deferred post-travel context delivery", () => {
     }
   });
 
+  test("HUD fold projection follows the authoritative numerator when provider and native usage diverge", async () => {
+    // Blocker lock (behavioral): with provider usage at 300K/1M and the native
+    // estimate at 90K/1M, a projection built from the official numerator would
+    // read ~22% while the authoritative one reads ~75%. The HUD must render
+    // the authoritative reading — mixed sources read as a contradiction.
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const mk = (id: string, parentId: string | null, role: string, text: string, ts: number) => ({
+      id,
+      type: "message",
+      parentId,
+      timestamp: `2026-07-21T00:00:0${ts}.000Z`,
+      message: { role, content: text, timestamp: ts },
+    }) as unknown as SessionEntry;
+    const entries: SessionEntry[] = [
+      mk("u1", null, "user", "first request", 0),
+      mk("a1", "u1", "assistant", "x".repeat(400), 1),
+      mk("u2", "a1", "user", "second request", 2),
+    ];
+    const session = {
+      getLeafId: () => entries.at(-1)!.id,
+      getTree: () => [{ entry: entries[0]!, children: [] }],
+      getEntries: () => entries,
+      getBranch: (id?: string) => (id ? entries.slice(0, entries.findIndex((e) => e.id === id) + 1) : entries),
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+    };
+    runtime.deferPostTravelRefresh(session, "diverged-travel", session.getLeafId());
+    runtime.markProviderCutoverReady(session, "diverged-travel");
+    runtime.activateProviderPacket(
+      session,
+      [{ role: "user", content: "provider packet", timestamp: 1 }],
+      session.getLeafId(),
+    );
+    runtime.setUsage(session, { tokens: 300_000, contextWindow: 1_000_000, percent: 30 });
+    runtime.markProviderUsageObserved(session);
+    const lifecycle = createLifecycleFixture(runtime, session, {
+      tokens: 90_000,
+      contextWindow: 1_000_000,
+      percent: 9,
+    });
+    const timelineExecute = captureTimelineExecute(runtime);
+
+    const timeline = await timelineExecute("diverged-timeline", { view: "active" }, undefined, undefined, lifecycle.context);
+    const text = timeline.content[0]?.text ?? "";
+    const projection = /turn '[^']*' → ~(\d+)% budget/.exec(text);
+    expect(projection).not.toBeNull();
+    // Messages on this spine are tiny, so the authoritative projection stays
+    // near 75% while an official-numerator projection would sit near 22%.
+    expect(Number(projection![1])).toBeGreaterThan(60);
+  });
+
   test("retains the delivery phase through rebuild failures and consumes it only after a later rebuild succeeds", async () => {
     const adapter = createAdapter();
     const runtime = new AcmSessionRuntime(adapter);

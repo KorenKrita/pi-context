@@ -336,16 +336,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // wins; when the authority is not the provider, the native pressure is
       // an acceptable fallback; a declared provider authority with a missing
       // payload renders unknown rather than silently downgrading the source.
+      // The payload's tokens/window are the only trusted inputs: the rendered
+      // percentage is re-derived from them, so a stale or internally
+      // inconsistent pressurePercent cannot disagree with the raw pair beside
+      // it, and non-finite or non-positive values fail closed to unknown.
       const asPressure = (value: unknown): ContextUsagePressure | undefined => {
         if (!value || typeof value !== "object") return undefined;
         const candidate = value as Partial<ContextUsagePressure>;
-        return typeof candidate.tokens === "number"
-          && typeof candidate.contextWindow === "number"
-          && typeof candidate.pressurePercent === "number"
-          && typeof candidate.workingBudgetTokens === "number"
-          && (candidate.policy === "400k-cap" || candidate.policy === "actual-window")
-          ? candidate as ContextUsagePressure
-          : undefined;
+        return calculateContextUsagePressure(candidate.tokens, candidate.contextWindow);
       };
       const authoritative = asPressure(details?.authoritativeContextPressure);
       const providerAuthority = details?.contextUsageAuthority === "provider_turn_end";
