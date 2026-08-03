@@ -648,27 +648,54 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             }, references)
           : { turnPercent: null, taskPercent: null };
         const scale = authoritativePressure ? foldProjectionScaleName(authoritativePressure.policy) : "budget";
+        // Before → after → saved: the current pressure is the before, each
+        // projection is the after, and the delta is the decision-ready part.
+        const nowPercent = authoritativePressure ? Math.floor(authoritativePressure.pressurePercent) : null;
+        const withSavings = (projected: number): string => {
+          const after = Math.floor(projected);
+          const saved = nowPercent != null ? nowPercent - after : null;
+          return saved != null && saved > 0 ? `~${after}% ${scale} (saves ~${saved}pt)` : `~${after}% ${scale}`;
+        };
         const segs: string[] = [];
         if (estimates.turnPercent != null && references.turn) {
-          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ~${Math.floor(estimates.turnPercent)}% ${scale}`);
+          segs.push(`turn '${boundedTimelineValue(references.turn.label ?? references.turn.entryId)}' → ${withSavings(estimates.turnPercent)}`);
         }
         if (estimates.taskPercent != null && references.task) {
-          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ~${Math.floor(estimates.taskPercent)}% ${scale}`);
+          segs.push(`task '${boundedTimelineValue(references.task.label ?? references.task.entryId)}' → ${withSavings(estimates.taskPercent)}`);
         }
-        foldProjectionText = segs.length > 0 ? segs.join("; ") : "no reference point on this spine";
+        const nowPrefix = nowPercent != null && segs.length > 0 ? `now ~${nowPercent}% ${scale}; ` : "";
+        foldProjectionText = segs.length > 0 ? `${nowPrefix}${segs.join("; ")}` : "no reference point on this path";
       } catch {
         foldProjectionText = "unavailable";
       }
+      // One authoritative usage line; the secondary readings appear only when
+      // they disagree with it enough to change a decision. Identical numbers
+      // repeated under three different names read as noise, not precision.
+      const primaryUsageLine = authoritativePressure
+        ? `• Context Usage:    ${formatContextUsagePressure(authoritativePressure)} (${providerTurnUsageAuthoritative ? "provider actual" : "native estimate"})`
+        : `• Context Usage:    ${formatContextUsage(officialUsage)} (native estimate)`;
+      const usageLines: string[] = [primaryUsageLine];
+      if (authoritativePressure && officialUsage && Math.abs(officialUsage.tokens - authoritativePressure.tokens) > 1024) {
+        usageLines.push(`• Native Estimate:  ${formatContextUsage(officialUsage)} (host estimate; may lag right after a travel)`);
+      }
+      if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
+        usageLines.push(`• Last Turn End:    ${formatContextUsage(lastUsage)} (recorded at the end of the previous turn)`);
+      }
+      const offPathHandoffs = countOffPathSummaries(branch, tree, activeIds);
       const hudParts = [
         "[Context Dashboard]",
-        `• Travel Mutation:  ${providerDelivery.persistentMutationApplied ? "applied" : "none pending"}`,
-        `• Context Usage:    ${formatContextUsage(officialUsage)} (${providerEpoch ? "native AgentSession estimate" : "native context estimate"})`,
-        `• ACM Pressure:     ${authoritativePressure ? formatContextUsagePressure(authoritativePressure) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual" : "native context"})`,
-        `• Last LLM Prompt:  ${lastUsage ? formatContextUsage(lastUsage) : "N/A"} (${providerTurnUsageAuthoritative ? "provider actual turn_end" : "turn_end"})`,
-        `• Active Path:      ${branch.length} node(s) — LLM context follows this spine`,
-        `• Handoff Layers:   ${activeSummaryDepth} handoff layer(s) on the current spine`,
-        `• Off-path Handoffs: ${countOffPathSummaries(branch, tree, activeIds)} branch point(s) with archived handoffs`,
-        `• Recovery Distance: ${stepsSinceCheckpoint} step(s) since last save point '${nearestCheckpoint ? boundedTimelineValue(nearestCheckpoint) : "None"}'`,
+        ...(providerDelivery.persistentMutationApplied
+          ? ["• Travel Mutation:  applied — the provider context was rewritten by a travel this session"]
+          : []),
+        ...usageLines,
+        `• Active Path:      ${branch.length} node(s) — the LLM context follows this path`,
+        `• Handoff Layers:   ${activeSummaryDepth} handoff layer(s) on the current path`,
+        ...(offPathHandoffs > 0
+          ? [`• Off-path Handoffs: ${offPathHandoffs} branch point(s) with archived handoffs`]
+          : []),
+        nearestCheckpoint
+          ? `• Last Save Point:  '${boundedTimelineValue(nearestCheckpoint)}' — ${stepsSinceCheckpoint} node(s) back on this path`
+          : `• Last Save Point:  none on this path yet (${stepsSinceCheckpoint} node(s) since the path began)`,
         `• Fold Projection:  ${foldProjectionText}`,
       ];
       if (resultBudgetApplied) {
@@ -682,39 +709,46 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : "";
         hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
       }
-      // Failure evidence and the currently deliverable provider state are
-      // complementary; show both while a bounded retry remains pending.
-      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${providerDelivery.packetMessageCount ?? "none"} message(s) at ${providerDelivery.leafId ?? "no verified leaf"}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
-      if (refreshPending) {
-        const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
-          pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
-          ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
-          fallback: "provider rebuild fallback is retrying from the latest persisted branch",
-        };
-        const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
-          ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
-        let retry = "";
-        if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
-          retry = ` (cached retry ${attempt})`;
-        } else if (attempt > 0) {
-          retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
-        }
-        hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
-        hudParts.push(providerPacketLine);
-      } else {
-        hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
-        hudParts.push(providerPacketLine);
-      }
+      // Delivery diagnostics collapse to one line while healthy; the detailed
+      // lines exist for troubleshooting, not for routine fold decisions.
       const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
       const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
-      if (liveSync.status === "applied") {
-        hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
-      } else if (liveSyncRecovery) {
-        const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
-        hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
+      const packetDescription = providerDelivery.packetMessageCount != null && providerDelivery.leafId != null
+        ? `${providerDelivery.packetMessageCount} message(s) at ${providerDelivery.leafId}`
+        : "no packet delivered yet";
+      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${packetDescription}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
+      const syncHealthy = !refreshFailure && !refreshPending && providerDelivery.phase === "active" && !liveSyncRecovery;
+      if (syncHealthy) {
+        hudParts.push(`• Context Sync:     healthy — persisted provider context active (${packetDescription})`);
       } else {
-        hudParts.push(`• Native Replacement: ${liveSync.status}`);
+        if (refreshPending) {
+          const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
+          const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
+            pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
+            ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
+            fallback: "provider rebuild fallback is retrying from the latest persisted branch",
+          };
+          const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
+            ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
+          let retry = "";
+          if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
+            retry = ` (cached retry ${attempt})`;
+          } else if (attempt > 0) {
+            retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
+          }
+          hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
+        } else {
+          hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
+        }
+        hudParts.push(providerPacketLine);
+        if (liveSync.status === "applied") {
+          hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
+        } else if (liveSyncRecovery) {
+          const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
+          hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
+        } else {
+          hudParts.push(`• Native Replacement: ${liveSync.status} — no native context swap was needed this reading`);
+        }
       }
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive

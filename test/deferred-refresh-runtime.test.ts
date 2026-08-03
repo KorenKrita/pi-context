@@ -769,7 +769,7 @@ describe("deferred post-travel context delivery", () => {
       pressurePercent: number;
       applied: boolean;
       phase: string;
-      pressureAuthority: "provider actual" | "native context";
+      pressureAuthority: "provider actual" | "native estimate";
     }> = [
       {
         name: "no travel",
@@ -777,7 +777,7 @@ describe("deferred post-travel context delivery", () => {
         pressurePercent: 70,
         applied: false,
         phase: "active",
-        pressureAuthority: "native context",
+        pressureAuthority: "native estimate",
       },
       {
         name: "provider active with observed usage",
@@ -806,7 +806,7 @@ describe("deferred post-travel context delivery", () => {
         pressurePercent: 70,
         applied: false,
         phase: "receipt_rejected",
-        pressureAuthority: "native context",
+        pressureAuthority: "native estimate",
       },
     ];
 
@@ -833,7 +833,7 @@ describe("deferred post-travel context delivery", () => {
       const expectedPressureNeedles = buildGaugeSuffix(pressure!).replace(/\]$/, "");
       expect(gaugeText(gauge)).toStartWith(`read complete${expectedPressureNeedles}`);
       expect(timeline.content[0]?.text).toContain(
-        `• ACM Pressure:     ${formatContextUsagePressure(pressure!)} (${scenario.pressureAuthority})`,
+        `• Context Usage:    ${formatContextUsagePressure(pressure!)} (${scenario.pressureAuthority})`,
       );
       expect(timeline.details).toMatchObject({
         persistentMutationApplied: scenario.applied,
