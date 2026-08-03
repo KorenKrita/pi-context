@@ -240,6 +240,23 @@ function renderTree(
   return { lines, truncated, hiddenNodes };
 }
 
+// The Dashboard spells the two scales out in words; the compact canonical
+// form stays on the gauge and receipts where space is tight. Every usage
+// line on the Dashboard goes through this one spelling — two spellings of
+// the same concept on one screen read as a contradiction.
+function describeUsage(pressure: ContextUsagePressure): string {
+  const pct = `${Math.floor(pressure.pressurePercent * 10) / 10}%`;
+  const ratio = `${formatTokenCount(pressure.tokens)}/${formatTokenCount(pressure.contextWindow)}`;
+  return pressure.policy === "400k-cap"
+    ? `${pct} of ${formatTokenCount(pressure.workingBudgetTokens)} working budget · ${ratio} hard window`
+    : `${pct} of the ${formatTokenCount(pressure.contextWindow)} window (${ratio})`;
+}
+
+function describeUsageLike(usage: { tokens: number; contextWindow: number } | undefined): string {
+  const pressure = usage ? calculateContextUsagePressure(usage.tokens, usage.contextWindow) : undefined;
+  return pressure ? describeUsage(pressure) : "Unknown";
+}
+
 function toUsageLike(usage: ReturnType<ExtensionContext["getContextUsage"]>) {
   return usage && usage.tokens != null && usage.percent != null
     ? { tokens: usage.tokens, contextWindow: usage.contextWindow, percent: usage.percent }
@@ -547,7 +564,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         // Header grammar: entry counts only when they carry information.
         // An unfiltered list that fits needs one number, not five.
-        const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${formatContextUsage(usage)}, handoff layers ${activeSummaryDepth}.`;
+        const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
         if (listings.length === 0 && !rootMatchesFilter) {
           lines.push(filter ? `No checkpoints match '${boundedTimelineValue(params.filter ?? "")}'. ${currentSummary}` : `No checkpoints yet. ${currentSummary}`);
         } else {
@@ -556,7 +573,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             ? `, showing ${displayedListings.length} (limit ${effectiveLimit})`
             : "";
           const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
-          lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target:`);
+          lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`);
         }
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
@@ -725,24 +742,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // One authoritative usage line; the secondary readings appear only when
       // they disagree with it enough to change a decision. Identical numbers
       // repeated under three different names read as noise, not precision.
-      // The Dashboard spells the two scales out in words; the compact
-      // canonical form stays on the gauge and receipts where space is tight.
-      const describeUsage = (pressure: ContextUsagePressure): string => {
-        const pct = `${Math.floor(pressure.pressurePercent * 10) / 10}%`;
-        const ratio = `${formatTokenCount(pressure.tokens)}/${formatTokenCount(pressure.contextWindow)}`;
-        return pressure.policy === "400k-cap"
-          ? `${pct} of ${formatTokenCount(pressure.workingBudgetTokens)} working budget · ${ratio} hard window`
-          : `${pct} of the ${formatTokenCount(pressure.contextWindow)} window (${ratio})`;
-      };
       const primaryUsageLine = authoritativePressure
         ? `• Context Usage:    ${describeUsage(authoritativePressure)} (${providerTurnUsageAuthoritative ? "provider actual" : "native estimate"})`
         : `• Context Usage:    ${formatContextUsage(officialUsage)} (native estimate)`;
       const usageLines: string[] = [primaryUsageLine];
       if (authoritativePressure && officialUsage && Math.abs(officialUsage.tokens - authoritativePressure.tokens) > 1024) {
-        usageLines.push(`• Native Estimate:  ${formatContextUsage(officialUsage)} (host estimate; may lag right after a travel)`);
+        usageLines.push(`• Native Estimate:  ${describeUsageLike(officialUsage)} (host estimate; may lag right after a travel)`);
       }
       if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
-        usageLines.push(`• Last Turn End:    ${formatContextUsage(lastUsage)} (recorded at the end of the previous turn)`);
+        usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
       }
       const offPathHandoffs = countOffPathSummaries(branch, tree, activeIds);
       const hudParts = [

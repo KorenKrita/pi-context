@@ -904,7 +904,7 @@ describe("deferred post-travel context delivery", () => {
       lifecycle.context,
     );
     const checkpointsText = checkpoints.content[0]?.text ?? "";
-    const current = /Current position: \d+ msg\(s\) in context, (\d+(?:\.\d+)?)% budget/.exec(checkpointsText);
+    const current = /Current position: \d+ msg\(s\) in context, (\d+(?:\.\d+)?)% of /.exec(checkpointsText);
     expect(current).not.toBeNull();
     expect(Number(current![1])).toBeGreaterThan(60);
 
