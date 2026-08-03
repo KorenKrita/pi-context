@@ -61,7 +61,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
     }),
     target: Type.Optional(Type.String({
       minLength: 1,
-      description: "Node ID or existing checkpoint name to label. Omit to mark the current position (recommended).",
+      description: "OPTIONAL — omit this field entirely to mark the current position (recommended). Pass a node ID or existing checkpoint name only to label an earlier point; placeholder values like '.' or 'current' are invalid.",
     })),
   }, { additionalProperties: false });
 
@@ -184,7 +184,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         }
         targetEntry = findEntryInTree(tree, entryId);
         if (!targetEntry) {
-          const hint = " Use acm_timeline to locate the node you want to label; raw node IDs are valid targets.";
+          const hint = " Valid targets are node IDs and existing checkpoint names from acm_timeline. To mark the current position, call again without the target field.";
           return {
             content: [{ type: "text" as const, text: `Error: Target '${params.target}' not found in session tree.${hint}` }],
             details: { error: "target_not_found", requestedTarget: params.target },

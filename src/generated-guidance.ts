@@ -28,7 +28,7 @@ export const GUIDANCE_CUES = {
   "travel": "Fold applied. The handoff is your working state: execute next. Folded details stay one travel away via the return ticket in Recover.",
   "timelineActive": "This is the current working set; stretches already distilled to their conclusions are fold candidates.",
   "timelineCheckpoints": "For a fold, choose an entry immediately before the material being replaced. Raw-archive aliases restore pre-fold history — travel to them to retrieve details.",
-  "timelineSearch": "Search covers the whole tree, folded history included. Node IDs in the results work directly as travel or checkpoint targets.",
+  "timelineSearch": "Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as travel or checkpoint targets.",
   "timelineTree": "This is the session's branch structure; verify candidate ancestry before travel."
 } as const;
 

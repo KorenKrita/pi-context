@@ -65,7 +65,7 @@ For a fold, choose an entry immediately before the material being replaced. Raw-
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-Search covers the whole tree, folded history included. Node IDs in the results work directly as travel or checkpoint targets.
+Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as travel or checkpoint targets.
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
