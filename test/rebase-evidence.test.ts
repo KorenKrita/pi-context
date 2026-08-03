@@ -179,7 +179,7 @@ describe("semantic rebase evidence", () => {
       rootCandidateEntryId: "root",
       rootProjectedSummaryDepth: 1,
     });
-    expect(result.content[0].text).toContain("root → root (structural candidate, not a checkpoint)");
+    expect(result.content[0].text).toContain("root → root (session start — not a named checkpoint, but a valid travel target)");
     expect(result.content[0].text).toContain("handoff layers 1 → 1 projected");
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });

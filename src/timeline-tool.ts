@@ -137,6 +137,16 @@ function formatCheckpointLabel(listing: CheckpointListing): string {
   return `${boundedTimelineValue(listing.label)}${listing.isRawArchive ? " [raw archive]" : ""}`;
 }
 
+// ACM's own tool results echo every checkpoint name and dashboard line, so
+// they match almost any query about past work — self-pollution, not recall.
+// They stay searchable only when the entry itself carries a checkpoint label.
+function isAcmToolEcho(entry: SessionEntry): boolean {
+  return entry.type === "message"
+    && entry.message.role === "toolResult"
+    && typeof entry.message.toolName === "string"
+    && entry.message.toolName.startsWith("acm_");
+}
+
 function searchTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
@@ -155,9 +165,11 @@ function searchTree(
     }
     const node = stack.pop()!;
     const label = getEntryLabel(labelMaps, node.entry.id);
-    const matched = node.entry.id.toLowerCase().includes(normalizedQuery)
-      || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
-      || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
+    const matched = (label === undefined && isAcmToolEcho(node.entry))
+      ? false
+      : node.entry.id.toLowerCase().includes(normalizedQuery)
+        || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
+        || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
     if (matched) {
       if (matches.length < limit) matches.push({ entry: node.entry, label });
       else truncated = true;
@@ -167,6 +179,22 @@ function searchTree(
   return { matches, truncated };
 }
 
+/** Shorten a rendered body to one line, marking real truncation honestly. */
+function snippet(text: string, max = 100): string {
+  const flat = text.replace(/\s+/g, " ");
+  return flat.length > max ? `${flat.slice(0, max)}…` : flat;
+}
+
+// Tree noise filter: the same conversation-first bar the active view uses.
+// Structural/metadata nodes (model changes, labels, tool plumbing) are
+// spliced out — their children are promoted — so the branch shape survives
+// while the rendering budget goes to nodes an agent can actually act on.
+function treeNodeVisible(entry: SessionEntry, labelMaps: LabelMaps, leafId: string | null): boolean {
+  if (entry.id === leafId || getEntryLabel(labelMaps, entry.id) !== undefined) return true;
+  if (entry.type === "branch_summary" || entry.type === "compaction") return true;
+  return entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant");
+}
+
 function renderTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
@@ -174,24 +202,33 @@ function renderTree(
   leafId: string | null,
   activeIds: Set<string>,
   maxDepth: number,
+  verbose: boolean,
   signal?: AbortSignal,
-): { lines: string[]; truncated: boolean } {
+): { lines: string[]; truncated: boolean; hiddenNodes: number } {
   const lines: string[] = [];
   let truncated = false;
+  let hiddenNodes = 0;
   const visit = (node: SessionTreeNode, depth: number, prefix: string, last: boolean): void => {
     if (signal?.aborted || lines.length >= 200) {
       truncated = true;
+      return;
+    }
+    if (!verbose && !treeNodeVisible(node.entry, labelMaps, leafId)) {
+      // Splice: render the children in this node's place so ancestry and
+      // branch counts stay truthful without spending a line on plumbing.
+      hiddenNodes++;
+      node.children.forEach((child, index) => visit(child, depth, prefix, last && index === node.children.length - 1));
       return;
     }
     const role = displayRole(node.entry);
     const labels = formatTimelineLabel(getEntryLabel(labelMaps, node.entry.id), rawArchiveAliases);
     const tags = [
       node.entry.id === leafId ? "HEAD" : null,
-      activeIds.has(node.entry.id) ? "active" : "off-path",
+      activeIds.has(node.entry.id) ? null : "off-path",
       labels ? `checkpoint: ${labels}` : null,
     ].filter((tag): tag is string => tag !== null);
-    const body = entryText(node.entry, true).replace(/\s+/g, " ").slice(0, 100);
-    lines.push(`${prefix}${last ? "└─" : "├─"} ${node.entry.id} (${tags.join(", ")}) [${role}] ${body}`);
+    const body = snippet(entryText(node.entry, verbose));
+    lines.push(`${prefix}${last ? "└─" : "├─"} ${node.entry.id}${tags.length ? ` (${tags.join(", ")})` : ""} [${role}] ${body}`);
     if (depth >= maxDepth && node.children.length > 0) {
       truncated = true;
       return;
@@ -200,7 +237,7 @@ function renderTree(
     node.children.forEach((child, index) => visit(child, depth + 1, childPrefix, index === node.children.length - 1));
   };
   tree.forEach((root, index) => visit(root, 1, "", index === tree.length - 1));
-  return { lines, truncated };
+  return { lines, truncated, hiddenNodes };
 }
 
 function toUsageLike(usage: ReturnType<ExtensionContext["getContextUsage"]>) {
@@ -426,7 +463,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
         | { view: "search"; limit: number; query: string }
-        | { view: "tree"; limit: number };
+        | { view: "tree"; limit: number; verbose?: boolean };
+      // Silently ignored parameters produce false negatives (a filter on the
+      // search view looks like an empty result). Name what was ignored.
+      const ignoredParams: string[] = [];
+      if (filter && view !== "checkpoints") ignoredParams.push(`'filter' (only applies to view=checkpoints)`);
+      if (query && view !== "search") ignoredParams.push(`'query' (only applies to view=search)`);
+      if (verbose !== undefined && view !== "active" && view !== "tree") ignoredParams.push(`'verbose' (only applies to view=active and view=tree)`);
       if (params.view === "search" && !params.query) {
         return {
           content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
@@ -502,13 +545,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
-        const matchingEntryLabel = listings.length === 1 ? "entry" : "entries";
-        const displayedEntryLabel = displayedListings.length === 1 ? "entry" : "entries";
-        const matchingAliasLabel = checkpointsMatchingAliases === 1 ? "alias" : "aliases";
-        const aliasCountText = filter
-          ? `${checkpointsMatchingAliases} matched ${matchingAliasLabel} / ${checkpointAliasesOnMatchingEntries} total aliases`
-          : `${checkpointAliasesOnMatchingEntries} aliases`;
-        lines.push(`Checkpoints (${listings.length} matching ${matchingEntryLabel} / ${aliasCountText}, ${displayedListings.length} ${displayedEntryLabel} displayed${filter ? ` for '${boundedTimelineValue(params.filter ?? "")}'` : ""}; requested ${requestedLimit}, effective ${effectiveLimit}). Current: ${currentResult.value.messages.length} msgs, ${formatContextUsage(usage)}, handoff layers ${activeSummaryDepth}:`);
+        // Header grammar: entry counts only when they carry information.
+        // An unfiltered list that fits needs one number, not five.
+        const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${formatContextUsage(usage)}, handoff layers ${activeSummaryDepth}.`;
+        if (listings.length === 0 && !rootMatchesFilter) {
+          lines.push(filter ? `No checkpoints match '${boundedTimelineValue(params.filter ?? "")}'. ${currentSummary}` : `No checkpoints yet. ${currentSummary}`);
+        } else {
+          const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
+          const shownNote = displayedListings.length < listings.length
+            ? `, showing ${displayedListings.length} (limit ${effectiveLimit})`
+            : "";
+          const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
+          lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target:`);
+        }
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
@@ -523,14 +572,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           if (rootResult.ok) {
             const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
             estimateText = estimated
-              ? `~${rootMessages.length} msgs, ~${formatContextUsage(estimated)} est. (+summary)`
-              : `~${rootMessages.length} msgs`;
+              ? `~${rootMessages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
+              : `~${rootMessages.length} msg(s) kept`;
           }
           const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
             ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
             : "";
-          lines.push(`  root → ${rootEntry.id} (structural candidate, not a checkpoint${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
+          lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
         }
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
@@ -548,8 +597,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const estimateText = !cachedTarget.ok
             ? "message estimate unavailable"
             : estimated
-              ? `~${cachedTarget.messages.length} msgs, ~${formatContextUsage(estimated)} est. (+summary)`
-              : `~${cachedTarget.messages.length} msgs`;
+              ? `~${cachedTarget.messages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
+              : `~${cachedTarget.messages.length} msg(s) kept`;
           let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
           if (projectedSummaryDepth === undefined) {
             projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
@@ -569,15 +618,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
         );
         for (const match of search.matches) {
-          const body = entryText(match.entry, true).replace(/\s+/g, " ").slice(0, 100);
+          const body = snippet(entryText(match.entry, true));
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
       } else if (params.view === "tree") {
-        const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, signal);
+        const treeVerbose = params.verbose ?? false;
+        const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
+        if (rendered.hiddenNodes > 0) {
+          lines.push(`  (${rendered.hiddenNodes} structural/metadata node(s) hidden — pass verbose=true to show them)`);
+        }
         if (treeTruncated) lines.unshift("⚠ tree truncated by depth/line limit — use view checkpoints or view search to see hidden nodes");
       } else {
         const verbose = params.verbose ?? false;
@@ -585,12 +638,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeVisibleEntries = visible.length;
         activeDisplayedEntries = Math.min(visible.length, effectiveLimit);
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
+        lines.push(`Active path: ${visible.length} visible entr${visible.length === 1 ? "y" : "ies"}, showing the latest ${Math.min(visible.length, effectiveLimit)}. Markers: * = current position (HEAD), • = user message, | = other entries.`);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
           const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
-          const body = entryText(entry, verbose).replace(/\s+/g, " ").slice(0, 100);
+          const rawBody = snippet(entryText(entry, verbose));
+          const body = rawBody || (entry.id === leafId && displayRole(entry) === "AI" ? "(in-progress assistant turn — no text yet)" : rawBody);
           lines.push(`${entry.id === leafId ? "*" : displayRole(entry) === "USER" ? "•" : "|"} ${entry.id}${tags.length ? ` (${tags.join(", ")})` : ""} [${displayRole(entry)}] ${body}`);
         }
       }
@@ -698,6 +753,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : `• Last Save Point:  none on this path yet (${stepsSinceCheckpoint} node(s) since the path began)`,
         `• Fold Projection:  ${foldProjectionText}`,
       ];
+      if (ignoredParams.length > 0) {
+        hudParts.push(`• Ignored Params:   ${ignoredParams.join("; ")}`);
+      }
       if (resultBudgetApplied) {
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
       }
