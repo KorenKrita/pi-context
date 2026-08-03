@@ -1062,7 +1062,7 @@ describe("ACM tool execution contracts", () => {
     });
     // The anchor is the newest candidate before the checkpoint call itself.
     expect(result.details?.entryId).toBe("poisoned-anchor-400");
-    expect(result.content[0]?.text).toContain("protocol-repaired");
+    expect(result.content[0]?.text).toContain("tool protocol repaired");
     const skipped = (result.details?.autoResolved as { skipped?: unknown[] } | undefined)?.skipped;
     expect(Array.isArray(skipped)).toBe(true);
     if (!Array.isArray(skipped)) throw new Error("checkpoint result omitted skipped candidates");

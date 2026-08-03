@@ -78,7 +78,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       const component = context.lastComponent instanceof Text
         ? context.lastComponent
         : new Text("", 0, 0);
-      const target = sanitizeTerminalText(optionalString(args.target) ?? "latest protocol-complete pre-call leaf");
+      const target = sanitizeTerminalText(optionalString(args.target) ?? "current position");
       const name = sanitizeTerminalText(args.name ?? "…");
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM CHECKPOINT  "))
@@ -350,7 +350,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         };
       }
 
-      const { status, label, labelEntryId } = append.value;
+      const { status, labelEntryId } = append.value;
       const resolvedEntry = targetEntry ?? findEntryInTree(tree, entryId);
       const role = autoResolved?.role ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined) ?? resolvedEntry?.type.toUpperCase() ?? "NODE";
       const usage = ctx.getContextUsage();
@@ -398,21 +398,21 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         }
         foldDetails.stepsSinceSavePoint = nearest.stepsBack;
         const distance = nearest.name !== null && nearest.stepsBack !== null
-          ? `Segment: ${nearest.stepsBack} step(s) since save point '${nearest.name}'.`
-          : `Segment: no prior save point on this spine.`;
+          ? `Segment: ${nearest.stepsBack} node(s) since the previous save point '${nearest.name}'.`
+          : `Segment: this is the first save point on this path.`;
         foldText = ` ${distance}${segments.length > 0 ? ` ${segments.join("; ")}.` : ""}`;
       } catch {
         foldText = "";
       }
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
-        ? `${role}; latest ${autoResolved.protocolStatus === "repaired" ? "protocol-repaired" : "protocol-complete"} pre-call leaf${skippedCount ? ` after skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
+        ? `${role}; the latest safe anchor before this call${autoResolved.protocolStatus === "repaired" ? " (tool protocol repaired)" : ""}${skippedCount ? `, skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
         : `${role}; explicit target '${params.target}'`;
       const action = status === "already_present" ? "Reused" : "Created";
       return {
         content: [{
           type: "text" as const,
-          text: `${action} checkpoint '${params.name}' at ${entryId} via label entry ${labelEntryId} (${placement}). Label: ${label}. Context usage: ${usageText}.${foldText} ${cue}`,
+          text: `${action} checkpoint '${params.name}' at node ${entryId} (${placement}). Context usage: ${usageText}.${foldText} ${cue}`,
         }],
         details: {
           foldReferences: foldDetails,

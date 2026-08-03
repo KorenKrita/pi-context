@@ -672,7 +672,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const refreshPending = runtime.contextRefresh.isPending(sessionManager);
       const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
       const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
-      const providerEpoch = providerDelivery.persistentMutationApplied;
       const providerTurnUsageAuthoritative = runtime.isProviderUsageAuthoritative(sessionManager);
       const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
       // Fold projections: what a fold at each structural reference point would
