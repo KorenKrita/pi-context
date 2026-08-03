@@ -1136,7 +1136,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
       customType: "acm:continuation",
       display: false,
     }));
-    expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(JSON.stringify(rebuilt)).toContain("ACTIVE SESSION STATE AFTER TRAVEL");
     expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
     expect(JSON.stringify(rebuilt)).not.toContain("CURRENT USER TURN IS STILL OPEN");
     expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");

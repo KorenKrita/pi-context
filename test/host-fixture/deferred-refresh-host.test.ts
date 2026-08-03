@@ -196,7 +196,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       fixture.context,
     ) as { messages: AgentMessage[] };
     const firstSerialized = JSON.stringify(firstProvider.messages);
-    expect(firstSerialized).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(firstSerialized).toContain("ACTIVE SESSION STATE AFTER TRAVEL");
     expect(firstSerialized).toContain("CURRENT USER TURN IS STILL OPEN");
     expect(firstSerialized).toContain("later user priority after the fold");
     expect(firstSerialized).not.toContain("204K-to-133K material to fold");
@@ -301,9 +301,9 @@ describe("deferred post-travel delivery on exact Pi host", () => {
       fixture.context,
     );
     const timelineText = timeline.content[0]?.type === "text" ? timeline.content[0].text : "";
-    expect(timelineText).toContain("native AgentSession estimate");
-    expect(timelineText).toContain("ACM Pressure:     70% window · 70K/100K");
-    expect(timelineText).toContain("(native context)");
+    expect(timelineText).toContain("(native estimate)");
+    expect(timelineText).toContain("Context Usage:    70% window · 70K/100K (native estimate)");
+    expect(timelineText).toContain("(native estimate)");
     expect(timeline.details).toMatchObject({
       contextUsageAuthority: "native_context",
       authoritativeContextPressure: { pressurePercent: 70 },
@@ -566,7 +566,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     await emit(fixture.handlers, "agent_settled", {}, fixture.context);
     const rebuilt = rebuild(branch.sessionManager);
     expect(liveSession.agent.state.messages).toEqual(rebuilt);
-    expect(JSON.stringify(rebuilt)).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(JSON.stringify(rebuilt)).toContain("ACTIVE SESSION STATE AFTER TRAVEL");
     expect(JSON.stringify(rebuilt)).not.toContain("normal material to fold");
 
     // Later provider contexts originate from the native message array now held
