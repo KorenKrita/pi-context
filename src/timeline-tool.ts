@@ -655,7 +655,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeVisibleEntries = visible.length;
         activeDisplayedEntries = Math.min(visible.length, effectiveLimit);
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
-        lines.push(`Active path: ${visible.length} visible entr${visible.length === 1 ? "y" : "ies"}, showing the latest ${Math.min(visible.length, effectiveLimit)}. Markers: * = current position (HEAD), • = user message, | = other entries.`);
+        lines.push(`Active path: ${visible.length} renderable entr${visible.length === 1 ? "y" : "ies"} of ${branch.length} tree nodes, showing the latest ${Math.min(visible.length, effectiveLimit)}. Markers: * = current position (HEAD), • = user message, | = other entries.`);
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
           const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
@@ -676,14 +676,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       );
       const lastUsage = runtime.getUsage(sessionManager);
       let stepsSinceCheckpoint = 0;
+      let msgsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
       for (let index = branch.length - 1; index >= 0; index--) {
-        const label = getEntryLabel(labelMaps, branch[index]!.id);
+        const entry = branch[index]!;
+        const label = getEntryLabel(labelMaps, entry.id);
         if (label !== undefined) {
           nearestCheckpoint = label;
           break;
         }
         stepsSinceCheckpoint++;
+        if (entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant")) {
+          msgsSinceCheckpoint++;
+        }
       }
       const refreshFailure = runtime.contextRefresh.getFailure(sessionManager);
       const refreshPending = runtime.contextRefresh.isPending(sessionManager);
@@ -698,11 +703,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // as a contradiction the moment the two sources diverge (same pattern as
       // the gauge adapter in runtime-lifecycle). Facts only — whether the
       // extraction is complete stays CORE's bar.
+      // One packet rebuild serves both the fold projection and the message
+      // count on the Active Path line — msg is the unit fold decisions read.
+      const hudCurrent = rebuildAcmContextPacket(sessionManager);
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
         const references = selectFoldReferences(foldBranch, labelMaps);
-        const hudCurrent = rebuildAcmContextPacket(sessionManager);
         const estimates = authoritativePressure && hudCurrent.ok
           ? estimateFoldGains({
               usage: {
@@ -759,7 +766,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? ["• Travel Mutation:  applied — the provider context was rewritten by a travel this session"]
           : []),
         ...usageLines,
-        `• Active Path:      ${branch.length} node(s) — the LLM context follows this path`,
+        hudCurrent.ok
+          ? `• Active Path:      ${hudCurrent.value.messages.length} message(s) in LLM context (${branch.length} tree nodes incl. tool/metadata entries)`
+          : `• Active Path:      ${branch.length} tree node(s) — the LLM context follows this path`,
         ...(activeSummaryDepth > 0
           ? [`• Handoff Layers:   ${activeSummaryDepth} on the current path — each layer is one fold's summary standing in for replaced history`]
           : []),
@@ -767,8 +776,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? [`• Off-path Handoffs: ${offPathHandoffs} branch point(s) with archived handoffs`]
           : []),
         nearestCheckpoint
-          ? `• Last Save Point:  '${boundedTimelineValue(nearestCheckpoint)}' — ${stepsSinceCheckpoint} node(s) back on this path`
-          : `• Last Save Point:  none on this path yet (${stepsSinceCheckpoint} node(s) since the path began)`,
+          ? `• Last Save Point:  '${boundedTimelineValue(nearestCheckpoint)}' — ${msgsSinceCheckpoint} conversation message(s) back (${stepsSinceCheckpoint} tree nodes)`
+          : `• Last Save Point:  none on this path yet (${msgsSinceCheckpoint} conversation message(s) so far)`,
         `• Fold Projection:  ${foldProjectionText}`,
       ];
       if (ignoredParams.length > 0) {
