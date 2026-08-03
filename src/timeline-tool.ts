@@ -655,7 +655,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         activeVisibleEntries = visible.length;
         activeDisplayedEntries = Math.min(visible.length, effectiveLimit);
         activeOmittedEntries = Math.max(0, visible.length - effectiveLimit);
-        lines.push(`Active path: ${visible.length} renderable entr${visible.length === 1 ? "y" : "ies"} of ${branch.length} tree nodes, showing the latest ${Math.min(visible.length, effectiveLimit)}. Markers: * = current position (HEAD), • = user message, | = other entries.`);
+        {
+          const shown = Math.min(visible.length, effectiveLimit);
+          const filtered = branch.length - visible.length;
+          const pastLimit = visible.length - shown;
+          const reductions = [
+            filtered > 0 ? `${filtered} structural/tool node${filtered === 1 ? "" : "s"} filtered (verbose=true shows them)` : null,
+            pastLimit > 0 ? `${pastLimit} older row${pastLimit === 1 ? "" : "s"} past limit=${effectiveLimit}` : null,
+          ].filter((part): part is string => part !== null);
+          lines.push(`Showing the latest ${shown} of ${branch.length} tree nodes${reductions.length > 0 ? ` — ${reductions.join(", ")}` : ""}. Markers: * = current position (HEAD), • = user message, | = assistant/summary rows.`);
+        }
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
           const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
@@ -760,15 +769,33 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
       }
       const offPathHandoffs = countOffPathSummaries(branch, tree, activeIds);
+      // Funnel line: tree nodes -> LLM messages, one conversion statement.
+      // Subtraction is not classification (packet rebuild folds tool results
+      // into their parent messages), so the delta says what it is — nodes
+      // with no standalone message — instead of naming node types it never
+      // inspected. Tiers: zero delta needs no aside; a large one answers the
+      // real question ("did I lose content?"), not the arithmetic.
+      let activePathLine: string;
+      if (hudCurrent.ok) {
+        const msgs = hudCurrent.value.messages.length;
+        const nodes = branch.length;
+        const delta = nodes - msgs;
+        const aside = delta <= 0
+          ? ""
+          : delta > 5
+            ? ` (${delta} nodes carry no standalone message — tool results and metadata folded into their turns; no content dropped)`
+            : ` (${delta} node${delta === 1 ? "" : "s"} carr${delta === 1 ? "ies" : "y"} no standalone message — tool/metadata)`;
+        activePathLine = `• Active Path:      ${nodes} tree node${nodes === 1 ? "" : "s"} → ${msgs} LLM message${msgs === 1 ? "" : "s"}${aside}`;
+      } else {
+        activePathLine = `• Active Path:      ${branch.length} tree node(s) — the LLM context follows this path`;
+      }
       const hudParts = [
         "[Context Dashboard]",
         ...(providerDelivery.persistentMutationApplied
           ? ["• Travel Mutation:  applied — the provider context was rewritten by a travel this session"]
           : []),
         ...usageLines,
-        hudCurrent.ok
-          ? `• Active Path:      ${hudCurrent.value.messages.length} message(s) in LLM context (${branch.length} tree nodes incl. tool/metadata entries)`
-          : `• Active Path:      ${branch.length} tree node(s) — the LLM context follows this path`,
+        activePathLine,
         ...(activeSummaryDepth > 0
           ? [`• Handoff Layers:   ${activeSummaryDepth} on the current path — each layer is one fold's summary standing in for replaced history`]
           : []),
@@ -776,8 +803,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? [`• Off-path Handoffs: ${offPathHandoffs} branch point(s) with archived handoffs`]
           : []),
         nearestCheckpoint
-          ? `• Last Save Point:  '${boundedTimelineValue(nearestCheckpoint)}' — ${msgsSinceCheckpoint} conversation message(s) back (${stepsSinceCheckpoint} tree nodes)`
-          : `• Last Save Point:  none on this path yet (${msgsSinceCheckpoint} conversation message(s) so far)`,
+          ? `• Last Save Point:  '${boundedTimelineValue(nearestCheckpoint)}' — ${msgsSinceCheckpoint} user/assistant message${msgsSinceCheckpoint === 1 ? "" : "s"} back (${stepsSinceCheckpoint} tree nodes)`
+          : `• Last Save Point:  none on this path yet (${msgsSinceCheckpoint} user/assistant message${msgsSinceCheckpoint === 1 ? "" : "s"} so far)`,
         `• Fold Projection:  ${foldProjectionText}`,
       ];
       if (ignoredParams.length > 0) {
@@ -805,7 +832,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const syncHealthy = !refreshFailure && !refreshPending && providerDelivery.phase === "active" && !liveSyncRecovery;
       if (syncHealthy) {
         const healthyDetail = providerDelivery.packetMessageCount != null && providerDelivery.leafId != null
-          ? `persisted provider context active (${packetDescription})`
+          ? `provider packet matches the active path (${packetDescription})`
           : "no travel yet; context follows the session natively";
         hudParts.push(`• Context Sync:     healthy — ${healthyDetail}`);
       } else {
