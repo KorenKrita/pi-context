@@ -152,7 +152,7 @@ describe("semantic rebase evidence", () => {
     );
 
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
-    expect(result.content[0].text).toContain("Handoff Layers:   1 handoff layer(s) on the current path");
+    expect(result.content[0].text).toContain("Handoff Layers:   1 on the current path — each layer is one fold's summary standing in for replaced history");
     // The HUD reports facts only; judgment wording (old rebase cue) is retired.
     expect(result.content[0].text).not.toContain("rebase");
     expect(result.content[0].text).not.toContain("worthwhile");
@@ -180,7 +180,7 @@ describe("semantic rebase evidence", () => {
       rootProjectedSummaryDepth: 1,
     });
     expect(result.content[0].text).toContain("root → root (session start — not a named checkpoint, but a valid travel target)");
-    expect(result.content[0].text).toContain("handoff layers 1 → 1 projected");
+    expect(result.content[0].text).toContain("handoff layers 1 → 1 after this fold");
     expect(result.content[0].text).toContain("projected depth is 1 rather than 0 because travel appends one new handoff");
   });
 

@@ -22,7 +22,7 @@ import {
 } from "./lib.js";
 import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
+import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
@@ -579,7 +579,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
             ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
             : "";
-          lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} projected${rootDepthNote}`);
+          lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} after this fold${rootDepthNote}`);
         }
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
@@ -607,7 +607,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const rawArchiveNote = checkpoint.isRawArchive
             ? "; raw archive — restores pre-fold history; fold targets are the entries before the folded material"
             : "";
-          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} projected`);
+          lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -725,8 +725,17 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // One authoritative usage line; the secondary readings appear only when
       // they disagree with it enough to change a decision. Identical numbers
       // repeated under three different names read as noise, not precision.
+      // The Dashboard spells the two scales out in words; the compact
+      // canonical form stays on the gauge and receipts where space is tight.
+      const describeUsage = (pressure: ContextUsagePressure): string => {
+        const pct = `${Math.floor(pressure.pressurePercent * 10) / 10}%`;
+        const ratio = `${formatTokenCount(pressure.tokens)}/${formatTokenCount(pressure.contextWindow)}`;
+        return pressure.policy === "400k-cap"
+          ? `${pct} of ${formatTokenCount(pressure.workingBudgetTokens)} working budget · ${ratio} hard window`
+          : `${pct} of the ${formatTokenCount(pressure.contextWindow)} window (${ratio})`;
+      };
       const primaryUsageLine = authoritativePressure
-        ? `• Context Usage:    ${formatContextUsagePressure(authoritativePressure)} (${providerTurnUsageAuthoritative ? "provider actual" : "native estimate"})`
+        ? `• Context Usage:    ${describeUsage(authoritativePressure)} (${providerTurnUsageAuthoritative ? "provider actual" : "native estimate"})`
         : `• Context Usage:    ${formatContextUsage(officialUsage)} (native estimate)`;
       const usageLines: string[] = [primaryUsageLine];
       if (authoritativePressure && officialUsage && Math.abs(officialUsage.tokens - authoritativePressure.tokens) > 1024) {
@@ -743,7 +752,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : []),
         ...usageLines,
         `• Active Path:      ${branch.length} node(s) — the LLM context follows this path`,
-        `• Handoff Layers:   ${activeSummaryDepth} handoff layer(s) on the current path`,
+        ...(activeSummaryDepth > 0
+          ? [`• Handoff Layers:   ${activeSummaryDepth} on the current path — each layer is one fold's summary standing in for replaced history`]
+          : []),
         ...(offPathHandoffs > 0
           ? [`• Off-path Handoffs: ${offPathHandoffs} branch point(s) with archived handoffs`]
           : []),
@@ -810,10 +821,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           hudParts.push(`• Native Replacement: ${liveSync.status} — no native context swap was needed this reading`);
         }
       }
+      // The raw-archive sentence teaches a thing that does not exist before
+      // the first fold; showing it then reads as a dangling term. Trim it
+      // while the session has no raw-archive alias.
+      const checkpointsCue = rawArchiveAliases.size > 0
+        ? GUIDANCE_CUES.timelineCheckpoints
+        : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!;
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive
         : params.view === "checkpoints"
-          ? GUIDANCE_CUES.timelineCheckpoints
+          ? checkpointsCue
           : params.view === "search"
             ? GUIDANCE_CUES.timelineSearch
             : GUIDANCE_CUES.timelineTree;

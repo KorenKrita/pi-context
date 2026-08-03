@@ -352,7 +352,12 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
 
       const { status, labelEntryId } = append.value;
       const resolvedEntry = targetEntry ?? findEntryInTree(tree, entryId);
-      const role = autoResolved?.role ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined) ?? resolvedEntry?.type.toUpperCase() ?? "NODE";
+      // Raw event-type fallbacks (MODEL_CHANGE, THINKING_LEVEL_CHANGE) are
+      // internal vocabulary; the receipt names them as what they are to a
+      // reader — a session event — and keeps the specific kind in brackets.
+      const role = autoResolved?.role
+        ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined)
+        ?? (resolvedEntry ? `session event (${resolvedEntry.type})` : "NODE");
       const usage = ctx.getContextUsage();
       // One pressure authority for every perception surface: between a
       // travel's provider cutover and its native replacement the host
@@ -406,8 +411,8 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       }
       const skippedCount = autoResolved?.skipped.length;
       const placement = autoResolved
-        ? `${role}; the latest safe anchor before this call${autoResolved.protocolStatus === "repaired" ? " (tool protocol repaired)" : ""}${skippedCount ? `, skipping ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
-        : `${role}; explicit target '${params.target}'`;
+        ? `a ${role} node — the newest complete message before this call, since the current assistant turn is still being written${autoResolved.protocolStatus === "repaired" ? " (tool protocol repaired)" : ""}${skippedCount ? `; skipped ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
+        : `a ${role} node; explicit target '${params.target}'`;
       const action = status === "already_present" ? "Reused" : "Created";
       return {
         content: [{

@@ -302,7 +302,7 @@ describe("deferred post-travel delivery on exact Pi host", () => {
     );
     const timelineText = timeline.content[0]?.type === "text" ? timeline.content[0].text : "";
     expect(timelineText).toContain("(native estimate)");
-    expect(timelineText).toContain("Context Usage:    70% window · 70K/100K (native estimate)");
+    expect(timelineText).toContain("Context Usage:    70% of the 100K window (70K/100K) (native estimate)");
     expect(timelineText).toContain("(native estimate)");
     expect(timeline.details).toMatchObject({
       contextUsageAuthority: "native_context",

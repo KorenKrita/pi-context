@@ -833,8 +833,9 @@ describe("deferred post-travel context delivery", () => {
       const expectedPressureNeedles = buildGaugeSuffix(pressure!).replace(/\]$/, "");
       expect(gaugeText(gauge)).toStartWith(`read complete${expectedPressureNeedles}`);
       expect(timeline.content[0]?.text).toContain(
-        `• Context Usage:    ${formatContextUsagePressure(pressure!)} (${scenario.pressureAuthority})`,
+        `• Context Usage:    ${scenario.pressurePercent}% of`,
       );
+      expect(timeline.content[0]?.text).toContain(`(${scenario.pressureAuthority})`);
       expect(timeline.details).toMatchObject({
         persistentMutationApplied: scenario.applied,
         providerDeliveryPhase: scenario.phase,
