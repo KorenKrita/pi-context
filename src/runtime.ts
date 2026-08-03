@@ -131,6 +131,25 @@ export class AcmSessionRuntime {
    */
   private readonly ledgerStates = new WeakMap<object, LedgerState>();
   private ledgerSeq = 0;
+  /**
+   * Travels completed within the current assistant turn. Low-capability
+   * models have oscillated between return tickets (11 travels in one turn in
+   * matrix testing); the count feeds a loop-guard line on the receipt.
+   * Reset on turn_start via the lifecycle hooks.
+   */
+  private readonly travelTurnCounters = new WeakMap<object, number>();
+
+  /** Record one completed travel this turn and return the running count. */
+  noteTravelThisTurn(session: object): number {
+    const next = (this.travelTurnCounters.get(session) ?? 0) + 1;
+    this.travelTurnCounters.set(session, next);
+    return next;
+  }
+
+  /** A new turn starts with a clean travel count. */
+  resetTravelTurnCount(session: object): void {
+    this.travelTurnCounters.delete(session);
+  }
 
   constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
     this.liveAgentSessions = liveAgentSessions;

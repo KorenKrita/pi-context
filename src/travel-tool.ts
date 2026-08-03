@@ -850,6 +850,15 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }
+      const travelsThisTurn = runtime.noteTravelThisTurn(sessionManager);
+      // Loop guard: repeated same-turn travels are how a lost model oscillates
+      // between return tickets. The count is informational at 2 and becomes a
+      // stop instruction at 3+ — matrix testing saw an 11-travel oscillation.
+      const loopGuard = travelsThisTurn >= 3
+        ? `This is travel #${travelsThisTurn} in the current turn. Repeated travels between the same points usually mean the needed state is already in the current handoff — stop travelling, reread it, and act on REQUIRED NEXT.`
+        : travelsThisTurn === 2
+          ? `This is travel #2 in the current turn.`
+          : null;
       const nextCue = GUIDANCE_CUES.travel;
       const summaryDepthNote = targetIsStructuralRoot
         && activeSummaryDepthBefore > targetSummaryDepth
@@ -872,6 +881,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             currentUserTurnOpen
               ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
               : null,
+            loopGuard,
             nextCue,
           ].filter((line): line is string => line !== null).join("\n"),
         }],

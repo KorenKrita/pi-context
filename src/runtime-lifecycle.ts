@@ -477,6 +477,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
   });
 
+  pi.on("turn_start", (_event, ctx: ExtensionContext) => {
+    runtime.resetTravelTurnCount(ctx.sessionManager);
+  });
+
   pi.on("turn_end", (event, ctx: ExtensionContext) => {
     // Usage becomes authoritative at provider cutover, not native settlement.
     // The origin run is stale until a compact persisted packet is actually
