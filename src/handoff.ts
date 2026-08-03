@@ -179,16 +179,20 @@ export function buildCanonicalHandoff(
  * Alias charset must satisfy the checkpoint name pattern ^[A-Za-z0-9._-]+$.
  */
 export function deriveReturnTicketName(goal: string, taken: (name: string) => boolean): string {
+  // Dedupe surviving tokens: a mostly non-Latin goal often leaves the same
+  // tool identifier several times, and "acm-acm_checkpoint-acm_timeline-..."
+  // is not a name anyone can pick from the checkpoints view.
+  const seen = new Set<string>();
   const words = goal
     .toLowerCase()
     .replace(/[^a-z0-9\s._-]+/g, " ")
     .split(/\s+/)
-    .filter((word) => word.length > 0)
+    .filter((word) => word.length > 0 && !seen.has(word) && (seen.add(word), true))
     .slice(0, 4);
   // A slug with no alphanumeric signal (non-Latin goals collapse entirely,
   // punctuation-only goals leave residue like "----...") is not a name a
   // human can pick from the checkpoints view; fall back to the plain stem.
-  const slug = words.join("-");
+  const slug = words.join("-").slice(0, 48).replace(/-+$/, "");
   const base = /[a-z0-9]/.test(slug) ? `${slug}-raw` : "fold-raw";
   if (!taken(base) && base !== "root") return base;
   for (let ordinal = 2; ordinal < 1000; ordinal++) {
