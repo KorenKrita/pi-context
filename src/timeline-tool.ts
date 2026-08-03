@@ -776,7 +776,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${packetDescription}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
       const syncHealthy = !refreshFailure && !refreshPending && providerDelivery.phase === "active" && !liveSyncRecovery;
       if (syncHealthy) {
-        hudParts.push(`• Context Sync:     healthy — persisted provider context active (${packetDescription})`);
+        const healthyDetail = providerDelivery.packetMessageCount != null && providerDelivery.leafId != null
+          ? `persisted provider context active (${packetDescription})`
+          : "no travel yet; context follows the session natively";
+        hudParts.push(`• Context Sync:     healthy — ${healthyDetail}`);
       } else {
         if (refreshPending) {
           const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
