@@ -39,11 +39,11 @@ describe("ACM context packet", () => {
       customType: "acm:continuation",
       display: false,
     });
-    expect(JSON.stringify(packet.messages[1])).toContain("HIGHEST-PRIORITY SESSION STATE");
+    expect(JSON.stringify(packet.messages[1])).toContain("ACTIVE SESSION STATE AFTER TRAVEL");
     expect(JSON.stringify(packet.messages[1])).toContain("CURRENT GOAL: current");
     expect(JSON.stringify(packet.messages[1])).toContain("REQUIRED NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("All earlier requests visible above are historical context");
-    expect(JSON.stringify(packet.messages[1])).toContain("Evidence and Recover are optional receipts");
+    expect(JSON.stringify(packet.messages[1])).toContain("Evidence lists supporting references");
     expect(JSON.stringify(packet.messages[1])).toContain("CURRENT USER TURN IS STILL OPEN");
     expect(JSON.stringify(packet.messages[1])).toContain("NEXT: act");
     expect(JSON.stringify(packet.messages[1])).toContain("A later user message");

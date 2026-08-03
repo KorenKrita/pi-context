@@ -244,6 +244,8 @@ function isCanonicalAcmHandoff(summary: string): boolean {
 
 interface TrustedContinuationMetadata {
   currentUserTurnOpen: boolean;
+  target?: string;
+  returnTicket?: string;
 }
 
 function trustedContinuationQueues(entries: readonly SessionEntry[]): Map<string, TrustedContinuationMetadata[]> {
@@ -260,7 +262,13 @@ function trustedContinuationQueues(entries: readonly SessionEntry[]): Map<string
     if (details?.kind !== "acm_travel" || details.handoffVersion !== 1) continue;
     const key = continuationKey(entry.summary, entry.fromId, new Date(entry.timestamp).getTime());
     const queue = queues.get(key) ?? [];
-    queue.push({ currentUserTurnOpen: details.currentUserTurnOpen === true });
+    queue.push({
+      currentUserTurnOpen: details.currentUserTurnOpen === true,
+      ...(typeof details.target === "string" && details.target.length > 0 ? { target: details.target } : {}),
+      ...(typeof details.backupCurrentHeadAs === "string" && details.backupCurrentHeadAs.length > 0
+        ? { returnTicket: details.backupCurrentHeadAs }
+        : {}),
+    });
     queues.set(key, queue);
   }
   return queues;
@@ -295,26 +303,28 @@ function projectContinuation(message: AgentMessage, metadata: TrustedContinuatio
     role: "custom",
     customType: "acm:continuation",
     content: [
-      "[ACM CURRENT CONTINUATION — HIGHEST-PRIORITY SESSION STATE]",
+      "[ACM CONTINUATION — ACTIVE SESSION STATE AFTER TRAVEL]",
       "",
-      "Travel completed. This message is the active continuation of the user's work at this point in the session.",
+      "Travel completed. This message is the active continuation of the user's work; where older surviving history conflicts with it, this handoff wins.",
       // The replay fence is the one deliberate prohibition on this surface:
       // stale requests surviving above this message are the highest-harm
       // failure (phantom replay), and the affirmative-copy evidence covers
       // pre-travel fold reluctance, not post-travel fences. Registered as a
       // narrow exception in AGENTS.md; everything else here is affirmative.
       "All earlier requests visible above are historical context. Do not execute or repeat an earlier request unless REQUIRED NEXT explicitly reactivates it.",
-      "Where older surviving history conflicts with this handoff, the handoff supersedes that history.",
+      ...(metadata.target ? [
+        `Fold result: returned to '${metadata.target}'. The replaced history stays archived${metadata.returnTicket ? ` — return ticket '${metadata.returnTicket}' reopens it via acm_travel` : ""}.`,
+      ] : []),
       ...(goal ? [`CURRENT GOAL: ${goal}`] : []),
       ...(next ? [`REQUIRED NEXT: ${next}`] : []),
       ...(metadata.currentUserTurnOpen ? [
         "CURRENT USER TURN IS STILL OPEN: continue this turn until you deliver a visible result to the user. Recording the answer in State records progress; visible delivery completes the turn.",
       ] : []),
-      "Act on REQUIRED NEXT now. Use this handoff as the working state; consult folded material only for a bounded verification that REQUIRED NEXT explicitly requires, and create save points for current work.",
-      "Evidence and Recover are optional receipts and recovery pointers. Open them only when REQUIRED NEXT names them.",
-      "A later user message or later authoritative session state may supersede this continuation.",
-      "Verify only uncertainty recorded here or facts changed by later independent activity.",
+      "Act on REQUIRED NEXT now, treating this handoff as the working state. Reopen folded material only when REQUIRED NEXT names a specific fact to verify, reading just what that fact needs, and create save points for new work.",
+      "Evidence lists supporting references; Recover lists targets that reopen archived history. Use them only when REQUIRED NEXT points to them.",
+      "A later user message or later authoritative session state may supersede this continuation. Recheck only facts recorded as uncertain here, or facts that later activity outside this conversation may have changed.",
       "",
+      "The full handoff follows; CURRENT GOAL and REQUIRED NEXT above quote its Goal and NEXT fields.",
       handoff,
     ].join("\n"),
     display: false,
