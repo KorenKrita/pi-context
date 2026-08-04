@@ -103,15 +103,15 @@ The host lacks a required capability; nothing was changed. Report this error and
 <!-- ACM:RECOVERY_HOST_CAPABILITY:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:START -->
-The backup label is still in the tree. Note its name and entry ID before retrying.
+The return-ticket label is still in the tree. Note its name and entry ID before retrying.
 <!-- ACM:RECOVERY_ROLLBACK_FAILED:END -->
 
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:START -->
-The fold failed before changing anything; the backup label was rolled back. Resolve the reported host error, then retry.
+The fold failed before changing anything; the return-ticket label was rolled back. Resolve the reported host error, then retry.
 <!-- ACM:RECOVERY_BRANCH_ROLLED_BACK:END -->
 
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:START -->
-Automatic backup rollback was unsafe, so the backup label was kept. Note the backup pointer, confirm your position with acm_timeline, then retry.
+Automatic return-ticket rollback was unsafe, so the return-ticket label was kept. Note the return-ticket pointer, confirm your position with acm_timeline, then retry.
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
 
 <!-- ACM:RECOVERY_REFRESH_PENDING:START -->

@@ -37,9 +37,9 @@ export const TREE_SUMMARY_INSTRUCTIONS = "Summarize this abandoned conversation 
 export const RECOVERY_GUIDANCE = {
   "nameCollision": "This name is taken. Keep the existing save point. For a return-ticket collision, retry acm_travel with a new unique backupCurrentHeadAs; for a checkpoint collision, pick a new checkpoint name (add a scope, number, or date).",
   "hostCapability": "The host lacks a required capability; nothing was changed. Report this error and verify the Pi version matches what this extension supports.",
-  "rollbackFailed": "The backup label is still in the tree. Note its name and entry ID before retrying.",
-  "branchRolledBack": "The fold failed before changing anything; the backup label was rolled back. Resolve the reported host error, then retry.",
-  "rollbackSkipped": "Automatic backup rollback was unsafe, so the backup label was kept. Note the backup pointer, confirm your position with acm_timeline, then retry.",
+  "rollbackFailed": "The return-ticket label is still in the tree. Note its name and entry ID before retrying.",
+  "branchRolledBack": "The fold failed before changing anything; the return-ticket label was rolled back. Resolve the reported host error, then retry.",
+  "rollbackSkipped": "Automatic return-ticket rollback was unsafe, so the return-ticket label was kept. Note the return-ticket pointer, confirm your position with acm_timeline, then retry.",
   "refreshPending": "The fold is applied but the rebuilt context is not yet confirmed. If the next turn looks wrong, check sync state with acm_timeline.",
   "restoredHistory": "This travel restored old history, so context grew. Retrieve the needed detail and travel back to your return point; if this branch is deliberately your new working state, continue here.",
   "refreshExhausted": "Context rebuild retries are exhausted. Reload the session, check sync state with acm_timeline, and confirm the active branch before continuing."

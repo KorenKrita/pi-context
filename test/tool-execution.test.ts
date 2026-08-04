@@ -1332,7 +1332,7 @@ describe("ACM tool execution contracts", () => {
     });
     const ticket = (result.details as { backupCurrentHeadAs?: string }).backupCurrentHeadAs;
     expect(typeof ticket).toBe("string");
-    expect(result.content[0]?.text).toContain(`Backup label '${ticket}'`);
+    expect(result.content[0]?.text).toContain(`Return-ticket label '${ticket}'`);
   });
 
   test("preserves the raw scheduled native replacement outcome alongside delivery phase", async () => {
