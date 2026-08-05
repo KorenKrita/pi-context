@@ -9,15 +9,15 @@ export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->"
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
-    description: "What this work is trying to accomplish, including any result still owed to the user.",
+    description: "What this work is trying to accomplish, including any result still owed to the user and any constraint the work must keep intact.",
   }),
   state: Type.String({
     minLength: 1,
-    description: "What is settled, what stays uncertain, and the exact values, paths, and names the next steps will use. Multiline text is allowed.",
+    description: "What is settled, what stays uncertain, and the exact values, paths, and names the next steps will use. Name any question that awaits the user's decision. Multiline text is allowed.",
   }),
   next: Type.String({
     minLength: 1,
-    description: "The next step to take right now, written as one concrete action.",
+    description: "The next step to take right now, written as one concrete action. When that step waits on the user's decision, write it as the question to ask.",
   }),
   evidence: Type.Optional(Type.String({
     description: "Optional: verifiable pointers supporting state — file paths, commands, IDs.",
