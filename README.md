@@ -96,7 +96,7 @@ npm ci --ignore-scripts
 bun run verify:acm
 ```
 
-完整 gate 覆盖：生成文本一致性检查、全部单元测试、TypeScript 类型检查、以及在真实 Pi `0.82.1` 上运行的 host fixture。
+完整 gate 覆盖：生成文本一致性检查、全部单元测试、TypeScript 类型检查、以及在真实 Pi `0.84.0` 上运行的 host fixture。
 
 架构细节、host 兼容性契约、文案宪法与维护规则见 [`AGENTS.md`](AGENTS.md)。
 

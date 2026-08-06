@@ -31,7 +31,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 
 - TypeScript ESM，source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
-- 四个 `@earendil-works/*` peer/dev dependency 精确固定 **`0.82.1`**（含 `test/host-fixture/`），不要改成 range
+- 四个 `@earendil-works/*` peer/dev dependency 精确固定 **`0.84.0`**（含 `test/host-fixture/`），不要改成 range
 - **不使用** Pi 的 `constrainedSampling`：handoff schema 含 `Type.Optional` 字段，OpenAI strict 要求全 properties 进 required，开启会 400
 - 根目录提交 npm `package-lock.json`（Pi git 安装走 `npm install --omit=dev`）；改 `package.json` 后必须重新生成并从 committed tree 验证 `npm ci --ignore-scripts`
 
@@ -144,7 +144,7 @@ bun run generate:guidance # 从 canonical 源重新生成
 bun run verify:acm        # 完整 gate：guidance check + 测试 + typecheck + host fixture
 ```
 
-host fixture（`test/host-fixture/`）在真实 Pi 0.82.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel/settled sync 全链路、multi-session 隔离。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
+host fixture（`test/host-fixture/`）在真实 Pi 0.84.0 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel/settled sync 全链路、multi-session 隔离。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
 
 不要使用 `console.log`；用户可见 warning 用 `ctx.ui.notify()`。
 
