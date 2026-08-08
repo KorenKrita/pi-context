@@ -43,13 +43,13 @@ Use acm_timeline to choose a travel target and as the first source for details f
 <!-- ACM:GUIDELINE_TIMELINE:END -->
 
 <!-- ACM:GUIDELINE_TRAVEL:START -->
-Use acm_travel when a result is ready to deliver, a debugging phase converges, a file batch is distilled, a plan settles, or a new request needs only the previous stretch's conclusions. A routine handoff can be just goal, state, and next; include each optional field that carries something.
+To fold, use acm_travel when the fold test passes — typically at a phase transition: exploration ends and editing begins, a plan settles into execution, a diagnosis becomes a fix, one component closes and the next opens, or a result becomes ready to deliver. A routine handoff can be just goal, state, and next; include each optional field that carries something.
 <!-- ACM:GUIDELINE_TRAVEL:END -->
 
 ## Result cues
 
 <!-- ACM:CUE_CHECKPOINT:START -->
-Save point created; context unchanged. It now appears in the checkpoints view as a travel target.
+Save point created; context unchanged. It now appears in the checkpoints view as a travel target — when the stretch it opens passes the fold test, this is the mark to fold back to.
 <!-- ACM:CUE_CHECKPOINT:END -->
 
 <!-- ACM:CUE_TRAVEL:START -->

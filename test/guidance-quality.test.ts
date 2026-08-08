@@ -167,10 +167,57 @@ describe("ACM guidance quality", () => {
 		test("prompt surfaces carry scenario triggers, not contracts", () => {
 			// The retrieval surfaces must answer "when do I use this" in
 			// scenario words a tool chooser can match.
-			expect(PROMPT_GUIDELINES.travel).toContain("a result is ready to deliver");
-			expect(PROMPT_GUIDELINES.travel).toContain("debugging phase converges");
+			expect(PROMPT_GUIDELINES.travel).toContain("a result becomes ready to deliver");
+			expect(PROMPT_GUIDELINES.travel).toContain("a diagnosis becomes a fix");
 			expect(PROMPT_GUIDELINES.checkpoint).toContain("phase boundaries");
 			expect(PROMPT_SNIPPETS.travel.toLowerCase()).toContain("fold");
+		});
+
+		test("the travel guideline gates folding, not recovery travel", () => {
+			// Failure mode guarded: a fold-test gate read as covering every
+			// acm_travel call would tax the recovery path (travel to an
+			// archived branch, take the detail, travel back).
+			expect(PROMPT_GUIDELINES.travel.startsWith("To fold,")).toBe(true);
+			expect(PROMPT_GUIDELINES.travel).toContain("when the fold test passes");
+		});
+
+		test("transitions cue the question; the question alone decides", () => {
+			// Failure mode guarded: phase transitions hardening into a second
+			// gate beside the fold test — the exact regression three review
+			// rounds converged on preventing.
+			expect(ACM_CORE).toContain("The question alone decides.");
+			expect(ACM_CORE).toContain("Readiness also arrives mid-phase");
+		});
+
+		test("the episode passes the fold test on all three required slots", () => {
+			// Failure mode guarded: "a concrete state alone means the test
+			// passed" — the shortcut that drops goal and next.
+			const episode = ACM_CORE.split("\n\n").find((p) => p.startsWith("One fold, start to finish"));
+			expect(episode).toBeDefined();
+			expect(episode).toContain("goal");
+			expect(episode).toContain("`state`");
+			expect(episode).toContain("`next`");
+		});
+
+		test("fold-decision prose stays silent on pressure and workload", () => {
+			// Failure mode guarded: pressure or workload wording re-entering
+			// the paragraphs where the fold decision is taught, re-arming the
+			// pressure cue this revision retired. The gauge mechanics
+			// paragraph and the divider sentence keep their own vocabulary.
+			const paragraphs = ACM_CORE.split("\n\n");
+			const teaching = paragraphs.filter(
+				(p) =>
+					p.startsWith("**The fold test") ||
+					p.startsWith("A stretch is ready") ||
+					p.startsWith("Exploration converged") ||
+					p.startsWith("One fold, start to finish"),
+			);
+			expect(teaching.length).toBe(4);
+			for (const paragraph of teaching) {
+				expect(paragraph).not.toContain("gauge");
+				expect(paragraph).not.toMatch(/\d+%/);
+				expect(paragraph).not.toMatch(/\b(one|two|three|four|five|\d+) files\b/i);
+			}
 		});
 	});
 

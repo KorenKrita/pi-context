@@ -839,12 +839,24 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         const ledgerState = runtime.ledgerState(sessionManager);
         // Boundary rows and the receipt now share the working-budget yardstick;
         // reuse the receipt's pressure conversions directly.
+        let savePointsAfter: number | null = null;
+        try {
+          const postMaps = buildLabelMaps(sessionManager.getEntries());
+          let count = 0;
+          for (const entry of sessionManager.getBranch()) {
+            if (postMaps.entryToLabel.get(entry.id) !== undefined) count++;
+          }
+          savePointsAfter = count;
+        } catch {
+          savePointsAfter = null;
+        }
         const written = appendLedgerRow("fold", buildFoldRow({
           state: ledgerState,
           budgetBefore: budgetBeforePercent,
           budgetAfter: estimatedBudgetAfterPercent,
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
+          savePoints: savePointsAfter,
         }));
         if (written) markFoldCounted(ledgerState);
       } catch {

@@ -185,6 +185,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     ctx: ExtensionContext,
     pressure: { pressurePercent: number; usagePercent: number },
     folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
+    savePoints: number | null,
   ): void => {
     try {
       const session = ctx.sessionManager as unknown as object;
@@ -209,6 +210,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         foldTurnPercent: folds?.turnPercent,
         foldTaskPercent: folds?.taskPercent,
         entries: branch.length,
+        savePoints,
       }));
     } catch {
       // A diagnostic writer must never reach the tool result.
@@ -265,7 +267,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // Passive boundary ledger: one row per distinct user-request boundary, so
     // "boundaries crossed N, folds M" accumulates without any injection. Never
     // allowed to affect this result — every failure is swallowed inside.
-    recordBoundary(ctx, pressure, folds);
+    recordBoundary(ctx, pressure, folds, savePoints);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds, structure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.
