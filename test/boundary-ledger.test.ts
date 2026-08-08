@@ -31,7 +31,7 @@ describe("boundary ledger", () => {
     const state = createLedgerState("s1");
     expect(appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 23.9, windowPercent: 9.4,
-      foldTurnPercent: 16.7, foldTaskPercent: 16.2, entries: 42,
+      foldTurnPercent: 16.7, foldTaskPercent: 16.2, entries: 42, savePoints: 2,
     }), env)).toBe(true);
 
     const rows = readFileSync(acmLedgerPath(env), "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -40,6 +40,7 @@ describe("boundary ledger", () => {
     expect(rows[0]).toMatchObject({
       kind: "boundary", gauge: "v2", session: "s1", boundary: 1,
       budget: 23, window: 9, foldTurn: 16, foldTask: 16, foldsSoFar: 0, entries: 42,
+      savePoints: 2,
     });
   });
 
@@ -48,10 +49,11 @@ describe("boundary ledger", () => {
     const state = createLedgerState("s2");
     appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 10, windowPercent: 5,
-      foldTurnPercent: null, foldTaskPercent: null, entries: 3,
+      foldTurnPercent: null, foldTaskPercent: null, entries: 3, savePoints: null,
     }), env);
     appendLedgerRow("fold", buildFoldRow({
       state, budgetBefore: 80, budgetAfter: 20, messageDelta: 120, summaryDepth: 1,
+      savePoints: 1,
     }), env);
 
     const raw = readFileSync(acmLedgerPath(env), "utf8");
@@ -62,7 +64,7 @@ describe("boundary ledger", () => {
       expect(keys.every((k) => [
         "kind", "gauge", "ts", "session", "boundary", "budget", "window", "foldTurn",
         "foldTask", "foldsSoFar", "entries", "afterBoundary", "budgetBefore",
-        "budgetAfter", "messageDelta", "summaryDepth", "direction",
+        "budgetAfter", "messageDelta", "summaryDepth", "direction", "savePoints",
       ].includes(k))).toBe(true);
       // The cohort field is a static enum, never free text: both row kinds
       // carry the same constant, and legacy rows simply lack the key.

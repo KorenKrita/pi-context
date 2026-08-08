@@ -49,6 +49,8 @@ export interface BoundaryLedgerRow {
   foldsSoFar: number;
   /** Active-branch entry count, so boundary spacing is recoverable. */
   entries: number;
+  /** Save points on the active path at this boundary; null when uncountable. */
+  savePoints: number | null;
 }
 
 /** One row per applied travel, carrying the delta the receipt already reports. */
@@ -69,6 +71,8 @@ export interface FoldLedgerRow {
   messageDelta: number | null;
   /** Active handoff summary layers after the fold. */
   summaryDepth: number | null;
+  /** Save points on the active path when the fold applied; null when uncountable. */
+  savePoints: number | null;
 }
 
 const MAX_LEDGER_BYTES = 8 * 1024 * 1024;
@@ -161,6 +165,7 @@ export function buildBoundaryRow(input: {
   foldTurnPercent: number | null | undefined;
   foldTaskPercent: number | null | undefined;
   entries: number;
+  savePoints: number | null | undefined;
 }): BoundaryLedgerRow {
   return {
     gauge: ACM_GAUGE_FORMAT_VERSION,
@@ -173,6 +178,7 @@ export function buildBoundaryRow(input: {
     foldTask: floorOrNull(input.foldTaskPercent),
     foldsSoFar: input.state.folds,
     entries: input.entries,
+    savePoints: floorOrNull(input.savePoints),
   };
 }
 
@@ -182,6 +188,7 @@ export function buildFoldRow(input: {
   budgetAfter: number | null | undefined;
   messageDelta: number | null | undefined;
   summaryDepth: number | null | undefined;
+  savePoints: number | null | undefined;
 }): FoldLedgerRow {
   const messageDelta = typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
     ? input.messageDelta
@@ -196,6 +203,7 @@ export function buildFoldRow(input: {
     budgetAfter: floorOrNull(input.budgetAfter),
     messageDelta,
     summaryDepth: floorOrNull(input.summaryDepth),
+    savePoints: floorOrNull(input.savePoints),
   };
 }
 
