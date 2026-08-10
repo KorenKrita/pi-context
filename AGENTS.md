@@ -119,6 +119,10 @@ wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可�
 
 **核心观测指标**：跨 40% budget 的真实 session 中出现 ≥1 次 fold 的比例（重构前基线 0/42）。
 
+### 定性复盘管线（`scripts/review/`）
+
+ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备忘（相位表、逐折得失、该折未折归因 A/B/C/D、理想操作者对照、机器可读 YAML 摘要）。入口 `run-review.py <session.jsonl> <outdir>`；ACM 未激活的 session（无 gauge 行且无 acm_* 调用）直接拒绝（exit 2），防止评审"没人收到的指引"；超过 `--max-bytes` 的 session 走分段笔记 + 综合两级管线。reviewer 经 `pi -p --no-session --no-extensions --no-skills` 运行，自身不跑 ACM。提示词以渲染统计的结构事实（条目数、首末 ID、BRANCH_SUMMARY/LABEL 清单）强制全读覆盖证明。详见 `scripts/review/README.md`。
+
 ### Checkpoint 契约
 
 - 默认 target 是本次调用前最新的 protocol-complete active-branch leaf；紧邻 prefix 需 repair 时向前找；窗口内全部候选都是 repaired 时回退锚定到最新 rebuildable repaired entry（placement 与 details 报告 `protocolStatus: "repaired"` + repairs），连 rebuildable 都没有才不写 label
