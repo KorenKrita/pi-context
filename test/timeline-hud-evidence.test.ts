@@ -122,7 +122,7 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
   return timeline;
 }
 
-describe("semantic rebase evidence", () => {
+describe("timeline HUD handoff-layer evidence", () => {
   test("counts only semantic branch summaries and projects one new travel layer", () => {
     const root = message("root", null, "root");
     const first = summary("summary-1", "root", "first");
@@ -136,7 +136,7 @@ describe("semantic rebase evidence", () => {
     expect(projectSummaryDepthAfterTravel([root])).toBe(1);
   });
 
-  test("active HUD exposes stacked-summary evidence and a recognition-only rebase cue", async () => {
+  test("active HUD exposes stacked-summary evidence with facts-only wording", async () => {
     const root = message("root", null, "root");
     const first = summary("summary-1", "root", "first handoff");
     const current = message("current", "summary-1", "current");
@@ -153,7 +153,7 @@ describe("semantic rebase evidence", () => {
 
     expect(result.details).toMatchObject({ activeSummaryDepth: 1 });
     expect(result.content[0].text).toContain("Handoff Layers:   1 on the current path — each layer is one fold's summary standing in for replaced history");
-    // The HUD reports facts only; judgment wording (old rebase cue) is retired.
+    // The HUD reports facts only; retired judgment wording stays out (negative lock below).
     expect(result.content[0].text).not.toContain("rebase");
     expect(result.content[0].text).not.toContain("worthwhile");
   });
