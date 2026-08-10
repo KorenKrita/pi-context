@@ -59,7 +59,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 
 ### Guidance 管道
 
-`skills/context-management/CORE.md`（道+度）与 `TOOL-CONTRACTS.md`（术）是唯一文案来源；改完必须跑：
+`guidance/CORE.md`（道+度）与 `TOOL-CONTRACTS.md`（术）是唯一文案来源；改完必须跑：
 
 ```bash
 bun run generate:guidance

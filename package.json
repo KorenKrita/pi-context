@@ -5,7 +5,7 @@
   "description": "Agentic Context Management for Pi — checkpoint, timeline, and time-travel tools",
   "files": [
     "src",
-    "skills",
+    "guidance",
     "README.md",
     "AGENTS.md"
   ],
@@ -23,8 +23,7 @@
     "context-management",
     "context-optimization",
     "time-travel",
-    "checkpoint",
-    "pi-skill"
+    "checkpoint"
   ],
   "type": "module",
   "author": "KorenKrita",

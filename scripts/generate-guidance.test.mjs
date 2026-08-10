@@ -19,8 +19,8 @@ import {
 } from "../src/generated-guidance.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const corePath = join(repoRoot, "skills", "context-management", "CORE.md");
-const contractsPath = join(repoRoot, "skills", "context-management", "TOOL-CONTRACTS.md");
+const corePath = join(repoRoot, "guidance", "CORE.md");
+const contractsPath = join(repoRoot, "guidance", "TOOL-CONTRACTS.md");
 const outputPath = join(repoRoot, "src", "generated-guidance.ts");
 const coreSource = readFileSync(corePath, "utf8");
 const contractsSource = readFileSync(contractsPath, "utf8");

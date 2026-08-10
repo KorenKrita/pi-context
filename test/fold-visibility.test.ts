@@ -252,7 +252,7 @@ test("the turn reference skips the current user turn", () => {
 
   test("CORE explains every needle the gauge can render", () => {
     // A number the model cannot read is noise. CORE owns the reading key.
-    const core = readFileSync(new URL("../skills/context-management/CORE.md", import.meta.url), "utf8");
+    const core = readFileSync(new URL("../guidance/CORE.md", import.meta.url), "utf8");
     for (const needle of ["% budget", "% window", "fold@turn", "fold@task"]) {
       expect(core).toContain(needle);
     }
