@@ -14,7 +14,7 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
-import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, shouldCountBoundary } from "./boundary-ledger.js";
+import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -211,6 +211,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
         foldTaskPercent: folds?.taskPercent,
         entries: branch.length,
         savePoints,
+        model: modelDiscriminator((ctx as { model?: { provider?: unknown; id?: unknown } }).model),
       }));
     } catch {
       // A diagnostic writer must never reach the tool result.

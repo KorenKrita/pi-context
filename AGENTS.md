@@ -115,7 +115,7 @@ wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可�
 
 ### Boundary ledger
 
-被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数与百分比，绝不记内容；写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带 `gauge` cohort 字段（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）；旧行缺失该字段即 legacy cohort，不写 null。
+被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数、百分比与结构性判别字段，绝不记消息内容；写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带三个 provenance 字段：`gauge` cohort（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）、`core`（注入 CORE 文本的 sha256 前 12 hex，`ACM_CORE_HASH`——CORE 不落盘 session，此字段是文案归因的唯一取证途径）、`model`（`provider/id` 判别符，经 `modelDiscriminator` 归一化，host 无 model 时为 null、绝不猜占位串）；旧行缺失字段即 legacy cohort，不写 null。
 
 **核心观测指标**：跨 40% budget 的真实 session 中出现 ≥1 次 fold 的比例（重构前基线 0/42）。
 

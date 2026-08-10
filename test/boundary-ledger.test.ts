@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import {
+  ACM_CORE_HASH,
   acmLedgerPath,
   appendLedgerRow,
   buildBoundaryRow,
@@ -12,6 +13,7 @@ import {
   isLedgerDisabled,
   markBoundaryCounted,
   markFoldCounted,
+  modelDiscriminator,
   shouldCountBoundary,
 } from "../src/boundary-ledger.js";
 
@@ -32,6 +34,7 @@ describe("boundary ledger", () => {
     expect(appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 23.9, windowPercent: 9.4,
       foldTurnPercent: 16.7, foldTaskPercent: 16.2, entries: 42, savePoints: 2,
+      model: "openai/gpt-5",
     }), env)).toBe(true);
 
     const rows = readFileSync(acmLedgerPath(env), "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -40,8 +43,12 @@ describe("boundary ledger", () => {
     expect(rows[0]).toMatchObject({
       kind: "boundary", gauge: "v2", session: "s1", boundary: 1,
       budget: 23, window: 9, foldTurn: 16, foldTask: 16, foldsSoFar: 0, entries: 42,
-      savePoints: 2,
+      savePoints: 2, model: "openai/gpt-5",
     });
+    // Provenance: the row must be attributable to the exact CORE wording and
+    // model that produced it — the two confounds qualitative review hit.
+    expect(rows[0].core).toBe(ACM_CORE_HASH);
+    expect(ACM_CORE_HASH).toMatch(/^[0-9a-f]{12}$/);
   });
 
   test("records only counts and percentages, never message content", () => {
@@ -50,10 +57,11 @@ describe("boundary ledger", () => {
     appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 10, windowPercent: 5,
       foldTurnPercent: null, foldTaskPercent: null, entries: 3, savePoints: null,
+      model: null,
     }), env);
     appendLedgerRow("fold", buildFoldRow({
       state, budgetBefore: 80, budgetAfter: 20, messageDelta: 120, summaryDepth: 1,
-      savePoints: 1,
+      savePoints: 1, model: "anthropic/claude-sonnet-4",
     }), env);
 
     const raw = readFileSync(acmLedgerPath(env), "utf8");
@@ -62,7 +70,7 @@ describe("boundary ledger", () => {
       const keys = Object.keys(parsed);
       // An allowlist, not a denylist: a future field carrying text must fail here.
       expect(keys.every((k) => [
-        "kind", "gauge", "ts", "session", "boundary", "budget", "window", "foldTurn",
+        "kind", "gauge", "core", "model", "ts", "session", "boundary", "budget", "window", "foldTurn",
         "foldTask", "foldsSoFar", "entries", "afterBoundary", "budgetBefore",
         "budgetAfter", "messageDelta", "summaryDepth", "direction", "savePoints",
       ].includes(k))).toBe(true);
@@ -77,13 +85,25 @@ describe("boundary ledger", () => {
     const state = createLedgerState("s3");
     appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: undefined, windowPercent: Number.NaN,
-      foldTurnPercent: null, foldTaskPercent: undefined, entries: 1,
+      foldTurnPercent: null, foldTaskPercent: undefined, entries: 1, model: null,
     }), env);
     const row = JSON.parse(readFileSync(acmLedgerPath(env), "utf8").trim());
     expect(row.budget).toBeNull();
     expect(row.window).toBeNull();
     expect(row.foldTurn).toBeNull();
     expect(row.foldTask).toBeNull();
+    expect(row.model).toBeNull();
+  });
+
+  test("normalizes the host model into provider/id and never guesses", () => {
+    expect(modelDiscriminator({ provider: "openai", id: "gpt-5" })).toBe("openai/gpt-5");
+    // A model record without a provider still identifies the model.
+    expect(modelDiscriminator({ id: "local-model" })).toBe("local-model");
+    // No model, no id, or non-string junk → null, never a placeholder string.
+    expect(modelDiscriminator(undefined)).toBeNull();
+    expect(modelDiscriminator(null)).toBeNull();
+    expect(modelDiscriminator({ provider: "openai" })).toBeNull();
+    expect(modelDiscriminator({ provider: 3, id: 7 } as never)).toBeNull();
   });
 
   test("counts a boundary once per distinct entry, not once per tool result", () => {
@@ -113,10 +133,10 @@ describe("boundary ledger", () => {
     const state = createLedgerState("s5");
     expect(() => appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 1, windowPercent: 1,
-      foldTurnPercent: 1, foldTaskPercent: 1, entries: 1,
+      foldTurnPercent: 1, foldTaskPercent: 1, entries: 1, model: null,
     }), env)).not.toThrow();
     expect(appendLedgerRow("fold", buildFoldRow({
-      state, budgetBefore: 1, budgetAfter: 1, messageDelta: 1, summaryDepth: 1,
+      state, budgetBefore: 1, budgetAfter: 1, messageDelta: 1, summaryDepth: 1, model: null,
     }), env)).toBe(false);
   });
 
@@ -126,7 +146,7 @@ describe("boundary ledger", () => {
     const state = createLedgerState("s6");
     expect(appendLedgerRow("boundary", buildBoundaryRow({
       state, boundary: 1, budgetPercent: 1, windowPercent: 1,
-      foldTurnPercent: 1, foldTaskPercent: 1, entries: 1,
+      foldTurnPercent: 1, foldTaskPercent: 1, entries: 1, model: null,
     }), env)).toBe(false);
     expect(existsSync(acmLedgerPath(env))).toBe(false);
   });
@@ -145,13 +165,13 @@ describe("boundary ledger", () => {
     // Boundary, then fold, then the next boundary: the fold row carries the
     // boundary ordinal, and the later boundary row sees the fold count.
     markBoundaryCounted(stateA, "u1");
-    const fold = buildFoldRow({ state: stateA, budgetBefore: 50, budgetAfter: 20, messageDelta: 10, summaryDepth: 1 });
+    const fold = buildFoldRow({ state: stateA, budgetBefore: 50, budgetAfter: 20, messageDelta: 10, summaryDepth: 1, model: null });
     expect(fold.session).toBe(stateA.session);
     expect(fold.afterBoundary).toBe(1);
     markFoldCounted(stateA);
     const boundary = buildBoundaryRow({
       state: stateA, boundary: markBoundaryCounted(stateA, "u2"),
-      budgetPercent: 21, windowPercent: 8, foldTurnPercent: null, foldTaskPercent: null, entries: 5,
+      budgetPercent: 21, windowPercent: 8, foldTurnPercent: null, foldTaskPercent: null, entries: 5, model: null,
     });
     expect(boundary.session).toBe(stateA.session);
     expect(boundary.foldsSoFar).toBe(1);

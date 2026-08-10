@@ -41,7 +41,7 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { appendLedgerRow, buildFoldRow, markFoldCounted } from "./boundary-ledger.js";
+import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator } from "./boundary-ledger.js";
 import { calculateContextUsagePressure, foldProjectionScaleName } from "./context-pressure.js";
 
 /**
@@ -857,6 +857,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           messageDelta: currentMessages.length - afterMessages.length,
           summaryDepth: activeSummaryDepthAfter,
           savePoints: savePointsAfter,
+          model: modelDiscriminator((ctx as { model?: { provider?: unknown; id?: unknown } }).model),
         }));
         if (written) markFoldCounted(ledgerState);
       } catch {

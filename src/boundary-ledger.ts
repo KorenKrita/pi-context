@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { ACM_CORE } from "./generated-guidance.js";
 
 /**
  * Append-only ledger of user-request boundaries and folds.
@@ -16,7 +18,8 @@ import { dirname, join } from "node:path";
  *
  * What keeps it lawful under the gauge contract: it does not inject, does not
  * choose a moment, and does not render. It is a writer with a fixed schema —
- * counts and percentages only, never message content — and every failure is
+ * counts, percentages, and structural discriminators (gauge cohort, CORE
+ * digest, model id) only, never message content — and every failure is
  * swallowed. A ledger is not allowed to become a new failure surface.
  */
 
@@ -27,10 +30,24 @@ import { dirname, join } from "node:path";
  */
 export const ACM_GAUGE_FORMAT_VERSION = "v2" as const;
 
+/**
+ * Short digest of the CORE guidance text active in this process. The injected
+ * CORE is never persisted with the session, so without this field a ledger
+ * row cannot be attributed to the guidance wording that produced it — the
+ * exact provenance gap the qualitative reviews hit. A hash, not a version
+ * label: it changes exactly when the model-visible text changes, with no
+ * bookkeeping to forget. 12 hex chars are plenty for cohort separation.
+ */
+export const ACM_CORE_HASH: string = createHash("sha256").update(ACM_CORE, "utf8").digest("hex").slice(0, 12);
+
 /** One row per observed user-request boundary. Counts and percentages only. */
 export interface BoundaryLedgerRow {
   /** Gauge format cohort this row was observed under. */
   gauge: typeof ACM_GAUGE_FORMAT_VERSION;
+  /** CORE guidance digest active when this row was written. */
+  core: string;
+  /** Active model as provider/id; null when the host exposes none. */
+  model: string | null;
   /** Wall clock, so rows from concurrent sessions remain orderable. */
   ts: string;
   /** Stable per-process session discriminator; not a session file path. */
@@ -57,6 +74,10 @@ export interface BoundaryLedgerRow {
 export interface FoldLedgerRow {
   /** Gauge format cohort this row was observed under. */
   gauge: typeof ACM_GAUGE_FORMAT_VERSION;
+  /** CORE guidance digest active when this row was written. */
+  core: string;
+  /** Active model as provider/id; null when the host exposes none. */
+  model: string | null;
   ts: string;
   session: string;
   /** "fold" shrank the working set; "restore" grew it (rehydrate/off-path travel). */
@@ -157,6 +178,20 @@ function floorOrNull(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : null;
 }
 
+/**
+ * Normalize the host's current model into a "provider/id" discriminator.
+ * Structural, not free text: both parts come from the host's model record.
+ * Null when the host exposes no model — never a guessed placeholder.
+ */
+export function modelDiscriminator(model: { provider?: unknown; id?: unknown } | null | undefined): string | null {
+  if (model === null || model === undefined) return null;
+  const provider = typeof model.provider === "string" && model.provider !== "" ? model.provider : null;
+  const id = typeof model.id === "string" && model.id !== "" ? model.id : null;
+  if (id === null) return null;
+  return provider === null ? id : `${provider}/${id}`;
+}
+
+
 export function buildBoundaryRow(input: {
   state: LedgerState;
   boundary: number;
@@ -166,9 +201,12 @@ export function buildBoundaryRow(input: {
   foldTaskPercent: number | null | undefined;
   entries: number;
   savePoints: number | null | undefined;
+  model: string | null;
 }): BoundaryLedgerRow {
   return {
     gauge: ACM_GAUGE_FORMAT_VERSION,
+    core: ACM_CORE_HASH,
+    model: input.model,
     ts: new Date().toISOString(),
     session: input.state.session,
     boundary: input.boundary,
@@ -189,12 +227,15 @@ export function buildFoldRow(input: {
   messageDelta: number | null | undefined;
   summaryDepth: number | null | undefined;
   savePoints: number | null | undefined;
+  model: string | null;
 }): FoldLedgerRow {
   const messageDelta = typeof input.messageDelta === "number" && Number.isFinite(input.messageDelta)
     ? input.messageDelta
     : null;
   return {
     gauge: ACM_GAUGE_FORMAT_VERSION,
+    core: ACM_CORE_HASH,
+    model: input.model,
     ts: new Date().toISOString(),
     session: input.state.session,
     direction: messageDelta !== null && messageDelta < 0 ? "restore" : "fold",
