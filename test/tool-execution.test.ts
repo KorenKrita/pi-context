@@ -1139,7 +1139,7 @@ describe("ACM tool execution contracts", () => {
     const autoText = (auto.content[0] as { text: string }).text;
     // The excerpt names the anchored message, quoted and capped: content past
     // the excerpt limit stays out, terminal controls are neutralized.
-    expect(autoText).toContain('Anchor excerpt: "');
+    expect(autoText).toContain('That message: "');
     expect(autoText).toContain("parser bug");
     expect(autoText).not.toContain("SENTINEL-BEYOND-EXCERPT");
     expect(autoText).not.toContain("\u001B");
@@ -1157,7 +1157,7 @@ describe("ACM tool execution contracts", () => {
       buildContext("excerpt-empty-call", ""),
     );
     expect(empty.details?.error).toBeUndefined();
-    expect((empty.content[0] as { text: string }).text).toContain("Anchor excerpt: [no text content]");
+    expect((empty.content[0] as { text: string }).text).toContain("That message: [no text content]");
 
     // Explicit targets are caller-chosen positions: the receipt reports the
     // target as before and carries no automatic-placement consequence prose.
@@ -1172,7 +1172,7 @@ describe("ACM tool execution contracts", () => {
     expect(explicit.details).toMatchObject({ targetResolution: "explicit" });
     const explicitText = (explicit.content[0] as { text: string }).text;
     expect(explicitText).toContain("explicit target 'excerpt-anchor'");
-    expect(explicitText).not.toContain("Anchor excerpt");
+    expect(explicitText).not.toContain("That message:");
     expect(explicitText).not.toContain("conversation context");
   });
 

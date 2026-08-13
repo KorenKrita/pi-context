@@ -414,7 +414,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         ? `a ${role} node — the newest complete message before this call, since the current assistant turn is still being written${autoResolved.protocolStatus === "repaired" ? " (tool protocol repaired)" : ""}${skippedCount ? `; skipped ${skippedCount} newer unsafe/unavailable entr${skippedCount === 1 ? "y" : "ies"}` : ""}`
         : `a ${role} node; explicit target '${params.target}'`;
       const anchorNote = autoResolved
-        ? ` Anchor excerpt: ${autoResolved.snippet?.length ? JSON.stringify(sanitizeTerminalText(autoResolved.snippet)) : "[no text content]"}. Travel to this save point returns conversation context to that completed message, before the later work in the assistant turn that created the save point.`
+        ? ` That message: ${autoResolved.snippet?.length ? JSON.stringify(sanitizeTerminalText(autoResolved.snippet)) : "[no text content]"}. Travel to this save point returns conversation context to that completed message, before the later work in the assistant turn that created the save point.`
         : "";
       const action = status === "already_present" ? "Reused" : "Created";
       return {
