@@ -56,5 +56,5 @@ The gauge reports where the session stands; the fold test alone decides readines
 
 When `boundary` shows, a request has begun. The previous stretch, if one exists, just became history — a second look at what the delivery moment already asked: run the fold test on it before diving deep. Concrete → fold first and start light, carrying the current request and the conclusions it needs in the handoff. Vague → continue; deciding not to fold an undigested stretch is the test working, not a missed fold.
 
-**Need a folded detail? It stays in reach.** Folded history is the first source for anything the session once knew. Search the timeline; when the result contains the detail, use it directly. When fuller context is needed, travel to the archived branch, take it, and travel back.
+**Need a folded detail? It stays in reach.** Folded history is the first source for anything the session once knew. Search the timeline; when the result contains the detail, use it directly. When one entry's full text is enough, read it with the node view. When the work needs the whole archived branch as context, travel to it, take what it holds, and travel back.
 <!-- ACM:CORE:END -->

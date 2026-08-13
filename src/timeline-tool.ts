@@ -12,8 +12,10 @@ import {
   countActiveSummaryDepth,
   estimateUsageAfterMessageChange,
   extractTextFromContent,
+  findInTree,
   formatContextUsage,
   getEntryLabel,
+  resolveTargetId,
   optionalString,
   projectSummaryDepthAfterTravel,
   pushTreeChildrenPreOrder,
@@ -185,6 +187,35 @@ function snippet(text: string, max = 100): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat;
 }
 
+/** Nearest spine ancestors with readable text, returned in chronological order (closest to the target last). */
+function collectSpineNeighbors(spine: readonly SessionEntry[], targetId: string, count: number): SessionEntry[] {
+  const collected: SessionEntry[] = [];
+  for (let index = spine.length - 1; index >= 0 && collected.length < count; index--) {
+    const entry = spine[index]!;
+    if (entry.id === targetId) continue;
+    if (entryText(entry, true).length === 0) continue;
+    collected.push(entry);
+  }
+  return collected.reverse();
+}
+
+/** Nearest descendants with readable text, breadth-first so every child branch is represented honestly. */
+function collectDescendantNeighbors(
+  node: SessionTreeNode,
+  count: number,
+  signal?: AbortSignal,
+): { neighbors: SessionEntry[]; branchCount: number } {
+  const queue: SessionTreeNode[] = [...node.children];
+  const neighbors: SessionEntry[] = [];
+  while (queue.length > 0 && neighbors.length < count) {
+    if (signal?.aborted) break;
+    const next = queue.shift()!;
+    if (entryText(next.entry, true).length > 0) neighbors.push(next.entry);
+    queue.push(...next.children);
+  }
+  return { neighbors, branchCount: node.children.length };
+}
+
 // Tree noise filter: the same conversation-first bar the active view uses.
 // Structural/metadata nodes (model changes, labels, tool plumbing) are
 // spliced out — their children are promoted — so the branch shape survives
@@ -300,9 +331,14 @@ function fitTimelineOutputToBudget(
   text: string,
   budget: number,
   leafId: string | null,
+  nodeTargetId?: string | null,
 ): { text: string; truncated: boolean } {
   if (text.length <= budget) return { text, truncated: false };
-  const footer = `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId ?? "none"}. Use a narrower filter/query or a smaller view.]`;
+  // The node view reads one entry in full, so "narrow the query" is not an
+  // available move there; its footer names the target and states the cut.
+  const footer = nodeTargetId
+    ? `\n… [timeline node output truncated at ${budget} characters; node ${nodeTargetId}; active leaf ${leafId ?? "none"}.]`
+    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId ?? "none"}. Use a narrower filter/query or a smaller view.]`;
   const prefixLength = Math.max(0, budget - footer.length);
   return { text: `${text.slice(0, prefixLength)}${footer}`, truncated: true };
 }
@@ -329,12 +365,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       Type.Literal("active"),
       Type.Literal("checkpoints"),
       Type.Literal("search"),
+      Type.Literal("node"),
       Type.Literal("tree"),
     ], { description: "Timeline view mode. Default: active." })),
     limit: limitSchema,
     verbose: Type.Optional(Type.Boolean({ description: "Active view only: show all messages, including internal tool traffic and metadata." })),
     filter: Type.Optional(Type.String({ minLength: 1, description: "Narrow the checkpoints view by label or node-ID substring (case-insensitive)." })),
     query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the whole tree. Required for view=search." })),
+    target: Type.Optional(Type.String({ minLength: 1, description: "Node to read: a checkpoint name or node ID. Required for view=node." })),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -356,10 +394,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const verbose = args.verbose === null ? undefined : args.verbose;
       const filter = optionalString(args.filter);
       const query = optionalString(args.query);
+      const target = optionalString(args.target);
       const qualifiers = [`limit ${limit ?? 50}`];
       if (view === "active" && verbose) qualifiers.push("verbose");
       if (view === "checkpoints" && filter) qualifiers.push(`filter “${sanitizeTerminalText(filter)}”`);
       if (view === "search" && query) qualifiers.push(`query “${sanitizeTerminalText(query)}”`);
+      if (view === "node" && target) qualifiers.push(`target “${sanitizeTerminalText(target)}”`);
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
           + theme.fg("accent", displayView)
@@ -432,6 +472,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } else if (view === "search") {
         const matches = asCount(details?.searchDisplayedMatches);
         evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
+      } else if (view === "node") {
+        const nodeId = typeof details?.nodeEntryId === "string" ? sanitizeTerminalText(details.nodeEntryId) : "unknown";
+        const before = asCount(details?.nodeBeforeCount);
+        const after = asCount(details?.nodeAfterCount);
+        evidence = `node ${nodeId} · ${before} before · ${after} after`;
       } else if (view === "tree") {
         const lines = asCount(details?.outputLines);
         evidence = `${lines} rendered lines${details?.treeTruncated ? " · truncated" : ""}`;
@@ -476,21 +521,30 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const verbose = rawParams.verbose === null ? undefined : rawParams.verbose;
       const filter = optionalString(rawParams.filter);
       const query = optionalString(rawParams.query);
-      const params = { view, limit: limit ?? 50, verbose, filter, query } as
+      const target = optionalString(rawParams.target);
+      const params = { view, limit: limit ?? 50, verbose, filter, query, target } as
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
         | { view: "search"; limit: number; query: string }
+        | { view: "node"; limit: number; target: string }
         | { view: "tree"; limit: number; verbose?: boolean };
       // Silently ignored parameters produce false negatives (a filter on the
       // search view looks like an empty result). Name what was ignored.
       const ignoredParams: string[] = [];
       if (filter && view !== "checkpoints") ignoredParams.push(`'filter' (only applies to view=checkpoints)`);
       if (query && view !== "search") ignoredParams.push(`'query' (only applies to view=search)`);
+      if (target && view !== "node") ignoredParams.push(`'target' (only applies to view=node)`);
       if (verbose !== undefined && view !== "active" && view !== "tree") ignoredParams.push(`'verbose' (only applies to view=active and view=tree)`);
       if (params.view === "search" && !params.query) {
         return {
           content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
           details: { error: "missing_query" },
+        };
+      }
+      if (params.view === "node" && !params.target) {
+        return {
+          content: [{ type: "text" as const, text: "Error: 'target' is required when view=node. Pass a checkpoint name or node ID; view=search locates candidates." }],
+          details: { error: "missing_target" },
         };
       }
       const requestedLimit = params.limit;
@@ -529,6 +583,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let rootProjectedSummaryDepth: number | null = null;
       let searchDisplayedMatches = 0;
       let searchTruncated = false;
+      let nodeRequestedTarget: string | null = null;
+      let nodeEntryId: string | null = null;
+      let nodeLabel: string | null = null;
+      let nodeRole: string | null = null;
+      let nodeOnActivePath = false;
+      let nodeBeforeCount = 0;
+      let nodeAfterCount = 0;
 
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
@@ -640,6 +701,48 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) lines.push("  ... additional matches truncated");
+      } else if (params.view === "node") {
+        nodeRequestedTarget = params.target;
+        const resolved = resolveTargetId(sessionManager, tree, params.target, activeIds, labelMaps);
+        const treeNode = resolved.id.length > 0 ? findInTree(tree, (n) => n.entry.id === resolved.id) : undefined;
+        if (!treeNode) {
+          return {
+            content: [{ type: "text" as const, text: `Error: Target '${boundedTimelineValue(params.target)}' not found in the session tree. Valid targets are checkpoint names and node IDs; view=search locates candidates.` }],
+            details: { error: "target_not_found", nodeRequestedTarget: params.target, resolvedTargetId: resolved.id },
+          };
+        }
+        const targetEntry = treeNode.entry;
+        nodeEntryId = targetEntry.id;
+        nodeRole = displayRole(targetEntry);
+        nodeOnActivePath = activeIds.has(targetEntry.id);
+        const label = getEntryLabel(labelMaps, targetEntry.id);
+        nodeLabel = label ?? null;
+        // Spine ancestors and nearest descendants frame the target; the tree
+        // may fork below it, so "after" lists nearest readable descendants
+        // across every child branch instead of claiming one linear next.
+        const spine = sessionManager.getBranch(targetEntry.id);
+        const neighborRadius = 2;
+        const beforeQuota = Math.min(neighborRadius, Math.max(0, effectiveLimit - 1));
+        const before = collectSpineNeighbors(spine, targetEntry.id, beforeQuota);
+        const afterQuota = Math.min(neighborRadius, Math.max(0, effectiveLimit - 1 - before.length));
+        const afterResult = collectDescendantNeighbors(treeNode, afterQuota, signal);
+        nodeBeforeCount = before.length;
+        nodeAfterCount = afterResult.neighbors.length;
+        const displayLabel = formatTimelineLabel(label, rawArchiveAliases);
+        lines.push(`Node ${targetEntry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${nodeRole}] — ${nodeOnActivePath ? "on-path" : "off-path"}; full text below with ${nodeBeforeCount} neighbor(s) before and ${nodeAfterCount} after.`);
+        for (const entry of before) {
+          lines.push(`  before ${entry.id} [${displayRole(entry)}] ${snippet(entryText(entry, true))}`);
+        }
+        const fullText = entryText(targetEntry, true);
+        lines.push(`--- node ${targetEntry.id} full text ---`);
+        lines.push(fullText.length > 0 ? fullText : "[no text content]");
+        lines.push(`--- end of node ${targetEntry.id} ---`);
+        if (afterResult.branchCount > 1) {
+          lines.push(`  (${afterResult.branchCount} child branches continue from this node; nearest readable descendants listed below)`);
+        }
+        for (const entry of afterResult.neighbors) {
+          lines.push(`  after ${entry.id} [${displayRole(entry)}] ${snippet(entryText(entry, true))}`);
+        }
       } else if (params.view === "tree") {
         const treeVerbose = params.verbose ?? false;
         const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
@@ -877,11 +980,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? checkpointsCue
           : params.view === "search"
             ? GUIDANCE_CUES.timelineSearch
-            : GUIDANCE_CUES.timelineTree;
+            : params.view === "node"
+              ? GUIDANCE_CUES.timelineNode
+              : GUIDANCE_CUES.timelineTree;
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
       const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
-      const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId);
+      const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId, params.view === "node" ? nodeEntryId : null);
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
@@ -918,6 +1023,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,
           searchDisplayedMatches: params.view === "search" ? searchDisplayedMatches : null,
           searchTruncated: params.view === "search" ? searchTruncated : false,
+          nodeRequestedTarget: params.view === "node" ? nodeRequestedTarget : null,
+          nodeEntryId: params.view === "node" ? nodeEntryId : null,
+          nodeLabel: params.view === "node" ? nodeLabel : null,
+          nodeRole: params.view === "node" ? nodeRole : null,
+          nodeOnActivePath: params.view === "node" ? nodeOnActivePath : null,
+          nodeBeforeCount: params.view === "node" ? nodeBeforeCount : null,
+          nodeAfterCount: params.view === "node" ? nodeAfterCount : null,
           outputLines: lines.length,
           contextRefreshPending: refreshPending,
           contextRefreshFailure: refreshFailure ?? null,

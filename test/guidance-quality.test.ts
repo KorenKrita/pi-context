@@ -162,6 +162,12 @@ describe("ACM guidance quality", () => {
 
 		test("folded history is the first source before asking the user", () => {
 			expect(ACM_CORE).toContain("Folded history is the first source");
+			// Three-tier retrieval: search hit → node full text → branch travel.
+			// The middle tier keeps single-fact retrieval from paying travel's
+			// mutation cost, and the description owns the honest-billing fact.
+			expect(ACM_CORE).toContain("read it with the node view");
+			expect(TOOL_DESCRIPTIONS.timeline).toContain("`node`");
+			expect(TOOL_DESCRIPTIONS.timeline).toContain("joins the active context");
 		});
 
 		test("prompt surfaces carry scenario triggers, not contracts", () => {

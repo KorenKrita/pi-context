@@ -51,6 +51,7 @@ export function deriveGuidance(coreSource, contractsSource) {
       timelineActive: extract("CUE_TIMELINE_ACTIVE"),
       timelineCheckpoints: extract("CUE_TIMELINE_CHECKPOINTS"),
       timelineSearch: extract("CUE_TIMELINE_SEARCH"),
+      timelineNode: extract("CUE_TIMELINE_NODE"),
       timelineTree: extract("CUE_TIMELINE_TREE"),
     },
     treeSummaryInstructions: extract("TREE_SUMMARY_INSTRUCTIONS"),

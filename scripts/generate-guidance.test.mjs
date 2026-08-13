@@ -150,6 +150,7 @@ describe("canonical guidance generation", () => {
       "checkpoint",
       "timelineActive",
       "timelineCheckpoints",
+      "timelineNode",
       "timelineSearch",
       "timelineTree",
       "travel",
@@ -163,6 +164,7 @@ describe("canonical guidance generation", () => {
     expect(GUIDANCE_CUES.travel).toContain("execute next");
     expect(GUIDANCE_CUES.timelineCheckpoints).toContain("Raw-archive");
     expect(GUIDANCE_CUES.timelineSearch).toContain("whole tree");
+    expect(GUIDANCE_CUES.timelineNode).toContain("active branch is unchanged");
   });
 
   test("keeps recovery branches separately selectable", () => {

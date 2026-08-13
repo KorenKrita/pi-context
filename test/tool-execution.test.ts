@@ -1281,6 +1281,116 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
+  test("node view returns an off-path entry in full without mutating the tree", async () => {
+    // Forked tree: root -> [active branch (kept), archived branch (off-path)].
+    // The archived entry's text is far past the 100-char search snippet cut.
+    const archivedText = `The parser rejects nested template literals because the lexer state machine drops one brace depth. ${"Detail sentence about the archived investigation. ".repeat(6)}`;
+    const root = userEntry("entry-root");
+    const activeChild = userEntry("entry-active", root.id);
+    const archived: SessionEntry = {
+      type: "message",
+      id: "entry-archived",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:01:00.000Z",
+      message: { role: "assistant", content: archivedText, timestamp: 0 },
+    } as SessionEntry;
+    const archivedFollowUp = userEntry("entry-archived-next", archived.id, "2026-01-01T00:02:00.000Z");
+    const entries = [root, activeChild, archived, archivedFollowUp, labelEntry("label-arch", archived.id, "parser-notes")];
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: activeChild, children: [] },
+        { entry: archived, children: [{ entry: archivedFollowUp, children: [] }] },
+      ],
+    }];
+    const sessionManager = {
+      getTree: () => tree,
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        if (fromId === archived.id) return [root, archived];
+        if (fromId === archivedFollowUp.id) return [root, archived, archivedFollowUp];
+        return [root, activeChild];
+      },
+      getLeafId: () => activeChild.id,
+      appendLabelChange: () => { throw new Error("node view must not mutate labels"); },
+      branchWithSummary: () => { throw new Error("node view must not branch"); },
+    };
+    const ctx = {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 1_000_000, percent: 1 }),
+      ui: { notify() {} },
+    };
+    const leafBefore = sessionManager.getLeafId();
+    const entryCountBefore = entries.length;
+
+    const result = await executeTimeline("node-read", { view: "node", target: "parser-notes" }, undefined, undefined, ctx);
+
+    const text = result.content[0]?.text ?? "";
+    // entryText is the readable-text projection: extractTextFromContent trims.
+    expect(text).toContain(archivedText.trim());
+    expect(text).toContain("--- node entry-archived full text ---");
+    expect(text).toContain("off-path");
+    expect(text).toContain("checkpoint: parser-notes");
+    expect(text).toContain("before entry-root");
+    expect(text).toContain("after entry-archived-next");
+    expect(result.details).toMatchObject({
+      view: "node",
+      nodeRequestedTarget: "parser-notes",
+      nodeEntryId: "entry-archived",
+      nodeLabel: "parser-notes",
+      nodeRole: "AI",
+      nodeOnActivePath: false,
+      nodeBeforeCount: 1,
+      nodeAfterCount: 1,
+    });
+    expect(sessionManager.getLeafId()).toBe(leafBefore);
+    expect(entries.length).toBe(entryCountBefore);
+  });
+
+  test("node view reports a stable error for an unknown target without mutating", async () => {
+    const fixture = timelineContext();
+    const result = await executeTimeline("node-miss", { view: "node", target: "no-such-checkpoint" }, undefined, undefined, fixture);
+    expect(result.details).toMatchObject({ error: "target_not_found", nodeRequestedTarget: "no-such-checkpoint" });
+    expect(result.content[0]?.text ?? "").toContain("view=search locates candidates");
+
+    const missing = await executeTimeline("node-missing-target", { view: "node" }, undefined, undefined, fixture);
+    expect(missing.details).toMatchObject({ error: "missing_target" });
+  });
+
+  test("node view truncation footer names the node instead of suggesting a narrower query", async () => {
+    const hugeText = "archived fact ".repeat(40_000);
+    const root = userEntry("entry-root");
+    const huge: SessionEntry = {
+      type: "message",
+      id: "entry-huge",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:01:00.000Z",
+      message: { role: "assistant", content: hugeText, timestamp: 0 },
+    } as SessionEntry;
+    const tree: SessionTreeNode[] = [{ entry: root, children: [{ entry: huge, children: [] }] }];
+    const sessionManager = {
+      getTree: () => tree,
+      getEntries: () => [root, huge],
+      getBranch: (fromId?: string) => fromId === huge.id ? [root, huge] : [root],
+      getLeafId: () => root.id,
+    };
+    const ctx = {
+      sessionManager,
+      // Small window drives a small character budget so the huge node overflows it.
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 20_000, percent: 50 }),
+      ui: { notify() {} },
+    };
+    const result = await executeTimeline("node-truncated", { view: "node", target: "entry-huge" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    const budget = result.details?.resultCharacterBudget;
+    if (typeof budget !== "number") throw new Error("node view omitted its character budget");
+    expect(result.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
+    expect(text.length).toBeLessThanOrEqual(budget);
+    expect(text).toContain(`… [timeline node output truncated at ${budget} characters; node entry-huge; active leaf ${root.id}.]`);
+    expect(text).not.toContain("Use a narrower filter/query");
+  });
+
+
   test("timeline output carries no skill routing regardless of advertised commands", async () => {
     // The skill layer is deleted; the timeline reports facts and cues only,
     // even when a host advertises a similarly named command.

@@ -60,14 +60,19 @@ describe("ACM tool parameter schema limits", () => {
     const limit = timelineProperties.limit!;
     const filter = timelineProperties.filter!;
     const query = timelineProperties.query!;
+    const target = timelineProperties.target!;
 
     expect(limit).toMatchObject({ minimum: 1 });
     expect(limit.description).toContain("Default 50.");
     expect(limit).not.toHaveProperty("maximum");
-    for (const value of [filter, query]) {
+    for (const value of [filter, query, target]) {
       expect(value).toMatchObject({ minLength: 1 });
       expect(value).not.toHaveProperty("maxLength");
     }
+
+    const view = timelineProperties.view! as SchemaObject & { anyOf?: Array<{ const?: unknown }> };
+    const viewLiterals = (view.anyOf ?? []).map((option) => option.const);
+    expect(viewLiterals).toContain("node");
   });
 
   test("allows long travel references and archive aliases while retaining non-empty and alias-format constraints", () => {

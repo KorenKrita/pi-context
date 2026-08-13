@@ -11,7 +11,7 @@ Name the current conversation position so a later fold or travel can return to i
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (whole-tree search, folded history included), `tree` (branch structure). Reports token usage.
+View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (whole-tree search, folded history included), `node` (one entry's full text with its nearest neighbors — archived text returned this way joins the active context), `tree` (branch structure). Reports token usage.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
@@ -65,8 +65,12 @@ For a fold, choose an entry immediately before the material being replaced. Raw-
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as travel or checkpoint targets.
+Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
+
+<!-- ACM:CUE_TIMELINE_NODE:START -->
+Selected node read in full; the active branch is unchanged. Use the returned detail directly in the current work.
+<!-- ACM:CUE_TIMELINE_NODE:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->
 This is the session's branch structure; verify candidate ancestry before travel.

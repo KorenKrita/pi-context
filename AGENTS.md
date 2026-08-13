@@ -7,7 +7,7 @@
 | 工具 | 作用 |
 |---|---|
 | `acm_checkpoint` | 给会话历史节点追加语义 save point（label alias） |
-| `acm_timeline` | active / checkpoints / search / tree 单一视图与 HUD |
+| `acm_timeline` | active / checkpoints / search / node / tree 单一视图与 HUD |
 | `acm_travel` | fold：回到较早节点，把之后的历史替换为七行 handoff |
 
 设计立场（2026-07-31 affirmative-guidance 重构后）：**代码层厚，注入层薄，文案全部正向肯定**。运行时正确性（事务、回滚、协议校验、settled sync）由代码和测试保证；给模型的引导只有恒定面，无 Skill、无流程机器、无阈值措辞。
@@ -131,7 +131,7 @@ ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备�
 
 ### Timeline 契约
 
-strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。每次调用受 context-derived entry/character budget 约束。
+strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。每次调用受 context-derived entry/character budget 约束。
 
 ### Manual `/tree`
 

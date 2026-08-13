@@ -188,6 +188,32 @@ describe("ACM tool rendering", () => {
     expect(render(expanded)).toContain("match five");
   });
 
+  test("timeline node view renders its target and neighbor evidence", () => {
+    const args = { view: "node", target: "parser-notes", limit: 50 };
+    const call = timeline.renderCall!(args, theme, renderContext(args));
+    expect(render(call)).toContain("◆ ACM TIMELINE  node  ·  limit 50 · target “parser-notes”");
+
+    const result = timeline.renderResult!(
+      {
+        content: [{ type: "text", text: "[Context Dashboard]\n---------------------------------------------------\nNode entry-archived" }],
+        details: {
+          view: "node",
+          nodeEntryId: "entry-archived",
+          nodeBeforeCount: 2,
+          nodeAfterCount: 1,
+          activeSummaryDepth: 0,
+          contextDeliveryPhase: "active",
+        },
+      },
+      { expanded: false, isPartial: false },
+      theme,
+      renderContext(args),
+    );
+    const output = render(result);
+    expect(output).toContain("✓ TIMELINE READY  NODE");
+    expect(output).toContain("node entry-archived · 2 before · 1 after");
+  });
+
   test("timeline renders legacy checkpoint details without inventing zero entry counts", () => {
     const args = { view: "checkpoints", limit: 5 };
     const result = timeline.renderResult!(
