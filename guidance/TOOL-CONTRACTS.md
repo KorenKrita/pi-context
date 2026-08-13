@@ -69,7 +69,7 @@ Search covers the whole tree, folded history included; ACM's own tool receipts a
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_NODE:START -->
-Selected node read in full; the active branch is unchanged. Use the returned detail directly in the current work.
+Node text returned; the active branch is unchanged. The end-of-node marker confirms a complete read — a truncation footer in its place names what was cut. Use the returned detail directly in the current work.
 <!-- ACM:CUE_TIMELINE_NODE:END -->
 
 <!-- ACM:CUE_TIMELINE_TREE:START -->

@@ -204,16 +204,20 @@ function collectDescendantNeighbors(
   node: SessionTreeNode,
   count: number,
   signal?: AbortSignal,
-): { neighbors: SessionEntry[]; branchCount: number } {
+): { neighbors: SessionEntry[]; branchCount: number; aborted: boolean } {
   const queue: SessionTreeNode[] = [...node.children];
   const neighbors: SessionEntry[] = [];
+  let aborted = false;
   while (queue.length > 0 && neighbors.length < count) {
-    if (signal?.aborted) break;
+    if (signal?.aborted) {
+      aborted = true;
+      break;
+    }
     const next = queue.shift()!;
     if (entryText(next.entry, true).length > 0) neighbors.push(next.entry);
     queue.push(...next.children);
   }
-  return { neighbors, branchCount: node.children.length };
+  return { neighbors, branchCount: node.children.length, aborted };
 }
 
 // Tree noise filter: the same conversation-first bar the active view uses.
@@ -336,11 +340,16 @@ function fitTimelineOutputToBudget(
   if (text.length <= budget) return { text, truncated: false };
   // The node view reads one entry in full, so "narrow the query" is not an
   // available move there; its footer names the target and states the cut.
+  // IDs come from persisted sessions and may be arbitrarily long, so they
+  // are bounded here to keep the footer itself within the budget.
+  const boundedId = (value: string) => boundedTimelineValue(value, 80);
   const footer = nodeTargetId
-    ? `\n… [timeline node output truncated at ${budget} characters; node ${nodeTargetId}; active leaf ${leafId ?? "none"}.]`
-    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId ?? "none"}. Use a narrower filter/query or a smaller view.]`;
+    ? `\n… [timeline node output truncated at ${budget} characters; node ${boundedId(nodeTargetId)}; active leaf ${leafId === null ? "none" : boundedId(leafId)}.]`
+    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. Use a narrower filter/query or a smaller view.]`;
   const prefixLength = Math.max(0, budget - footer.length);
-  return { text: `${text.slice(0, prefixLength)}${footer}`, truncated: true };
+  // Bounded IDs keep the footer far below the smallest budget; the final
+  // slice enforces the budget invariant even if a future footer outgrows it.
+  return { text: `${text.slice(0, prefixLength)}${footer}`.slice(0, budget), truncated: true };
 }
 
 function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], activeIds: Set<string>): number {
@@ -590,6 +599,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let nodeOnActivePath = false;
       let nodeBeforeCount = 0;
       let nodeAfterCount = 0;
+      let nodeNeighborScanAborted = false;
 
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
@@ -728,15 +738,20 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const afterResult = collectDescendantNeighbors(treeNode, afterQuota, signal);
         nodeBeforeCount = before.length;
         nodeAfterCount = afterResult.neighbors.length;
+        nodeNeighborScanAborted = afterResult.aborted;
         const displayLabel = formatTimelineLabel(label, rawArchiveAliases);
-        lines.push(`Node ${targetEntry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${nodeRole}] — ${nodeOnActivePath ? "on-path" : "off-path"}; full text below with ${nodeBeforeCount} neighbor(s) before and ${nodeAfterCount} after.`);
+        const afterCountText = afterResult.aborted ? `${nodeAfterCount}+ (scan interrupted)` : `${nodeAfterCount}`;
+        lines.push(`Node ${targetEntry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${nodeRole}] — ${nodeOnActivePath ? "on-path" : "off-path"}; node text below with ${nodeBeforeCount} neighbor(s) before and ${afterCountText} after.`);
         for (const entry of before) {
           lines.push(`  before ${entry.id} [${displayRole(entry)}] ${snippet(entryText(entry, true))}`);
         }
         const fullText = entryText(targetEntry, true);
-        lines.push(`--- node ${targetEntry.id} full text ---`);
+        lines.push(`--- node ${targetEntry.id} text ---`);
         lines.push(fullText.length > 0 ? fullText : "[no text content]");
         lines.push(`--- end of node ${targetEntry.id} ---`);
+        if (afterResult.aborted) {
+          lines.push(`  (descendant scan interrupted by cancellation — the after list may omit existing neighbors)`);
+        }
         if (afterResult.branchCount > 1) {
           lines.push(`  (${afterResult.branchCount} child branches continue from this node; nearest readable descendants listed below)`);
         }
@@ -1030,6 +1045,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           nodeOnActivePath: params.view === "node" ? nodeOnActivePath : null,
           nodeBeforeCount: params.view === "node" ? nodeBeforeCount : null,
           nodeAfterCount: params.view === "node" ? nodeAfterCount : null,
+          nodeNeighborScanAborted: params.view === "node" ? nodeNeighborScanAborted : null,
           outputLines: lines.length,
           contextRefreshPending: refreshPending,
           contextRefreshFailure: refreshFailure ?? null,

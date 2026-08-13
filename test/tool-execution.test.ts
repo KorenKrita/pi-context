@@ -1430,7 +1430,11 @@ describe("ACM tool execution contracts", () => {
     const text = result.content[0]?.text ?? "";
     // entryText is the readable-text projection: extractTextFromContent trims.
     expect(text).toContain(archivedText.trim());
-    expect(text).toContain("--- node entry-archived full text ---");
+    expect(text).toContain("--- node entry-archived text ---");
+    // A complete read carries the end-of-node marker — the structural
+    // completeness evidence the cue teaches — and no truncation claim.
+    expect(text).toContain("--- end of node entry-archived ---");
+    expect(result.details).toMatchObject({ outputTruncatedByCharacterBudget: false });
     expect(text).toContain("off-path");
     expect(text).toContain("checkpoint: parser-notes");
     expect(text).toContain("before entry-root");
@@ -1490,6 +1494,75 @@ describe("ACM tool execution contracts", () => {
     expect(text.length).toBeLessThanOrEqual(budget);
     expect(text).toContain(`… [timeline node output truncated at ${budget} characters; node entry-huge; active leaf ${root.id}.]`);
     expect(text).not.toContain("Use a narrower filter/query");
+    // A truncated result must not carry the structural completeness evidence:
+    // the cut removes the end-of-node marker along with the tail.
+    expect(text).not.toContain("--- end of node entry-huge ---");
+  });
+
+  test("node view keeps the budget invariant even when entry IDs are oversized", async () => {
+    // IDs come from persisted sessions — imported, hand-edited, or produced
+    // by another host — so the footer must bound them instead of assuming
+    // they stay short.
+    const hugeId = `entry-${"x".repeat(12_000)}`;
+    const root = userEntry("entry-root");
+    const huge: SessionEntry = {
+      type: "message",
+      id: hugeId,
+      parentId: root.id,
+      timestamp: "2026-01-01T00:01:00.000Z",
+      message: { role: "assistant", content: "archived fact ".repeat(40_000), timestamp: 0 },
+    } as SessionEntry;
+    const tree: SessionTreeNode[] = [{ entry: root, children: [{ entry: huge, children: [] }] }];
+    const sessionManager = {
+      getTree: () => tree,
+      getEntries: () => [root, huge],
+      getBranch: (fromId?: string) => fromId === hugeId ? [root, huge] : [root],
+      getLeafId: () => root.id,
+    };
+    const ctx = {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 10_000, contextWindow: 20_000, percent: 50 }),
+      ui: { notify() {} },
+    };
+    const result = await executeTimeline("node-huge-id", { view: "node", target: hugeId }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    const budget = result.details?.resultCharacterBudget;
+    if (typeof budget !== "number") throw new Error("node view omitted its character budget");
+    expect(result.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
+    expect(text.length).toBeLessThanOrEqual(budget);
+    expect(text).toContain("[timeline node output truncated at");
+  });
+
+  test("a cancelled node request reports the interrupted neighbor scan instead of a clean zero", async () => {
+    // A pre-aborted signal must not let a real descendant disappear into a
+    // confident "0 after" — the receipt has to distinguish "none exist"
+    // from "the scan was cancelled".
+    const root = userEntry("entry-root");
+    const child = userEntry("entry-child", root.id, "2026-01-01T00:01:00.000Z");
+    const tree: SessionTreeNode[] = [{ entry: root, children: [{ entry: child, children: [] }] }];
+    const sessionManager = {
+      getTree: () => tree,
+      getEntries: () => [root, child],
+      getBranch: (fromId?: string) => fromId === root.id ? [root] : [root, child],
+      getLeafId: () => child.id,
+    };
+    const ctx = {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    const controller = new AbortController();
+    controller.abort();
+    const result = await executeTimeline("node-aborted", { view: "node", target: "entry-root" }, controller.signal, undefined, ctx);
+    expect(result.details).toMatchObject({
+      view: "node",
+      nodeEntryId: "entry-root",
+      nodeAfterCount: 0,
+      nodeNeighborScanAborted: true,
+    });
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("scan interrupted");
+    expect(text).toContain("may omit existing neighbors");
   });
 
 

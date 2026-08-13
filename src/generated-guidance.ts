@@ -29,7 +29,7 @@ export const GUIDANCE_CUES = {
   "timelineActive": "This is the current working set; stretches already distilled to their conclusions are fold candidates.",
   "timelineCheckpoints": "For a fold, choose an entry immediately before the material being replaced. Raw-archive aliases restore pre-fold history — travel to them to retrieve details.",
   "timelineSearch": "Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.",
-  "timelineNode": "Selected node read in full; the active branch is unchanged. Use the returned detail directly in the current work.",
+  "timelineNode": "Node text returned; the active branch is unchanged. The end-of-node marker confirms a complete read — a truncation footer in its place names what was cut. Use the returned detail directly in the current work.",
   "timelineTree": "This is the session's branch structure; verify candidate ancestry before travel."
 } as const;
 
