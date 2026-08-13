@@ -1075,6 +1075,108 @@ describe("ACM tool execution contracts", () => {
     expect(getAppendCalls()).toBe(1);
   });
 
+  test("automatic placement receipts show the anchor excerpt and the travel consequence, explicit targets stay bare", async () => {
+    // The automatic anchor lands earlier than the model's felt "now". The
+    // receipt must show which message the label landed on (sanitized, capped
+    // by the shared excerpt limit) and where travel returns to — scoped to
+    // conversation context, never files.
+    const buildContext = (toolCallId: string, userText: string) => {
+      const anchor = {
+        type: "message",
+        id: "excerpt-anchor",
+        parentId: null,
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: { role: "user", content: userText, timestamp: 0 },
+      } as SessionEntry;
+      const checkpointCall = {
+        type: "message",
+        id: "excerpt-checkpoint-call",
+        parentId: anchor.id,
+        timestamp: "2026-01-01T00:00:01.000Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: toolCallId, name: "acm_checkpoint", arguments: { name: "excerpt-mark" } }],
+          api: "test",
+          provider: "test",
+          model: "test",
+          stopReason: "toolUse",
+          timestamp: 1,
+        },
+      } as SessionEntry;
+      const entries: SessionEntry[] = [anchor, checkpointCall];
+      const sessionManager = {
+        getTree: () => [{ entry: anchor, children: [{ entry: checkpointCall, children: [] }] }],
+        getEntries: () => entries,
+        getBranch: (fromId?: string) => {
+          if (fromId === undefined) return [anchor, checkpointCall];
+          const index = entries.findIndex((entry) => entry.id === fromId);
+          return index < 0 ? [] : entries.slice(0, index + 1);
+        },
+        getLeafId: () => checkpointCall.id,
+        getEntry: (id: string) => entries.find((entry) => entry.id === id),
+        appendLabelChange: (targetId: string, label: string | undefined) => {
+          entries.push(labelEntry(`excerpt-label-${entries.length}`, targetId, label));
+          return entries.at(-1)!.id;
+        },
+      };
+      return { sessionManager, getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }), ui: { notify() {} } };
+    };
+
+    const longText = `Fix the \u001B[31mparser bug\u001B[0m in module alpha then update schema docs SENTINEL-BEYOND-EXCERPT`;
+    const auto = await executeCheckpoint(
+      "excerpt-auto-call",
+      { name: "excerpt-mark" },
+      undefined,
+      undefined,
+      buildContext("excerpt-auto-call", longText),
+    );
+    expect(auto.details?.error).toBeUndefined();
+    expect(auto.details).toMatchObject({
+      entryId: "excerpt-anchor",
+      role: "USER",
+      targetResolution: "automatic_protocol_complete",
+    });
+    const autoText = (auto.content[0] as { text: string }).text;
+    // The excerpt names the anchored message, quoted and capped: content past
+    // the excerpt limit stays out, terminal controls are neutralized.
+    expect(autoText).toContain('Anchor excerpt: "');
+    expect(autoText).toContain("parser bug");
+    expect(autoText).not.toContain("SENTINEL-BEYOND-EXCERPT");
+    expect(autoText).not.toContain("\u001B");
+    // The consequence is scoped to conversation context and reads forward:
+    // where travel returns to, relative to the in-progress assistant turn.
+    expect(autoText).toContain("conversation context");
+    expect(autoText).toContain("before the later work in the assistant turn");
+
+    // An empty anchored message reports the fallback honestly.
+    const empty = await executeCheckpoint(
+      "excerpt-empty-call",
+      { name: "excerpt-mark" },
+      undefined,
+      undefined,
+      buildContext("excerpt-empty-call", ""),
+    );
+    expect(empty.details?.error).toBeUndefined();
+    expect((empty.content[0] as { text: string }).text).toContain("Anchor excerpt: [no text content]");
+
+    // Explicit targets are caller-chosen positions: the receipt reports the
+    // target as before and carries no automatic-placement consequence prose.
+    const explicit = await executeCheckpoint(
+      "excerpt-explicit-call",
+      { name: "explicit-mark", target: "excerpt-anchor" },
+      undefined,
+      undefined,
+      buildContext("excerpt-explicit-call", longText),
+    );
+    expect(explicit.details?.error).toBeUndefined();
+    expect(explicit.details).toMatchObject({ targetResolution: "explicit" });
+    const explicitText = (explicit.content[0] as { text: string }).text;
+    expect(explicitText).toContain("explicit target 'excerpt-anchor'");
+    expect(explicitText).not.toContain("Anchor excerpt");
+    expect(explicitText).not.toContain("conversation context");
+  });
+
+
   test("collision recovery is self-contained and points to no external skill files", async () => {
     // The skill layer is deleted; a collision must resolve from the recovery
     // text alone instead of routing the model to files that do not exist.
