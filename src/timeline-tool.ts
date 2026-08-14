@@ -173,8 +173,12 @@ function searchTree(
         || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
         || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
     if (matched) {
-      if (matches.length < limit) matches.push({ entry: node.entry, label });
-      else truncated = true;
+      if (matches.length < limit) {
+        matches.push({ entry: node.entry, label });
+      } else {
+        truncated = true;
+        break;
+      }
     }
     pushTreeChildrenPreOrder(stack, node.children);
   }
@@ -206,14 +210,15 @@ function collectDescendantNeighbors(
   signal?: AbortSignal,
 ): { neighbors: SessionEntry[]; branchCount: number; aborted: boolean } {
   const queue: SessionTreeNode[] = [...node.children];
+  let head = 0;
   const neighbors: SessionEntry[] = [];
   let aborted = false;
-  while (queue.length > 0 && neighbors.length < count) {
+  while (head < queue.length && neighbors.length < count) {
     if (signal?.aborted) {
       aborted = true;
       break;
     }
-    const next = queue.shift()!;
+    const next = queue[head++]!;
     if (entryText(next.entry, true).length > 0) neighbors.push(next.entry);
     queue.push(...next.children);
   }

@@ -1383,6 +1383,102 @@ describe("ACM tool execution contracts", () => {
     expect(searchText).toContain(`truncated ${query.length} chars`);
   });
 
+  test("search stops after the first undisplayed pre-order match", async () => {
+    const root = userEntry("entry-root");
+    const first = userEntry("needle-first", root.id);
+    const second = userEntry("needle-second", first.id);
+    const third = userEntry("needle-third", root.id);
+    let tailContentReads = 0;
+    const tail: SessionEntry = {
+      type: "message",
+      id: "entry-tail",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:03:00.000Z",
+      message: {
+        role: "user",
+        get content() {
+          tailContentReads++;
+          return "nonmatching tail sentinel";
+        },
+        timestamp: 0,
+      },
+    } as SessionEntry;
+    const entries = [root, first, second, third, tail];
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: first, children: [{ entry: second, children: [] }] },
+        { entry: third, children: [] },
+        { entry: tail, children: [] },
+      ],
+    }];
+    const ctx = {
+      sessionManager: {
+        getTree: () => tree,
+        getEntries: () => entries,
+        getBranch: () => [root, first, second],
+        getLeafId: () => second.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("search-early-stop", { view: "search", query: "needle", limit: 2 }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(text.indexOf("needle-first")).toBeLessThan(text.indexOf("needle-second"));
+    expect(text).not.toContain("needle-third");
+    expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: true });
+    expect(text).toContain("additional matches truncated");
+    expect(tailContentReads).toBe(0);
+  });
+
+  test("search does not report truncation when matches exactly fill the limit", async () => {
+    const root = userEntry("entry-root");
+    const first = userEntry("needle-first", root.id);
+    const nonmatch = userEntry("entry-nonmatch", first.id);
+    const second = userEntry("needle-second", root.id);
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: first, children: [{ entry: nonmatch, children: [] }] },
+        { entry: second, children: [] },
+      ],
+    }];
+    const entries = [root, first, nonmatch, second];
+    const ctx = {
+      sessionManager: {
+        getTree: () => tree,
+        getEntries: () => entries,
+        getBranch: () => [root, first, nonmatch],
+        getLeafId: () => nonmatch.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("search-exact-limit", { view: "search", query: "needle", limit: 2 }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("needle-first");
+    expect(text).toContain("needle-second");
+    expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: false });
+    expect(text).not.toContain("additional matches truncated");
+  });
+
+  test("a pre-aborted search preserves the truncated receipt", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executeTimeline(
+      "search-aborted",
+      { view: "search", query: "entry", limit: 2 },
+      controller.signal,
+      undefined,
+      timelineContext(),
+    );
+    expect(result.details).toMatchObject({ searchDisplayedMatches: 0, searchTruncated: true });
+    expect(result.content[0]?.text ?? "").toContain("additional matches truncated");
+  });
+
   test("node view returns an off-path entry in full without mutating the tree", async () => {
     // Forked tree: root -> [active branch (kept), archived branch (off-path)].
     // The archived entry's text is far past the 100-char search snippet cut.
@@ -1451,6 +1547,62 @@ describe("ACM tool execution contracts", () => {
     });
     expect(sessionManager.getLeafId()).toBe(leafBefore);
     expect(entries.length).toBe(entryCountBefore);
+  });
+
+  test("node descendant neighbors preserve BFS order across unreadable child branches", async () => {
+    const root = userEntry("entry-root");
+    const unreadableA = {
+      type: "message",
+      id: "entry-tool-only-a",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:01:00.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-a", name: "read", arguments: { path: "a.md" } }],
+        timestamp: 0,
+      },
+    } as SessionEntry;
+    const unreadableB = {
+      type: "message",
+      id: "entry-tool-only-b",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:02:00.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call-b", name: "read", arguments: { path: "b.md" } }],
+        timestamp: 0,
+      },
+    } as SessionEntry;
+    const readableA = userEntry("entry-readable-a", unreadableA.id, "2026-01-01T00:03:00.000Z");
+    const readableB = userEntry("entry-readable-b", unreadableB.id, "2026-01-01T00:04:00.000Z");
+    const entries = [root, unreadableA, unreadableB, readableA, readableB];
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: unreadableA, children: [{ entry: readableA, children: [] }] },
+        { entry: unreadableB, children: [{ entry: readableB, children: [] }] },
+      ],
+    }];
+    const ctx = {
+      sessionManager: {
+        getTree: () => tree,
+        getEntries: () => entries,
+        getBranch: () => [root],
+        getLeafId: () => readableA.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("node-branching-bfs", { view: "node", target: root.id }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      nodeBeforeCount: 0,
+      nodeAfterCount: 2,
+      nodeNeighborScanAborted: false,
+    });
+    expect(text.indexOf("after entry-readable-a")).toBeLessThan(text.indexOf("after entry-readable-b"));
+    expect(text).toContain("2 child branches");
   });
 
   test("node view reports a stable error for an unknown target without mutating", async () => {
