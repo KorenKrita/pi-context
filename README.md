@@ -74,6 +74,12 @@ pi -e /path/to/pi-context/src/index.ts
 
 ## 开发
 
+本地验证依赖 Bun；CI 固定使用 `1.3.14`（见 `.github/workflows/verify.yml`），本地请安装同版本，避免测试执行器差异造成不可复现的结果：
+
+```bash
+curl -fsSL https://bun.sh/install | bash   # 或 brew install bun，然后切到 1.3.14
+```
+
 ```bash
 npm ci --ignore-scripts
 bun run verify:acm   # 生成物一致性 + 全部测试 + 类型检查 + 真实 Pi host fixture
