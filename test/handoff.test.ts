@@ -22,13 +22,38 @@ function handoff(overrides: Partial<HandoffInput> = {}): HandoffInput {
 }
 
 describe("canonical handoff", () => {
-  test("keeps the four supporting fields optional on the wire", () => {
-    // Three-required/four-optional is the schema-level activation-energy
-    // reduction; a wire shape that re-requires them regresses routine folds.
-    const optional = ["evidence", "external", "exclusions", "recover"] as const;
+  test("lists every field as required with nullable supporting fields for strict tool mode", () => {
+    // Strict JSON-schema tool mode (constrained decoding) demands that every
+    // property appears in `required`; the supporting fields stay cheap to skip
+    // by accepting null, and prepareArguments fills null for callers that
+    // omit them on non-strict channels.
     const required = new Set((StructuredHandoffSchema.required ?? []) as string[]);
-    for (const field of optional) expect(required.has(field)).toBe(false);
-    for (const field of ["goal", "state", "next"]) expect(required.has(field)).toBe(true);
+    for (const field of ["goal", "state", "next", "evidence", "external", "exclusions", "recover"]) {
+      expect(required.has(field)).toBe(true);
+    }
+    const props = StructuredHandoffSchema.properties as Record<string, { anyOf?: Array<{ type?: string }> }>;
+    for (const field of ["evidence", "external", "exclusions", "recover"] as const) {
+      const branches = (props[field]!.anyOf ?? []).map((b) => b.type);
+      expect(branches).toContain("null");
+      expect(branches).toContain("string");
+    }
+  });
+
+  test("explicit null supporting fields become none", () => {
+    const result = buildCanonicalHandoff({
+      goal: "Fix parser",
+      state: "Entry at src/parser.ts:88",
+      next: "Add depth counter",
+      evidence: null,
+      external: null,
+      exclusions: null,
+      recover: null,
+    } as never);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.fields.evidence).toBe("none");
+      expect(result.value.fields.recover).toBe("none");
+    }
   });
 
   test("omitted optional fields become none and required fields stay enforced", () => {

@@ -90,7 +90,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
   const schema = Type.Object({
     target: Type.String({ minLength: 1, description: "Where to return to: checkpoint name, node ID, or 'root'. Pick the point immediately before the material being folded — the checkpoints view lists candidates with projected gains." }),
     handoff: HandoffSchema,
-    backupCurrentHeadAs: Type.Optional(Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$", description: "Optional unique custom name for the automatic return ticket; 'root' is reserved. Omit to use the name derived from the handoff goal." })),
+    backupCurrentHeadAs: Type.Union([
+      Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" }),
+      Type.Null(),
+    ], { description: "Optional unique custom name for the automatic return ticket; 'root' is reserved. Omit or pass null to use the name derived from the handoff goal." }),
   }, { additionalProperties: false });
 
   pi.registerTool({
@@ -100,6 +103,29 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     promptSnippet: PROMPT_SNIPPETS.travel,
     promptGuidelines: PROMPT_GUIDELINES.travel.split("\n"),
     parameters: schema,
+    // Strict JSON-schema tool mode: on channels that support constrained
+    // decoding (e.g. OpenAI Responses) the provider cannot emit a handoff
+    // that violates the wire shape; "prefer" degrades silently elsewhere.
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
+    // Strict mode lists every property in `required`, so older sessions and
+    // non-strict channels that legitimately omit optional fields are
+    // normalized here before validation: absent means null.
+    prepareArguments(args: unknown) {
+      if (typeof args !== "object" || args === null || Array.isArray(args)) {
+        return args as Static<typeof schema>;
+      }
+      const record = { ...(args as Record<string, unknown>) };
+      if (record.backupCurrentHeadAs === undefined) record.backupCurrentHeadAs = null;
+      const handoff = record.handoff;
+      if (typeof handoff === "object" && handoff !== null && !Array.isArray(handoff)) {
+        const filled = { ...(handoff as Record<string, unknown>) };
+        for (const field of ["evidence", "external", "exclusions", "recover"]) {
+          if (filled[field] === undefined) filled[field] = null;
+        }
+        record.handoff = filled;
+      }
+      return record as Static<typeof schema>;
+    },
     executionMode: "sequential",
     renderShell: "self",
     renderCall(rawArgs, theme, context) {

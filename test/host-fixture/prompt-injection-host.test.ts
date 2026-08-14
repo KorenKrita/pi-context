@@ -99,9 +99,12 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     const handoffVariants = travelParameters.properties?.handoff?.anyOf ?? [];
     const structuredHandoff = handoffVariants.find((variant) => variant.type === "object");
     const serializedHandoff = handoffVariants.find((variant) => variant.type === "string");
-    // Three-required/four-optional wire shape: the schema the host actually
-    // serves must not regress to seven-required.
-    expect(structuredHandoff?.required?.sort()).toEqual(["goal", "next", "state"]);
+    // Strict-mode wire shape: every field listed in required so constrained
+    // decoding accepts the schema; supporting fields stay cheap by taking
+    // null, and prepareArguments fills null for callers that omit them.
+    expect(structuredHandoff?.required?.sort()).toEqual([
+      "evidence", "exclusions", "external", "goal", "next", "recover", "state",
+    ]);
     expect(serializedHandoff).toBeDefined();
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

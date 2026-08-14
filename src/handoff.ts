@@ -2,10 +2,14 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 
 export const ACM_CONTINUATION_MARKER = "<!-- PI-CONTEXT:ACM-CONTINUATION:v1 -->";
 
-// Wire shape: goal/state/next required; the four supporting fields optional,
-// defaulting to "none". The persisted durable text always renders all seven
-// labeled lines — parsing anchors and continuation projection depend on the
-// fixed format.
+// Wire shape: goal/state/next take strings; the four supporting fields accept
+// null for "nothing to carry" and default to "none". Every property is listed
+// in `required` so the schema satisfies strict JSON-schema tool mode
+// (constrained decoding); acm_travel's prepareArguments fills omitted
+// supporting fields with null, so callers on non-strict channels may still
+// omit them. The persisted durable text always renders all seven labeled
+// lines — parsing anchors and continuation projection depend on the fixed
+// format.
 export const StructuredHandoffSchema = Type.Object({
   goal: Type.String({
     minLength: 1,
@@ -19,18 +23,18 @@ export const StructuredHandoffSchema = Type.Object({
     minLength: 1,
     description: "The next step to take right now, written as one concrete action. When that step waits on the user's decision, write it as the question to ask.",
   }),
-  evidence: Type.Optional(Type.String({
-    description: "Optional: verifiable pointers supporting state — file paths, commands, IDs — as one string (newline-separated when several), never an array.",
-  })),
-  external: Type.Optional(Type.String({
-    description: "Optional: lasting side effects outside the conversation — files changed, commands run, systems touched.",
-  })),
-  exclusions: Type.Optional(Type.String({
-    description: "Optional: directions tried and ruled out, so they are not retried.",
-  })),
-  recover: Type.Optional(Type.String({
-    description: "Optional: save point names or node IDs that recover folded history, as one string (newline-separated when several), never an array. The automatic return ticket is appended here either way.",
-  })),
+  evidence: Type.Union([Type.String(), Type.Null()], {
+    description: "Verifiable pointers supporting state — file paths, commands, IDs — as one string (newline-separated when several), never an array. Null when there is nothing to carry.",
+  }),
+  external: Type.Union([Type.String(), Type.Null()], {
+    description: "Lasting side effects outside the conversation — files changed, commands run, systems touched. Null when there are none.",
+  }),
+  exclusions: Type.Union([Type.String(), Type.Null()], {
+    description: "Directions tried and ruled out, so they are not retried. Null when there are none.",
+  }),
+  recover: Type.Union([Type.String(), Type.Null()], {
+    description: "Save point names or node IDs that recover folded history, as one string (newline-separated when several), never an array. The automatic return ticket is appended here either way. Null when there are none.",
+  }),
 }, { additionalProperties: false });
 
 export const HandoffSchema = Type.Union([

@@ -7,6 +7,8 @@ import { registerTravelTool } from "../src/travel-tool.js";
 interface CapturedTool {
   name: string;
   parameters: unknown;
+  prepareArguments?: (args: unknown) => unknown;
+  constrainedSampling?: unknown;
 }
 
 type SchemaObject = {
@@ -82,8 +84,11 @@ describe("ACM tool parameter schema limits", () => {
 
     expect(target).toMatchObject({ minLength: 1 });
     expect(target).not.toHaveProperty("maxLength");
-    expect(backup).toMatchObject({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" });
-    expect(backup).not.toHaveProperty("maxLength");
+    const backupBranches = (backup as { anyOf?: SchemaObject[] }).anyOf ?? [];
+    const backupString = backupBranches.find((branch) => (branch as { type?: string }).type === "string");
+    expect(backupString).toMatchObject({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" });
+    expect(backupString).not.toHaveProperty("maxLength");
+    expect(backupBranches.some((branch) => (branch as { type?: string }).type === "null")).toBe(true);
   });
 
   test("defines backupCurrentHeadAs as a new alias rather than an existing target", () => {
@@ -92,5 +97,38 @@ describe("ACM tool parameter schema limits", () => {
 
     expect(description).toContain("automatic return ticket");
     expect(description).toContain("Omit");
+  });
+});
+
+describe("acm_travel strict-mode compatibility", () => {
+  test("declares json_schema constrained sampling as prefer, never require", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    expect(travel.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
+  });
+
+  test("prepareArguments fills omitted supporting fields with null for non-strict callers", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    const prepared = travel.prepareArguments!({
+      target: "probe",
+      handoff: { goal: "g", state: "s", next: "n" },
+    }) as { handoff: Record<string, unknown>; backupCurrentHeadAs: unknown };
+
+    expect(prepared.handoff).toEqual({
+      goal: "g", state: "s", next: "n",
+      evidence: null, external: null, exclusions: null, recover: null,
+    });
+    expect(prepared.backupCurrentHeadAs).toBeNull();
+  });
+
+  test("prepareArguments leaves supplied values and string handoffs untouched", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    const full = { target: "t", backupCurrentHeadAs: "keep", handoff: { goal: "g", state: "s", next: "n", evidence: "e", external: "x", exclusions: "c", recover: "r" } };
+    expect(travel.prepareArguments!(full)).toEqual(full);
+
+    const stringHandoff = { target: "t", handoff: "{\"goal\":\"g\"}" };
+    const prepared = travel.prepareArguments!(stringHandoff) as { handoff: unknown };
+    expect(prepared.handoff).toBe(stringHandoff.handoff);
+
+    expect(travel.prepareArguments!("not-an-object")).toBe("not-an-object");
   });
 });
