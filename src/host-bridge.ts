@@ -220,6 +220,42 @@ export function buildSessionMessages(
   }
 }
 
+/**
+ * One shared read of the session's entries and ID index. Backward anchor
+ * scans consult many candidate leaves; a snapshot hands each of them the
+ * same entries and byId instead of re-reading and re-indexing the whole
+ * session per candidate.
+ */
+export interface SessionSnapshot {
+  readonly entries: readonly SessionEntry[];
+  readonly byId: ReadonlyMap<string, SessionEntry>;
+  /** Build one leaf's messages on the shared snapshot; error shape matches buildSessionMessages. */
+  messagesAt(leafId: string): HostResult<AgentMessage[], { leafId: string | null; cause: string }>;
+}
+
+export function createSessionSnapshot(sm: ReadonlySessionManager): HostResult<SessionSnapshot, { cause: string }> {
+  let entries: SessionEntry[];
+  try {
+    entries = sm.getEntries();
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    return failure("host_operation_failed", `Failed to read session state: ${cause}`, { cause });
+  }
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  return success({
+    entries,
+    byId,
+    messagesAt: (leafId: string) => {
+      try {
+        return success(buildSessionContext(entries, leafId, byId).messages as AgentMessage[]);
+      } catch (error) {
+        const cause = error instanceof Error ? error.message : String(error);
+        return failure("malformed_capability", `Failed to build session messages: ${cause}`, { leafId, cause });
+      }
+    },
+  });
+}
+
 export function prevalidateCheckpointLabel(
   sm: ReadonlySessionManager,
   targetId: string,
