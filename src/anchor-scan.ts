@@ -26,7 +26,7 @@ export interface AnchorScanOptions {
   lowestIndex?: number;
   /** Maximum candidates to inspect; pass ANCHOR_SEARCH_WINDOW. */
   window: number;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /**
    * Accept a "repaired" candidate immediately instead of recording it as the
    * fallback. Used by the return-ticket scan when the travel target packet is
