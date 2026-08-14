@@ -20,7 +20,7 @@ export const StructuredHandoffSchema = Type.Object({
     description: "The next step to take right now, written as one concrete action. When that step waits on the user's decision, write it as the question to ask.",
   }),
   evidence: Type.Optional(Type.String({
-    description: "Optional: verifiable pointers supporting state — file paths, commands, IDs.",
+    description: "Optional: verifiable pointers supporting state — file paths, commands, IDs — as one string (newline-separated when several), never an array.",
   })),
   external: Type.Optional(Type.String({
     description: "Optional: lasting side effects outside the conversation — files changed, commands run, systems touched.",
@@ -29,7 +29,7 @@ export const StructuredHandoffSchema = Type.Object({
     description: "Optional: directions tried and ruled out, so they are not retried.",
   })),
   recover: Type.Optional(Type.String({
-    description: "Optional: save point names or node IDs that recover folded history. The automatic return ticket is appended here either way.",
+    description: "Optional: save point names or node IDs that recover folded history, as one string (newline-separated when several), never an array. The automatic return ticket is appended here either way.",
   })),
 }, { additionalProperties: false });
 
@@ -58,10 +58,35 @@ export type HandoffWireInput = Static<typeof HandoffSchema>;
 export type HandoffField = keyof HandoffInput;
 
 export type HandoffDefect =
-  | { field: HandoffField; reason: "empty" | "none_not_allowed" | "invalid_type" }
+  | { field: HandoffField; reason: "empty" | "none_not_allowed" }
+  | { field: HandoffField; reason: "invalid_type"; expected: "string"; got: string }
   | { field: "handoff"; reason: "invalid_json" }
   | { field: "handoff"; reason: "unexpected_field"; name: string }
   | { field: "rawArchiveAlias"; reason: "invalid_archive_alias" };
+
+/** Name the wire type of a rejected value the way the caller would (array, not object). */
+function wireTypeOf(value: unknown): string {
+  if (value === undefined) return "missing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+/**
+ * Render one defect for the tool error message, carrying enough detail that
+ * the caller can correct the call without guessing: invalid_type names the
+ * expected and actual types, unexpected_field names the offending field.
+ */
+export function formatHandoffDefect(defect: HandoffDefect): string {
+  switch (defect.reason) {
+    case "invalid_type":
+      return `${defect.field}:invalid_type (expected ${defect.expected}, got ${defect.got})`;
+    case "unexpected_field":
+      return `handoff:unexpected_field ('${defect.name}' is not a handoff field)`;
+    default:
+      return `${defect.field}:${defect.reason}`;
+  }
+}
 
 export interface CanonicalHandoff {
   fields: HandoffInput;
@@ -115,12 +140,12 @@ export function buildCanonicalHandoff(
     const required = REQUIRED_FIELDS.has(field);
     if (rawValue === undefined || rawValue === null) {
       // Optional fields default to "none"; missing required fields are defects.
-      if (required) defects.push({ field, reason: "invalid_type" });
+      if (required) defects.push({ field, reason: "invalid_type", expected: "string", got: wireTypeOf(rawValue) });
       else normalizedFields[field] = "none";
       continue;
     }
     if (typeof rawValue !== "string") {
-      defects.push({ field, reason: "invalid_type" });
+      defects.push({ field, reason: "invalid_type", expected: "string", got: wireTypeOf(rawValue) });
       continue;
     }
     const value = normalize(rawValue);

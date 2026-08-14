@@ -22,7 +22,7 @@ import {
   resolveTargetId,
   sanitizeTerminalText,
 } from "./lib.js";
-import { buildCanonicalHandoff, deriveReturnTicketName, HandoffSchema, type HandoffWireInput } from "./handoff.js";
+import { buildCanonicalHandoff, deriveReturnTicketName, formatHandoffDefect, HandoffSchema, type HandoffWireInput } from "./handoff.js";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
   prevalidateBranchWithSummary,
@@ -225,7 +225,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const handoffResult = buildCanonicalHandoff(params.handoff);
       if (!handoffResult.ok) {
         return {
-          content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
+          content: [{ type: "text" as const, text: `Error: structured handoff is invalid: ${handoffResult.defects.map(formatHandoffDefect).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.` }],
           details: { error: "invalid_handoff", defects: handoffResult.defects },
         };
       }
@@ -518,7 +518,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         );
         if (!rebuilt.ok) {
           return {
-            content: [{ type: "text" as const, text: `Error: return ticket name '${returnTicketName}' is not a valid alias: ${rebuilt.defects.map((defect) => `${defect.field}:${defect.reason}`).join(", ")}. Nothing was mutated.` }],
+            content: [{ type: "text" as const, text: `Error: return ticket name '${returnTicketName}' is not a valid alias: ${rebuilt.defects.map(formatHandoffDefect).join(", ")}. Nothing was mutated.` }],
             details: { error: "invalid_return_ticket", name: returnTicketName, defects: rebuilt.defects },
           };
         }

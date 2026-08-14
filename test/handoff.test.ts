@@ -3,6 +3,7 @@ import {
   ACM_CONTINUATION_MARKER,
   buildCanonicalHandoff,
   deriveReturnTicketName,
+  formatHandoffDefect,
   StructuredHandoffSchema,
   type HandoffInput,
 } from "../src/handoff";
@@ -133,8 +134,8 @@ describe("canonical handoff", () => {
     expect(result).toEqual({
       ok: false,
       defects: [
-        { field: "goal", reason: "invalid_type" },
-        { field: "next", reason: "invalid_type" },
+        { field: "goal", reason: "invalid_type", expected: "string", got: "number" },
+        { field: "next", reason: "invalid_type", expected: "string", got: "missing" },
         { field: "handoff", reason: "unexpected_field", name: "unexpected" },
       ],
     });
@@ -189,5 +190,46 @@ describe("canonical handoff", () => {
     expect(deriveReturnTicketName("fix the parser", free)).toBe("fix-the-parser-raw");
     // Mixed goals keep whatever alphanumeric words survive.
     expect(deriveReturnTicketName("修复 parser 的 bug", free)).toBe("parser-bug-raw");
+  });
+});
+
+describe("formatHandoffDefect", () => {
+  test("names the expected and actual wire types on invalid_type", () => {
+    const arrayResult = buildCanonicalHandoff(handoff({
+      evidence: ["a.md", "b.md"],
+    } as unknown as Partial<HandoffInput>));
+
+    expect(arrayResult.ok).toBe(false);
+    if (arrayResult.ok) throw new Error("unreachable");
+    expect(arrayResult.defects.map(formatHandoffDefect)).toEqual([
+      "evidence:invalid_type (expected string, got array)",
+    ]);
+  });
+
+  test("names the offending field on unexpected_field", () => {
+    expect(formatHandoffDefect({ field: "handoff", reason: "unexpected_field", name: "files" }))
+      .toBe("handoff:unexpected_field ('files' is not a handoff field)");
+  });
+
+  test("keeps the compact field:reason form for other defects", () => {
+    expect(formatHandoffDefect({ field: "goal", reason: "empty" })).toBe("goal:empty");
+    expect(formatHandoffDefect({ field: "handoff", reason: "invalid_json" })).toBe("handoff:invalid_json");
+    expect(formatHandoffDefect({ field: "state", reason: "none_not_allowed" })).toBe("state:none_not_allowed");
+  });
+
+  test("distinguishes null, missing, and object values in the type report", () => {
+    const result = buildCanonicalHandoff({
+      goal: null,
+      state: { nested: true },
+      next: 7,
+    } as unknown as HandoffInput);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.defects.map(formatHandoffDefect)).toEqual([
+      "goal:invalid_type (expected string, got null)",
+      "state:invalid_type (expected string, got object)",
+      "next:invalid_type (expected string, got number)",
+    ]);
   });
 });

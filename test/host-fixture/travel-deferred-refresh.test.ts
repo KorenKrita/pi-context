@@ -617,7 +617,7 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(result.details).toMatchObject({
       error: "invalid_handoff",
       defects: [
-        { field: "next", reason: "invalid_type" },
+        { field: "next", reason: "invalid_type", expected: "string", got: "missing" },
         { field: "handoff", reason: "unexpected_field", name: "unexpected" },
       ],
     });
