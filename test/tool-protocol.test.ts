@@ -316,4 +316,47 @@ describe("LLM tool protocol analysis", () => {
     expect(aborted.content.map((block) => block.type)).toEqual(["text"]);
     expect(unpairedToolCallIds(analysis.messages)).toEqual([]);
   });
+  test("a result separated from its batch by a user message orphans and triggers synthesis, not silent pairing", () => {
+    // Fixed fixture with direct packet assertions — no pairing oracle reuse.
+    // The boundary under test: the toolResult's owning-batch lookup must stop
+    // at the first non-toolResult message, so the interposed user message
+    // turns the result into an orphan and the healthy batch's call gets a
+    // synthesized result instead of silently pairing across the gap.
+    const messages = [
+      { role: "user" as const, content: "start", timestamp: 1 },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "separated", name: "read", arguments: {} }],
+        stopReason: "toolUse" as const,
+        timestamp: 2,
+      },
+      { role: "user" as const, content: "interposed", timestamp: 3 },
+      { role: "toolResult" as const, toolCallId: "separated", toolName: "read", content: [], timestamp: 4 },
+      { role: "user" as const, content: "end", timestamp: 5 },
+    ] as AgentMessage[];
+
+    const analysis = analyzeToolProtocol(messages);
+
+    expect(analysis.status).toBe("repaired");
+    expect(analysis.repairs).toContainEqual({
+      kind: "removed_orphan_result",
+      toolCallId: "separated",
+      toolName: "read",
+    });
+    expect(analysis.repairs).toContainEqual({
+      kind: "synthesized_missing_result",
+      toolCallId: "separated",
+      toolName: "read",
+    });
+    // The packet keeps exactly one user, one assistant, one (synthesized)
+    // result, and the trailing user — in that order; the original result is
+    // gone and the pair sits adjacent.
+    expect(analysis.messages.map((message) => message.role)).toEqual([
+      "user", "assistant", "toolResult", "user", "user",
+    ]);
+    const pair = analysis.messages[2] as unknown as { toolCallId?: string; isError?: boolean };
+    expect(pair.toolCallId).toBe("separated");
+    expect(pair.isError).toBe(true);
+  });
+
 });

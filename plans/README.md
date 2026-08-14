@@ -31,4 +31,3 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 - travel 回执装配抽取 + fold 投影三处统一（架构审查候选 3）：未入选本轮；001 的快照已顺带解决 checkpoints 视图的性能面，文案/装配重构另议。
 - AcmSessionRuntime 全类拆分收敛为只抽 ProviderDelivery：见 005「范围修正」。
 - `src/lib.ts` deep import 兼容性：该文件从来不是声明 API——package.json 的 pi manifest 只暴露 `./src/index.ts` 一个扩展入口，仓库文档也从未承诺 src 内部路径稳定。拆分（004）对**行为**零变化，对 deep import 属于显式不支持面；如外部确有需求，可在 src/lib.ts 位置恢复纯 re-export 薄层（已评估，非必要不引入）。
-

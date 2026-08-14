@@ -438,6 +438,11 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
       if (leafId === null) {
         return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []) };
       }
+      // Mixed provenance is deliberate: packet messages come from the shared
+      // snapshot while activeEntries reads the live branch. The scans that
+      // use this run synchronously with no await between the snapshot and
+      // here, so on a single-threaded host the two cannot observe different
+      // session versions.
       let activeEntries: SessionEntry[];
       try {
         activeEntries = sessionManager.getBranch(leafId);

@@ -71,6 +71,11 @@ describe("Host Bridge exception containment", () => {
       ok: false,
       error: "malformed_capability",
     });
+    const nullFailure = createSessionSnapshot(nullEntries as never);
+    expect(nullFailure.ok).toBe(false);
+    if (nullFailure.ok) throw new Error("unreachable");
+    expect(typeof nullFailure.details.cause).toBe("string");
+    expect(nullFailure.details.cause.length).toBeGreaterThan(0);
 
     const throwingIterable = {
       getLeafId: () => "entry-1",
