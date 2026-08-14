@@ -799,6 +799,60 @@ describe("ACM tool execution contracts", () => {
     });
   });
 
+  test("automatic checkpoint skips empty repaired candidates and writes no label", async () => {
+    // Orphan-only spine: every prefix repairs to zero messages, so the
+    // two-tier fallback must find no lawful anchor at all — an empty
+    // repaired packet is not "rebuildable" in any sense the delivery layer
+    // honors (it refuses empty rebuilds outright).
+    const entries: SessionEntry[] = [];
+    for (let index = 0; index < 3; index++) {
+      const parent = entries.at(-1);
+      entries.push({
+        type: "message",
+        id: `empty-anchor-${index}`,
+        parentId: parent?.id ?? "root",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: {
+          role: "toolResult",
+          toolCallId: `missing-call-${index}`,
+          toolName: "read",
+          content: [{ type: "text", text: `stale ${index}` }],
+          isError: true,
+          timestamp: index,
+        },
+      } as SessionEntry);
+    }
+    let appendCalls = 0;
+    const sessionManager = {
+      getTree: () => [] as SessionTreeNode[],
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        if (fromId === undefined) return entries;
+        const stopIndex = entries.findIndex((entry) => entry.id === fromId);
+        return stopIndex < 0 ? [] : entries.slice(0, stopIndex + 1);
+      },
+      getLeafId: () => entries.at(-1)?.id ?? null,
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange: () => {
+        appendCalls++;
+        return "must-not-append-empty-anchor-label";
+      },
+    };
+    const ctx = {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeCheckpoint("empty-anchor", { name: "empty-anchor-probe" }, undefined, undefined, ctx);
+
+    expect(result.details).toMatchObject({ error: "no_protocol_complete_checkpoint_target" });
+    const skipped = (result.details as { skipped?: Array<{ reason?: string }> }).skipped ?? [];
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped.every((skip) => skip.reason === "empty_context_packet")).toBe(true);
+    expect(appendCalls).toBe(0);
+  });
+
   test("a repaired target keeps the newest repaired ticket candidate over an older complete one", async () => {
     // Regression lock for the target-repaired fast path (removed once in
     // e7fc917d and restored in 912a5301): when the fold target itself is

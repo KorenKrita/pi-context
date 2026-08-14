@@ -78,7 +78,7 @@ wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recov
 每次 travel 都给 pre-travel head 记 archive alias，写入 handoff 的 Recover 行（`Raw archive: <name>`）：
 
 - 名字来源优先级：`backupCurrentHeadAs` 显式覆盖 → head 已有 label 复用（不 displace）→ `deriveReturnTicketName(goal)`（slug + 序号防撞）
-- 锚定规则与 checkpoint 自动锚定一致：两级回退（invalid-only hard floor）——窗口 `ANCHOR_SEARCH_WINDOW` 内优先取最新 protocol-complete entry；全部候选都是 repaired 时回退到最新 rebuildable repaired entry（repaired 是确定性 normalization 证据、不是损坏，restore 后 rebuild 管线照样产出合法 packet；一条中段悬空 toolCall 不得让向早折叠永久不可达），receipt 的 `backupProtocolStatus`/normalizations 如实记录
+- 锚定规则与 checkpoint 自动锚定一致：两级回退（invalid-only hard floor）——窗口 `ANCHOR_SEARCH_WINDOW` 内优先取最新 protocol-complete entry；全部候选都是 repaired 时回退到最新 rebuildable repaired entry（repaired 是确定性 normalization 证据、不是损坏，restore 后 rebuild 管线照样产出合法 packet；一条中段悬空 toolCall 不得让向早折叠永久不可达），receipt 的 `backupProtocolStatus`/normalizations 如实记录。**rebuild 后 messages 为空的候选（repaired 或 complete）一律不算合法锚点**——交付层拒收空包，锚点不应依赖未来写入的 summary 才可用；此规则在 compaction、checkpoint、return-ticket 三处扫描一致执行
 - 区间内连 rebuildable entry 都没有时 travel 整体 abort（`no_protocol_complete_backup_target`）
 - receipt 的 `backupCurrentHeadAs` details 字段始终报告解析后的实际名字
 
@@ -125,7 +125,7 @@ ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备�
 
 ### Checkpoint 契约
 
-- 默认 target 是本次调用前最新的 protocol-complete active-branch leaf；紧邻 prefix 需 repair 时向前找；窗口内全部候选都是 repaired 时回退锚定到最新 rebuildable repaired entry（placement 与 details 报告 `protocolStatus: "repaired"` + repairs），连 rebuildable 都没有才不写 label
+- 默认 target 是本次调用前最新的 protocol-complete active-branch leaf；紧邻 prefix 需 repair 时向前找；窗口内全部候选都是 repaired 时回退锚定到最新 rebuildable repaired entry（placement 与 details 报告 `protocolStatus: "repaired"` + repairs）；rebuild 为空包的候选跳过并以 `empty_context_packet` 记入 skipped（complete 同样适用），连合法锚点都没有才不写 label
 - alias 大小写敏感全树唯一；同一 entry 可多 alias（journal 重放实现，host 每 entry 只存一个 label）；`root` 保留
 - 显式 node ID 可指向任意 entry；非 USER/AI target 产生 warning
 

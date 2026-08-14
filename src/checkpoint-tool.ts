@@ -34,7 +34,7 @@ import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, T
 
 interface SkippedCheckpointAnchor {
   id: string;
-  reason: "context_build_failed" | "protocol_repaired" | "protocol_invalid";
+  reason: "context_build_failed" | "protocol_repaired" | "protocol_invalid" | "empty_context_packet";
   message?: string;
   repairs?: ToolProtocolRepair[];
   defects?: ToolProtocolDefect[];
@@ -222,6 +222,10 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
           const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
           if (!packet.ok) {
             skipped.push({ id: candidate.id, reason: "context_build_failed", message: packet.message });
+            continue;
+          }
+          if (packet.value.messages.length === 0) {
+            skipped.push({ id: candidate.id, reason: "empty_context_packet" });
             continue;
           }
           if (packet.value.protocol.status === "invalid") {

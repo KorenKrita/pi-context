@@ -1211,6 +1211,58 @@ describe("deferred post-travel context delivery", () => {
     expect(fixture.notifications).toEqual([]);
   });
 
+  test("skips empty repaired packets and warns when the pre-compaction window rebuilds nothing", async () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    // Orphan-only spine: every bounded-window prefix repairs to zero
+    // messages (the repair removes the only message each prefix has), so no
+    // candidate is a lawful anchor even though every rebuild is ok+repaired.
+    const entries: SessionEntry[] = [];
+    for (let index = 0; index < ANCHOR_SEARCH_WINDOW + 2; index++) {
+      const parent = entries.at(-1);
+      entries.push({
+        type: "message",
+        id: `orphan-compact-${index}`,
+        parentId: parent?.id ?? "root",
+        timestamp: "2026-07-21T00:00:00.000Z",
+        message: {
+          role: "toolResult",
+          toolCallId: `missing-call-${index}`,
+          toolName: "read",
+          content: [{ type: "text", text: `stale ${index}` }],
+          isError: true,
+          timestamp: index,
+        },
+      } as SessionEntry);
+    }
+    let appendCalls = 0;
+    let candidatePrefixReads = 0;
+    const session = {
+      getLeafId: () => entries.at(-1)?.id ?? null,
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        if (fromId === undefined) return entries;
+        candidatePrefixReads++;
+        const stopIndex = entries.findIndex((entry) => entry.id === fromId);
+        return stopIndex < 0 ? [] : entries.slice(0, stopIndex + 1);
+      },
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange: () => {
+        appendCalls++;
+        return "must-not-append-orphan-compact-label";
+      },
+    };
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(appendCalls).toBe(0);
+    expect(candidatePrefixReads).toBe(ANCHOR_SEARCH_WINDOW);
+    expect(fixture.notifications).toHaveLength(1);
+    expect(fixture.notifications[0]).toContain("No pre-compaction checkpoint was created");
+    expect(fixture.notifications[0]).toContain("can rebuild a lawful context packet");
+  });
+
+
   test("warns when the bounded pre-compaction window has no rebuildable prefix", async () => {
     const runtime = new AcmSessionRuntime(createAdapter());
     const {

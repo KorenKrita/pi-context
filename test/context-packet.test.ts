@@ -537,4 +537,22 @@ describe("ACM context packet", () => {
     const duplicateReceipt = { ...receipt, id: "receipt-transaction-duplicate" } as SessionEntry;
     expect(collectTrustedAcmTravelTransactions([summary, receipt, duplicateReceipt])).toEqual([]);
   });
+
+  test("an orphan-only prefix repairs to an empty repaired packet, never a usable anchor", () => {
+    // Root-fact lock for the anchor scans: "repaired" means deterministic
+    // normalization ran, not that any message survived it. Compaction,
+    // checkpoint, and return-ticket anchoring must all treat this shape as
+    // unusable — the delivery layer refuses empty rebuilds outright.
+    const messages = [{
+      role: "toolResult" as const,
+      toolCallId: "orphan",
+      toolName: "read",
+      content: [{ type: "text" as const, text: "stale" }],
+      isError: true,
+      timestamp: 1,
+    }] as AgentMessage[];
+    const packet = normalizeExistingAcmPacket(messages, []);
+    expect(packet.protocol.status).toBe("repaired");
+    expect(packet.messages).toHaveLength(0);
+  });
 });

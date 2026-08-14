@@ -480,7 +480,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           }
           const candidate = branch[index]!;
           const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-          if (!packet.ok) continue;
+          if (!packet.ok || packet.value.messages.length === 0) continue;
           const status = packet.value.protocol.status;
           if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) {
             if (status === "repaired" && repairedFallback === undefined) {

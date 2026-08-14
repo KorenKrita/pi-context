@@ -535,7 +535,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const candidate = branch[index];
       if (!candidate) continue;
       const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-      if (!packet.ok) continue;
+      if (!packet.ok || packet.value.messages.length === 0) continue;
       const status = packet.value.protocol.status;
       if (status === "complete") {
         checkpointTargetId = candidate.id;
