@@ -4,10 +4,7 @@ import type {
   SessionEntry,
   SessionTreeNode,
 } from "@earendil-works/pi-coding-agent";
-import {
-  countActiveSummaryDepth,
-  projectSummaryDepthAfterTravel,
-} from "../src/lib.js";
+import { countActiveSummaryDepth, projectSummaryDepthAfterTravel } from "../src/usage-estimation.js";
 import { ACM_CONTINUATION_MARKER } from "../src/context-packet.js";
 import { calculateContextUsagePressure } from "../src/context-pressure.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";

@@ -1,4 +1,6 @@
-import { buildLabelMaps, estimateUsageAfterMessageChange, getEntryLabel, type LabelMaps, type UsageLike } from "./lib.js";
+import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
+import { estimateUsageAfterMessageChange, type UsageLike } from "./usage-estimation.js";
+import { getEntryLabel } from "./target-resolution.js";
 
 /**
  * Fold-gain estimation for the gauge and for checkpoint receipts.

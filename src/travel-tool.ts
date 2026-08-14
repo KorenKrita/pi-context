@@ -5,23 +5,10 @@ import type {
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
-import {
-  ANCHOR_SEARCH_WINDOW,
-  buildLabelMaps,
-  calculateUsageDelta,
-  classifyStructuralMessageDirection,
-  countActiveSummaryDepth,
-  estimateUsageAfterMessageChange,
-  estimateUsageAtTravelTarget,
-  findInTree,
-  formatContextUsage,
-  formatEntryLabel,
-  isReservedTargetName,
-  isValidEntryId,
-  optionalString,
-  resolveTargetId,
-  sanitizeTerminalText,
-} from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { ANCHOR_SEARCH_WINDOW, isReservedTargetName, optionalString, sanitizeTerminalText } from "./conventions.js";
+import { calculateUsageDelta, classifyStructuralMessageDirection, countActiveSummaryDepth, estimateUsageAfterMessageChange, estimateUsageAtTravelTarget, formatContextUsage } from "./usage-estimation.js";
+import { findInTree, formatEntryLabel, isValidEntryId, resolveTargetId } from "./target-resolution.js";
 import { buildCanonicalHandoff, deriveReturnTicketName, formatHandoffDefect, normalizeHandoffWire, StructuredHandoffSchema, type HandoffWireInput } from "./handoff.js";
 import { createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
 import { scanProtocolAnchor } from "./anchor-scan.js";

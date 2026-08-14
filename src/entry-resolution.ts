@@ -1,11 +1,5 @@
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
-import {
-  extractTextFromContent,
-  findInTree,
-  findLastMeaningfulEntry as findLastMeaningfulEntryCore,
-  getMeaningfulSkipReason,
-  type MeaningfulResolveResult,
-} from "./lib.js";
+import { extractTextFromContent, findInTree, findLastMeaningfulEntry as findLastMeaningfulEntryCore, getMeaningfulSkipReason, type MeaningfulResolveResult } from "./target-resolution.js";
 
 export function getMessageRoleLabel(entry: SessionEntry): string | undefined {
   if (entry.type !== "message") return undefined;

@@ -12,7 +12,9 @@ import {
 import { scanProtocolAnchor } from "./anchor-scan.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
-import { ANCHOR_SEARCH_WINDOW, buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { ANCHOR_SEARCH_WINDOW } from "./conventions.js";
+import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";

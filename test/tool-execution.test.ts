@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
 import { collectTrustedAcmTravelTransactions } from "../src/context-packet.js";
-import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/lib.js";
+import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/conventions.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerTravelTool } from "../src/travel-tool.js";

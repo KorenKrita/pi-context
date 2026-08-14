@@ -1,6 +1,6 @@
-import type { UsageLike } from "./lib.js";
+import { type UsageLike } from "./usage-estimation.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { ContextRefreshRegistry } from "./lib.js";
+import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import {
   createLiveAgentSessionAdapter,
   type AgentSessionSyncOutcome,

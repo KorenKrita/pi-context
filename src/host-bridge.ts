@@ -7,7 +7,8 @@ export type ReadonlySessionManager = Pick<
 type LabelEntry = Extract<SessionEntry, { type: "label" }>;
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { buildLabelMaps, isReservedTargetName } from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { isReservedTargetName } from "./conventions.js";
 
 export type HostBridgeErrorCode =
   | "missing_capability"

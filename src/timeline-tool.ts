@@ -6,22 +6,11 @@ import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-ag
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
-import {
-  buildLabelMaps,
-  ContextRefreshRegistry,
-  countActiveSummaryDepth,
-  estimateUsageAfterMessageChange,
-  extractTextFromContent,
-  findInTree,
-  formatContextUsage,
-  getEntryLabel,
-  resolveTargetId,
-  optionalString,
-  projectSummaryDepthAfterTravel,
-  pushTreeChildrenPreOrder,
-  sanitizeTerminalText,
-  type LabelMaps,
-} from "./lib.js";
+import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
+import { optionalString, sanitizeTerminalText } from "./conventions.js";
+import { countActiveSummaryDepth, estimateUsageAfterMessageChange, formatContextUsage, projectSummaryDepthAfterTravel } from "./usage-estimation.js";
+import { extractTextFromContent, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
+import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";

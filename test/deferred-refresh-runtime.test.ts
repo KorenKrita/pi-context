@@ -10,7 +10,7 @@ import { formatContextUsagePressure, type ContextUsagePressure } from "../src/co
 import { rebuildAcmContextPacket } from "../src/context-packet.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerAcmLifecycle } from "../src/runtime-lifecycle.js";
-import { ANCHOR_SEARCH_WINDOW } from "../src/lib.js";
+import { ANCHOR_SEARCH_WINDOW } from "../src/conventions.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
