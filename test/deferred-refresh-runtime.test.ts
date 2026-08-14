@@ -1180,6 +1180,37 @@ describe("deferred post-travel context delivery", () => {
     expect(fixture.notifications).toEqual([]);
   });
 
+  test("skips a build-failed candidate and anchors to the next rebuildable repaired prefix", async () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const { session, getAppendCalls, getCheckpointTarget, resetCandidatePrefixReads } = poisonedCompactionSession();
+    const failedCandidateId = session.getLeafId();
+    if (!failedCandidateId) throw new Error("poisoned compaction fixture has no leaf");
+    const fallbackCandidateId = session.getEntries().at(-2)?.id;
+    if (!fallbackCandidateId) throw new Error("poisoned compaction fixture has no fallback candidate");
+    const failedPacket = rebuildAcmContextPacket(session, failedCandidateId);
+    expect(failedPacket.ok).toBe(true);
+    if (!failedPacket.ok) throw new Error(failedPacket.message);
+    expect(failedPacket.value.protocol.status).toBe("repaired");
+    const originalGetBranch = session.getBranch.bind(session);
+    let failedReads = 0;
+    session.getBranch = (fromId?: string) => {
+      if (fromId === failedCandidateId) {
+        failedReads++;
+        throw new Error("simulated host read failure");
+      }
+      return originalGetBranch(fromId);
+    };
+    resetCandidatePrefixReads();
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(failedReads).toBeGreaterThanOrEqual(1);
+    expect(getAppendCalls()).toBe(1);
+    expect(getCheckpointTarget()).toBe(fallbackCandidateId);
+    expect(fixture.notifications).toEqual([]);
+  });
+
   test("warns when the bounded pre-compaction window has no rebuildable prefix", async () => {
     const runtime = new AcmSessionRuntime(createAdapter());
     const {

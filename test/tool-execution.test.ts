@@ -1437,14 +1437,30 @@ describe("ACM tool execution contracts", () => {
     const first = userEntry("needle-first", root.id);
     const nonmatch = userEntry("entry-nonmatch", first.id);
     const second = userEntry("needle-second", root.id);
+    let tailContentReads = 0;
+    const tail: SessionEntry = {
+      type: "message",
+      id: "entry-tail",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:03:00.000Z",
+      message: {
+        role: "user",
+        get content() {
+          tailContentReads++;
+          return "nonmatching tail sentinel";
+        },
+        timestamp: 0,
+      },
+    } as SessionEntry;
     const tree: SessionTreeNode[] = [{
       entry: root,
       children: [
         { entry: first, children: [{ entry: nonmatch, children: [] }] },
         { entry: second, children: [] },
+        { entry: tail, children: [] },
       ],
     }];
-    const entries = [root, first, nonmatch, second];
+    const entries = [root, first, nonmatch, second, tail];
     const ctx = {
       sessionManager: {
         getTree: () => tree,
@@ -1462,6 +1478,10 @@ describe("ACM tool execution contracts", () => {
     expect(text).toContain("needle-second");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: false });
     expect(text).not.toContain("additional matches truncated");
+    // The limit is exactly filled, so the scan must keep walking the tree to
+    // keep `truncated === false` honest: the sentinel past the last match is
+    // still read. A premature stop at the limit-th match would leave it at 0.
+    expect(tailContentReads).toBeGreaterThan(0);
   });
 
   test("a pre-aborted search preserves the truncated receipt", async () => {
