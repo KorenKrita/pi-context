@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { ProviderDelivery } from "../src/provider-delivery.js";
+import { AcmSessionRuntime } from "../src/runtime.js";
 import type { LiveAgentSessionAdapter } from "../src/live-agent-session-adapter.js";
 
 const SKIPPED = { status: "skipped", reason: "stub", message: "stub adapter" } as const;
@@ -76,6 +77,35 @@ describe("ProviderDelivery", () => {
     expect(merged?.at(-1)).toEqual(tail);
     // An unrelated array shares no prefix and merges nothing.
     expect(delivery.mergeCachedPacket(session, [tail])).toBeUndefined();
+  });
+
+  test("rejection converges even when the adapter's clear misbehaves", () => {
+    const explodingClear = stubAdapter({
+      clear() { throw new Error("adapter clear exploded"); },
+    });
+    const delivery = new ProviderDelivery(explodingClear);
+    const session = {};
+    delivery.defer(session, "call-5");
+
+    expect(delivery.rejectTicket(session, "call-5")).toBe(true);
+    expect(delivery.getProviderDeliveryStatus(session).phase).toBe("receipt_rejected");
+    expect(delivery.getPendingTravelToolCallId(session)).toBeUndefined();
+    expect(delivery.getContextDeliveryPhase(session)).toBe("receipt_rejected");
+  });
+
+  test("runtime rejection still clears cross-store state when the adapter clear throws", () => {
+    const runtime = new AcmSessionRuntime(stubAdapter({
+      clear() { throw new Error("adapter clear exploded"); },
+    }));
+    const session = {};
+    runtime.scheduleRefresh(session, "leaf-target");
+    runtime.deferPostTravelRefresh(session, "call-6");
+
+    expect(runtime.rejectProviderCutover(session, "call-6")).toBe(true);
+    expect(runtime.contextRefresh.isPending(session)).toBe(false);
+    expect(runtime.getRefreshTarget(session)).toBeUndefined();
+    expect(runtime.getPendingTravelToolCallId(session)).toBeUndefined();
+    expect(runtime.getContextDeliveryPhase(session)).toBe("receipt_rejected");
   });
 
   test("clearUsageObserved only flips a previously observed ticket", () => {

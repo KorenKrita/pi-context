@@ -77,7 +77,8 @@ pi -e /path/to/pi-context/src/index.ts
 本地验证依赖 Bun；CI 固定使用 `1.3.14`（见 `.github/workflows/verify.yml`），本地请安装同版本，避免测试执行器差异造成不可复现的结果：
 
 ```bash
-curl -fsSL https://bun.sh/install | bash   # 或 brew install bun，然后切到 1.3.14
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"   # 安装脚本接受显式版本
+bun --version                                              # 应输出 1.3.14；不符则重跑上面的安装
 ```
 
 ```bash

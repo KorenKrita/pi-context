@@ -430,7 +430,7 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
           ok: false as const,
           error: snapshot.error,
           message: snapshot.message,
-          details: { leafId: null, cause: snapshot.details.cause },
+          details: { leafId, cause: snapshot.details.cause },
         };
       }
       const result = snapshot.value.messagesAt(leafId);

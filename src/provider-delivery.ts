@@ -187,7 +187,10 @@ export class ProviderDelivery {
   rejectTicket(session: object, toolCallId: string): boolean {
     const deferred = this.tickets.get(session);
     if (!deferred || deferred.toolCallId !== toolCallId || deferred.receiptStatus !== "pending") return false;
-    this.liveAgentSessions.clear(session);
+    // The ticket is written before the adapter clears: rejection must
+    // converge even if the injected adapter misbehaves. A stale adapter
+    // entry is inert — status reads fall back to the recorded skipped
+    // outcome — so the clear is strictly best-effort.
     this.tickets.set(session, {
       ...deferred,
       providerPhase: "receipt_rejected",
@@ -200,6 +203,12 @@ export class ProviderDelivery {
       },
       providerError: "Finalized travel receipt was rejected",
     });
+    try {
+      this.liveAgentSessions.clear(session);
+    } catch {
+      // Rejection has already converged; an adapter cleanup failure must
+      // not resurrect the canceled ticket.
+    }
     return true;
   }
 

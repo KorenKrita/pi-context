@@ -3,15 +3,22 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { analyzeToolProtocol, formatToolProtocolDefects, hasOpenUserTurnAtAssistant } from "../src/tool-protocol";
 function unpairedToolCallIds(messages: readonly AgentMessage[]): string[] {
-  const resultIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role === "toolResult") resultIds.add(message.toolCallId);
-  }
+  // Batch-local oracle, matching the analysis under test: a call counts as
+  // paired only when a result for its id sits in the contiguous toolResult
+  // run immediately after its own assistant batch. A whole-array id set
+  // would repeat the very bug these tests guard against.
   const unpaired: string[] = [];
-  for (const message of messages) {
+  for (let index = 0; index < messages.length; index++) {
+    const message = messages[index]!;
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    const batchResultIds = new Set<string>();
+    for (let following = index + 1; following < messages.length; following++) {
+      const next = messages[following]!;
+      if (next.role !== "toolResult") break;
+      if (next.toolCallId) batchResultIds.add(next.toolCallId);
+    }
     for (const block of message.content) {
-      if (block.type === "toolCall" && !resultIds.has(block.id)) unpaired.push(block.id);
+      if (block.type === "toolCall" && !batchResultIds.has(block.id)) unpaired.push(block.id);
     }
   }
   return unpaired;
@@ -231,8 +238,6 @@ describe("LLM tool protocol analysis", () => {
       toolName: "bash",
     });
   });
-});
-
   test("strips an aborted call whose id a later healthy batch reuses", () => {
     // Cross-batch toolCallId reuse: the later batch's lawful result must
     // pair with ITS call only. A whole-array id set would mistake the
@@ -272,3 +277,43 @@ describe("LLM tool protocol analysis", () => {
     const resultIndex = analysis.messages.findIndex((message) => message.role === "toolResult");
     expect(analysis.messages[resultIndex - 1]?.role).toBe("assistant");
   });
+
+  test("an aborted batch keeps its text but loses reused and unpaired calls alike", () => {
+    // With text content the aborted assistant survives the strip; both its
+    // calls (one reusing the later batch's id, one with no result anywhere)
+    // must still go, and the oracle judges pairing batch-locally.
+    const messages = [
+      { role: "user" as const, content: "start", timestamp: 1 },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "partial note" },
+          { type: "toolCall" as const, id: "reused", name: "read", arguments: {} },
+          { type: "toolCall" as const, id: "orphaned", name: "bash", arguments: {} },
+        ],
+        stopReason: "aborted" as const,
+        timestamp: 2,
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "reused", name: "read", arguments: {} }],
+        stopReason: "toolUse" as const,
+        timestamp: 3,
+      },
+      { role: "toolResult" as const, toolCallId: "reused", toolName: "read", content: [], timestamp: 4 },
+    ] as AgentMessage[];
+
+    const analysis = analyzeToolProtocol(messages);
+
+    expect(analysis.status).toBe("repaired");
+    const stripped = analysis.repairs.filter((repair) => repair.kind === "stripped_unpaired_tool_call");
+    expect(stripped).toContainEqual({ kind: "stripped_unpaired_tool_call", toolCallId: "reused", toolName: "read" });
+    expect(stripped).toContainEqual({ kind: "stripped_unpaired_tool_call", toolCallId: "orphaned", toolName: "bash" });
+    const assistants = analysis.messages.filter((message) => message.role === "assistant");
+    expect(assistants).toHaveLength(2);
+    const aborted = assistants[0] as { stopReason?: string; content: Array<{ type: string }> };
+    expect(aborted.stopReason).toBe("aborted");
+    expect(aborted.content.map((block) => block.type)).toEqual(["text"]);
+    expect(unpairedToolCallIds(analysis.messages)).toEqual([]);
+  });
+});

@@ -242,7 +242,16 @@ export function createSessionSnapshot(sm: ReadonlySessionManager): HostResult<Se
     const cause = error instanceof Error ? error.message : String(error);
     return failure("host_operation_failed", `Failed to read session state: ${cause}`, { cause });
   }
-  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  let byId: Map<string, SessionEntry>;
+  try {
+    byId = new Map(entries.map((entry) => [entry.id, entry]));
+  } catch (error) {
+    // A malformed host capability (null entries, an iterable that throws)
+    // must surface as the same structured failure the per-leaf path returns,
+    // never as an exception through the tool executor.
+    const cause = error instanceof Error ? error.message : String(error);
+    return failure("malformed_capability", `Failed to build session messages: ${cause}`, { cause });
+  }
   return success({
     entries,
     byId,
