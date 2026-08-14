@@ -162,4 +162,36 @@ describe("acm_travel strict-mode compatibility", () => {
     );
     expect(valid.handoff).toEqual({ goal: "g", state: "s", next: "n", evidence: null, external: null, exclusions: null, recover: null });
   });
+
+  test("prepareArguments rejects non-string targets before host coercion can resolve them", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    // On prefer-degraded channels Value.Convert would turn 42/null/true into
+    // "42"/"null"/"true" and validation would pass — a checkpoint carrying one
+    // of those legal alias names would then receive a real fold instead of a
+    // wire-type rejection.
+    for (const [raw, got] of [[42, "number"], [null, "null"], [true, "boolean"]] as const) {
+      expect(() => travel.prepareArguments!({ target: raw, handoff: { goal: "g", state: "s", next: "n" } }))
+        .toThrow(new RegExp(`target must be a string \\(got ${got}\\)`));
+    }
+  });
+
+  test("a legacy JSON-string handoff is rescued by prepare and passes host validation", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    const tool = travel as unknown as { parameters: unknown };
+    const prepared = travel.prepareArguments!({
+      target: "root",
+      handoff: JSON.stringify({ goal: "g", state: "s", next: "n" }),
+    });
+    const valid = validateToolArguments(tool as never, { id: "probe", name: "acm_travel", arguments: prepared });
+    expect(valid.handoff).toEqual({ goal: "g", state: "s", next: "n", evidence: null, external: null, exclusions: null, recover: null });
+  });
+
+  test("a well-formed call survives the full prepare → validate sequence unchanged", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    const tool = travel as unknown as { parameters: unknown };
+    const prepared = travel.prepareArguments!({ target: "root", handoff: { goal: "g", state: "s", next: "n" }, backupCurrentHeadAs: "keep" });
+    const valid = validateToolArguments(tool as never, { id: "probe", name: "acm_travel", arguments: prepared });
+    expect(valid.target).toBe("root");
+    expect(valid.backupCurrentHeadAs).toBe("keep");
+  });
 });

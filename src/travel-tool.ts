@@ -111,7 +111,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     // non-strict channels that legitimately omit optional fields are
     // normalized here before validation: absent means null. This also runs
     // BEFORE the host validator's Value.Convert: non-coercive wire checks here
-    // reject what primitive coercion would silently legalize (goal: 42 ->
+    // reject what primitive coercion would silently legalize (target: 42 ->
+    // "42" could resolve to a checkpoint literally named "42"; goal: 42 ->
     // "42"), decode legacy JSON-string handoffs, and surface the tool's own
     // defect formatting instead of the framework's generic message.
     prepareArguments(args: unknown) {
@@ -119,6 +120,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         return args as Static<typeof schema>;
       }
       const record = { ...(args as Record<string, unknown>) };
+      if (typeof record.target !== "string") {
+        throw new Error(`Error: target must be a string (got ${Array.isArray(record.target) ? "array" : record.target === null ? "null" : typeof record.target}). Fix the field and reissue acm_travel; nothing was mutated.`);
+      }
       if (record.backupCurrentHeadAs === undefined) record.backupCurrentHeadAs = null;
       if (record.backupCurrentHeadAs !== null && typeof record.backupCurrentHeadAs !== "string") {
         throw new Error(`Error: backupCurrentHeadAs must be a string or null (got ${Array.isArray(record.backupCurrentHeadAs) ? "array" : typeof record.backupCurrentHeadAs}). Fix the field and reissue acm_travel; nothing was mutated.`);

@@ -853,6 +853,74 @@ describe("ACM tool execution contracts", () => {
     expect(appendCalls).toBe(0);
   });
 
+  test("return-ticket scan skips empty repaired candidates and aborts without mutating", async () => {
+    // Orphan-only current spine: every candidate repairs to zero messages,
+    // so the return-ticket scan must skip them all (an empty packet is not
+    // rebuildable in any sense the delivery layer honors) and abort before
+    // any label write or branch mutation.
+    const target: SessionEntry = {
+      type: "message",
+      id: "empty-ticket-target",
+      parentId: "root",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "off-path target" }], timestamp: 0 },
+    } as SessionEntry;
+    const entries: SessionEntry[] = [target, {
+      type: "label",
+      id: "empty-ticket-label",
+      parentId: target.id,
+      timestamp: "2026-01-01T00:00:01.000Z",
+      targetId: target.id,
+      label: "empty-ticket-target-cp",
+    } as SessionEntry];
+    for (let index = 0; index < 3; index++) {
+      entries.push({
+        type: "message",
+        id: `empty-ticket-${index}`,
+        parentId: index === 0 ? "root" : `empty-ticket-${index - 1}`,
+        timestamp: "2026-01-01T00:00:02.000Z",
+        message: {
+          role: "toolResult",
+          toolCallId: `missing-call-${index}`,
+          toolName: "read",
+          content: [{ type: "text", text: `stale ${index}` }],
+          isError: true,
+          timestamp: index,
+        },
+      } as SessionEntry);
+    }
+    const spine = entries.slice(2);
+    let appendCalls = 0;
+    const sessionManager = {
+      getTree: () => [
+        { entry: target, children: [{ entry: entries[1]!, children: [] }] },
+        { entry: spine[0]!, children: [{ entry: spine[1]!, children: [{ entry: spine[2]!, children: [] }] }] },
+      ] as SessionTreeNode[],
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        const stopIndex = spine.findIndex((entry) => entry.id === fromId);
+        return stopIndex < 0 ? (fromId === undefined ? spine : [target]) : spine.slice(0, stopIndex + 1);
+      },
+      getLeafId: () => spine.at(-1)?.id ?? null,
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange: () => {
+        appendCalls++;
+        return "must-not-append-empty-ticket-label";
+      },
+    };
+    const ctx = {
+      sessionManager,
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTravel("empty-ticket", { target: "empty-ticket-target-cp", handoff: HANDOFF }, undefined, undefined, ctx);
+
+    expect(result.details).toMatchObject({ error: "no_protocol_complete_backup_target" });
+    expect(result.content[0]?.type === "text" && result.content[0].text).toContain("nothing was mutated");
+    expect(appendCalls).toBe(0);
+  });
+
   test("a repaired target keeps the newest repaired ticket candidate over an older complete one", async () => {
     // Regression lock for the target-repaired fast path (removed once in
     // e7fc917d and restored in 912a5301): when the fold target itself is
