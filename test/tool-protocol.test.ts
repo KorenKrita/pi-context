@@ -232,3 +232,43 @@ describe("LLM tool protocol analysis", () => {
     });
   });
 });
+
+  test("strips an aborted call whose id a later healthy batch reuses", () => {
+    // Cross-batch toolCallId reuse: the later batch's lawful result must
+    // pair with ITS call only. A whole-array id set would mistake the
+    // aborted call for paired and hand the provider a duplicate tool call.
+    const messages = [
+      { role: "user" as const, content: "start", timestamp: 1 },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "reused", name: "read", arguments: {} }],
+        stopReason: "aborted" as const,
+        timestamp: 2,
+      },
+      {
+        role: "assistant" as const,
+        content: [{ type: "toolCall" as const, id: "reused", name: "read", arguments: {} }],
+        stopReason: "toolUse" as const,
+        timestamp: 3,
+      },
+      { role: "toolResult" as const, toolCallId: "reused", toolName: "read", content: [], timestamp: 4 },
+      { role: "user" as const, content: "done", timestamp: 5 },
+    ] as AgentMessage[];
+
+    const analysis = analyzeToolProtocol(messages);
+
+    expect(analysis.status).toBe("repaired");
+    expect(analysis.repairs).toContainEqual({
+      kind: "stripped_unpaired_tool_call",
+      toolCallId: "reused",
+      toolName: "read",
+    });
+    // Exactly one assistant survives — the healthy batch — and its result
+    // stays attached to it.
+    const assistants = analysis.messages.filter((message) => message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect((assistants[0] as { stopReason?: string }).stopReason).toBe("toolUse");
+    expect(unpairedToolCallIds(analysis.messages)).toEqual([]);
+    const resultIndex = analysis.messages.findIndex((message) => message.role === "toolResult");
+    expect(analysis.messages[resultIndex - 1]?.role).toBe("assistant");
+  });

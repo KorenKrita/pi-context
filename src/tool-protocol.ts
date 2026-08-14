@@ -115,19 +115,29 @@ function unpairedToolCallRepair(
 }
 
 function stripUnpairedToolCalls(messages: AgentMessage[], repairs: ToolProtocolRepair[]): void {
-  const pairedToolResultIds = new Set<string>();
-  for (const message of messages) {
-    if (message.role === "toolResult") pairedToolResultIds.add(message.toolCallId);
-  }
-
+  // Pairing is batch-local, matching every other stage: a toolResult
+  // belongs to the contiguous run right after its assistant batch. A
+  // whole-array id set would mistake an aborted batch's call for paired
+  // whenever a later healthy batch happens to reuse the same toolCallId,
+  // silently leaving a duplicate call in an otherwise "complete" packet.
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
     if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 
+    const batchResultIds = new Set<string>();
+    let followingIndex = index + 1;
+    while (followingIndex < messages.length) {
+      const following = messages[followingIndex]!;
+      if (following.role !== "toolResult") break;
+      const resultId = following.toolCallId;
+      if (resultId) batchResultIds.add(resultId);
+      followingIndex++;
+    }
+
     const strippedIndices = new Set<number>();
     const stripped: StrippedUnpairedToolCallRepair[] = [];
     for (let contentIndex = 0; contentIndex < message.content.length; contentIndex++) {
-      const repair = unpairedToolCallRepair(message.content[contentIndex], pairedToolResultIds);
+      const repair = unpairedToolCallRepair(message.content[contentIndex], batchResultIds);
       if (!repair) continue;
       strippedIndices.add(contentIndex);
       stripped.push(repair);
