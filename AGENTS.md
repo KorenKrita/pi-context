@@ -32,7 +32,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 - TypeScript ESM，source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
 - 四个 `@earendil-works/*` peer/dev dependency 精确固定 **`0.84.0`**（含 `test/host-fixture/`），不要改成 range
-- **不使用** Pi 的 `constrainedSampling`：handoff schema 含 `Type.Optional` 字段，OpenAI strict 要求全 properties 进 required，开启会 400
+- `acm_travel` 声明 `constrainedSampling: { type: "json_schema", strict: "prefer" }`（2026-08-14 由「不使用」反转为启用）：wire schema 全 properties 进 required、四个 supporting 字段与 `backupCurrentHeadAs` 以 null 表缺席，从而满足 OpenAI strict；`strict: "prefer"` 在不支持的通道静默降级，`prepareArguments` 为非 strict 调用方与旧会话把缺省字段补 null，行为与旧 wire 完全等价。禁止升到 `strict: "require"`（会砍掉降级路径）
 - 根目录提交 npm `package-lock.json`（Pi git 安装走 `npm install --omit=dev`）；改 `package.json` 后必须重新生成并从 committed tree 验证 `npm ci --ignore-scripts`
 
 ## 架构
@@ -71,7 +71,7 @@ CI 用 `--check` 校验一致性。没有 SKILL.md、没有 references/、没有
 
 ### Handoff（三必填四可选）
 
-wire 上 `goal/state/next` 必填；`evidence/external/exclusions/recover` 可选，缺省或显式空串补 `"none"`。持久化文本始终渲染七行 `Goal:/State:/Evidence:/External:/Exclusions:/Recover:/NEXT:`（解析锚点，保持英文）。必填字段不接受 "none"。unexpected field 仍是 defect。
+wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recover` 与 `backupCurrentHeadAs` 为 `string | null`（null 表缺席；非 strict 通道可省略，`prepareArguments` 归一为 null），归一层把 null/空串统一为 `"none"`。持久化文本始终渲染七行 `Goal:/State:/Evidence:/External:/Exclusions:/Recover:/NEXT:`（解析锚点，保持英文）。必填字段不接受 "none"。unexpected field 仍是 defect；`invalid_type` 拒绝错误带 expected/got wire 类型。
 
 ### 自动回程票
 
