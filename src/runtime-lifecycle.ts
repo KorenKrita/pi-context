@@ -528,20 +528,27 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       checkpointName = `${checkpointBase}-${ordinal}`;
     }
     let checkpointTargetId: string | undefined;
+    let repairedFallbackId: string | undefined;
     let inspected = 0;
     for (let index = branch.length - 1; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
       if (event.signal?.aborted) return;
       const candidate = branch[index];
       if (!candidate) continue;
       const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-      if (packet.ok && packet.value.protocol.status === "complete") {
+      if (!packet.ok) continue;
+      const status = packet.value.protocol.status;
+      if (status === "complete") {
         checkpointTargetId = candidate.id;
         break;
       }
+      if (status === "repaired" && repairedFallbackId === undefined) {
+        repairedFallbackId = candidate.id;
+      }
     }
+    if (!checkpointTargetId) checkpointTargetId = repairedFallbackId;
     if (!checkpointTargetId) {
       ctx.ui.notify(
-        `No pre-compaction checkpoint was created because no protocol-complete anchor exists within the last ${ANCHOR_SEARCH_WINDOW} entries of the bounded search window.`,
+        `No pre-compaction checkpoint was created because no entry within the last ${ANCHOR_SEARCH_WINDOW} entries of the bounded search window can rebuild a lawful context packet.`,
         "warning",
       );
       return;

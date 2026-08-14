@@ -7,6 +7,7 @@ import type {
 } from "../src/live-agent-session-adapter.js";
 import { buildGaugeSuffix } from "../src/context-gauge.js";
 import { formatContextUsagePressure, type ContextUsagePressure } from "../src/context-pressure.js";
+import { rebuildAcmContextPacket } from "../src/context-packet.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerAcmLifecycle } from "../src/runtime-lifecycle.js";
 import { ANCHOR_SEARCH_WINDOW } from "../src/lib.js";
@@ -212,6 +213,71 @@ function poisonedCompactionSession(entryCount = 402) {
     } as SessionEntry);
   }
   let appendCalls = 0;
+  let checkpointTarget: string | undefined;
+  let candidatePrefixReads = 0;
+  return {
+    session: {
+      getLeafId: () => entries.at(-1)?.id ?? null,
+      getEntries: () => entries,
+      getBranch: (fromId?: string) => {
+        if (fromId === undefined) return entries;
+        candidatePrefixReads++;
+        const candidateIndex = entries.findIndex((entry) => entry.id === fromId);
+        return candidateIndex < 0 ? [] : entries.slice(0, candidateIndex + 1);
+      },
+      getEntry: (id: string) => entries.find((entry) => entry.id === id),
+      appendLabelChange: (targetId: string, label: string | undefined) => {
+        appendCalls++;
+        checkpointTarget = targetId;
+        const entry = {
+          id: `poisoned-compact-label-${appendCalls}`,
+          type: "label",
+          parentId: entries.at(-1)?.id,
+          timestamp: "2026-07-21T00:10:00.000Z",
+          targetId,
+          label,
+        } as SessionEntry;
+        entries.push(entry);
+        return entry.id;
+      },
+    },
+    getAppendCalls: () => appendCalls,
+    getCheckpointTarget: () => checkpointTarget,
+    getCandidatePrefixReads: () => candidatePrefixReads,
+    resetCandidatePrefixReads: () => { candidatePrefixReads = 0; },
+  };
+}
+
+function invalidCompactionSession(entryCount = ANCHOR_SEARCH_WINDOW + 2) {
+  const root = persistedUserEntry("invalid-compact-root", "safe baseline");
+  const invalidAssistant = {
+    id: "invalid-compact-assistant",
+    type: "message",
+    parentId: root.id,
+    timestamp: "2026-07-21T00:00:01.000Z",
+    message: {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "", name: "broken-tool", arguments: {} }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      timestamp: 1,
+    },
+  } as SessionEntry;
+  const entries: SessionEntry[] = [root, invalidAssistant];
+  for (let index = 2; index < entryCount; index++) {
+    const parent = entries.at(-1);
+    if (!parent) throw new Error("invalid compaction fixture lost its parent");
+    entries.push({
+      id: `invalid-compact-${index}`,
+      type: "message",
+      parentId: parent.id,
+      timestamp: "2026-07-21T00:00:02.000Z",
+      message: { role: "user", content: [{ type: "text", text: `later message ${index}` }], timestamp: index },
+    } as SessionEntry);
+  }
+  let appendCalls = 0;
   let candidatePrefixReads = 0;
   return {
     session: {
@@ -226,11 +292,13 @@ function poisonedCompactionSession(entryCount = 402) {
       getEntry: (id: string) => entries.find((entry) => entry.id === id),
       appendLabelChange: () => {
         appendCalls++;
-        return "must-not-append-poisoned-compaction-label";
+        return "must-not-append-invalid-compaction-label";
       },
     },
+    newestCandidateId: entries.at(-1)?.id ?? "",
     getAppendCalls: () => appendCalls,
     getCandidatePrefixReads: () => candidatePrefixReads,
+    resetCandidatePrefixReads: () => { candidatePrefixReads = 0; },
   };
 }
 
@@ -1064,9 +1132,68 @@ describe("deferred post-travel context delivery", () => {
     expect(checkpointTarget).toBe(result.id);
   });
 
-  test("skips and warns when bounded pre-compaction anchoring cannot find a complete prefix", async () => {
+  test("anchors the pre-compaction checkpoint to the newest repaired prefix when the bounded window has no complete prefix", async () => {
     const runtime = new AcmSessionRuntime(createAdapter());
-    const { session, getAppendCalls, getCandidatePrefixReads } = poisonedCompactionSession();
+    const {
+      session,
+      getAppendCalls,
+      getCheckpointTarget,
+      getCandidatePrefixReads,
+      resetCandidatePrefixReads,
+    } = poisonedCompactionSession();
+    const newestCandidateId = session.getLeafId();
+    if (!newestCandidateId) throw new Error("poisoned compaction fixture has no leaf");
+    const newestPacket = rebuildAcmContextPacket(session, newestCandidateId);
+    expect(newestPacket.ok).toBe(true);
+    if (!newestPacket.ok) throw new Error(newestPacket.message);
+    expect(newestPacket.value.protocol.status).toBe("repaired");
+    resetCandidatePrefixReads();
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(getAppendCalls()).toBe(1);
+    expect(getCheckpointTarget()).toBe(newestCandidateId);
+    expect(getCandidatePrefixReads()).toBe(ANCHOR_SEARCH_WINDOW);
+    expect(fixture.notifications).toEqual([]);
+  });
+
+  test("prefers an older complete pre-compaction prefix over a newer repaired prefix", async () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const { session, getCheckpointTarget, resetCandidatePrefixReads } = poisonedCompactionSession(ANCHOR_SEARCH_WINDOW);
+    const newestCandidateId = session.getLeafId();
+    if (!newestCandidateId) throw new Error("poisoned compaction fixture has no leaf");
+    const newestPacket = rebuildAcmContextPacket(session, newestCandidateId);
+    expect(newestPacket.ok).toBe(true);
+    if (!newestPacket.ok) throw new Error(newestPacket.message);
+    expect(newestPacket.value.protocol.status).toBe("repaired");
+    const rootPacket = rebuildAcmContextPacket(session, "poisoned-compact-root");
+    expect(rootPacket.ok).toBe(true);
+    if (!rootPacket.ok) throw new Error(rootPacket.message);
+    expect(rootPacket.value.protocol.status).toBe("complete");
+    resetCandidatePrefixReads();
+    const fixture = createLifecycleFixture(runtime, session);
+
+    await fixture.emit("session_before_compact", {});
+
+    expect(getCheckpointTarget()).toBe("poisoned-compact-root");
+    expect(fixture.notifications).toEqual([]);
+  });
+
+  test("warns when the bounded pre-compaction window has no rebuildable prefix", async () => {
+    const runtime = new AcmSessionRuntime(createAdapter());
+    const {
+      session,
+      newestCandidateId,
+      getAppendCalls,
+      getCandidatePrefixReads,
+      resetCandidatePrefixReads,
+    } = invalidCompactionSession();
+    const newestPacket = rebuildAcmContextPacket(session, newestCandidateId);
+    expect(newestPacket.ok).toBe(true);
+    if (!newestPacket.ok) throw new Error(newestPacket.message);
+    expect(newestPacket.value.protocol.status).toBe("invalid");
+    resetCandidatePrefixReads();
     const fixture = createLifecycleFixture(runtime, session);
 
     await fixture.emit("session_before_compact", {});
@@ -1076,7 +1203,8 @@ describe("deferred post-travel context delivery", () => {
     expect(getCandidatePrefixReads()).toBe(ANCHOR_SEARCH_WINDOW);
     expect(fixture.notifications).toHaveLength(1);
     expect(fixture.notifications[0]).toContain("No pre-compaction checkpoint was created");
-    expect(fixture.notifications[0]).toContain(`within the last ${ANCHOR_SEARCH_WINDOW} entries`);
+    expect(fixture.notifications[0]).toContain("can rebuild a lawful context packet");
+    expect(fixture.notifications[0]).toContain(`${ANCHOR_SEARCH_WINDOW}`);
   });
 
   test("invalidates provider usage and resets the gauge when the model changes", async () => {
