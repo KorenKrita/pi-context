@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ExtensionAPI, SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
 import { collectTrustedAcmTravelTransactions } from "../src/context-packet.js";
-import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/lib.js";
+import { ANCHOR_SEARCH_WINDOW, optionalString } from "../src/conventions.js";
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerTravelTool } from "../src/travel-tool.js";
@@ -572,10 +572,14 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
     tree = { entry: entries[index]!, children: tree ? [tree] : [] };
   }
   let candidatePrefixReads = 0;
+  let entriesReads = 0;
   let appendCalls = 0;
   const sessionManager = {
     getTree: () => tree ? [tree] : [],
-    getEntries: () => entries,
+    getEntries: () => {
+      entriesReads++;
+      return entries;
+    },
     getBranch: (fromId?: string) => {
       if (fromId === undefined) return entries;
       candidatePrefixReads++;
@@ -598,6 +602,7 @@ function poisonedAutomaticCheckpointContext(toolCallId: string, entryCount = 402
       ui: { notify() {} },
     },
     getAppendCalls: () => appendCalls,
+    getEntriesReads: () => entriesReads,
     getCandidatePrefixReads: () => candidatePrefixReads,
   };
 }
@@ -1195,6 +1200,31 @@ describe("ACM tool execution contracts", () => {
     // only a constant number of fold-projection rebuilds on top.
     expect(getCandidatePrefixReads()).toBeLessThanOrEqual(ANCHOR_SEARCH_WINDOW + 4);
     expect(getAppendCalls()).toBe(1);
+  });
+
+  test("the automatic anchor scan reads session entries once, not once per candidate", async () => {
+    // Snapshot contract: the scan's entries read and ID indexing happen once
+    // for the whole window. The remaining entries reads are the receipt's
+    // constant overhead (label maps, fold projection, label append) — they
+    // must stay independent of how many candidates the window inspects.
+    const toolCallId = "snapshot-anchor-call";
+    const { context, getEntriesReads, getCandidatePrefixReads } = poisonedAutomaticCheckpointContext(toolCallId);
+
+    const result = await executeCheckpoint(
+      toolCallId,
+      { name: "snapshot-anchor" },
+      undefined,
+      undefined,
+      context,
+    );
+
+    expect(result.details?.error).toBeUndefined();
+    expect(getCandidatePrefixReads()).toBeGreaterThan(50);
+    // Measured 9 on this fixture: label maps, the single snapshot read,
+    // the receipt's fold projection, and the label-append path — all
+    // constant overhead, independent of the inspected candidate count.
+    expect(getEntriesReads()).toBeLessThanOrEqual(10);
+    expect(getEntriesReads()).toBeLessThan(getCandidatePrefixReads());
   });
 
   test("automatic placement receipts show the anchor excerpt and the travel consequence, explicit targets stay bare", async () => {

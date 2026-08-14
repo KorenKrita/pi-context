@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerACMExtension, { fixOrphanedToolUse } from "../src/index";
 import { TREE_SUMMARY_INSTRUCTIONS } from "../src/generated-guidance";
-import { getMeaningfulSkipReason } from "../src/lib";
+import { getMeaningfulSkipReason } from "../src/target-resolution";
 
 const text = (value: string) => [{ type: "text", text: value }];
 const toolCall = (id: string) => ({

@@ -5,25 +5,13 @@ import type {
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
-import {
-  ANCHOR_SEARCH_WINDOW,
-  buildLabelMaps,
-  calculateUsageDelta,
-  classifyStructuralMessageDirection,
-  countActiveSummaryDepth,
-  estimateUsageAfterMessageChange,
-  estimateUsageAtTravelTarget,
-  findInTree,
-  formatContextUsage,
-  formatEntryLabel,
-  isReservedTargetName,
-  isValidEntryId,
-  optionalString,
-  resolveTargetId,
-  sanitizeTerminalText,
-} from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { ANCHOR_SEARCH_WINDOW, isReservedTargetName, optionalString, sanitizeTerminalText } from "./conventions.js";
+import { calculateUsageDelta, classifyStructuralMessageDirection, countActiveSummaryDepth, estimateUsageAfterMessageChange, estimateUsageAtTravelTarget, formatContextUsage } from "./usage-estimation.js";
+import { findInTree, formatEntryLabel, isValidEntryId, resolveTargetId } from "./target-resolution.js";
 import { buildCanonicalHandoff, deriveReturnTicketName, formatHandoffDefect, normalizeHandoffWire, StructuredHandoffSchema, type HandoffWireInput } from "./handoff.js";
-import { rebuildAcmContextPacket } from "./context-packet.js";
+import { createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
+import { scanProtocolAnchor } from "./anchor-scan.js";
 import {
   prevalidateBranchWithSummary,
   prevalidateCheckpointLabel,
@@ -458,9 +446,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             details: { error: "aborted", target: params.target, targetId },
           };
         }
-        // Same anchoring rule as acm_checkpoint's automatic placement: walk
-        // backward for the latest protocol-complete entry, bounded by the
-        // shared search window.
+        // Same anchoring rule as acm_checkpoint's automatic placement, now
+        // in the shared scanner: two-tier fallback with the invalid-only
+        // hard floor, and empty rebuilds never anchor.
         //
         // On-path folds have a hard lower bound: the ticket must sit strictly
         // after the travel target, inside the replaced range. A ticket at or
@@ -468,62 +456,33 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // — advertising it as a raw archive would be a lie. Off-path travel
         // replaces the whole current spine, so every entry on it qualifies.
         //
-        // Two-tier fallback, aligned with the invalid-only hard floor from
-        // travel-target-facts: "repaired" is deterministic normalization
-        // evidence, not damage — the raw entries stay untouched and restore
-        // rebuilds a lawful packet with the same repairs. A single mid-span
-        // provider-error tool call would otherwise poison every candidate
-        // after it and permanently block folding toward any clean earlier
-        // target. Prefer the latest complete candidate; fall back to the
-        // latest rebuildable repaired one; hard-fail only when nothing in
-        // the replaced range can rebuild at all.
-        //
         // When the target packet is itself "repaired", a repaired candidate
         // is accepted immediately (not as a fallback): the archive carries
         // exactly the damage the fold already acknowledged, and this keeps
         // ticket placement byte-identical to the pre-fallback behavior on
         // every previously-succeeding path.
-        const targetProtocolStatus = targetPacketResult.value.protocol.status;
-        let repairedFallback: { entryId: string; repairs: typeof currentPacket.protocol.repairs; normalizations: typeof currentPacket.protocol.normalizations } | undefined;
-        let scanAborted = false;
         const lowestIndex = resolved.fromOffPath ? 0 : targetBranch.length;
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
-        for (let index = startIndex, inspected = 0; index >= lowestIndex && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
-          if (signal?.aborted) {
-            scanAborted = true;
-            break;
-          }
-          const candidate = branch[index]!;
-          const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-          if (!packet.ok || packet.value.messages.length === 0) continue;
-          const status = packet.value.protocol.status;
-          if (status !== "complete" && !(status === "repaired" && targetProtocolStatus === "repaired")) {
-            if (status === "repaired" && repairedFallback === undefined) {
-              repairedFallback = {
-                entryId: candidate.id,
-                repairs: packet.value.protocol.repairs,
-                normalizations: packet.value.protocol.normalizations,
-              };
-            }
-            continue;
-          }
-          backupProtocolStatus = status;
-          backupProtocolRepairs = packet.value.protocol.repairs;
-          backupProtocolNormalizations = packet.value.protocol.normalizations;
-          backupEntryId = candidate.id;
-          break;
-        }
-        if (scanAborted) {
+        const scan = scanProtocolAnchor({
+          branch,
+          startIndex,
+          lowestIndex,
+          window: ANCHOR_SEARCH_WINDOW,
+          signal,
+          acceptRepairedDirectly: targetPacketResult.value.protocol.status === "repaired",
+          rebuild: createAcmPacketSnapshot(sessionManager).rebuild,
+        });
+        if (scan.aborted) {
           return {
             content: [{ type: "text" as const, text: "acm_travel aborted during return-ticket target resolution." }],
             details: { error: "aborted", target: params.target, targetId },
           };
         }
-        if (!backupEntryId && repairedFallback) {
-          backupProtocolStatus = "repaired";
-          backupProtocolRepairs = repairedFallback.repairs;
-          backupProtocolNormalizations = repairedFallback.normalizations;
-          backupEntryId = repairedFallback.entryId;
+        if (scan.entryId !== null) {
+          backupProtocolStatus = scan.protocolStatus ?? "complete";
+          backupProtocolRepairs = scan.protocolRepairs ?? [];
+          backupProtocolNormalizations = scan.normalizations;
+          backupEntryId = scan.entryId;
         }
         if (!backupEntryId) {
           return {

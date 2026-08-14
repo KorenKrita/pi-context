@@ -111,7 +111,7 @@ describe("travel target facts", () => {
 
 describe("resolveTargetId", () => {
   test("marks the structural root off-path when the active branch starts at another top-level root", async () => {
-    const { resolveTargetId } = await import("../src/lib.js");
+    const { resolveTargetId } = await import("../src/target-resolution.js");
     const firstRoot = user("root-a");
     const activeRoot = user("root-b");
     const node = (entry: SessionEntry) => ({ entry, children: [] });

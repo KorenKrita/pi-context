@@ -7,7 +7,8 @@ export type ReadonlySessionManager = Pick<
 type LabelEntry = Extract<SessionEntry, { type: "label" }>;
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { buildLabelMaps, isReservedTargetName } from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { isReservedTargetName } from "./conventions.js";
 
 export type HostBridgeErrorCode =
   | "missing_capability"
@@ -218,6 +219,51 @@ export function buildSessionMessages(
     const cause = error instanceof Error ? error.message : String(error);
     return failure("malformed_capability", `Failed to build session messages: ${cause}`, { leafId: effectiveLeaf, cause });
   }
+}
+
+/**
+ * One shared read of the session's entries and ID index. Backward anchor
+ * scans consult many candidate leaves; a snapshot hands each of them the
+ * same entries and byId instead of re-reading and re-indexing the whole
+ * session per candidate.
+ */
+export interface SessionSnapshot {
+  readonly entries: readonly SessionEntry[];
+  readonly byId: ReadonlyMap<string, SessionEntry>;
+  /** Build one leaf's messages on the shared snapshot; error shape matches buildSessionMessages. */
+  messagesAt(leafId: string | null): HostResult<AgentMessage[], { leafId: string | null; cause: string }>;
+}
+
+export function createSessionSnapshot(sm: ReadonlySessionManager): HostResult<SessionSnapshot, { cause: string }> {
+  let entries: SessionEntry[];
+  try {
+    entries = sm.getEntries();
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    return failure("host_operation_failed", `Failed to read session state: ${cause}`, { cause });
+  }
+  let byId: Map<string, SessionEntry>;
+  try {
+    byId = new Map(entries.map((entry) => [entry.id, entry]));
+  } catch (error) {
+    // A malformed host capability (null entries, an iterable that throws)
+    // must surface as the same structured failure the per-leaf path returns,
+    // never as an exception through the tool executor.
+    const cause = error instanceof Error ? error.message : String(error);
+    return failure("malformed_capability", `Failed to build session messages: ${cause}`, { cause });
+  }
+  return success({
+    entries,
+    byId,
+    messagesAt: (leafId: string | null) => {
+      try {
+        return success(buildSessionContext(entries, leafId, byId).messages as AgentMessage[]);
+      } catch (error) {
+        const cause = error instanceof Error ? error.message : String(error);
+        return failure("malformed_capability", `Failed to build session messages: ${cause}`, { leafId, cause });
+      }
+    },
+  });
 }
 
 export function prevalidateCheckpointLabel(

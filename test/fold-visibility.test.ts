@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { buildGaugeSuffix } from "../src/context-gauge.js";
 import { selectFoldReferences, findNearestSavePoint, estimateFoldGains, type FoldEstimateEntry } from "../src/fold-estimate.js";
-import type { LabelMaps } from "../src/lib.js";
+import { type LabelMaps } from "../src/label-journal.js";
 import type { ContextUsagePressure } from "../src/context-pressure.js";
 
 /**

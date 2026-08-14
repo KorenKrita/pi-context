@@ -5,6 +5,7 @@ import {
   applyBranchWithSummary,
   appendCheckpointLabel,
   buildSessionMessages,
+  createSessionSnapshot,
   getHostCapabilities,
   prevalidateBranchWithSummary,
   prevalidateCheckpointLabel,
@@ -58,6 +59,57 @@ describe("Host Bridge exception containment", () => {
       details: { leafId: null, cause: "leaf unavailable" },
     });
   });
+
+  test("snapshot creation contains malformed entries like the per-leaf path", () => {
+    const nullEntries = {
+      getLeafId: () => "entry-1",
+      getEntries: () => null as never,
+    };
+
+    expect(() => createSessionSnapshot(nullEntries as never)).not.toThrow();
+    expect(createSessionSnapshot(nullEntries as never)).toMatchObject({
+      ok: false,
+      error: "malformed_capability",
+    });
+    const nullFailure = createSessionSnapshot(nullEntries as never);
+    expect(nullFailure.ok).toBe(false);
+    if (nullFailure.ok) throw new Error("unreachable");
+    expect(typeof nullFailure.details.cause).toBe("string");
+    expect(nullFailure.details.cause.length).toBeGreaterThan(0);
+
+    const throwingIterable = {
+      getLeafId: () => "entry-1",
+      getEntries: () => {
+        throw new Error("iteration exploded");
+      },
+    };
+
+    expect(createSessionSnapshot(throwingIterable as never)).toMatchObject({
+      ok: false,
+      error: "host_operation_failed",
+      details: { cause: "iteration exploded" },
+    });
+  });
+
+  test("snapshot creation also guards an entries array whose mapping throws", () => {
+    const poisoned = {
+      getLeafId: () => "entry-1",
+      getEntries: () => new Proxy([], {
+        get(target, property) {
+          if (property === "map") throw new Error("map poisoned");
+          return Reflect.get(target, property);
+        },
+      }) as never,
+    };
+
+    expect(() => createSessionSnapshot(poisoned as never)).not.toThrow();
+    expect(createSessionSnapshot(poisoned as never)).toMatchObject({
+      ok: false,
+      error: "malformed_capability",
+      details: { cause: "map poisoned" },
+    });
+  });
+
 
   test("treats throwing capability getters as unavailable instead of leaking the exception", () => {
     const session = {

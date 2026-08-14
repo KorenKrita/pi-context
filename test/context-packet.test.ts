@@ -5,10 +5,28 @@ import {
   ACM_CONTINUATION_MARKER,
   collectTrustedAcmTravelTransactions,
   normalizeExistingAcmPacket,
+  createAcmPacketSnapshot,
   normalizeExistingAcmPacketForSession,
 } from "../src/context-packet";
 
 describe("ACM context packet", () => {
+
+  test("a failed snapshot rebuild carries the requested leafId in its failure details", () => {
+    const malformedHost = {
+      getLeafId: () => "leaf-1",
+      getEntries: () => null,
+      getBranch: () => [],
+    };
+    const snapshot = createAcmPacketSnapshot(malformedHost as never);
+
+    const failure = snapshot.rebuild("leaf-9");
+    expect(failure.ok).toBe(false);
+    if (failure.ok) throw new Error("unreachable");
+    expect(failure.error).toBe("malformed_capability");
+    expect(failure.details.leafId).toBe("leaf-9");
+    expect(typeof failure.details.cause).toBe("string");
+  });
+
   test("projects a marked branch summary in place without overriding later user work", () => {
     const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: none\nNEXT: act`;
     const messages = [

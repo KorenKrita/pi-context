@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ReadonlySessionManager } from "./host-bridge.js";
-import { buildSessionMessages } from "./host-bridge.js";
+import { buildSessionMessages, createSessionSnapshot } from "./host-bridge.js";
 import { ACM_CONTINUATION_MARKER, buildCanonicalHandoff, type HandoffInput } from "./handoff.js";
 import { analyzeToolProtocol, type ToolProtocolDefect, type ToolProtocolRepair } from "./tool-protocol.js";
 
@@ -407,4 +407,55 @@ export function rebuildAcmContextPacket(
     };
   }
   return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
+}
+
+export interface AcmPacketSnapshot {
+  /** Rebuild one explicit leaf's packet on the shared entries/ID index; null means the root/empty branch, matching rebuildAcmContextPacket. */
+  rebuild(leafId: string | null): ReturnType<typeof rebuildAcmContextPacket>;
+}
+
+/**
+ * Snapshot-backed packet rebuild for scans that consult many candidate
+ * leaves: entries and the ID index are read once, while protocol analysis
+ * per leaf — the semantic work — still runs per candidate. When the shared
+ * read itself fails, every rebuild reports that failure, which is exactly
+ * what per-candidate rebuildAcmContextPacket calls would have produced.
+ */
+export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager): AcmPacketSnapshot {
+  const snapshot = createSessionSnapshot(sessionManager);
+  return {
+    rebuild(leafId: string | null) {
+      if (!snapshot.ok) {
+        return {
+          ok: false as const,
+          error: snapshot.error,
+          message: snapshot.message,
+          details: { leafId, cause: snapshot.details.cause },
+        };
+      }
+      const result = snapshot.value.messagesAt(leafId);
+      if (!result.ok) return result;
+      if (leafId === null) {
+        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []) };
+      }
+      // Mixed provenance is deliberate: packet messages come from the shared
+      // snapshot while activeEntries reads the live branch. The scans that
+      // use this run synchronously with no await between the snapshot and
+      // here, so on a single-threaded host the two cannot observe different
+      // session versions.
+      let activeEntries: SessionEntry[];
+      try {
+        activeEntries = sessionManager.getBranch(leafId);
+      } catch (error) {
+        const cause = error instanceof Error ? error.message : String(error);
+        return {
+          ok: false as const,
+          error: "host_operation_failed" as const,
+          message: `Failed to read active branch entries for ACM context projection: ${cause}`,
+          details: { leafId: leafId ?? null, cause },
+        };
+      }
+      return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
+    },
+  };
 }

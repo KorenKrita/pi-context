@@ -5,16 +5,11 @@ import type {
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
-import {
-  buildLabelMaps,
-  ANCHOR_SEARCH_WINDOW,
-  isReservedTargetName,
-  optionalString,
-  sanitizeTerminalText,
-  isValidEntryId,
-  resolveTargetId,
-} from "./lib.js";
-import { rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { ANCHOR_SEARCH_WINDOW, isReservedTargetName, optionalString, sanitizeTerminalText } from "./conventions.js";
+import { isValidEntryId, resolveTargetId } from "./target-resolution.js";
+import { createAcmPacketSnapshot, rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
+import { scanProtocolAnchor } from "./anchor-scan.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure } from "./context-pressure.js";
 import { estimateFoldGains, findNearestSavePoint, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import {
@@ -203,82 +198,32 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       } else {
         const containingBatch = findContainingAssistantToolBatch(branch, toolCallId);
         const startIndex = (containingBatch?.entryIndex ?? branch.length) - 1;
-        const skipped: SkippedCheckpointAnchor[] = [];
-        autoResolved = { entryId: null, normalizations: [], skipped };
-        // Two-tier fallback (invalid-only hard floor): prefer the latest
-        // protocol-complete candidate; when a mid-span defect leaves every
-        // candidate "repaired", anchor on the latest rebuildable repaired
-        // one instead of failing — the label must not become unreachable
-        // because of one dangling provider-error tool call upstream.
-        let repairedFallback: { entry: SessionEntry; repairs?: ToolProtocolRepair[]; normalizations: AcmProtocolNormalization[] } | undefined;
-        let index = startIndex;
-        let inspected = 0;
-        for (; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
-          if (signal?.aborted) {
-            autoResolved.aborted = true;
-            break;
-          }
-          const candidate = branch[index]!;
-          const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-          if (!packet.ok) {
-            skipped.push({ id: candidate.id, reason: "context_build_failed", message: packet.message });
-            continue;
-          }
-          if (packet.value.messages.length === 0) {
-            skipped.push({ id: candidate.id, reason: "empty_context_packet" });
-            continue;
-          }
-          if (packet.value.protocol.status === "invalid") {
-            skipped.push({
-              id: candidate.id,
-              reason: "protocol_invalid",
-              defects: packet.value.protocol.defects,
-            });
-            continue;
-          }
-          if (packet.value.protocol.status === "repaired") {
-            if (repairedFallback === undefined) {
-              repairedFallback = {
-                entry: candidate,
-                repairs: packet.value.protocol.repairs,
-                normalizations: packet.value.protocol.normalizations,
-              };
-            }
-            skipped.push({
-              id: candidate.id,
-              reason: "protocol_repaired",
-              repairs: packet.value.protocol.repairs,
-            });
-            continue;
-          }
-          autoResolved = {
-            entryId: candidate.id,
-            role: getMessageRoleLabel(candidate) ?? candidate.type.toUpperCase(),
-            snippet: describeEntrySnippet(candidate),
-            protocolStatus: "complete",
-            normalizations: packet.value.protocol.normalizations,
-            skipped,
-          };
-          break;
-        }
-        if (!autoResolved.entryId && !autoResolved.aborted && repairedFallback) {
-          const candidate = repairedFallback.entry;
-          autoResolved = {
-            entryId: candidate.id,
-            role: getMessageRoleLabel(candidate) ?? candidate.type.toUpperCase(),
-            snippet: describeEntrySnippet(candidate),
-            protocolStatus: "repaired",
-            ...(repairedFallback.repairs !== undefined ? { protocolRepairs: repairedFallback.repairs } : {}),
-            normalizations: repairedFallback.normalizations,
-            // The fallback anchor is no longer "skipped"; keep the other
-            // skip evidence but drop its own entry from that list.
-            skipped: skipped.filter((skip) => skip.id !== candidate.id),
-          };
-        }
-        if (!autoResolved.entryId && !autoResolved.aborted && inspected === ANCHOR_SEARCH_WINDOW && index >= 0) {
-          autoResolved.searchExhausted = true;
-        }
-        entryId = autoResolved.entryId ?? "";
+        // One shared scan for the two-tier anchor rule; the snapshot hands
+        // every candidate the same entries/ID index instead of one full
+        // session read per candidate.
+        const scan = scanProtocolAnchor({
+          branch,
+          startIndex,
+          window: ANCHOR_SEARCH_WINDOW,
+          signal,
+          rebuild: createAcmPacketSnapshot(sessionManager).rebuild,
+        });
+        autoResolved = {
+          entryId: scan.entryId,
+          ...(scan.entry !== undefined
+            ? {
+                role: getMessageRoleLabel(scan.entry) ?? scan.entry.type.toUpperCase(),
+                snippet: describeEntrySnippet(scan.entry),
+              }
+            : {}),
+          ...(scan.protocolStatus !== undefined ? { protocolStatus: scan.protocolStatus } : {}),
+          ...(scan.protocolRepairs !== undefined ? { protocolRepairs: scan.protocolRepairs } : {}),
+          normalizations: scan.normalizations,
+          skipped: scan.skipped,
+          ...(scan.aborted ? { aborted: true } : {}),
+          ...(scan.searchExhausted ? { searchExhausted: true } : {}),
+        };
+        entryId = scan.entryId ?? "";
       }
 
       if (signal?.aborted || autoResolved?.aborted) {

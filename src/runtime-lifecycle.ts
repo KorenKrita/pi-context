@@ -4,10 +4,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { appendCheckpointLabel } from "./host-bridge.js";
-import { normalizeExistingAcmPacketForSession, rebuildAcmContextPacket } from "./context-packet.js";
+import {
+  createAcmPacketSnapshot,
+  normalizeExistingAcmPacketForSession,
+  rebuildAcmContextPacket,
+} from "./context-packet.js";
+import { scanProtocolAnchor } from "./anchor-scan.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
-import { ANCHOR_SEARCH_WINDOW, buildLabelMaps, ContextRefreshRegistry } from "./lib.js";
+import { buildLabelMaps } from "./label-journal.js";
+import { ANCHOR_SEARCH_WINDOW } from "./conventions.js";
+import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
@@ -527,25 +534,15 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     for (let ordinal = 2; labelMaps.labelToEntryId.has(checkpointName); ordinal++) {
       checkpointName = `${checkpointBase}-${ordinal}`;
     }
-    let checkpointTargetId: string | undefined;
-    let repairedFallbackId: string | undefined;
-    let inspected = 0;
-    for (let index = branch.length - 1; index >= 0 && inspected < ANCHOR_SEARCH_WINDOW; index--, inspected++) {
-      if (event.signal?.aborted) return;
-      const candidate = branch[index];
-      if (!candidate) continue;
-      const packet = rebuildAcmContextPacket(sessionManager, candidate.id);
-      if (!packet.ok || packet.value.messages.length === 0) continue;
-      const status = packet.value.protocol.status;
-      if (status === "complete") {
-        checkpointTargetId = candidate.id;
-        break;
-      }
-      if (status === "repaired" && repairedFallbackId === undefined) {
-        repairedFallbackId = candidate.id;
-      }
-    }
-    if (!checkpointTargetId) checkpointTargetId = repairedFallbackId;
+    const scan = scanProtocolAnchor({
+      branch,
+      startIndex: branch.length - 1,
+      window: ANCHOR_SEARCH_WINDOW,
+      signal: event.signal,
+      rebuild: createAcmPacketSnapshot(sessionManager).rebuild,
+    });
+    if (scan.aborted) return;
+    const checkpointTargetId = scan.entryId ?? undefined;
     if (!checkpointTargetId) {
       ctx.ui.notify(
         `No pre-compaction checkpoint was created because no entry within the last ${ANCHOR_SEARCH_WINDOW} entries of the bounded search window can rebuild a lawful context packet.`,
