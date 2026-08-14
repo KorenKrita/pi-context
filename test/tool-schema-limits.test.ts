@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerCheckpointTool } from "../src/checkpoint-tool.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { registerTravelTool } from "../src/travel-tool.js";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 
 interface CapturedTool {
   name: string;
@@ -120,15 +121,45 @@ describe("acm_travel strict-mode compatibility", () => {
     expect(prepared.backupCurrentHeadAs).toBeNull();
   });
 
-  test("prepareArguments leaves supplied values and string handoffs untouched", () => {
+  test("prepareArguments decodes legacy JSON-string handoffs and rejects free-form text", () => {
     const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
     const full = { target: "t", backupCurrentHeadAs: "keep", handoff: { goal: "g", state: "s", next: "n", evidence: "e", external: "x", exclusions: "c", recover: "r" } };
     expect(travel.prepareArguments!(full)).toEqual(full);
 
-    const stringHandoff = { target: "t", handoff: "{\"goal\":\"g\"}" };
+    const stringHandoff = { target: "t", handoff: JSON.stringify({ goal: "g", state: "s", next: "n" }) };
     const prepared = travel.prepareArguments!(stringHandoff) as { handoff: unknown };
-    expect(prepared.handoff).toBe(stringHandoff.handoff);
+    expect(prepared.handoff).toEqual({ goal: "g", state: "s", next: "n", evidence: null, external: null, exclusions: null, recover: null });
+
+    expect(() => travel.prepareArguments!({ target: "t", handoff: "continue the work" }))
+      .toThrow(/handoff:invalid_json/);
 
     expect(travel.prepareArguments!("not-an-object")).toBe("not-an-object");
+  });
+
+  test("prepareArguments rejects wrong wire types before host coercion can legalize them", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    expect(() => travel.prepareArguments!({ target: "t", handoff: { goal: 42, state: "s", next: "n" } }))
+      .toThrow(/goal:invalid_type \(expected string, got number\)/);
+    expect(() => travel.prepareArguments!({ target: "t", handoff: { goal: "g", state: "s", next: "n", evidence: ["a.md"] } }))
+      .toThrow(/evidence:invalid_type \(expected string \| null, got array\)/);
+    expect(() => travel.prepareArguments!({ target: "t", handoff: { goal: "g", state: "s", next: "n", files: "x" } }))
+      .toThrow(/handoff:unexpected_field \('files' is not a handoff field\)/);
+    expect(() => travel.prepareArguments!({ target: "t", handoff: { goal: "g", state: "s", next: "n" }, backupCurrentHeadAs: 7 }))
+      .toThrow(/backupCurrentHeadAs must be a string or null \(got number\)/);
+  });
+
+  test("the provider-visible schema rejects a plain string handoff", () => {
+    const travel = captureTool(registerTravelTool as unknown as (pi: ExtensionAPI) => void);
+    const tool = travel as unknown as { parameters: unknown };
+    expect(() => validateToolArguments(
+      tool as never,
+      { id: "probe", name: "acm_travel", arguments: { target: "root", handoff: "continue the work", backupCurrentHeadAs: null } },
+    )).toThrow(/handoff/);
+    const prepared = travel.prepareArguments!({ target: "root", handoff: { goal: "g", state: "s", next: "n" } });
+    const valid = validateToolArguments(
+      tool as never,
+      { id: "probe", name: "acm_travel", arguments: prepared },
+    );
+    expect(valid.handoff).toEqual({ goal: "g", state: "s", next: "n", evidence: null, external: null, exclusions: null, recover: null });
   });
 });

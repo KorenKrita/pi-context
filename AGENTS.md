@@ -32,7 +32,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 - TypeScript ESM，source-first：Pi 直接加载 `src/*.ts`，生产不依赖 `dist/`
 - 工具参数 schema 使用 `@earendil-works/pi-ai` 的 TypeBox `Type.*`
 - 四个 `@earendil-works/*` peer/dev dependency 精确固定 **`0.84.0`**（含 `test/host-fixture/`），不要改成 range
-- `acm_travel` 声明 `constrainedSampling: { type: "json_schema", strict: "prefer" }`（2026-08-14 由「不使用」反转为启用）：wire schema 全 properties 进 required、四个 supporting 字段与 `backupCurrentHeadAs` 以 null 表缺席，从而满足 OpenAI strict；`strict: "prefer"` 在不支持的通道静默降级，`prepareArguments` 为非 strict 调用方与旧会话把缺省字段补 null，行为与旧 wire 完全等价。禁止升到 `strict: "require"`（会砍掉降级路径）
+- `acm_travel` 声明 `constrainedSampling: { type: "json_schema", strict: "prefer" }`（2026-08-14 由「不使用」反转为启用）：wire schema 全 properties 进 required、四个 supporting 字段与 `backupCurrentHeadAs` 以 null 表缺席，从而满足 OpenAI strict；`strict: "prefer"` 在不支持的通道静默降级。provider-visible schema **只含 StructuredHandoffSchema**（string 分支只保留在归一层）；`prepareArguments` 在框架 `validateToolArguments`/`Value.Convert` **之前**运行：解码旧 JSON-string handoff、补缺省字段为 null、并以 non-coercive 校验拒绝错 wire type（防 `goal: 42` 被强转成 `"42"` 静默合法化），发现 defect 时以 `formatHandoffDefect` 格式抛错（框架会把 message 原文作为 error tool result 交付）。禁止升到 `strict: "require"`（会砍掉降级路径）
 - 根目录提交 npm `package-lock.json`（Pi git 安装走 `npm install --omit=dev`）；改 `package.json` 后必须重新生成并从 committed tree 验证 `npm ci --ignore-scripts`
 
 ## 架构

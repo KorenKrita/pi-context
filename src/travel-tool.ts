@@ -22,7 +22,7 @@ import {
   resolveTargetId,
   sanitizeTerminalText,
 } from "./lib.js";
-import { buildCanonicalHandoff, deriveReturnTicketName, formatHandoffDefect, HandoffSchema, type HandoffWireInput } from "./handoff.js";
+import { buildCanonicalHandoff, deriveReturnTicketName, formatHandoffDefect, normalizeHandoffWire, StructuredHandoffSchema, type HandoffWireInput } from "./handoff.js";
 import { rebuildAcmContextPacket } from "./context-packet.js";
 import {
   prevalidateBranchWithSummary,
@@ -89,7 +89,7 @@ function formatSignedDelta(value: number | null, fractionDigits = 0, suffix = ""
 export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
   const schema = Type.Object({
     target: Type.String({ minLength: 1, description: "Where to return to: checkpoint name, node ID, or 'root'. Pick the point immediately before the material being folded — the checkpoints view lists candidates with projected gains." }),
-    handoff: HandoffSchema,
+    handoff: StructuredHandoffSchema,
     backupCurrentHeadAs: Type.Union([
       Type.String({ minLength: 1, pattern: "^[A-Za-z0-9._-]+$" }),
       Type.Null(),
@@ -109,21 +109,29 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
     constrainedSampling: { type: "json_schema", strict: "prefer" },
     // Strict mode lists every property in `required`, so older sessions and
     // non-strict channels that legitimately omit optional fields are
-    // normalized here before validation: absent means null.
+    // normalized here before validation: absent means null. This also runs
+    // BEFORE the host validator's Value.Convert: non-coercive wire checks here
+    // reject what primitive coercion would silently legalize (goal: 42 ->
+    // "42"), decode legacy JSON-string handoffs, and surface the tool's own
+    // defect formatting instead of the framework's generic message.
     prepareArguments(args: unknown) {
       if (typeof args !== "object" || args === null || Array.isArray(args)) {
         return args as Static<typeof schema>;
       }
       const record = { ...(args as Record<string, unknown>) };
       if (record.backupCurrentHeadAs === undefined) record.backupCurrentHeadAs = null;
-      const handoff = record.handoff;
-      if (typeof handoff === "object" && handoff !== null && !Array.isArray(handoff)) {
-        const filled = { ...(handoff as Record<string, unknown>) };
-        for (const field of ["evidence", "external", "exclusions", "recover"]) {
-          if (filled[field] === undefined) filled[field] = null;
-        }
-        record.handoff = filled;
+      if (record.backupCurrentHeadAs !== null && typeof record.backupCurrentHeadAs !== "string") {
+        throw new Error(`Error: backupCurrentHeadAs must be a string or null (got ${Array.isArray(record.backupCurrentHeadAs) ? "array" : typeof record.backupCurrentHeadAs}). Fix the field and reissue acm_travel; nothing was mutated.`);
       }
+      const normalized = normalizeHandoffWire(record.handoff);
+      if (!normalized.ok) {
+        throw new Error(`Error: structured handoff is invalid: ${normalized.defects.map(formatHandoffDefect).join(", ")}. Fix the named fields and reissue acm_travel; nothing was mutated.`);
+      }
+      const filled = { ...normalized.value };
+      for (const field of ["evidence", "external", "exclusions", "recover"]) {
+        if (filled[field] === undefined) filled[field] = null;
+      }
+      record.handoff = filled;
       return record as Static<typeof schema>;
     },
     executionMode: "sequential",
@@ -136,10 +144,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const backupName = optionalString(args.backupCurrentHeadAs);
       const backup = backupName ? ` · return ticket ${sanitizeTerminalText(backupName)}` : "";
       const target = sanitizeTerminalText(optionalString(args.target) ?? "…");
-      const handoffLength = typeof args.handoff === "string"
-        ? args.handoff.length
-        : args.handoff && typeof args.handoff === "object"
-          ? Object.values(args.handoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
+      // Stored calls from older sessions may still carry a JSON-string handoff
+      // (the provider-visible schema is object-only now); render defensively.
+      const rawHandoff: unknown = args.handoff;
+      const handoffLength = typeof rawHandoff === "string"
+        ? rawHandoff.length
+        : rawHandoff && typeof rawHandoff === "object"
+          ? Object.values(rawHandoff).reduce((total, value) => total + (typeof value === "string" ? value.length : 0), 0)
           : 0;
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TRAVEL  "))

@@ -63,7 +63,8 @@ export type HandoffField = keyof HandoffInput;
 
 export type HandoffDefect =
   | { field: HandoffField; reason: "empty" | "none_not_allowed" }
-  | { field: HandoffField; reason: "invalid_type"; expected: "string"; got: string }
+  | { field: HandoffField; reason: "invalid_type"; expected: string; got: string }
+  | { field: "handoff"; reason: "invalid_type"; expected: "object"; got: string }
   | { field: "handoff"; reason: "invalid_json" }
   | { field: "handoff"; reason: "unexpected_field"; name: string }
   | { field: "rawArchiveAlias"; reason: "invalid_archive_alias" };
@@ -74,6 +75,49 @@ function wireTypeOf(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
   return typeof value;
+}
+
+/** The wire type a rejection should name: required fields take plain strings;
+ * the four supporting fields are string | null since strict-mode schemas. */
+function wireExpectedType(field: HandoffField): string {
+  return REQUIRED_FIELDS.has(field) ? "string" : "string | null";
+}
+
+/**
+ * Non-coercive wire normalization for acm_travel's prepareArguments. A legacy
+ * JSON-encoded string handoff is decoded first; a non-object handoff and any
+ * wrong field type are rejected here, BEFORE the host validator's Value.Convert
+ * can coerce a number into the declared string type and silently legalize it.
+ * Returns the decoded record (supporting fields may still be undefined) or the
+ * defects to report with formatHandoffDefect.
+ */
+export function normalizeHandoffWire(handoff: unknown): { ok: true; value: Record<string, unknown> } | { ok: false; defects: HandoffDefect[] } {
+  if (typeof handoff === "string") {
+    try {
+      handoff = JSON.parse(handoff);
+    } catch {
+      return { ok: false, defects: [{ field: "handoff", reason: "invalid_json" }] };
+    }
+  }
+  if (typeof handoff !== "object" || handoff === null || Array.isArray(handoff)) {
+    return { ok: false, defects: [{ field: "handoff", reason: "invalid_type", expected: "object", got: wireTypeOf(handoff) }] };
+  }
+  const record = handoff as Record<string, unknown>;
+  const defects: HandoffDefect[] = [];
+  for (const { field } of FIELD_ORDER) {
+    const value = record[field];
+    if (value === undefined || value === null) {
+      if (REQUIRED_FIELDS.has(field)) defects.push({ field, reason: "invalid_type", expected: wireExpectedType(field), got: wireTypeOf(value) });
+      continue;
+    }
+    if (typeof value !== "string") defects.push({ field, reason: "invalid_type", expected: wireExpectedType(field), got: wireTypeOf(value) });
+  }
+  const knownFields = new Set<string>(FIELD_ORDER.map(({ field }) => field));
+  for (const name of Object.keys(record)) {
+    if (!knownFields.has(name)) defects.push({ field: "handoff", reason: "unexpected_field", name });
+  }
+  if (defects.length > 0) return { ok: false, defects };
+  return { ok: true, value: record };
 }
 
 /**
@@ -144,12 +188,12 @@ export function buildCanonicalHandoff(
     const required = REQUIRED_FIELDS.has(field);
     if (rawValue === undefined || rawValue === null) {
       // Optional fields default to "none"; missing required fields are defects.
-      if (required) defects.push({ field, reason: "invalid_type", expected: "string", got: wireTypeOf(rawValue) });
+      if (required) defects.push({ field, reason: "invalid_type", expected: wireExpectedType(field), got: wireTypeOf(rawValue) });
       else normalizedFields[field] = "none";
       continue;
     }
     if (typeof rawValue !== "string") {
-      defects.push({ field, reason: "invalid_type", expected: "string", got: wireTypeOf(rawValue) });
+      defects.push({ field, reason: "invalid_type", expected: wireExpectedType(field), got: wireTypeOf(rawValue) });
       continue;
     }
     const value = normalize(rawValue);

@@ -227,7 +227,7 @@ describe("formatHandoffDefect", () => {
     expect(arrayResult.ok).toBe(false);
     if (arrayResult.ok) throw new Error("unreachable");
     expect(arrayResult.defects.map(formatHandoffDefect)).toEqual([
-      "evidence:invalid_type (expected string, got array)",
+      "evidence:invalid_type (expected string | null, got array)",
     ]);
   });
 

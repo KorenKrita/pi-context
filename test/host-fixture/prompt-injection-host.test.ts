@@ -96,16 +96,18 @@ test("ACM tools register generated prompt metadata on the exact Pi host", async 
     };
     expect(travelParameters.required).toContain("handoff");
     expect(travelParameters.properties?.summary).toBeUndefined();
-    const handoffVariants = travelParameters.properties?.handoff?.anyOf ?? [];
-    const structuredHandoff = handoffVariants.find((variant) => variant.type === "object");
-    const serializedHandoff = handoffVariants.find((variant) => variant.type === "string");
-    // Strict-mode wire shape: every field listed in required so constrained
-    // decoding accepts the schema; supporting fields stay cheap by taking
-    // null, and prepareArguments fills null for callers that omit them.
-    expect(structuredHandoff?.required?.sort()).toEqual([
+    const handoffProperty = travelParameters.properties?.handoff as { type?: string; required?: string[] } | undefined;
+    // Strict-mode wire shape, structured-only: every field listed in required
+    // so constrained decoding accepts the schema; supporting fields stay cheap
+    // by taking null, and prepareArguments fills null for callers that omit
+    // them. The legacy JSON-string variant must NOT be provider-visible — a
+    // schema-legal string handoff would inevitably fail invalid_json, so it
+    // is rescued in prepareArguments instead.
+    expect(handoffProperty?.type).toBe("object");
+    expect(handoffProperty?.required?.sort()).toEqual([
       "evidence", "exclusions", "external", "goal", "next", "recover", "state",
     ]);
-    expect(serializedHandoff).toBeDefined();
+    expect(travelParameters.properties?.handoff?.anyOf).toBeUndefined();
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
