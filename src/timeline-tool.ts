@@ -22,7 +22,7 @@ import {
   sanitizeTerminalText,
   type LabelMaps,
 } from "./lib.js";
-import { collectTrustedAcmTravelTransactions, rebuildAcmContextPacket } from "./context-packet.js";
+import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
 import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
@@ -631,7 +631,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const usage = checkpointsPressure
           ? { tokens: checkpointsPressure.tokens, contextWindow: checkpointsPressure.contextWindow, percent: checkpointsPressure.usagePercent }
           : undefined;
-        const currentResult = rebuildAcmContextPacket(sessionManager, leafId);
+        // One snapshot for the current leaf, root, and every displayed
+        // checkpoint: the whole view shares a single entries read and ID
+        // index instead of one full session projection per target.
+        const snapshot = createAcmPacketSnapshot(sessionManager);
+        const currentResult = snapshot.rebuild(leafId);
         if (!currentResult.ok) {
           return {
             content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
@@ -654,7 +658,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
-          const rootResult = rebuildAcmContextPacket(sessionManager, rootEntry.id);
+          const rootResult = snapshot.rebuild(rootEntry.id);
           const rootMessages = rootResult.ok ? rootResult.value.messages : [];
           cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages } : { ok: false });
           rootCandidateDisplayed = true;
@@ -678,7 +682,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           if (signal?.aborted) break;
           let cachedTarget = cache.get(checkpoint.entryId);
           if (!cachedTarget) {
-            const targetResult = rebuildAcmContextPacket(sessionManager, checkpoint.entryId);
+            const targetResult = snapshot.rebuild(checkpoint.entryId);
             cachedTarget = targetResult.ok
               ? { ok: true, messages: targetResult.value.messages }
               : { ok: false };

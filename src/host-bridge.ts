@@ -230,7 +230,7 @@ export interface SessionSnapshot {
   readonly entries: readonly SessionEntry[];
   readonly byId: ReadonlyMap<string, SessionEntry>;
   /** Build one leaf's messages on the shared snapshot; error shape matches buildSessionMessages. */
-  messagesAt(leafId: string): HostResult<AgentMessage[], { leafId: string | null; cause: string }>;
+  messagesAt(leafId: string | null): HostResult<AgentMessage[], { leafId: string | null; cause: string }>;
 }
 
 export function createSessionSnapshot(sm: ReadonlySessionManager): HostResult<SessionSnapshot, { cause: string }> {
@@ -245,7 +245,7 @@ export function createSessionSnapshot(sm: ReadonlySessionManager): HostResult<Se
   return success({
     entries,
     byId,
-    messagesAt: (leafId: string) => {
+    messagesAt: (leafId: string | null) => {
       try {
         return success(buildSessionContext(entries, leafId, byId).messages as AgentMessage[]);
       } catch (error) {

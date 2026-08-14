@@ -410,8 +410,8 @@ export function rebuildAcmContextPacket(
 }
 
 export interface AcmPacketSnapshot {
-  /** Rebuild one explicit leaf's packet on the shared entries/ID index; return shape matches rebuildAcmContextPacket. */
-  rebuild(leafId: string): ReturnType<typeof rebuildAcmContextPacket>;
+  /** Rebuild one explicit leaf's packet on the shared entries/ID index; null means the root/empty branch, matching rebuildAcmContextPacket. */
+  rebuild(leafId: string | null): ReturnType<typeof rebuildAcmContextPacket>;
 }
 
 /**
@@ -424,7 +424,7 @@ export interface AcmPacketSnapshot {
 export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager): AcmPacketSnapshot {
   const snapshot = createSessionSnapshot(sessionManager);
   return {
-    rebuild(leafId: string) {
+    rebuild(leafId: string | null) {
       if (!snapshot.ok) {
         return {
           ok: false as const,
@@ -435,6 +435,9 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
       }
       const result = snapshot.value.messagesAt(leafId);
       if (!result.ok) return result;
+      if (leafId === null) {
+        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []) };
+      }
       let activeEntries: SessionEntry[];
       try {
         activeEntries = sessionManager.getBranch(leafId);
