@@ -35,7 +35,11 @@ interface CachedProviderPacket {
  * graft, never invents one.
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
-  if (left === right) return true;
+  // No identity shortcut at this level: a shared reference that is cyclic or
+  // BigInt-carrying must decline exactly as the old serializer's throw did,
+  // and only the walk's own guards decide that. Two identical plain-data
+  // references still return true quickly — every primitive inside meets its
+  // === partner on the way down.
   try {
     return jsonEquals(left, right, [], []);
   } catch {
@@ -59,15 +63,18 @@ function jsonPrimitiveEquals(left: unknown, right: unknown): boolean {
   return false;
 }
 
-/** Enumerable own string keys that survive serialization, in stringify order. */
-function jsonObjectKeys(value: object): string[] {
-  const keys: string[] = [];
+/** Enumerable own string keys with their values, serialization-filtered, in
+ * stringify order. Values are captured exactly once: a stateful getter read
+ * twice could disagree with itself, and the walk must compare the value it
+ * filtered on — never a re-read. */
+function jsonObjectEntries(value: object): Array<[string, unknown]> {
+  const entries: Array<[string, unknown]> = [];
   for (const key of Object.keys(value)) {
     const nested = (value as Record<string, unknown>)[key];
     if (nested === undefined || typeof nested === "function" || typeof nested === "symbol") continue;
-    keys.push(key);
+    entries.push([key, nested]);
   }
-  return keys;
+  return entries;
 }
 
 /** Array slots that stringify renders as null: holes, undefined, functions, symbols. */
@@ -139,16 +146,16 @@ function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unkno
     return true;
   }
   // Key order is part of stringify output: {a:1,b:2} and {b:2,a:1} differ.
-  const leftKeys = jsonObjectKeys(effectiveLeft);
-  const rightKeys = jsonObjectKeys(effectiveRight);
-  if (leftKeys.length !== rightKeys.length) return false;
-  for (let index = 0; index < leftKeys.length; index++) {
-    if (leftKeys[index] !== rightKeys[index]) return false;
+  const leftEntries = jsonObjectEntries(effectiveLeft);
+  const rightEntries = jsonObjectEntries(effectiveRight);
+  if (leftEntries.length !== rightEntries.length) return false;
+  for (let index = 0; index < leftEntries.length; index++) {
+    if (leftEntries[index]![0] !== rightEntries[index]![0]) return false;
   }
   const nextLeft = [...leftAncestors, effectiveLeft];
   const nextRight = [...rightAncestors, effectiveRight];
-  for (const key of leftKeys) {
-    if (!jsonEquals((effectiveLeft as Record<string, unknown>)[key], (effectiveRight as Record<string, unknown>)[key], nextLeft, nextRight)) return false;
+  for (let index = 0; index < leftEntries.length; index++) {
+    if (!jsonEquals(leftEntries[index]![1], rightEntries[index]![1], nextLeft, nextRight)) return false;
   }
   return true;
 }

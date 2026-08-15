@@ -160,6 +160,54 @@ describe("ProviderDelivery", () => {
     // A shared non-cyclic reference is still equal, like stringify output.
     const sharedPlain = { deep: true };
     expect(stableMessageMatch({ a: sharedPlain } as unknown as AgentMessage, { a: sharedPlain } as unknown as AgentMessage)).toBe(true);
+    // The SAME reference passed as both arguments: the old top-level identity
+    // shortcut accepted it (true) while serialization would have thrown
+    // (false). The walk must decline it through the same gates.
+    expect(stableMessageMatch(cyclic as unknown as AgentMessage, cyclic as unknown as AgentMessage)).toBe(false);
+    expect(stableMessageMatch({ v: 1n } as unknown as AgentMessage, { v: 1n } as unknown as AgentMessage)).toBe(false);
+    // A stateful getter returning different values per read must not produce
+    // a false positive by being read twice (key filtering once, comparison
+    // again). Each property is now read exactly once, so a getter whose first
+    // read passes the filter and whose second read would differ can never
+    // make two unequal messages compare equal.
+    let readCount = 0;
+    const stateful: Record<string, unknown> = {};
+    Object.defineProperty(stateful, "v", {
+      enumerable: true,
+      get() {
+        readCount += 1;
+        return readCount <= 1 ? "a" : "b";
+      },
+    });
+    const statefulTwin = { ...stateful } as Record<string, unknown>;
+    Object.defineProperty(statefulTwin, "v", {
+      enumerable: true,
+      get() {
+        return "a";
+      },
+    });
+    // stateful's first read of v yields "a" (filter), and the captured value
+    // "a" compares against the twin's "a" — no second read can flip it.
+    expect(stableMessageMatch(stateful as unknown as AgentMessage, statefulTwin as unknown as AgentMessage)).toBe(true);
+    readCount = 0;
+    // Once the captured values differ, the mismatch is reported from the
+    // captured pair, not from a re-read that could coincidentally agree.
+    Object.defineProperty(stateful, "v", {
+      enumerable: true,
+      get() {
+        readCount += 1;
+        return readCount <= 1 ? "a" : "a";
+      },
+      configurable: true,
+    });
+    Object.defineProperty(statefulTwin, "v", {
+      enumerable: true,
+      get() {
+        return "b";
+      },
+      configurable: true,
+    });
+    expect(stableMessageMatch(stateful as unknown as AgentMessage, statefulTwin as unknown as AgentMessage)).toBe(false);
   });
 
   test("mergeCachedPacket grafts through structurally equal, non-identical message objects", () => {
