@@ -174,14 +174,16 @@ describe("ProviderDelivery", () => {
     const stateful: Record<string, unknown> = {};
     Object.defineProperty(stateful, "v", {
       enumerable: true,
+      configurable: true,
       get() {
         readCount += 1;
         return readCount <= 1 ? "a" : "b";
       },
     });
-    const statefulTwin = { ...stateful } as Record<string, unknown>;
+    const statefulTwin: Record<string, unknown> = {};
     Object.defineProperty(statefulTwin, "v", {
       enumerable: true,
+      configurable: true,
       get() {
         return "a";
       },
