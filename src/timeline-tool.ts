@@ -59,35 +59,16 @@ function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: L
   return aliases;
 }
 
-/** Materialized entry text, cached per immutable entry up to a size
- * threshold. Entries are append-only per the host contract, so a rendered
- * entry's text never changes; searches that rescan the same tree reuse the
- * materialized strings instead of re-joining content blocks per scanned
- * node. The threshold is the honest price of a WeakMap keyed by entries the
- * session keeps alive anyway: without it one broad search could pin the
- * verbose text of every scanned entry for the session's lifetime — the big
- * texts (long tool output) are exactly the ones not worth pinning, so they
- * are re-joined on demand and never cached. Worst-case pinning is bounded
- * and stated: touched-entries × threshold × two verbosity slots (a full
- * 5,000-node search scan on a session whose every entry hits the threshold
- * pins ~5 MB). */
-const ENTRY_TEXT_CACHE_MAX_CHARS = 512;
-const entryTextCache = new WeakMap<SessionEntry, { concise?: string; verbose?: string }>();
-
+/**
+ * Rendered entry text. No cross-call cache: entries live as long as the
+ * session, so a WeakMap keyed by them pins every string it stores for the
+ * session's lifetime, and every bounded variant review suggested (size
+ * threshold, LRU, per-session ownership) traded that pinning for invalidation
+ * machinery guarding a ~10% join saving. Searches re-join on demand; the
+ * scan budget already bounds how much that can cost per call.
+ */
 function entryText(entry: SessionEntry, verbose: boolean): string {
-  let cached = entryTextCache.get(entry);
-  if (cached === undefined) {
-    cached = {};
-    entryTextCache.set(entry, cached);
-  }
-  const slot = verbose ? cached.verbose : cached.concise;
-  if (slot !== undefined) return slot;
-  const text = buildEntryText(entry, verbose);
-  if (text.length <= ENTRY_TEXT_CACHE_MAX_CHARS) {
-    if (verbose) cached.verbose = text;
-    else cached.concise = text;
-  }
-  return text;
+  return buildEntryText(entry, verbose);
 }
 
 function buildEntryText(entry: SessionEntry, verbose: boolean): string {
@@ -508,11 +489,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     limit: limitSchema,
     verbose: Type.Optional(Type.Boolean({ description: "Active view only: show all messages, including internal tool traffic and metadata." })),
     filter: Type.Optional(Type.String({ minLength: 1, description: "Narrow the checkpoints view by label or node-ID substring (case-insensitive)." })),
-    query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the whole tree. Required for view=search." })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the tree, bounded by the 5,000-node scan budget. Required for view=search." })),
     scope: Type.Optional(Type.Union([
       Type.Literal("active"),
       Type.Literal("archive"),
-    ], { description: "Search view only: match entries on the active branch (active) or on archived/folded branches (archive). Default: whole tree." })),
+    ], { description: "Search view only: match entries on the active branch (active) or on archived/folded branches (archive). Default: the whole tree within the scan budget." })),
     type: Type.Optional(Type.Union([
       Type.Literal("user"),
       Type.Literal("summary"),
@@ -737,6 +718,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // entriesById/pathOrder serve only the checkpoints listing and move
       // into that view; the raw archive alias set serves several views and
       // becomes lazy instead - built on first use, shared thereafter.
+      const EMPTY_LABEL_ALIASES: ReadonlySet<string> = new Set();
       let rawArchiveAliasesCache: ReadonlySet<string> | undefined;
       const rawArchiveAliasesOnce = (): ReadonlySet<string> =>
         (rawArchiveAliasesCache ??= collectRawArchiveAliases(entries, labelMaps));
@@ -807,7 +789,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const projectionAt = (wantedLeafId: string | null): FoldProjectionCacheEntry | undefined => {
           snapshotCache ??= createAcmPacketSnapshot(sessionManager);
           const result = snapshotCache.rebuild(wantedLeafId);
-          if (!result.ok) return undefined;
+          if (!result.ok) {
+            // A failed snapshot (transient entries read) must not be reused:
+            // drop it so the next attempt rebuilds from the host instead of
+            // replaying the failure forever.
+            snapshotCache = undefined;
+            return undefined;
+          }
           return {
             aggregate: aggregateMessages(result.value.messages),
             projectedSummaryDepth: projectSummaryDepthAfterTravel(result.branch),
@@ -823,7 +811,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           // failure from a transient one. A successful re-run means the miss
           // was transient — render with it rather than reporting a fabricated
           // error for a packet that did build.
-          snapshotCache ??= createAcmPacketSnapshot(sessionManager);
+          snapshotCache = createAcmPacketSnapshot(sessionManager);
           const retried = snapshotCache.rebuild(leafId);
           if (retried.ok) {
             currentProjection = {
@@ -879,8 +867,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             : "";
           lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} after this fold${rootDepthNote}`);
         }
+        let checkpointsRendered = 0;
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
+          checkpointsRendered += 1;
           const targetProjection = projectionFor(checkpoint.entryId);
           const estimated = usage && currentAggregate && targetProjection
             ? estimateUsageFromAggregates(usage, currentAggregate, targetProjection.aggregate)
@@ -898,6 +888,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             ? "; raw archive — restores pre-fold history; fold targets are the entries before the folded material"
             : "";
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
+        }
+        if (signal?.aborted && checkpointsRendered < checkpointsDisplayedEntries) {
+          checkpointsDisplayedEntries = checkpointsRendered; // details must match rendered rows
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -1007,8 +1000,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`Showing the latest ${shown} of ${branch.length} tree nodes${reductions.length > 0 ? ` — ${reductions.join(", ")}` : ""}. Markers: * = current position (HEAD), • = user message, | = assistant/summary rows.`);
         }
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
+        // The alias scan only runs when the visible window actually contains
+        // a labelled entry - the only rows that can render a checkpoint
+        // annotation. Label-free windows skip the O(entries) pass entirely.
+        const visibleAliases = visible.some((entry) => labelMaps.entryToLabel.has(entry.id))
+          ? rawArchiveAliasesOnce()
+          : EMPTY_LABEL_ALIASES;
         for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliasesOnce());
+          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), visibleAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const rawBody = snippet(entryText(entry, verbose));

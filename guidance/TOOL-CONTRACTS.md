@@ -11,7 +11,7 @@ Name the current conversation position so a later fold or travel can return to i
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (whole-tree search, folded history included), `node` (one entry's full text with its nearest neighbors — archived text returned this way joins the active context), `tree` (branch structure). Reports token usage.
+View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (tree search up to the 5,000-node scan budget, folded history included), `node` (one entry's full text with its nearest neighbors — archived text returned this way joins the active context), `tree` (branch structure). Reports token usage.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->

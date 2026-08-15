@@ -8,7 +8,7 @@ This file is the always-on model-facing guidance (道 + 度). Tool descriptions,
 Your context window is a working set, not a transcript: it holds the best current representation of the task, not the history of how you reached it. Three tools keep it that way:
 
 - **acm_checkpoint** — name the current conversation position so a later fold or travel can return to it. Instant, free, changes nothing.
-- **acm_timeline** — view the working set, save points, and usage; search the whole tree, folded history included.
+- **acm_timeline** — view the working set, save points, and usage; search the tree up to its 5,000-node scan budget, folded history included.
 - **acm_travel** — fold: return to an earlier point and replace everything after it with a handoff. The replaced stretch leaves the working set but stays in the tree, and every fold records its own return ticket.
 
 **The fold test — one question.** Can you write a concrete handoff for that stretch right now, without rereading it? Concrete → the stretch is ready to fold. Vague → keep working; it is not digested yet. Task length never enters the decision: you are always mid-task and cannot know how long it will get, so readiness comes from digestion alone.

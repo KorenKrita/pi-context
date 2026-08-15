@@ -343,6 +343,7 @@ export class AcmSessionRuntime {
     this.foldAggregates.delete(session);
     this.foldProjections.delete(session);
     this.traceFreeVerdicts.delete(session);
+    this.travelTurnCounters.delete(session);
     this.labelMapsCache.delete(session);
   }
 

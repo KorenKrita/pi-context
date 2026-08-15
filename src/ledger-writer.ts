@@ -65,6 +65,9 @@ const stats: LedgerQueueStats = {
 };
 let queue: QueueItem[] = [];
 let drainScheduled = false;
+// A flush-installed deadline that also binds any background drain running
+// when the flush arrives; cleared when the flushing drain task settles.
+let sharedDrainDeadline: number | undefined;
 // Serialized drain tasks: every flush enqueues behind any in-flight drain, so
 // awaiting a flush always means awaiting every already-queued row.
 let drainChain: Promise<void> = Promise.resolve();
@@ -101,13 +104,26 @@ export function enqueueLedgerLine(path: string, row: unknown, maxBytes: number =
 
 /**
  * Wait until every row enqueued so far has reached the file or been dropped.
- * `deadlineMs` bounds the total wait: rows still queued when it expires are
- * dropped and counted, because the caller (shutdown) must not hang on lock
- * contention — a diagnostic tail is not worth minutes of blocked exit.
+ * `deadlineMs` bounds the wait to the deadline plus one in-flight lock
+ * window: the check sits between batches, an already-started batch finishes,
+ * and rows still queued when the deadline passes are dropped and counted —
+ * the caller (shutdown) must not hang on lock contention, and a diagnostic
+ * tail is not worth minutes of blocked exit. The deadline also binds any
+ * background drain still running when the flush arrives, so an in-flight
+ * no-deadline drain cannot stretch the wait across extra lock windows.
  */
 export function flushLedgerQueue(deadlineMs?: number): Promise<void> {
-  const deadline = deadlineMs === undefined ? undefined : Date.now() + deadlineMs;
-  return enqueueDrainTask(() => drainQueue(deadline));
+  if (deadlineMs !== undefined) {
+    const deadline = Date.now() + deadlineMs;
+    if (sharedDrainDeadline === undefined || deadline < sharedDrainDeadline) sharedDrainDeadline = deadline;
+  }
+  return enqueueDrainTask(() => {
+    try {
+      return drainQueue(sharedDrainDeadline);
+    } finally {
+      sharedDrainDeadline = undefined;
+    }
+  });
 }
 
 function scheduleDrain(): void {
@@ -115,7 +131,7 @@ function scheduleDrain(): void {
   drainScheduled = true;
   setImmediate(() => {
     drainScheduled = false;
-    void enqueueDrainTask(() => drainQueue(undefined));
+    void enqueueDrainTask(() => drainQueue(sharedDrainDeadline));
   });
 }
 
@@ -136,29 +152,37 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
       return;
     }
     // Batch every row bound for the same file under one lock acquisition:
-    // one retry window per batch, not per row, and the cap check sees the
-    // batch as a whole so intra-batch accounting stays exact.
+    // one retry window per batch, not per row, one append syscall after the
+    // cap filter, and exact accounting - only the rows that actually failed
+    // are counted as failures.
     const path = queue[0]!.path;
     let batchEnd = 0;
     while (batchEnd < queue.length && queue[batchEnd]!.path === path) batchEnd++;
+    let writtenInBatch = 0;
     try {
       await mkdir(dirname(path), { recursive: true });
       await withFileLock(path, async (compromised) => {
-        let size = await fileSize(path);
+        const size = await fileSize(path);
+        const writable: string[] = [];
+        let prospective = size;
         for (let index = 0; index < batchEnd; index++) {
           if (compromised()) throw new Error("ledger lock compromised before write");
           const item = queue[index]!;
-          if (size + item.byteLength > item.maxBytes) {
+          if (prospective + item.byteLength > item.maxBytes) {
             stats.fileFullDrops += 1;
             continue;
           }
-          await appendFile(path, item.line, "utf8");
-          size += item.byteLength;
-          stats.written += 1;
+          writable.push(item.line);
+          prospective += item.byteLength;
+        }
+        if (writable.length > 0) {
+          await appendFile(path, writable.join(""), "utf8");
+          writtenInBatch = writable.length;
+          stats.written += writtenInBatch;
         }
       });
     } catch {
-      stats.writeFailures += batchEnd;
+      stats.writeFailures += batchEnd - writtenInBatch;
     }
     queue = queue.slice(batchEnd);
   }

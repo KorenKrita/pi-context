@@ -128,9 +128,11 @@ function makeSession(
   let entries = buildChainEntries(count, options.labelEvery ?? 0);
   if (options.traced) entries = withAcmTrace(entries);
   // The branch is the leaf's full ancestry — with a trace, the marked
-  // summary sits on it, so the traced corpus actually exercises the
-  // trace path (projection + receipt normalization) instead of a
-  // trace-free branch that merely carries extra off-path entries.
+  // summary sits on it, so this corpus exercises the continuation
+  // PROJECTION path. It deliberately does not claim receipt
+  // normalization coverage: a trusted transaction needs a persisted
+  // acm_travel toolResult with full provenance fields, which this
+  // synthetic branch does not carry.
   const branch = options.traced
     ? entries.filter((entry) => entry.type === "message" || entry.id === "summary-acm")
     : entries.filter((entry) => entry.type === "message");
@@ -301,7 +303,7 @@ async function main() {
         ? (entry as { message: AgentMessage }).message
         : { role: "branchSummary", summary: (entry as { summary: string }).summary, fromId: (entry as { fromId: string }).fromId, timestamp: Date.parse(entry.timestamp) } as AgentMessage);
     samples.push(
-      timeIt(`normalize context [traced ${size} entries]`, 30, () => {
+      timeIt(`normalize context [traced-projection ${size} entries]`, 30, () => {
         normalizeExistingAcmPacketForSession(tracedMessages, traced.sessionManager as never);
       }),
     );
