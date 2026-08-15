@@ -18,8 +18,11 @@ interface DeferredTravelRefreshState {
 interface CachedProviderPacket {
   readonly messages: AgentMessage[];
   readonly leafId: string | null;
-  /** Provider messages observed when this compact packet was built. */
-  readonly sourceMessages: AgentMessage[];
+  /** Provider messages observed when this compact packet was built. Omitted
+   * when the packet was built from the live provider array itself — then it
+   * is `messages`, and holding a second container of the same references
+   * only doubles the ticket's footprint for the refresh window. */
+  readonly sourceMessages?: AgentMessage[];
 }
 
 /**
@@ -346,7 +349,7 @@ export class ProviderDelivery {
     this.tickets.set(session, {
       ...withoutError,
       providerPhase: "active",
-      providerPacket: { messages: [...messages], leafId, sourceMessages: [...sourceMessages] },
+      providerPacket: { messages: [...messages], leafId, ...(sourceMessages !== messages ? { sourceMessages: [...sourceMessages] } : {}) },
     });
     return true;
   }
@@ -385,8 +388,10 @@ export class ProviderDelivery {
   ): AgentMessage[] | undefined {
     const packet = this.tickets.get(session)?.providerPacket;
     if (!packet) return undefined;
-    const tail = suffixAfterKnownPrefix(packet.sourceMessages, incomingMessages)
-      ?? suffixAfterKnownPrefix(packet.messages, incomingMessages);
+    const tail = packet.sourceMessages === undefined
+      ? suffixAfterKnownPrefix(packet.messages, incomingMessages)
+      : suffixAfterKnownPrefix(packet.sourceMessages, incomingMessages)
+        ?? suffixAfterKnownPrefix(packet.messages, incomingMessages);
     return tail === undefined ? undefined : [...packet.messages, ...tail];
   }
 
@@ -404,7 +409,7 @@ export class ProviderDelivery {
       providerPacket: {
         messages: [...messages],
         leafId: existing.leafId,
-        sourceMessages: [...sourceMessages],
+        ...(sourceMessages !== messages ? { sourceMessages: [...sourceMessages] } : {}),
       },
     });
     return true;
