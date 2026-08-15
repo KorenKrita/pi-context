@@ -134,8 +134,12 @@ function largeTimelineContext(count = 250) {
     treeNode = { entry: messages[index]!, children: treeNode ? [treeNode] : [] };
   }
   let branchReads = 0;
+  let treeReads = 0;
   const sessionManager = {
-    getTree: () => treeNode ? [treeNode] : [],
+    getTree: () => {
+      treeReads++;
+      return treeNode ? [treeNode] : [];
+    },
     getEntries: () => [...messages, ...labels],
     getBranch: (fromId?: string) => {
       branchReads++;
@@ -152,6 +156,7 @@ function largeTimelineContext(count = 250) {
       ui: { notify() {} },
     },
     getBranchReads: () => branchReads,
+    getTreeReads: () => treeReads,
   };
 }
 
@@ -173,8 +178,12 @@ function largeLabelTimelineContext(count = 250) {
   }
   const entries = [...messages, ...labels];
   const leafId = messages.at(-1)?.id ?? null;
+  let treeReads = 0;
   const sessionManager = {
-    getTree: () => treeNode ? [treeNode] : [],
+    getTree: () => {
+      treeReads++;
+      return treeNode ? [treeNode] : [];
+    },
     getEntries: () => entries,
     getBranch: (fromId?: string) => {
       if (!fromId) return messages;
@@ -191,6 +200,7 @@ function largeLabelTimelineContext(count = 250) {
     },
     longLabel,
     leafId,
+    getTreeReads: () => treeReads,
   };
 }
 
@@ -1497,7 +1507,14 @@ describe("ACM tool execution contracts", () => {
       checkpointsMatchingEntries: 250,
       checkpointsDisplayedEntries: 99,
     });
-    expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
+    // The branch budget is the perf contract: one rebuild per target (101
+    // packets: current, root, and 99 checkpoints, each reading its branch
+    // once inside the snapshot) plus a few view-level branch reads. The old
+    // two-walks-per-target shape lands at ~205 and must fail here.
+    expect(fixture.getBranchReads()).toBeLessThanOrEqual(106);
+    // Checkpoints needs the tree only for the root lookup: exactly one
+    // build, never one per target.
+    expect(fixture.getTreeReads()).toBe(1);
     expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
     expect(result.content[0]?.text).toContain("+151 more");
   });
@@ -1513,6 +1530,9 @@ describe("ACM tool execution contracts", () => {
       fixture.context,
     );
     const activeText = active.content[0]?.text ?? "";
+    // Perf contract: the active view answers from branch/entries and never
+    // builds the session tree.
+    expect(fixture.getTreeReads()).toBe(0);
     const activeBudget = active.details?.resultCharacterBudget;
     if (typeof activeBudget !== "number") throw new Error("timeline result omitted its character budget");
     expect(active.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
