@@ -100,6 +100,15 @@ export class AcmSessionRuntime {
     targets: Map<string, FoldProjectionCacheEntry>;
   }>();
   private static readonly FOLD_PROJECTION_CACHE_LIMIT = 512;
+  /**
+   * Trace-free branch verdicts for the context-event normalize path. Keyed
+   * like the other caches on (branch length, last entry id): every host
+   * mutation is an append with a fresh id, so a verdict can only flip when
+   * the key changes. Unlike a module-level cache, this one is dropped by
+   * clear() — session surgery (compact, /tree, start) re-establishes the
+   * verdict from a scan, not from a key that predates the surgery.
+   */
+  private readonly traceFreeVerdicts = new WeakMap<object, string>();
   private static readonly FOLD_TARGET_CACHE_LIMIT = 8;
   /**
    * Label-journal replay, cached per SessionManager on the same key face as
@@ -378,6 +387,17 @@ export class AcmSessionRuntime {
       state.targets.delete(oldest);
     }
     return value;
+  }
+
+  /** Trace-free verdict through the per-session cache. Only positive verdicts
+   * are cached - a traced branch always re-runs the probe - and clear() drops
+   * the entry so session surgery cannot inherit a pre-surgery verdict. */
+  traceFreeVerdictFor(session: object, branch: readonly SessionEntry[], probe: () => boolean): boolean {
+    const key = `${branch.length}|${branch.at(-1)?.id ?? ""}`;
+    if (this.traceFreeVerdicts.get(session) === key) return true;
+    if (!probe()) return false;
+    this.traceFreeVerdicts.set(session, key);
+    return true;
   }
 
   /**

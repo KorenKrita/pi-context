@@ -456,7 +456,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
     if (!contextRefresh.isPending(sessionManager) && !runtime.shouldRebuildProviderContext(sessionManager)) {
       const original = event.messages as AgentMessage[];
-      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
+      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager, runtime).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
       return changed ? { messages: fixed as typeof event.messages } : undefined;
     }

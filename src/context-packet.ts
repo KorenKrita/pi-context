@@ -413,35 +413,30 @@ export function normalizeExistingAcmPacket(
   return normalizeWithTrace(messages, trace);
 }
 
-const traceFreeVerdicts = new WeakMap<object, string>();
-
 export function normalizeExistingAcmPacketForSession(
   messages: readonly AgentMessage[],
   sessionManager: ReadonlySessionManager,
+  verdictCache?: { traceFreeVerdictFor(session: object, branch: readonly SessionEntry[], probe: () => boolean): boolean },
 ): AcmContextPacket {
   try {
     const branch = sessionManager.getBranch();
     // Every context event pays this normalize; on a trace-free branch the two
-    // entry scans are pure overhead once the verdict is known. The verdict is
-    // cached per session on (branch length, last entry id). The invariants
-    // that keep the key sound, verified against the host implementation:
-    // every mutation is an append with a fresh entry id (messages, compaction
-    // summaries, trusted traces), so any flip of the verdict changes the key;
-    // /tree reuses this same SessionManager but switches the leaf, and
-    // switching to a different leaf changes the last id while switching back
-    // replays the identical immutable ancestry. Only positive verdicts are
-    // cached - a traced branch always re-runs the full path. This module-level
-    // cache is not cleared by runtime.clear(); it does not need to be, because
-    // clear() fires on the same append/switch events the key already tracks.
-    const key = `${branch.length}|${branch.at(-1)?.id ?? ""}`;
-    if (traceFreeVerdicts.get(sessionManager as object) === key) {
-      return buildTraceFreePacket(messages);
+    // entry scans are pure overhead once the verdict is known. The verdict
+    // rides the runtime's per-session cache (cleared by clear(), so session
+    // surgery re-scans instead of inheriting a pre-surgery key); callers
+    // without a runtime skip the cache entirely. The probe runs the scans
+    // once and hands the trace back so a traced branch pays nothing twice.
+    if (verdictCache) {
+      let trace: BranchTrace | undefined;
+      const traceFree = verdictCache.traceFreeVerdictFor(sessionManager as object, branch, () => {
+        trace = analyzeBranchTrace(branch);
+        return isTraceFree(trace);
+      });
+      if (traceFree) return buildTraceFreePacket(messages);
+      return normalizeWithTrace(messages, trace ?? analyzeBranchTrace(branch));
     }
     const trace = analyzeBranchTrace(branch);
-    if (isTraceFree(trace)) {
-      traceFreeVerdicts.set(sessionManager as object, key);
-      return buildTraceFreePacket(messages);
-    }
+    if (isTraceFree(trace)) return buildTraceFreePacket(messages);
     return normalizeWithTrace(messages, trace);
   } catch {
     // Existing host-projected messages remain usable in archival form. A

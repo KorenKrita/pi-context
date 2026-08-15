@@ -59,11 +59,16 @@ function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: L
   return aliases;
 }
 
-/** Materialized entry text, cached per immutable entry. Entries are
- * append-only per the host contract (the caches in runtime.ts already rely on
- * it), so a rendered entry's text never changes; searches that rescan the
- * same tree reuse the materialized strings instead of re-joining content
- * blocks for every scanned node. Slots fill lazily per verbosity level. */
+/** Materialized entry text, cached per immutable entry up to a size
+ * threshold. Entries are append-only per the host contract, so a rendered
+ * entry's text never changes; searches that rescan the same tree reuse the
+ * materialized strings instead of re-joining content blocks per scanned
+ * node. The threshold is the honest price of a WeakMap keyed by entries the
+ * session keeps alive anyway: without it one broad search could pin the
+ * verbose text of every scanned entry for the session's lifetime — the big
+ * texts (long tool output) are exactly the ones not worth pinning, so they
+ * are re-joined on demand and never cached. */
+const ENTRY_TEXT_CACHE_MAX_CHARS = 2_048;
 const entryTextCache = new WeakMap<SessionEntry, { concise?: string; verbose?: string }>();
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -75,8 +80,10 @@ function entryText(entry: SessionEntry, verbose: boolean): string {
   const slot = verbose ? cached.verbose : cached.concise;
   if (slot !== undefined) return slot;
   const text = buildEntryText(entry, verbose);
-  if (verbose) cached.verbose = text;
-  else cached.concise = text;
+  if (text.length <= ENTRY_TEXT_CACHE_MAX_CHARS) {
+    if (verbose) cached.verbose = text;
+    else cached.concise = text;
+  }
   return text;
 }
 
