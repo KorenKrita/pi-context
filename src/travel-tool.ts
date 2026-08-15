@@ -339,7 +339,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ? { tokens: authoritativeBefore.tokens, contextWindow: authoritativeBefore.contextWindow, percent: authoritativeBefore.usagePercent }
         : undefined;
       const usageBeforeText = formatContextUsage(usageBefore);
-      const currentPacketResult = rebuildAcmContextPacket(sessionManager);
+      // One snapshot serves both pre-mutation packets: current and target
+      // read the same session version, so they share one entries read and
+      // one ID index instead of each rebuilding the full acquisition.
+      const travelSnapshot = createAcmPacketSnapshot(sessionManager);
+      const currentPacketResult = travelSnapshot.rebuild(sessionManager.getLeafId());
       if (!currentPacketResult.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentPacketResult.message}. Travel aborted.` }],
@@ -367,7 +371,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
       const currentMessages = currentPacket.messages;
-      const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
+      const targetPacketResult = travelSnapshot.rebuild(targetId);
       if (!targetPacketResult.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetPacketResult.message}. Travel aborted.` }],
