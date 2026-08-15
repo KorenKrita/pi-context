@@ -179,10 +179,21 @@ describe("ACM context packet", () => {
   test("the trace-free verdict caches per session and every mutation invalidates it", () => {
     // Same SessionManager identity throughout - the cache must survive on key
     // math alone, not on a fresh manager per event.
-    const root = message("root", null, "root");
-    const plain = message("plain", "root", "plain request");
-    const branch = () => [root, plain];
-    let currentBranch = branch();
+    const root = {
+      type: "message",
+      id: "root",
+      parentId: null,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      message: { role: "user", content: "root" },
+    } as SessionEntry;
+    const plain = {
+      type: "message",
+      id: "plain",
+      parentId: "root",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      message: { role: "user", content: "plain request" },
+    } as SessionEntry;
+    let currentBranch: SessionEntry[] = [root, plain];
     const sm = {
       getBranch: () => currentBranch,
     };
@@ -209,7 +220,7 @@ describe("ACM context packet", () => {
       details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
     } as SessionEntry;
     currentBranch = [root, plain, trace];
-    const marked = { role: "branchSummary" as const, summary: markedSummary, fromId: "plain", timestamp: 2 };
+    const marked = { role: "branchSummary" as const, summary: markedSummary, fromId: "plain", timestamp: Date.parse("2026-01-01T00:00:02.000Z") };
     const third = normalizeExistingAcmPacketForSession([user, marked], sm as never);
     expect(third.continuation).toEqual({ status: "projected", count: 1 });
     expect(third.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
