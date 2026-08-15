@@ -224,4 +224,21 @@ describe("ProviderDelivery", () => {
     // Sessions without a ticket stay untouched (no throw).
     delivery.clearUsageObserved({});
   });
+
+  test("a packet activated in place omits the source array yet still merges tails", () => {
+    // activatePacket with no explicit sourceMessages builds the packet from
+    // the live provider array itself; the duplicate container is omitted, and
+    // the merge must still recognize that array as its own prefix.
+    const delivery = new ProviderDelivery(stubAdapter());
+    const session = {};
+    delivery.defer(session, "call-1");
+    delivery.markCutoverReady(session, "call-1");
+    const packet = messages(3);
+    expect(delivery.activatePacket(session, packet, "leaf-1")).toBe(true);
+
+    const tail = messages(2);
+    expect(delivery.mergeCachedPacket(session, [...packet, ...tail])).toEqual([...packet, ...tail]);
+    // An array that does not extend the cached packet is declined, not grafted.
+    expect(delivery.mergeCachedPacket(session, tail)).toBeUndefined();
+  });
 });

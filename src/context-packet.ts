@@ -423,12 +423,16 @@ export function normalizeExistingAcmPacketForSession(
     const branch = sessionManager.getBranch();
     // Every context event pays this normalize; on a trace-free branch the two
     // entry scans are pure overhead once the verdict is known. The verdict is
-    // cached per session on (branch length, last entry id): the session is
-    // append-only, so the verdict can only flip when a trace entry is
-    // appended, which changes the key. Only positive verdicts are cached - a
-    // traced branch always re-runs the full path. Native compaction rewrites
-    // the branch (different length and last id), and a /tree reload hands ACM
-    // a fresh SessionManager identity.
+    // cached per session on (branch length, last entry id). The invariants
+    // that keep the key sound, verified against the host implementation:
+    // every mutation is an append with a fresh entry id (messages, compaction
+    // summaries, trusted traces), so any flip of the verdict changes the key;
+    // /tree reuses this same SessionManager but switches the leaf, and
+    // switching to a different leaf changes the last id while switching back
+    // replays the identical immutable ancestry. Only positive verdicts are
+    // cached - a traced branch always re-runs the full path. This module-level
+    // cache is not cleared by runtime.clear(); it does not need to be, because
+    // clear() fires on the same append/switch events the key already tracks.
     const key = `${branch.length}|${branch.at(-1)?.id ?? ""}`;
     if (traceFreeVerdicts.get(sessionManager as object) === key) {
       return buildTraceFreePacket(messages);

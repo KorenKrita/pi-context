@@ -386,7 +386,7 @@ async function main() {
       let percent = 30;
       const context = {
         sessionManager: session.sessionManager,
-        getContextUsage: () => ({ tokens: 60_000 + percent * 1_000, contextWindow: 200_000, percent: percent++ }),
+        getContextUsage: () => ({ tokens: 60_000 + percent * 2_000, contextWindow: 200_000, percent: percent++ }), // +2k tokens = +1%: every call crosses an integer, so every timed call renders
         ui: { notify() {} },
       };
       await emitToolResult(context); // cold: builds aggregates, renders once

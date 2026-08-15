@@ -176,6 +176,59 @@ describe("ACM context packet", () => {
     expect(packet.continuation).toEqual({ status: "not_present" });
   });
 
+  test("the trace-free verdict caches per session and every mutation invalidates it", () => {
+    // Same SessionManager identity throughout - the cache must survive on key
+    // math alone, not on a fresh manager per event.
+    const root = message("root", null, "root");
+    const plain = message("plain", "root", "plain request");
+    const branch = () => [root, plain];
+    let currentBranch = branch();
+    const sm = {
+      getBranch: () => currentBranch,
+    };
+    const user = { role: "user" as const, content: "plain request", timestamp: 1 };
+
+    // Trace-free verdict: cached after the first scan, and the packet stays
+    // correct on the repeat call.
+    const first = normalizeExistingAcmPacketForSession([user], sm as never);
+    expect(first.continuation).toEqual({ status: "not_present" });
+    const second = normalizeExistingAcmPacketForSession([user], sm as never);
+    expect(second.messages).toEqual(first.messages);
+    expect(second.continuation).toEqual({ status: "not_present" });
+
+    // Appending a trusted trace entry changes (length, last id): the verdict
+    // re-runs and the marked summary projects.
+    const markedSummary = `${ACM_CONTINUATION_MARKER}\nGoal: g\nState: s\nEvidence: e\nExternal: x\nExclusions: c\nRecover: r\nNEXT: n`;
+    const trace = {
+      type: "branch_summary",
+      id: "summary-trace",
+      parentId: "plain",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      fromId: "plain",
+      summary: markedSummary,
+      details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
+    } as SessionEntry;
+    currentBranch = [root, plain, trace];
+    const marked = { role: "branchSummary" as const, summary: markedSummary, fromId: "plain", timestamp: 2 };
+    const third = normalizeExistingAcmPacketForSession([user, marked], sm as never);
+    expect(third.continuation).toEqual({ status: "projected", count: 1 });
+    expect(third.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
+
+    // A compaction append also changes the key: the cached trace-free verdict
+    // from the earlier branch shape cannot survive it.
+    const compacted = {
+      type: "compaction",
+      id: "compaction-1",
+      parentId: "summary-trace",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      summary: "native compaction",
+    } as SessionEntry;
+    const branchBefore = currentBranch;
+    currentBranch = [...branchBefore, compacted];
+    const fourth = normalizeExistingAcmPacketForSession([user, marked], sm as never);
+    expect(fourth.continuation).toEqual({ status: "projected", count: 1 });
+  });
+
   test("treats a provenance-matched applied ACM receipt as safe normalization", () => {
     const summary = `${ACM_CONTINUATION_MARKER}\nGoal: current\nState: known\nEvidence: none\nExternal: none\nExclusions: none\nRecover: archive\nNEXT: act`;
     const receipt = {
