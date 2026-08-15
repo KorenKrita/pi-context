@@ -195,3 +195,26 @@ describe("acm_travel strict-mode compatibility", () => {
     expect(valid.backupCurrentHeadAs).toBe("keep");
   });
 });
+
+// Guards against a real incident: a packaging commit once replaced AGENTS.md
+// wholesale with TypeScript source (an errant write target), and the whole
+// verify gate stayed green because nothing looks at markdown. These are
+// cheap structural checks on the files the extension ships.
+describe("documentation file integrity", () => {
+  test("AGENTS.md is markdown and never source code", async () => {
+    const file = Bun.file("AGENTS.md");
+    expect(file.size).toBeGreaterThan(1000);
+    const text = await file.text();
+    expect(text.startsWith("# AGENTS.md")).toBe(true);
+    expect(text).not.toMatch(/^import .* from "node:/m);
+  });
+
+  test("no shipped markdown file embeds node imports", async () => {
+    for (const path of ["AGENTS.md", "README.md", "guidance/CORE.md", "guidance/TOOL-CONTRACTS.md"]) {
+      const file = Bun.file(path);
+      if (!(await file.exists())) continue;
+      const text = await file.text();
+      expect(text).not.toMatch(/^import .* from "node:/m);
+    }
+  });
+});
