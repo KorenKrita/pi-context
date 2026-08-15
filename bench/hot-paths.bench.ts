@@ -53,7 +53,14 @@ function buildChainEntries(count: number, labelEvery: number): SessionEntry[] {
             timestamp,
           }
         : role === "assistant"
-          ? { role, content: [{ type: "text", text: `assistant turn ${index} ${"y".repeat(180)}` }], timestamp }
+          ? {
+              role,
+              content: [{ type: "text", text: `assistant turn ${index} ${"y".repeat(180)}` }],
+              // Paired with the toolResult at index+1, so the corpus is a
+              // valid protocol (no orphan results, no repaired packets).
+              toolCalls: [{ id: `call-${index + 1}`, name: "read", args: {} }],
+              timestamp,
+            }
           : { role, content: `user request ${index} ${"z".repeat(160)}`, timestamp };
     entries.push({
       id,
@@ -117,7 +124,13 @@ function makeSession(
 ): BenchSession {
   let entries = buildChainEntries(count, options.labelEvery ?? 0);
   if (options.traced) entries = withAcmTrace(entries);
-  const branch = entries.filter((entry) => entry.type === "message");
+  // The branch is the leaf's full ancestry — with a trace, the marked
+  // summary sits on it, so the traced corpus actually exercises the
+  // trace path (projection + receipt normalization) instead of a
+  // trace-free branch that merely carries extra off-path entries.
+  const branch = options.traced
+    ? entries.filter((entry) => entry.type === "message" || entry.id === "summary-acm")
+    : entries.filter((entry) => entry.type === "message");
   const leafId = branch.at(-1)?.id ?? null;
   const tree = buildTree(entries);
   const counts = { getTree: 0, getEntries: 0, getBranch: 0, getLeafId: 0 };
@@ -280,9 +293,10 @@ async function main() {
     );
 
     const traced = makeSession(size, { traced: true });
-    const tracedMessages = traced.branch
-      .filter((entry) => entry.type === "message")
-      .map((entry) => (entry as { message: AgentMessage }).message);
+    const tracedMessages = traced.branch.map((entry) =>
+      entry.type === "message"
+        ? (entry as { message: AgentMessage }).message
+        : { role: "branchSummary", summary: (entry as { summary: string }).summary, fromId: (entry as { fromId: string }).fromId, timestamp: Date.parse(entry.timestamp) } as AgentMessage);
     samples.push(
       timeIt(`normalize context [traced ${size} entries]`, 30, () => {
         normalizeExistingAcmPacketForSession(tracedMessages, traced.sessionManager as never);
@@ -407,17 +421,23 @@ async function main() {
   // Retention above measures per-call residue; this measures the caches a
   // cold call builds (packet LRU, aggregates, label maps) and keeps.
   {
-    const session = labelSession(10_000);
-    const tool = captureTimeline(new AcmSessionRuntime());
-    forceGc();
-    const before = heapUsedKb();
-    await tool.execute("cold", { view: "checkpoints", limit: 50 }, undefined, undefined, session.context);
-    forceGc();
+    // Single before/after deltas are too noisy to quote (GC timing swings
+    // whole megabytes); five fresh cold runs, median retained.
+    const retained: number[] = [];
+    for (let run = 0; run < 5; run++) {
+      const session = labelSession(10_000);
+      const tool = captureTimeline(new AcmSessionRuntime());
+      forceGc();
+      const before = heapUsedKb();
+      await tool.execute(`cold-${run}`, { view: "checkpoints", limit: 50 }, undefined, undefined, session.context);
+      forceGc();
+      retained.push(Math.max(0, heapUsedKb() - before));
+    }
     samples.push({
-      name: "timeline checkpoints cold-cache retention [10k]",
+      name: "timeline checkpoints cold-cache retention [10k, median of 5]",
       ms: null,
       cpuMs: null,
-      retainedKb: Math.max(0, heapUsedKb() - before),
+      retainedKb: median(retained),
     });
   }
 
