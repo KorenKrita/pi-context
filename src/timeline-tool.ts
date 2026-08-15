@@ -920,19 +920,26 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // flows through the same shared cache the gauge renders through, so a
       // timeline HUD right after a gauge render — the common case, since both
       // read the same session around the same boundaries — rebuilds nothing.
-      const foldEntries = sessionManager.getEntries();
-      const foldLeafId = sessionManager.getLeafId();
       let foldSnapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
       const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
         foldSnapshot ??= createAcmPacketSnapshot(sessionManager);
         const result = foldSnapshot.rebuild(wantedLeafId);
         return result.ok ? aggregateMessages(result.value.messages) : undefined;
       };
-      const hudAggregate = runtime.foldAggregate(
-        sessionManager,
-        { kind: "current", leafId: foldLeafId, entriesLength: foldEntries.length, lastEntryId: foldEntries.at(-1)?.id ?? "" },
-        () => aggregateAt(foldLeafId),
-      );
+      // Key inputs reuse the consistent snapshot this tool already read
+      // (entries/leafId above): no second unprotected host read, and a
+      // failure anywhere in acquisition degrades to the fallback lines
+      // instead of rejecting the whole timeline call.
+      let hudAggregate: MessageAggregate | undefined;
+      try {
+        hudAggregate = runtime.foldAggregate(
+          sessionManager,
+          { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+          () => aggregateAt(leafId),
+        );
+      } catch {
+        hudAggregate = undefined;
+      }
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];

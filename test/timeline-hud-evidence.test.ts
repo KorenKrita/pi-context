@@ -360,4 +360,41 @@ describe("timeline HUD handoff-layer evidence", () => {
       providerDeliveryPhase: "cached_exhausted",
     });
   });
+
+  test("a failing aggregate acquisition degrades to both fallback lines instead of rejecting", async () => {
+    // The HUD must never reject the whole timeline call when the shared
+    // aggregate cache cannot serve the current reading: a cold rebuild that
+    // fails, or an acquisition that throws, both degrade to the same two
+    // fallback lines the pre-cache rebuildAcmContextPacket failure produced.
+    const root = message("root", null, "root");
+    const current = message("current", "root", "current");
+    const branch = [root, current];
+    const cases: ("undefined" | "throw")[] = ["undefined", "throw"];
+
+    for (const mode of cases) {
+      const tool = captureTimelineTool({
+        foldAggregate: mode === "throw"
+          ? () => {
+            throw new Error("transient aggregate acquisition failure");
+          }
+          : () => undefined,
+      });
+
+      const result = await tool.execute(
+        "timeline-test",
+        { view: "active", limit: 50 },
+        undefined,
+        undefined,
+        makeContext(branch, [node(root, [node(current)])], branch),
+      );
+
+      // References and the aggregate are independent: with none selected the
+      // fold line reads "no reference point" exactly as a healthy call would,
+      // and never a projected number.
+      expect(result.content[0].text).toContain("Fold Projection:  no reference point on this path");
+      expect(result.content[0].text).toContain("Active Path:      2 tree node(s) — the LLM context follows this path");
+      expect(result.content[0].text).not.toContain("LLM messages");
+      expect(result.content[0].text).not.toContain("tree nodes →");
+    }
+  });
 });
