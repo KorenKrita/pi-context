@@ -18,7 +18,7 @@ import {
   modelDiscriminator,
   shouldCountBoundary,
 } from "../src/boundary-ledger.js";
-import { enqueueLedgerLine, LEDGER_QUEUE_MAX_ITEMS } from "../src/ledger-writer.js";
+import { enqueueLedgerLine, flushLedgerQueue, LEDGER_QUEUE_MAX_ITEMS, ledgerQueueStats } from "../src/ledger-writer.js";
 
 /**
  * The ledger exists because a fold missed at a request boundary is otherwise

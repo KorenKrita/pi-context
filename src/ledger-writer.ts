@@ -165,12 +165,10 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
     let batchEnd = 0;
     while (batchEnd < queue.length && queue[batchEnd]!.path === path) batchEnd++;
     let writtenInBatch = 0;
-    let attemptedInBatch = 0;
-    let criticalStarted = false;
+    let capDroppedInBatch = 0;
     try {
       await mkdir(dirname(path), { recursive: true });
       await withFileLock(path, async (compromised) => {
-        criticalStarted = true;
         const size = await fileSize(path);
         const writable: string[] = [];
         let prospective = size;
@@ -179,12 +177,12 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
           const item = queue[index]!;
           if (prospective + item.byteLength > item.maxBytes) {
             stats.fileFullDrops += 1;
+            capDroppedInBatch += 1;
             continue;
           }
           writable.push(item.line);
           prospective += item.byteLength;
         }
-        attemptedInBatch = writable.length;
         if (writable.length > 0) {
           await appendFile(path, writable.join(""), "utf8");
           writtenInBatch = writable.length;
@@ -192,13 +190,13 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
         }
       });
     } catch {
-      // Before the critical section starts (mkdir, lock acquisition), every
-      // row in the batch failed together. Inside it, only the rows that
-      // passed the cap and were attempted can have failed - rows the cap
-      // dropped were already counted in fileFullDrops and must not be
-      // counted twice.
-      const failedRows = criticalStarted ? attemptedInBatch : batchEnd;
-      stats.writeFailures += failedRows - writtenInBatch;
+      // Accounting from outcomes, not from a partially-updated attempt
+      // counter: every row in the batch either was written, was counted in
+      // fileFullDrops, or failed. A stat failure or mid-scan compromise
+      // before the cap loop has run still fails every non-written,
+      // non-dropped row - rows must never vanish from the ledger's counts.
+      const settledRows = writtenInBatch + capDroppedInBatch;
+      stats.writeFailures += Math.max(0, batchEnd - settledRows);
     }
     queue = queue.slice(batchEnd);
   }
