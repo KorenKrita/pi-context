@@ -62,4 +62,23 @@ describe("bounded content extraction", () => {
   });
   expect(reads).toBe(1);
  });
+
+ // Two extractors, one contract: the bounded path must be the full path plus
+ // a ceiling, so an ample budget can never change the text or claim loss.
+ test("matches the full extractor on every shape at an ample budget", () => {
+  const shapes: unknown[] = [
+   "   padded   ",
+   [{ type: "text", text: "alpha" }, { type: "text", text: "beta" }],
+   [{ type: "text", text: "  a  " }, { type: "text", text: " b " }],
+   [{ type: "text", text: "a" }, { type: "image" }, { type: "text", text: "b" }],
+   [{ type: "text", text: "" }, { type: "text", text: "beta" }],
+   [{ type: "text", text: "" }, { type: "image" }],
+   { type: "text", text: "  solo  " },
+  ];
+  for (const shape of shapes) {
+   const bounded = extractTextFromContentBounded(shape, 1_000_000);
+   expect(bounded.text).toBe(extractTextFromContent(shape));
+   expect(bounded.truncated).toBe(false);
+  }
+ });
 });

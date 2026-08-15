@@ -82,6 +82,13 @@ export function extractTextFromContentBounded(content: unknown, maxChars: number
    // Once the budget is exhausted, unvisited parts remain unknown. Mark the
    // result partial without reading their getters merely to prove they carry
    // text; doing so would make the bounded path unbounded again.
+   //
+   // So `truncated` is deliberately conservative: parts that would have
+   // contributed nothing (an image part, an empty text part) still read as a
+   // partial result, and the search receipt then reports a cut that cost no
+   // content. That direction is the safe one - it never claims a complete
+   // search that was not - and buying exactness back means reading every
+   // remaining part, which is the work the budget exists to refuse.
    if (sourceCharsConsumed >= limit) {
     truncated = true;
     break;
