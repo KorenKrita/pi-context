@@ -63,19 +63,6 @@ function jsonPrimitiveEquals(left: unknown, right: unknown): boolean {
   return false;
 }
 
-/** Enumerable own string keys with their values, serialization-filtered, in
- * stringify order. Values are captured exactly once: a stateful getter read
- * twice could disagree with itself, and the walk must compare the value it
- * filtered on — never a re-read. */
-function jsonObjectEntries(value: object): Array<[string, unknown]> {
-  const entries: Array<[string, unknown]> = [];
-  for (const key of Object.keys(value)) {
-    const nested = (value as Record<string, unknown>)[key];
-    if (nested === undefined || typeof nested === "function" || typeof nested === "symbol") continue;
-    entries.push([key, nested]);
-  }
-  return entries;
-}
 
 /** Array slots that stringify renders as null: holes, undefined, functions, symbols. */
 function arrayElementJsonValue(array: unknown[], index: number): unknown {
@@ -146,18 +133,52 @@ function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unkno
     return true;
   }
   // Key order is part of stringify output: {a:1,b:2} and {b:2,a:1} differ.
-  const leftEntries = jsonObjectEntries(effectiveLeft);
-  const rightEntries = jsonObjectEntries(effectiveRight);
-  if (leftEntries.length !== rightEntries.length) return false;
-  for (let index = 0; index < leftEntries.length; index++) {
-    if (leftEntries[index]![0] !== rightEntries[index]![0]) return false;
-  }
+  // Properties are processed strictly in stringify's depth-first order -
+  // one key fully read and compared (both sides) before the next key is even
+  // looked at - because a stateful getter reached during an earlier key's
+  // subtree can mutate a later sibling, and stringify would serialize the
+  // mutated value. Pre-reading the whole level would compare the stale one.
+  const leftKeys = Object.keys(effectiveLeft);
+  const rightKeys = Object.keys(effectiveRight);
   const nextLeft = [...leftAncestors, effectiveLeft];
   const nextRight = [...rightAncestors, effectiveRight];
-  for (let index = 0; index < leftEntries.length; index++) {
-    if (!jsonEquals(leftEntries[index]![1], rightEntries[index]![1], nextLeft, nextRight)) return false;
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (true) {
+    // Advance past keys stringify drops (undefined/function/symbol values).
+    // Each value is read exactly once - here, captured for the comparison -
+    // at the same point in the sequence stringify's own per-key emission
+    // would reach it.
+    let leftKey: string | undefined;
+    let leftValue: unknown;
+    while (leftIndex < leftKeys.length) {
+      const key = leftKeys[leftIndex]!;
+      const value = (effectiveLeft as Record<string, unknown>)[key]!;
+      if (value === undefined || typeof value === "function" || typeof value === "symbol") leftIndex += 1;
+      else {
+        leftKey = key;
+        leftValue = value;
+        break;
+      }
+    }
+    let rightKey: string | undefined;
+    let rightValue: unknown;
+    while (rightIndex < rightKeys.length) {
+      const key = rightKeys[rightIndex]!;
+      const value = (effectiveRight as Record<string, unknown>)[key]!;
+      if (value === undefined || typeof value === "function" || typeof value === "symbol") rightIndex += 1;
+      else {
+        rightKey = key;
+        rightValue = value;
+        break;
+      }
+    }
+    if (leftKey === undefined || rightKey === undefined) return leftKey === undefined && rightKey === undefined;
+    if (leftKey !== rightKey) return false;
+    if (!jsonEquals(leftValue, rightValue, nextLeft, nextRight)) return false;
+    leftIndex += 1;
+    rightIndex += 1;
   }
-  return true;
 }
 
 function suffixAfterKnownPrefix(

@@ -210,6 +210,27 @@ describe("ProviderDelivery", () => {
       configurable: true,
     });
     expect(stableMessageMatch(stateful as unknown as AgentMessage, statefulTwin as unknown as AgentMessage)).toBe(false);
+    // A nested getter that mutates a LATER sibling: stringify serializes the
+    // sibling after the getter ran (mutated value), so the oracle rejects;
+    // the walk must process keys in the same depth-first order and read the
+    // sibling only when it reaches it - never pre-read the level.
+    const nestedLeft: Record<string, unknown> = { sibling: "left", nested: {} };
+    Object.defineProperty(nestedLeft.nested, "trigger", {
+      enumerable: true,
+      get() {
+        nestedLeft.sibling = "mutated";
+        return 1;
+      },
+    });
+    const nestedRight: Record<string, unknown> = { sibling: "right", nested: { trigger: 1 } };
+    let nestedOracle = false;
+    try {
+      nestedOracle = JSON.stringify(nestedLeft) === JSON.stringify(nestedRight);
+    } catch {
+      nestedOracle = false;
+    }
+    expect(nestedOracle).toBe(false);
+    expect(stableMessageMatch(nestedLeft as unknown as AgentMessage, nestedRight as unknown as AgentMessage)).toBe(false);
   });
 
   test("mergeCachedPacket grafts through structurally equal, non-identical message objects", () => {
