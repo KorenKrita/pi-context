@@ -909,14 +909,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const currentSummary = `Current position: ${currentAggregate.messageCount} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
         if (listings.length === 0 && !rootMatchesFilter) {
           lines.push(filter ? `No checkpoints match '${boundedTimelineValue(params.filter ?? "")}'. ${currentSummary}` : `No checkpoints yet. ${currentSummary}`);
-        } else {
-          const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
-          const shownNote = displayedListings.length < listings.length
-            ? `, showing ${displayedListings.length} (limit ${effectiveLimit})`
-            : "";
-          const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
-          lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`);
         }
+        // The header states how many rows follow, but an abort can stop the
+        // render mid-list. Reserve its slot now and write it once the rendered
+        // count is final, so "showing N" and the "+N more" tail describe the
+        // rows actually present instead of the pre-abort plan.
+        const checkpointsHeaderSlot = listings.length === 0 && !rootMatchesFilter ? -1 : lines.length;
+        if (checkpointsHeaderSlot >= 0) lines.push("");
         if (rootEntry && rootMatchesFilter) {
           const rootProjection = projectionFor(rootEntry.id);
           rootCandidateDisplayed = true;
@@ -968,7 +967,18 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           checkpointsDisplayedAliases = checkpointsRendered;
           checkpointAliasNamesShown = checkpointsRendered;
         }
-        if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
+        if (checkpointsHeaderSlot >= 0) {
+          // checkpointsDisplayedEntries is already reconciled to the rendered
+          // rows above, so header and body cannot disagree.
+          const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
+          const shownNote = checkpointsDisplayedEntries < listings.length
+            ? `, showing ${checkpointsDisplayedEntries} (limit ${effectiveLimit})`
+            : "";
+          const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
+          lines[checkpointsHeaderSlot] = `Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`;
+        }
+        const checkpointsOmitted = listings.length - checkpointsDisplayedEntries;
+        if (checkpointsOmitted > 0) lines.push(`  ... +${checkpointsOmitted} more — use a narrower filter or query`);
       } else if (params.view === "search") {
         const search = searchTree(treeOnce(), labelMaps, params.query, effectiveLimit, signal, {
           scope: params.scope,

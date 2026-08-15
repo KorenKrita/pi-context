@@ -1453,6 +1453,34 @@ describe("ACM tool execution contracts", () => {
     expect(limited.content[0]?.text).toContain("... +4 more — use a narrower filter or query");
   });
 
+  test("an aborted checkpoint render reconciles the header and the omitted tail with the rendered rows", async () => {
+    const fixture = sortedCheckpointTimelineContext();
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executeTimeline(
+      "aborted-checkpoints",
+      { view: "checkpoints", filter: "checkpoint", limit: 6 },
+      controller.signal,
+      undefined,
+      fixture.context,
+    );
+
+    // The abort stops the row loop before any listing renders. Header text,
+    // omitted tail, and details must all describe zero rendered rows - the
+    // planned 6 would make one receipt contradict itself.
+    expect(result.details).toMatchObject({
+      checkpointsMatchingEntries: 6,
+      checkpointsDisplayedEntries: 0,
+      checkpointsDisplayedAliases: 0,
+      checkpointAliasNamesShown: 0,
+    });
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("6 save points matching 'checkpoint', showing 0 (limit 6)");
+    expect(text).toContain("... +6 more — use a narrower filter or query");
+    expect(text).not.toContain("(checkpoint: checkpoint-on-first");
+  });
+
   test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
     const result = await executeTimeline(
       "filtered-checkpoints",
