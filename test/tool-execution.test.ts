@@ -2260,6 +2260,10 @@ describe("ACM tool execution contracts", () => {
     });
     expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
     expect(result.content[0]?.text).toContain("Travel complete");
+    // The mutation applied, so the fold count describes it even though the
+    // post-mutation observation failed before the fold row could be built.
+    // Otherwise every later boundary row understates foldsSoFar.
+    expect(runtime.ledgerState(context.sessionManager as never).folds).toBe(1);
   });
 
   test("keeps an applied travel receipt and protocol defects when post-mutation packet evidence is invalid", async () => {

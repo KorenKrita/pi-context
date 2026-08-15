@@ -29,7 +29,7 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator } from "./boundary-ledger.js";
+import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator, type LedgerState } from "./boundary-ledger.js";
 import { calculateContextUsagePressure, foldProjectionScaleName } from "./context-pressure.js";
 
 /**
@@ -687,6 +687,19 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
 
       runtime.resetGaugeCycle(sessionManager);
+      // The fold count describes applied travels, so it advances the moment the
+      // mutation is durable — before any post-mutation observation that may
+      // fail and return early. The fold row itself needs the receipt's
+      // before/after pressure and is written further down; a session that
+      // folded but could not be observed still reports truthful foldsSoFar on
+      // every later boundary row.
+      let ledgerState: LedgerState | undefined;
+      try {
+        ledgerState = runtime.ledgerState(sessionManager);
+        markFoldCounted(ledgerState);
+      } catch {
+        // A diagnostic counter must never affect a travel receipt.
+      }
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
       const backupOutcome = mutation.backupOutcome;
@@ -843,9 +856,10 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       // on the same yardstick. Swallowed on any failure.
       try {
         // The session's own ledger state: fold rows must share the boundary
-        // rows' discriminator or the per-session join breaks, and the fold
-        // count must advance so boundary rows report foldsSoFar truthfully.
-        const ledgerState = runtime.ledgerState(sessionManager);
+        // rows' discriminator or the per-session join breaks. The count already
+        // advanced when the mutation applied; a queue-full drop or a later write
+        // failure must not erase the fact that this session folded here.
+        if (ledgerState === undefined) throw new Error("ledger state unavailable");
         // Boundary rows and the receipt now share the working-budget yardstick;
         // reuse the receipt's pressure conversions directly.
         let savePointsAfter: number | null = null;
@@ -869,11 +883,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           savePoints: savePointsAfter,
           model: modelDiscriminator((ctx as { model?: { provider?: unknown; id?: unknown } }).model),
         }));
-        // The fold count describes applied travels, not admitted rows: a
-        // queue-full drop or a later write failure must not erase the fact
-        // that this session folded here, or boundary rows would understate
-        // foldsSoFar for every later boundary.
-        markFoldCounted(ledgerState);
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }
