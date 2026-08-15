@@ -338,6 +338,25 @@ export function normalizeExistingAcmPacket(
   activeEntries: readonly SessionEntry[] = [],
 ): AcmContextPacket {
   const trusted = trustedContinuationQueues(activeEntries);
+  // Fast path: no ACM trace on the active branch — no trusted continuation
+  // queue and no trusted applied-travel receipt. Nothing can be projected and
+  // nothing can be removed, so the O(messages) candidate scan, the receipt
+  // identity scan, and the filter are all skipped. Protocol analysis is the
+  // outgoing packet's own requirement and is never skipped; it does not
+  // mutate its input, so the original array passes through untouched.
+  if (trusted.size === 0 && collectTrustedAcmTravelTransactions(activeEntries).length === 0) {
+    const protocol = analyzeToolProtocol(messages);
+    return {
+      messages: protocol.messages,
+      protocol: {
+        status: protocol.status,
+        normalizations: [],
+        repairs: protocol.repairs,
+        defects: protocol.defects,
+      },
+      continuation: { status: "not_present" },
+    };
+  }
   const candidates = messages.flatMap((message, index) => {
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];

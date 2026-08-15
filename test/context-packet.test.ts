@@ -573,4 +573,67 @@ describe("ACM context packet", () => {
     expect(packet.protocol.status).toBe("repaired");
     expect(packet.messages).toHaveLength(0);
   });
+
+  test("fast path: a trace-free branch skips projection and receipt work but never protocol analysis", () => {
+    // No branch_summary with the ACM marker, no trusted applied-travel
+    // receipt: the candidate scan, receipt identity scan, and filter are all
+    // skipped. The packet must be indistinguishable from the array path:
+    // same element references protocol analysis would produce, no
+    // normalizations, not_present.
+    const messages = [
+      { role: "user" as const, content: "plain request", timestamp: 1 },
+      { role: "assistant" as const, content: [{ type: "text" as const, text: "answer" }], timestamp: 2 },
+      { role: "branchSummary" as const, summary: "a native summary without any ACM marker", fromId: "leaf", timestamp: 3 },
+    ] as AgentMessage[];
+    const activeEntries = [{
+      type: "message",
+      id: "m-1",
+      parentId: null,
+      timestamp: new Date(1).toISOString(),
+      message: { role: "user", content: "plain request" },
+    }] as SessionEntry[];
+
+    const packet = normalizeExistingAcmPacket(messages, activeEntries);
+
+    expect(packet.continuation).toEqual({ status: "not_present" });
+    expect(packet.protocol.normalizations).toEqual([]);
+    expect(packet.messages).toHaveLength(3);
+    expect(packet.messages[0]).toBe(messages[0]);
+    expect(packet.messages[2]).toBe(messages[2]);
+    // Protocol analysis still ran: a defective transcript is repaired on the
+    // fast path exactly as the array path would.
+    const defective = [
+      { role: "user" as const, content: "q", timestamp: 1 },
+      {
+        role: "toolResult" as const,
+        toolCallId: "orphan",
+        toolName: "read",
+        content: [{ type: "text" as const, text: "stale" }],
+        isError: true,
+        timestamp: 2,
+      },
+    ] as AgentMessage[];
+    const repaired = normalizeExistingAcmPacket(defective, activeEntries);
+    expect(repaired.protocol.status).toBe("repaired");
+    expect(repaired.protocol.repairs.length).toBe(1);
+    expect(repaired.messages).toHaveLength(1);
+  });
+
+  test("fast path: an unmarked summary message stays archival when no trusted queue exists", () => {
+    // A branchSummary message carrying the ACM marker still cannot project
+    // without a matching trusted entry on the branch; the fast path must
+    // leave it exactly as the scanning path would — archival, untouched.
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: g\nState: s\nEvidence: e\nExternal: x\nExclusions: c\nRecover: r\nNEXT: n`;
+    const messages = [
+      { role: "user" as const, content: "before", timestamp: 1 },
+      { role: "branchSummary" as const, summary, fromId: "leaf", timestamp: 2 },
+      { role: "user" as const, content: "after", timestamp: 3 },
+    ] as AgentMessage[];
+
+    const packet = normalizeExistingAcmPacket(messages, []);
+
+    expect(packet.continuation).toEqual({ status: "not_present" });
+    expect(packet.messages[1]).toBe(messages[1]);
+    expect(packet.messages).toHaveLength(3);
+  });
 });
