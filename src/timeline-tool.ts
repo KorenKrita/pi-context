@@ -8,11 +8,11 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { optionalString, sanitizeTerminalText } from "./conventions.js";
-import { countActiveSummaryDepth, estimateUsageAfterMessageChange, formatContextUsage, projectSummaryDepthAfterTravel } from "./usage-estimation.js";
+import { aggregateMessages, countActiveSummaryDepth, estimateUsageAfterMessageChange, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
 import { extractTextFromContent, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
-import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./context-packet.js";
+import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
@@ -915,26 +915,38 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // as a contradiction the moment the two sources diverge (same pattern as
       // the gauge adapter in runtime-lifecycle). Facts only — whether the
       // extraction is complete stays CORE's bar.
-      // One packet rebuild serves both the fold projection and the message
-      // count on the Active Path line — msg is the unit fold decisions read.
-      const hudCurrent = rebuildAcmContextPacket(sessionManager);
+      // One aggregate serves both the fold projection and the message count
+      // on the Active Path line — msg is the unit fold decisions read. It
+      // flows through the same shared cache the gauge renders through, so a
+      // timeline HUD right after a gauge render — the common case, since both
+      // read the same session around the same boundaries — rebuilds nothing.
+      const foldEntries = sessionManager.getEntries();
+      const foldLeafId = sessionManager.getLeafId();
+      let foldSnapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+      const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
+        foldSnapshot ??= createAcmPacketSnapshot(sessionManager);
+        const result = foldSnapshot.rebuild(wantedLeafId);
+        return result.ok ? aggregateMessages(result.value.messages) : undefined;
+      };
+      const hudAggregate = runtime.foldAggregate(
+        sessionManager,
+        { kind: "current", leafId: foldLeafId, entriesLength: foldEntries.length, lastEntryId: foldEntries.at(-1)?.id ?? "" },
+        () => aggregateAt(foldLeafId),
+      );
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
         const references = selectFoldReferences(foldBranch, labelMaps);
-        const estimates = authoritativePressure && hudCurrent.ok
-          ? estimateFoldGains({
+        const estimates = authoritativePressure && hudAggregate
+          ? estimateFoldGainsFromAggregates({
               usage: {
                 tokens: authoritativePressure.tokens,
                 contextWindow: authoritativePressure.contextWindow,
                 percent: 0,
               },
               workingBudgetTokens: authoritativePressure.workingBudgetTokens,
-              currentMessages: hudCurrent.value.messages,
-              messagesAt: (id: string) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
+              currentAggregate: hudAggregate,
+              aggregateAt: (id: string) => runtime.foldAggregate(sessionManager, { kind: "target", entryId: id }, () => aggregateAt(id)),
             }, references)
           : { turnPercent: null, taskPercent: null };
         const scale = authoritativePressure ? foldProjectionScaleName(authoritativePressure.policy) : "budget";
@@ -979,8 +991,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // inspected. Tiers: zero delta needs no aside; a large one answers the
       // real question ("did I lose content?"), not the arithmetic.
       let activePathLine: string;
-      if (hudCurrent.ok) {
-        const msgs = hudCurrent.value.messages.length;
+      if (hudAggregate) {
+        const msgs = hudAggregate.messageCount;
         const nodes = branch.length;
         const delta = nodes - msgs;
         const aside = delta <= 0
