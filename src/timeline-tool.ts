@@ -814,6 +814,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let checkpointsDisplayedEntries = 0;
       let checkpointAliasesOnMatchingEntries = 0;
       let checkpointAliasNamesShown = 0;
+      let checkpointsRenderAborted = false;
       let rootCandidateDisplayed = false;
       let rootCandidateEntryId: string | null = null;
       let rootProjectedSummaryDepth: number | null = null;
@@ -976,8 +977,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
         }
         if (signal?.aborted && checkpointsRendered < checkpointsDisplayedEntries) {
-          // Every displayed count must match rendered rows, or the receipt
-          // contradicts its own body.
+          // Every displayed count must match rendered rows, and the reason for
+          // missing rows must remain distinct from the ordinary result limit.
+          checkpointsRenderAborted = true;
           checkpointsDisplayedEntries = checkpointsRendered;
           checkpointsDisplayedAliases = checkpointsRendered;
           checkpointAliasNamesShown = checkpointsRendered;
@@ -986,14 +988,20 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           // checkpointsDisplayedEntries is already reconciled to the rendered
           // rows above, so header and body cannot disagree.
           const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
-          const shownNote = checkpointsDisplayedEntries < listings.length
-            ? `, showing ${checkpointsDisplayedEntries} (limit ${effectiveLimit})`
-            : "";
+          const shownNote = checkpointsRenderAborted
+            ? `, rendering interrupted after ${checkpointsDisplayedEntries}/${listings.length} by cancellation`
+            : checkpointsDisplayedEntries < listings.length
+              ? `, showing ${checkpointsDisplayedEntries} (limit ${effectiveLimit})`
+              : "";
           const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
           lines[checkpointsHeaderSlot] = `Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`;
         }
         const checkpointsOmitted = listings.length - checkpointsDisplayedEntries;
-        if (checkpointsOmitted > 0) lines.push(`  ... +${checkpointsOmitted} more — use a narrower filter or query`);
+        if (checkpointsOmitted > 0) {
+          lines.push(checkpointsRenderAborted
+            ? `  ... render interrupted by cancellation; ${checkpointsOmitted} matching save point${checkpointsOmitted === 1 ? "" : "s"} not rendered — retry the request`
+            : `  ... +${checkpointsOmitted} more — use a narrower filter or query`);
+        }
       } else if (params.view === "search") {
         const search = searchTree(treeOnce(), labelMaps, params.query, effectiveLimit, signal, {
           scope: params.scope,
@@ -1437,6 +1445,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           checkpointsDisplayedEntries: params.view === "checkpoints" ? checkpointsDisplayedEntries : null,
           checkpointAliasesOnMatchingEntries: params.view === "checkpoints" ? checkpointAliasesOnMatchingEntries : null,
           checkpointAliasNamesShown: params.view === "checkpoints" ? checkpointAliasNamesShown : null,
+          checkpointsRenderAborted: params.view === "checkpoints" ? checkpointsRenderAborted : false,
           rootCandidateDisplayed: params.view === "checkpoints" ? rootCandidateDisplayed : false,
           rootCandidateEntryId: params.view === "checkpoints" ? rootCandidateEntryId : null,
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,

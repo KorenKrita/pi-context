@@ -1466,18 +1466,21 @@ describe("ACM tool execution contracts", () => {
       fixture.context,
     );
 
-    // The abort stops the row loop before any listing renders. Header text,
-    // omitted tail, and details must all describe zero rendered rows - the
-    // planned 6 would make one receipt contradict itself.
+    // Cancellation is its own omission reason: it must reconcile every count
+    // without pretending the result limit hid the rows or recommending a
+    // narrower query that cannot recover an interrupted render.
     expect(result.details).toMatchObject({
       checkpointsMatchingEntries: 6,
       checkpointsDisplayedEntries: 0,
       checkpointsDisplayedAliases: 0,
       checkpointAliasNamesShown: 0,
+      checkpointsRenderAborted: true,
     });
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain("6 save points matching 'checkpoint', showing 0 (limit 6)");
-    expect(text).toContain("... +6 more — use a narrower filter or query");
+    expect(text).toContain("6 save points matching 'checkpoint', rendering interrupted after 0/6 by cancellation");
+    expect(text).toContain("render interrupted by cancellation; 6 matching save points not rendered — retry the request");
+    expect(text).not.toContain("(limit 6)");
+    expect(text).not.toContain("use a narrower filter or query");
     expect(text).not.toContain("(checkpoint: checkpoint-on-first");
   });
 
