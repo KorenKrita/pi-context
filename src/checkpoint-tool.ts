@@ -156,7 +156,10 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       }
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
-      const labelMaps = buildLabelMaps(sessionManager.getEntries());
+      const labelEntries = sessionManager.getEntries();
+      // Same per-session label cache the gauge, travel, and timeline read
+      // through - the last bare replay call site.
+      const labelMaps = runtime.labelMapsFor(sessionManager, labelEntries, () => buildLabelMaps(labelEntries));
       const branch = sessionManager.getBranch();
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));
 

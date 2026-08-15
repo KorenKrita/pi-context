@@ -65,7 +65,7 @@ For a fold, choose an entry immediately before the material being replaced. Raw-
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-Search covers the whole tree, folded history included — user messages, summaries, and tool results; unlabelled ACM tool receipts stay out so past receipts cannot self-pollute recall (labelled checkpoints remain searchable). `scope` narrows to the active branch or the archive, `type` to user messages, summaries, or tool results — pass either when you already know where the answer lives, and on big trees prefer them over a broad query: the scan stops at 5,000 nodes and says so when it does. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.
+Search covers the tree up to its traversal budget (5,000 nodes per call), folded history included — user messages, summaries, and tool results; unlabelled ACM tool receipts stay out so past receipts cannot self-pollute recall (labelled checkpoints remain searchable). `scope` narrows to the active branch or the archive, `type` to user messages, summaries, or tool results — pass either when you already know where the answer lives, and on big trees prefer them over a broad query: the scan stops at 5,000 nodes and says so when it does. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_NODE:START -->

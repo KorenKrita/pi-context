@@ -67,8 +67,11 @@ function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: L
  * session keeps alive anyway: without it one broad search could pin the
  * verbose text of every scanned entry for the session's lifetime — the big
  * texts (long tool output) are exactly the ones not worth pinning, so they
- * are re-joined on demand and never cached. */
-const ENTRY_TEXT_CACHE_MAX_CHARS = 2_048;
+ * are re-joined on demand and never cached. Worst-case pinning is bounded
+ * and stated: touched-entries × threshold × two verbosity slots (a full
+ * 5,000-node search scan on a session whose every entry hits the threshold
+ * pins ~5 MB). */
+const ENTRY_TEXT_CACHE_MAX_CHARS = 512;
 const entryTextCache = new WeakMap<SessionEntry, { concise?: string; verbose?: string }>();
 
 function entryText(entry: SessionEntry, verbose: boolean): string {
@@ -1223,15 +1226,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       }
       // The raw-archive sentence teaches a thing that does not exist before
-      // the first fold; showing it then reads as a dangling term. Trim it
-      // while the session has no raw-archive alias.
-      const checkpointsCue = rawArchiveAliasesOnce().size > 0
-        ? GUIDANCE_CUES.timelineCheckpoints
-        : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!;
+      // the first fold; showing it then reads as a dangling term. The alias
+      // scan only runs for the one view whose cue needs it - every other
+      // view skips the O(entries) pass entirely.
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive
         : params.view === "checkpoints"
-          ? checkpointsCue
+          ? (rawArchiveAliasesOnce().size > 0
+              ? GUIDANCE_CUES.timelineCheckpoints
+              : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!)
           : params.view === "search"
             ? GUIDANCE_CUES.timelineSearch
             : params.view === "node"

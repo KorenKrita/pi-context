@@ -55,10 +55,13 @@ function buildChainEntries(count: number, labelEvery: number): SessionEntry[] {
         : role === "assistant"
           ? {
               role,
-              content: [{ type: "text", text: `assistant turn ${index} ${"y".repeat(180)}` }],
-              // Paired with the toolResult at index+1, so the corpus is a
-              // valid protocol (no orphan results, no repaired packets).
-              toolCalls: [{ id: `call-${index + 1}`, name: "read", args: {} }],
+              // The tool call rides the content array (the protocol's actual
+              // shape) and pairs with the toolResult at index+1: a valid
+              // protocol corpus - no orphan results, no repaired packets.
+              content: [
+                { type: "text", text: `assistant turn ${index} ${"y".repeat(180)}` },
+                { type: "toolCall", id: `call-${index + 1}`, name: "read" },
+              ],
               timestamp,
             }
           : { role, content: `user request ${index} ${"z".repeat(160)}`, timestamp };

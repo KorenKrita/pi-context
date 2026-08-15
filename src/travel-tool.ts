@@ -278,7 +278,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
-      const branch = sessionManager.getBranch();
+      // Same pre-mutation version preTravelBranch already read - nothing has
+      // been mutated between the two reads, so walk it once.
+      const branch = preTravelBranch;
       const labelEntries = sessionManager.getEntries();
       const labelMaps = runtime.labelMapsFor(sessionManager, labelEntries, () => buildLabelMaps(labelEntries));
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));

@@ -122,8 +122,9 @@ export function selectFoldReferences(
   for (let index = 0; index < branch.length; index++) {
     const entry = branch[index]!;
     if (entry.id === excludeId) continue;
-    if (labelOf(labelMaps, entry.id) !== null) {
-      task = { entryId: entry.id, label: labelOf(labelMaps, entry.id) };
+    const label = labelOf(labelMaps, entry.id);
+    if (label !== null) {
+      task = { entryId: entry.id, label };
       break;
     }
   }

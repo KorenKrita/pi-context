@@ -18,8 +18,10 @@ import { dirname } from "node:path";
  * lock takers only. Every failure degrades to a dropped row; the ledger is a
  * diagnostic and must never throw upward, and never block the host for long:
  * rows bound for one file are written under one lock acquisition, and a
- * flush deadline caps the total wait (shutdown drops what it cannot write in
- * time — losing diagnostics is priced in, hanging the host is not).
+ * flush deadline bounds the wait to the deadline plus one lock window (the
+ * check sits between batches, so an in-flight batch finishes; shutdown
+ * drops what it cannot write in time — losing diagnostics is priced in,
+ * hanging the host is not).
  */
 
 /** Hard cap for the shared ledger file, in bytes. */
