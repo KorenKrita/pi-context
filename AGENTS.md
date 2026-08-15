@@ -55,6 +55,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 | `src/context-pressure.ts` | working-budget pressure（400K cap policy） |
 | `src/fold-estimate.ts` | 双折叠针投影（剩余压力 + 消息数），计入 handoff 名义成本 |
 | `src/boundary-ledger.ts` | 被动 append-only 观测（boundary/fold 行，fold 区分 direction） |
+| `src/ledger-writer.ts` | ledger 行的异步有界队列与跨进程锁写（batch 持锁、flush deadline、lock-compromise 中止） |
 | `src/live-agent-session-adapter.ts` | capability-probed live sync 与 settled-boundary replacement |
 | `src/generated-guidance.ts` | 生成产物，不要手改 |
 
@@ -116,7 +117,7 @@ wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recov
 
 ### Boundary ledger
 
-被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数、百分比与结构性判别字段，绝不记消息内容；写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带三个 provenance 字段：`gauge` cohort（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）、`core`（注入 CORE 文本的 sha256 前 12 hex，`ACM_CORE_HASH`——CORE 不落盘 session，此字段是文案归因的唯一取证途径）、`model`（`provider/id` 判别符，经 `modelDiscriminator` 归一化，host 无 model 时为 null、绝不猜占位串）；旧行缺失字段即 legacy cohort，不写 null。
+被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数、百分比与结构性判别字段，绝不记消息内容。写入经 `src/ledger-writer.ts` 异步化：enqueue 即返回（`appendLedgerRow` 的返回值语义是"已入队"而非"已落盘"）、队列 256 行 × 单行 16 KiB 双上限、同文件行 batch 于一次 `proper-lockfile` 临界区内做 cap 检查与 append、lock compromise 中止临界区、flush 带 deadline（`session_shutdown` 500ms，超时按诊断可丢契约丢弃剩余行并计 `deadlineDrops`）。写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。fold 计数描述 applied travels（与队列 admission/落盘结果解耦）。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带三个 provenance 字段：`gauge` cohort（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）、`core`（注入 CORE 文本的 sha256 前 12 hex，`ACM_CORE_HASH`——CORE 不落盘 session，此字段是文案归因的唯一取证途径）、`model`（`provider/id` 判别符，经 `modelDiscriminator` 归一化，host 无 model 时为 null、绝不猜占位串）；旧行缺失字段即 legacy cohort，不写 null。
 
 **核心观测指标**：跨 40% budget 的真实 session 中出现 ≥1 次 fold 的比例（重构前基线 0/42）。
 
@@ -132,7 +133,7 @@ ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备�
 
 ### Timeline 契约
 
-strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。每次调用受 context-derived entry/character budget 约束。
+strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。每次调用受 context-derived entry/character budget 约束；`search` 另受 5,000 节点遍历预算（`TIMELINE_SEARCH_SCAN_NODE_BUDGET`，与输出 budget 相互独立）——预算按遍历节点计数，`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小遍历边界，预算后的节点本次调用不可达且回执如实说明；回执报告 scanned/scanBudget 与截断原因。
 
 ### Manual `/tree`
 

@@ -1522,6 +1522,43 @@ describe("deferred post-travel context delivery", () => {
     expect(rebuilds).toBe(afterSweep + 1);
   });
 
+  test("fold projections evict least-recently-used beyond the limit and stay per-session", () => {
+    const runtime = new AcmSessionRuntime();
+    const sessionA = {};
+    const sessionB = {};
+    let rebuilds = 0;
+    const build = () => {
+      rebuilds += 1;
+      return { aggregate: { tokenCount: 1, messageCount: 1 }, projectedSummaryDepth: 1 };
+    };
+
+    // Fill exactly to the 512-entry limit with "a" refreshed (recent) and
+    // "b" stale, then insert one more: eviction must remove "b" (least
+    // recently used), never "a". An unbounded or FIFO map fails one arm.
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "b" }, build);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build); // refresh recency
+    for (let index = 0; index < 510; index++) {
+      runtime.foldProjection(sessionA, { kind: "target", entryId: `bulk-${index}` }, build);
+    }
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "overflow" }, build); // evicts b
+    const rebuildsAtLimit = rebuilds;
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build); // survived: was recent
+    expect(rebuilds).toBe(rebuildsAtLimit);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "b" }, build); // evicted: was stale
+    expect(rebuilds).toBe(rebuildsAtLimit + 1);
+
+    // Per-session isolation: session B has its own cache and its own miss.
+    runtime.foldProjection(sessionB, { kind: "target", entryId: "shared-id" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 2);
+    // ...and clearing one session leaves the other intact.
+    runtime.clear(sessionB);
+    runtime.foldProjection(sessionB, { kind: "target", entryId: "shared-id" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 3);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 3); // A untouched by B's clear
+  });
+
 
   test("label maps cache by entry key and drop on clear", () => {
     const runtime = new AcmSessionRuntime();

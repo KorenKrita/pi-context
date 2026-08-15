@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { AcmSessionRuntime } from "../src/runtime.js";
 import {
   ACM_CONTINUATION_MARKER,
   collectTrustedAcmTravelTransactions,
@@ -199,13 +200,28 @@ describe("ACM context packet", () => {
     };
     const user = { role: "user" as const, content: "plain request", timestamp: 1 };
 
-    // Trace-free verdict: cached after the first scan, and the packet stays
-    // correct on the repeat call.
-    const first = normalizeExistingAcmPacketForSession([user], sm as never);
+    // Trace-free verdict: cached after the first scan, and the repeat call
+    // provably reuses it - the branch summary field is a counting getter, and
+    // a cache hit must not read it again.
+    const runtime = new AcmSessionRuntime();
+    let summaryReads = 0;
+    const plainWithProbe = {
+      ...plain,
+      get summary() {
+        summaryReads += 1;
+        return undefined;
+      },
+    } as unknown as SessionEntry;
+    const smWithProbe = {
+      getBranch: () => currentBranch.map((entry) => (entry.id === "plain" ? plainWithProbe : entry)),
+    };
+    const first = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
     expect(first.continuation).toEqual({ status: "not_present" });
-    const second = normalizeExistingAcmPacketForSession([user], sm as never);
+    const readsAfterFirst = summaryReads;
+    const second = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
     expect(second.messages).toEqual(first.messages);
     expect(second.continuation).toEqual({ status: "not_present" });
+    expect(summaryReads).toBe(readsAfterFirst); // hit: no re-scan
 
     // Appending a trusted trace entry changes (length, last id): the verdict
     // re-runs and the marked summary projects.
