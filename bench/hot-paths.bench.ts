@@ -180,6 +180,35 @@ function makeSession(
   };
 }
 
+function makeLargeTextSearchSession(count: number, charsPerEntry: number): BenchSession {
+  const session = makeSession(count);
+  const text = " ".repeat(charsPerEntry);
+  for (const entry of session.entries) {
+    if (entry.type !== "message" || !("content" in entry.message)) continue;
+    const message = entry.message as { content: unknown };
+    if (!Array.isArray(message.content)) {
+      message.content = text;
+      continue;
+    }
+    let replacedText = false;
+    const content = message.content.map((part) => {
+      if (
+        !replacedText
+        && typeof part === "object"
+        && part !== null
+        && "type" in part
+        && part.type === "text"
+      ) {
+        replacedText = true;
+        return { ...part, text };
+      }
+      return part;
+    });
+    message.content = replacedText ? content : [{ type: "text", text }, ...content];
+  }
+  return session;
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -251,13 +280,15 @@ async function benchTimelineView(
   view: string,
   extra: Record<string, unknown>,
   session: BenchSession,
+  verify?: (result: unknown) => void,
 ): Promise<void> {
   const tool = captureTimeline(new AcmSessionRuntime());
   const run = async () => {
     for (const key of Object.keys(session.counts)) (session.counts as Record<string, number>)[key] = 0;
-    await tool.execute("bench", { view, limit: 50, ...extra }, undefined, undefined, session.context);
+    return tool.execute("bench", { view, limit: 50, ...extra }, undefined, undefined, session.context);
   };
-  await run();
+  const first = await run();
+  verify?.(first);
   const times: number[] = [];
   const cpuStart = process.cpuUsage();
   for (let index = 0; index < 5; index++) {
@@ -339,6 +370,25 @@ async function main() {
       // (full text must never be held past the scan).
       const hitSession = makeSession(10_000);
       await benchTimelineView(samples, "timeline search hit-heavy [10k]", "search", { query: "entry" }, hitSession);
+    }
+    {
+      // Large whitespace payloads exercise trim-independent source accounting:
+      // the live search must stop at the 2M text budget rather than scan all
+      // 1,000 entries and report zero work after trimming.
+      const largeTextSession = makeLargeTextSearchSession(1_000, 8_192);
+      await benchTimelineView(
+        samples,
+        "timeline search no-match [1k x 8KB whitespace, text budget]",
+        "search",
+        { query: "zzz-not-present-anywhere" },
+        largeTextSession,
+        (result) => {
+          const details = (result as { details?: Record<string, unknown> }).details;
+          if (details?.searchTextChars !== 2_000_000 || details.searchTruncationReason !== "text_budget") {
+            throw new Error("large-text search benchmark did not reach the live text-budget path");
+          }
+        },
+      );
     }
     await benchTimelineView(samples, "timeline tree [10k]", "tree", {}, session);
   }

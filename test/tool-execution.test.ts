@@ -2371,14 +2371,16 @@ describe("search text budget", () => {
     const hitText = hit.content[0]?.text ?? "";
     expect(hitText).toContain("big-3");
     expect(hitText).not.toContain("x".repeat(200));
-    // The receipt's body and its machine-readable details agree, and every
-    // cut node is visible - a cut node's tail was never searched.
-    // The hit scenario exhausts the call budget exactly; details must
-    // report the same figure the body renders, not zero.
-    expect(hit.details?.searchTextChars).toBe(2_000_000);
-    expect(hitText).toContain("node(s) were cut to their first");
-    expect((hit.details?.searchNodesCutAtNodeCap as number) ?? 0).toBeGreaterThan(0); // every scanned oversized node is visible
-    expect(hit.details?.searchTextChars).toBeGreaterThan(0); // body and details agree
+    // Source work reaches the call budget exactly. The final partial node is
+    // attributed to the call-budget remainder, not misreported as a full
+    // 65,536-char node-cap cut.
+    expect(hit.details).toMatchObject({
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 30,
+      searchNodesCutAtCallBudget: 1,
+    });
+    expect(hitText).toContain("30 node(s) were searched only through their first 65,536 source chars");
+    expect(hitText).toContain("1 node(s) were cut at the remaining per-call text budget");
 
     // A hit that exists ONLY past the 65,536-char cut must not read as a
     // clean zero: the cut is reported, so the model knows where it did not
@@ -2388,7 +2390,14 @@ describe("search text budget", () => {
       id: "tail-carrier",
       parentId: "big-59",
       timestamp: "2026-01-01T00:00:59.000Z",
-      message: { role: "user", content: `${"y".repeat(65_536)}UNIQUE_TAIL_NEEDLE` },
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "y".repeat(65_536) },
+          { type: "toolCall", id: "tail-call", name: "read" },
+          { type: "text", text: "UNIQUE_TAIL_NEEDLE" },
+        ],
+      },
     } as never;
     const tailCtx = {
       sessionManager: {
@@ -2403,7 +2412,45 @@ describe("search text budget", () => {
     const tail = await executeTimeline("tail-needle", { view: "search", query: "UNIQUE_TAIL_NEEDLE" }, undefined, undefined, tailCtx);
     const tailText = tail.content[0]?.text ?? "";
     expect(tailText).toContain("0");
-    expect(tailText).toContain("node(s) were cut to their first");
-    expect(tail.details).toMatchObject({ searchNodesCutAtNodeCap: 1 });
+    expect(tailText).toContain("1 node(s) were searched only through their first 65,536 source chars");
+    expect(tail.details).toMatchObject({ searchNodesCutAtNodeCap: 1, searchNodesCutAtCallBudget: 0 });
+  });
+
+  test("charges whitespace source work against the call budget", async () => {
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      type: "message",
+      id: `space-${index}`,
+      parentId: index === 0 ? null : `space-${index - 1}`,
+      timestamp: new Date(1700001000000 + index * 1000).toISOString(),
+      message: { role: "user", content: " ".repeat(65_536) },
+    })) as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "space-39",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("whitespace-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchDisplayedMatches: 0,
+      searchTruncated: true,
+      searchTruncationReason: "text_budget",
+      searchScannedNodes: 31,
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 0,
+      searchNodesCutAtCallBudget: 1,
+    });
+    expect(text).toContain("2000000/2000000 text-budget chars");
+    expect(text).toContain("1 node(s) were cut at the remaining per-call text budget");
   });
 });

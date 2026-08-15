@@ -45,45 +45,75 @@ export function pushTreeChildrenPreOrder(stack: SessionTreeNode[], children: Ses
 
 /**
  * Source-bounded text extraction: accumulate content parts only until the
- * budget is spent, never building the full joined string - the join is the
- * cost this exists to bound, so a slice-after-join still pays it. String
- * content takes a bounded prefix directly. Reports whether text remained.
+ * budget is spent, never building the full joined string. `text` preserves
+ * the full extractor's trim semantics for the consumed prefix, while
+ * `sourceCharsConsumed` records the pre-trim work charged to the caller.
  */
-export function extractTextFromContentBounded(content: unknown, maxChars: number): { text: string; truncated: boolean } {
-  if (typeof content === "string") {
-    return content.length > maxChars
-      ? { text: content.slice(0, maxChars), truncated: true }
-      : { text: content, truncated: false };
-  }
-  if (Array.isArray(content)) {
-    let collected = "";
-    let truncated = false;
-    let first = true;
-    for (const part of content) {
-      const text = typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
-        ? part.text
-        : "";
-      if (collected.length >= maxChars) {
-        if (text.length > 0) truncated = true;
-        break;
-      }
-      const piece = first ? text : ` ${text}`;
-      first = false;
-      if (collected.length + piece.length > maxChars) {
-        collected += piece.slice(0, maxChars - collected.length);
-        truncated = true;
-        break;
-      }
-      collected += piece;
+export interface BoundedTextExtraction {
+ text: string;
+ sourceCharsConsumed: number;
+ truncated: boolean;
+}
+
+function textContentPartValue(part: unknown): string {
+ if (typeof part !== "object" || part === null) return "";
+ const candidate = part as { type?: unknown; text?: unknown };
+ const type = candidate.type;
+ if (type !== "text") return "";
+ const text = candidate.text;
+ return typeof text === "string" ? text : "";
+}
+
+export function extractTextFromContentBounded(content: unknown, maxChars: number): BoundedTextExtraction {
+ const limit = Math.max(0, Math.floor(maxChars));
+ if (typeof content === "string") {
+  const sourceCharsConsumed = Math.min(content.length, limit);
+  return {
+   text: content.slice(0, sourceCharsConsumed).trim(),
+   sourceCharsConsumed,
+   truncated: sourceCharsConsumed < content.length,
+  };
+ }
+ if (Array.isArray(content)) {
+  const chunks: string[] = [];
+  let sourceCharsConsumed = 0;
+  let truncated = false;
+  for (let index = 0; index < content.length; index++) {
+   // Once the budget is exhausted, unvisited parts remain unknown. Mark the
+   // result partial without reading their getters merely to prove they carry
+   // text; doing so would make the bounded path unbounded again.
+   if (sourceCharsConsumed >= limit) {
+    truncated = true;
+    break;
+   }
+   if (index > 0) {
+    chunks.push(" ");
+    sourceCharsConsumed += 1;
+    if (sourceCharsConsumed >= limit) {
+     truncated = true;
+     break;
     }
-    return { text: collected.trim(), truncated: truncated || collected.length > maxChars };
+   }
+   const text = textContentPartValue(content[index]);
+   const remaining = limit - sourceCharsConsumed;
+   if (text.length > remaining) {
+    chunks.push(text.slice(0, remaining));
+    sourceCharsConsumed += remaining;
+    truncated = true;
+    break;
+   }
+   chunks.push(text);
+   sourceCharsConsumed += text.length;
   }
-  // Non-array shapes are single short parts; the bounded path falls through
-  // to the full extraction with a bounded prefix.
-  const full = extractTextFromContent(content);
-  return full.length > maxChars
-    ? { text: full.slice(0, maxChars), truncated: true }
-    : { text: full, truncated: false };
+  return { text: chunks.join("").trim(), sourceCharsConsumed, truncated };
+ }
+ const text = textContentPartValue(content);
+ const sourceCharsConsumed = Math.min(text.length, limit);
+ return {
+  text: text.slice(0, sourceCharsConsumed).trim(),
+  sourceCharsConsumed,
+  truncated: sourceCharsConsumed < text.length,
+ };
 }
 
 export function extractTextFromContent(content: unknown): string {
