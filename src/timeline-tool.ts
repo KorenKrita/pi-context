@@ -718,15 +718,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
           lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`);
         }
-        const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
+        const cache = new Map<string, { ok: true; messages: AgentMessage[]; branch: SessionEntry[] } | { ok: false }>();
         const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
           const rootResult = snapshot.rebuild(rootEntry.id);
           const rootMessages = rootResult.ok ? rootResult.value.messages : [];
-          cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages } : { ok: false });
+          cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages, branch: rootResult.branch } : { ok: false });
           rootCandidateDisplayed = true;
           rootCandidateEntryId = rootEntry.id;
-          rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
+          // The snapshot rebuild already read this branch; reusing it keeps
+          // the projected depth off a second getBranch walk.
+          rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(
+            rootResult.ok ? rootResult.branch : sessionManager.getBranch(rootEntry.id),
+          );
           projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
           let estimateText = "message estimate unavailable";
           if (rootResult.ok) {
@@ -747,7 +751,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           if (!cachedTarget) {
             const targetResult = snapshot.rebuild(checkpoint.entryId);
             cachedTarget = targetResult.ok
-              ? { ok: true, messages: targetResult.value.messages }
+              ? { ok: true, messages: targetResult.value.messages, branch: targetResult.branch }
               : { ok: false };
             cache.set(checkpoint.entryId, cachedTarget);
           }
@@ -761,7 +765,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               : `~${cachedTarget.messages.length} msg(s) kept`;
           let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
           if (projectedSummaryDepth === undefined) {
-            projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
+            // The rebuild already carried this branch; only a failed rebuild
+            // falls back to a second walk.
+            projectedSummaryDepth = projectSummaryDepthAfterTravel(
+              cachedTarget.ok ? cachedTarget.branch : sessionManager.getBranch(checkpoint.entryId),
+            );
             projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
           }
           const rawArchiveNote = checkpoint.isRawArchive

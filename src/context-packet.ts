@@ -427,9 +427,14 @@ export function rebuildAcmContextPacket(
   return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
 }
 
+/** A snapshot rebuild's success carries the branch it just read, so callers
+ * that need the entries (fold-depth projections, structural checks) do not
+ * walk getBranch(leafId) a second time for a fact already in hand. */
+export type AcmPacketSnapshotOk = { ok: true; value: AcmContextPacket; branch: SessionEntry[] };
+
 export interface AcmPacketSnapshot {
   /** Rebuild one explicit leaf's packet on the shared entries/ID index; null means the root/empty branch, matching rebuildAcmContextPacket. */
-  rebuild(leafId: string | null): ReturnType<typeof rebuildAcmContextPacket>;
+  rebuild(leafId: string | null): Exclude<ReturnType<typeof rebuildAcmContextPacket>, { ok: true }> | AcmPacketSnapshotOk;
 }
 
 /**
@@ -454,7 +459,7 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
       const result = snapshot.value.messagesAt(leafId);
       if (!result.ok) return result;
       if (leafId === null) {
-        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []) };
+        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []), branch: [] };
       }
       // Mixed provenance is deliberate: packet messages come from the shared
       // snapshot while activeEntries reads the live branch. The scans that
@@ -473,7 +478,7 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
           details: { leafId: leafId ?? null, cause },
         };
       }
-      return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
+      return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries), branch: activeEntries };
     },
   };
 }
