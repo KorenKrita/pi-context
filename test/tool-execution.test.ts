@@ -2453,4 +2453,40 @@ describe("search text budget", () => {
     expect(text).toContain("2000000/2000000 text-budget chars");
     expect(text).toContain("1 node(s) were cut at the remaining per-call text budget");
   });
+
+  test("does not claim a node cut when the call budget ends on a full-node boundary", async () => {
+    const entries = Array.from({ length: 32 }, (_, index) => ({
+      type: "message",
+      id: `boundary-${index}`,
+      parentId: index === 0 ? null : `boundary-${index - 1}`,
+      timestamp: new Date(1700002000000 + index * 1000).toISOString(),
+      message: { role: "user", content: "x".repeat(index < 30 ? 65_536 : index === 30 ? 33_920 : 10) },
+    })) as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "boundary-31",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("exact-text-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchTruncationReason: "text_budget",
+      searchScannedNodes: 31,
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 0,
+      searchNodesCutAtCallBudget: 0,
+    });
+    expect(text).toContain("later nodes were not searched, and any partial-node cuts are reported above");
+    expect(text).not.toContain("largest entries were cut before their ends");
+  });
 });

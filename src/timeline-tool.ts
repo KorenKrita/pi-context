@@ -1011,7 +1011,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(search.truncationReason === "scan_budget"
             ? `  ... scan stopped at the 5,000-node limit; nodes after it were not searched this call — use a more specific query to hit earlier matches, or view=tree to navigate`
             : search.truncationReason === "text_budget"
-              ? `  ... scan stopped at the text budget; the largest entries were cut before their ends and later nodes were not searched — use a more specific query or view=tree to navigate`
+              ? `  ... scan stopped at the text budget; later nodes were not searched, and any partial-node cuts are reported above — use a more specific query or view=tree to navigate`
               : `  ... scan stopped early (${search.truncationReason === null ? "display limit" : searchTruncationPhrase(search.truncationReason)}); narrow with scope/type or a longer query`);
         }
       } else if (params.view === "node") {
