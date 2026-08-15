@@ -205,15 +205,21 @@ describe("ACM context packet", () => {
     // a cache hit must not read it again.
     const runtime = new AcmSessionRuntime();
     let summaryReads = 0;
-    const plainWithProbe = {
-      ...plain,
+    // The scan reads `summary` only on branch_summary entries; a counting
+    // getter there observes every verdict scan (and only scans).
+    const probeEntry = {
+      type: "branch_summary",
+      id: "probe-summary",
+      parentId: "plain",
+      timestamp: "2026-01-01T00:00:01.500Z",
+      fromId: "plain",
       get summary() {
         summaryReads += 1;
-        return undefined;
+        return "a native summary without the ACM marker";
       },
     } as unknown as SessionEntry;
     const smWithProbe = {
-      getBranch: () => currentBranch.map((entry) => (entry.id === "plain" ? plainWithProbe : entry)),
+      getBranch: () => [...currentBranch, probeEntry],
     };
     const first = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
     expect(first.continuation).toEqual({ status: "not_present" });
@@ -222,6 +228,14 @@ describe("ACM context packet", () => {
     expect(second.messages).toEqual(first.messages);
     expect(second.continuation).toEqual({ status: "not_present" });
     expect(summaryReads).toBe(readsAfterFirst); // hit: no re-scan
+
+    // Session surgery drops the verdict: clear() must force a re-scan, not
+    // let a pre-surgery verdict survive into a post-surgery branch.
+    runtime.clear(smWithProbe as never);
+    const readsBeforeClearCheck = summaryReads;
+    const afterClear = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
+    expect(afterClear.continuation).toEqual({ status: "not_present" });
+    expect(summaryReads).toBeGreaterThan(readsBeforeClearCheck); // probe re-ran
 
     // Appending a trusted trace entry changes (length, last id): the verdict
     // re-runs and the marked summary projects.
