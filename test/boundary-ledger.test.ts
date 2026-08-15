@@ -18,7 +18,7 @@ import {
   modelDiscriminator,
   shouldCountBoundary,
 } from "../src/boundary-ledger.js";
-import { enqueueLedgerLine, flushLedgerQueue, LEDGER_QUEUE_MAX_ITEMS, ledgerQueueStats } from "../src/ledger-writer.js";
+import { enqueueLedgerLine, LEDGER_QUEUE_MAX_ITEMS } from "../src/ledger-writer.js";
 
 /**
  * The ledger exists because a fold missed at a request boundary is otherwise
@@ -189,25 +189,37 @@ describe("boundary ledger", () => {
   });
 
   test("two same-millisecond flushes keep independent deadline tokens", async () => {
-    // Same tick, same budget: the deadline numbers are equal, but the tokens
-    // must not merge - the first flush settling must not strip the second's
-    // deadline and leave its rows to two full lock windows.
     const dir = mkdtempSync(join(tmpdir(), "acm-ledger-dual-"));
     const first = join(dir, "one.jsonl");
     const second = join(dir, "two.jsonl");
-    const lockfile = await import("proper-lockfile");
-    const releaseA = await lockfile.lock(first, { realpath: false, retries: 0 });
-    const releaseB = await lockfile.lock(second, { realpath: false, retries: 0 });
-    enqueueLedgerLine(first, { kind: "boundary", index: 0 });
-    const flushA = flushLedgerQueue(100);
-    const flushB = flushLedgerQueue(100); // same millisecond, same number
-    enqueueLedgerLine(second, { kind: "boundary", index: 0 });
-    const start = Date.now();
-    await Promise.all([flushA, flushB]);
-    const elapsed = Date.now() - start;
-    await releaseA();
-    await releaseB();
-    expect(elapsed).toBeLessThan(1_500); // one lock window under the deadline, not two
+    const before = ledgerQueueStats();
+    const originalNow = Date.now;
+    let now = originalNow();
+
+    try {
+      Date.now = () => now;
+      expect(enqueueLedgerLine(first, { kind: "boundary", index: 0 })).toBe("enqueued");
+      const flushA = flushLedgerQueue(100);
+      // Register before flushB so this callback runs between their serialized
+      // drain tasks. At the shared deadline it adds work only flushB owns.
+      const enqueueBetweenTasks = flushA.then(() => {
+        now += 100;
+        expect(enqueueLedgerLine(second, { kind: "boundary", index: 1 })).toBe("enqueued");
+      });
+      const flushB = flushLedgerQueue(100); // same Date.now(), same deadline number
+
+      await Promise.all([flushA, enqueueBetweenTasks, flushB]);
+      const after = ledgerQueueStats();
+      expect(after.written - before.written).toBe(1);
+      expect(after.deadlineDrops - before.deadlineDrops).toBe(1);
+      expect(after.writeFailures - before.writeFailures).toBe(0);
+      expect(after.queued).toBe(0);
+      expect(readFileSync(first, "utf8").trim().split("\n")).toHaveLength(1);
+      expect(existsSync(second)).toBe(false);
+    } finally {
+      Date.now = originalNow;
+      await flushLedgerQueue();
+    }
   });
 
   test("the hot path performs no synchronous file I/O and the writer is append-only", () => {
