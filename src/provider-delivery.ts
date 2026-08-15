@@ -32,10 +32,8 @@ interface CachedProviderPacket {
  * references - the serializer is native code) and survived three review
  * rounds of getter/proxy/tag-forgery holes; simulating JavaScript's
  * serialization semantics through arbitrary object code is unwinnable and
- * was never worth the attempt. This is the original oracle, plus a
- * verified identity fast path: a shared reference equals itself exactly
- * when the serializer can render it at all, so cycles and BigInt (which
- * throw) still decline instead of shortcutting to true.
+ * was never worth the attempt. This is the original oracle, never worth the attempt. This is the original oracle, unchanged: both
+ * sides always serialize, identity included.
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
   // No identity shortcut, even here: a stateful getter renders differently

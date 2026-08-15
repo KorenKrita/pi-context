@@ -69,13 +69,17 @@ let drainScheduled = false;
 // removes it only after ITS drain task settles - a finishing flush must
 // never clear a deadline another pending flush still needs. Drains (background
 // or flush-driven) read the earliest pending token every round.
-const pendingFlushDeadlines = new Set<number>();
+interface FlushDeadlineToken {
+  readonly deadline: number;
+}
+
+const pendingFlushDeadlines = new Set<FlushDeadlineToken>();
 
 function earliestPendingDeadline(): number | undefined {
   if (pendingFlushDeadlines.size === 0) return undefined;
   let earliest: number | undefined;
-  for (const deadline of pendingFlushDeadlines) {
-    if (earliest === undefined || deadline < earliest) earliest = deadline;
+  for (const token of pendingFlushDeadlines) {
+    if (earliest === undefined || token.deadline < earliest) earliest = token.deadline;
   }
   return earliest;
 }
@@ -124,9 +128,13 @@ export function enqueueLedgerLine(path: string, row: unknown, maxBytes: number =
  * no-deadline drain cannot stretch the wait across extra lock windows.
  */
 export function flushLedgerQueue(deadlineMs?: number): Promise<void> {
-  let token: number | undefined;
+  let token: FlushDeadlineToken | undefined;
   if (deadlineMs !== undefined) {
-    token = Date.now() + deadlineMs;
+    // Object identity, not the deadline number: two flushes in the same
+    // millisecond with the same budget produce equal numbers, and a Set of
+    // numbers would merge them - the first flush's cleanup would then delete
+    // the second flush's deadline.
+    token = { deadline: Date.now() + deadlineMs };
     pendingFlushDeadlines.add(token);
   }
   return enqueueDrainTask(async () => {

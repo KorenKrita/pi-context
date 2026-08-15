@@ -43,6 +43,49 @@ export function pushTreeChildrenPreOrder(stack: SessionTreeNode[], children: Ses
  for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]!);
 }
 
+/**
+ * Source-bounded text extraction: accumulate content parts only until the
+ * budget is spent, never building the full joined string - the join is the
+ * cost this exists to bound, so a slice-after-join still pays it. String
+ * content takes a bounded prefix directly. Reports whether text remained.
+ */
+export function extractTextFromContentBounded(content: unknown, maxChars: number): { text: string; truncated: boolean } {
+  if (typeof content === "string") {
+    return content.length > maxChars
+      ? { text: content.slice(0, maxChars), truncated: true }
+      : { text: content, truncated: false };
+  }
+  if (Array.isArray(content)) {
+    let collected = "";
+    let truncated = false;
+    let first = true;
+    for (const part of content) {
+      const text = typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string"
+        ? part.text
+        : "";
+      if (collected.length >= maxChars) {
+        if (text.length > 0) truncated = true;
+        break;
+      }
+      const piece = first ? text : ` ${text}`;
+      first = false;
+      if (collected.length + piece.length > maxChars) {
+        collected += piece.slice(0, maxChars - collected.length);
+        truncated = true;
+        break;
+      }
+      collected += piece;
+    }
+    return { text: collected.trim(), truncated: truncated || collected.length > maxChars };
+  }
+  // Non-array shapes are single short parts; the bounded path falls through
+  // to the full extraction with a bounded prefix.
+  const full = extractTextFromContent(content);
+  return full.length > maxChars
+    ? { text: full.slice(0, maxChars), truncated: true }
+    : { text: full, truncated: false };
+}
+
 export function extractTextFromContent(content: unknown): string {
  if (typeof content === "string") return content.trim();
  if (Array.isArray(content)) {

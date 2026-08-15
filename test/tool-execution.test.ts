@@ -2373,8 +2373,10 @@ describe("search text budget", () => {
     expect(hitText).not.toContain("x".repeat(200));
     // The receipt's body and its machine-readable details agree, and every
     // cut node is visible - a cut node's tail was never searched.
-    expect(hit.details).toMatchObject({ searchTextChars: (hit.details?.searchTextChars ?? 0) });
-    expect(hitText).toContain("node(s) matched against their first");
+    // The hit scenario exhausts the call budget exactly; details must
+    // report the same figure the body renders, not zero.
+    expect(hit.details?.searchTextChars).toBe(2_000_000);
+    expect(hitText).toContain("node(s) were cut to their first");
     expect((hit.details?.searchNodesCutAtNodeCap as number) ?? 0).toBeGreaterThan(0); // every scanned oversized node is visible
     expect(hit.details?.searchTextChars).toBeGreaterThan(0); // body and details agree
 
@@ -2401,7 +2403,7 @@ describe("search text budget", () => {
     const tail = await executeTimeline("tail-needle", { view: "search", query: "UNIQUE_TAIL_NEEDLE" }, undefined, undefined, tailCtx);
     const tailText = tail.content[0]?.text ?? "";
     expect(tailText).toContain("0");
-    expect(tailText).toContain("node(s) matched against their first");
+    expect(tailText).toContain("node(s) were cut to their first");
     expect(tail.details).toMatchObject({ searchNodesCutAtNodeCap: 1 });
   });
 });

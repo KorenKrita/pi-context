@@ -188,6 +188,28 @@ describe("boundary ledger", () => {
     expect(boundary.foldsSoFar).toBe(1);
   });
 
+  test("two same-millisecond flushes keep independent deadline tokens", async () => {
+    // Same tick, same budget: the deadline numbers are equal, but the tokens
+    // must not merge - the first flush settling must not strip the second's
+    // deadline and leave its rows to two full lock windows.
+    const dir = mkdtempSync(join(tmpdir(), "acm-ledger-dual-"));
+    const first = join(dir, "one.jsonl");
+    const second = join(dir, "two.jsonl");
+    const lockfile = await import("proper-lockfile");
+    const releaseA = await lockfile.lock(first, { realpath: false, retries: 0 });
+    const releaseB = await lockfile.lock(second, { realpath: false, retries: 0 });
+    enqueueLedgerLine(first, { kind: "boundary", index: 0 });
+    const flushA = flushLedgerQueue(100);
+    const flushB = flushLedgerQueue(100); // same millisecond, same number
+    enqueueLedgerLine(second, { kind: "boundary", index: 0 });
+    const start = Date.now();
+    await Promise.all([flushA, flushB]);
+    const elapsed = Date.now() - start;
+    await releaseA();
+    await releaseB();
+    expect(elapsed).toBeLessThan(1_500); // one lock window under the deadline, not two
+  });
+
   test("the hot path performs no synchronous file I/O and the writer is append-only", () => {
     // The enqueue path must stay purely synchronous-in-memory; the writer owns
     // the file, append-only, with no content-read or query surface.

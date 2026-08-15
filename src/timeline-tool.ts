@@ -8,7 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { optionalString, sanitizeTerminalText } from "./conventions.js";
 import { aggregateMessages, countActiveSummaryDepth, estimateUsageFromAggregates, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
-import { extractTextFromContent, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
+import { extractTextFromContent, extractTextFromContentBounded, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./context-packet.js";
 import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
@@ -74,11 +74,15 @@ function entryText(entry: SessionEntry, verbose: boolean): string {
   return buildEntryText(entry, verbose);
 }
 
-/** Bounded materialization: copy content parts until the budget is spent,
- * never joining the full text first - the join itself is the cost the budget
- * exists to bound, and a slice-after-join still allocates the whole string.
- * Reports whether the cut dropped any text. */
+/** Bounded materialization. Message content - the shape that carries large
+ * tool output - is extracted part-by-part and stops at the budget, so the
+ * full joined string is never built. Short single-field shapes (summaries,
+ * labels) go through the full builder with a bounded prefix; their sources
+ * are small by construction. Reports whether the cut dropped any text. */
 function boundedEntryText(entry: SessionEntry, verbose: boolean, maxChars: number): { text: string; truncated: boolean } {
+  if (entry.type === "message" && "content" in entry.message) {
+    return extractTextFromContentBounded(entry.message.content, maxChars);
+  }
   const full = buildEntryText(entry, verbose);
   if (full.length <= maxChars) return { text: full, truncated: false };
   return { text: full.slice(0, maxChars), truncated: true };
@@ -274,6 +278,14 @@ function searchTree(
       truncationReason = "scan_budget";
       break;
     }
+    // The text budget is checked BEFORE materializing the next node: a node
+    // read past the budget would pay its join for nothing and inflate the
+    // cut-node count without ever being matched.
+    if (textChars >= SEARCH_TOTAL_TEXT_BUDGET_CHARS && stack.length > 0) {
+      truncated = true;
+      truncationReason = "text_budget";
+      break;
+    }
     const node = stack.pop()!;
     scannedNodes += 1;
     // Structural filters run before any text is read: on big trees, the
@@ -295,15 +307,11 @@ function searchTree(
         // node can only match within its first cut chars, and the receipt
         // must say so instead of reporting a clean zero. The call-wide budget
         // stops the scan when rendered text overall grows too large.
-        const bounded = boundedEntryText(node.entry, true, SEARCH_NODE_TEXT_MAX_CHARS);
+        const remainingCallBudget = SEARCH_TOTAL_TEXT_BUDGET_CHARS - textChars;
+        const bounded = boundedEntryText(node.entry, true, Math.min(SEARCH_NODE_TEXT_MAX_CHARS, Math.max(0, remainingCallBudget)));
         candidateText = bounded.text;
         if (bounded.truncated) nodesCutAtNodeCap += 1;
         textChars += candidateText.length;
-        if (textChars > SEARCH_TOTAL_TEXT_BUDGET_CHARS) {
-          truncated = true;
-          truncationReason = "text_budget";
-          break;
-        }
         matched = containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
           || (label !== undefined && containsCaseInsensitive(label, normalizedQuery, queryIsAscii))
           || containsCaseInsensitive(candidateText, normalizedQuery, queryIsAscii);
@@ -969,7 +977,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.nodesCutAtNodeCap > 0) {
-          lines.push(`  ... ${search.nodesCutAtNodeCap} node(s) matched against their first ${SEARCH_NODE_TEXT_MAX_CHARS.toLocaleString("en-US")} chars only`);
+          lines.push(`  ... ${search.nodesCutAtNodeCap} node(s) were cut to their first ${SEARCH_NODE_TEXT_MAX_CHARS.toLocaleString("en-US")} chars before matching; matches past that point were not searched`);
         }
         if (search.truncated) {
           // The budget counts traversal, and scope/type only filter content —
