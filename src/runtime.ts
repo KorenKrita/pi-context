@@ -1,4 +1,4 @@
-import { type UsageLike } from "./usage-estimation.js";
+import { type MessageAggregate, type UsageLike } from "./usage-estimation.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import {
@@ -62,6 +62,21 @@ export class AcmSessionRuntime {
    */
   private readonly ledgerStates = new WeakMap<object, LedgerState>();
   private ledgerSeq = 0;
+  /**
+   * Token/message aggregates behind the gauge fold needles, per SessionManager.
+   * Values are two numbers — no message bodies are retained. The current-leaf
+   * slot keys on (leafId, entries length, last entry id) so any append or
+   * branch move misses; historical leaves key on the entry id alone, sound
+   * because the session is append-only. Unlike the ledger counters above,
+   * this cache IS dropped by clear(): compaction and session surgery are
+   * exactly the events whose key math no longer holds.
+   */
+  private readonly foldAggregates = new WeakMap<object, {
+    currentKey: string | null;
+    currentValue: MessageAggregate | undefined;
+    targets: Map<string, MessageAggregate>;
+  }>();
+  private static readonly FOLD_TARGET_CACHE_LIMIT = 8;
   /**
    * Travels completed within the current assistant turn. Low-capability
    * models have oscillated between return tickets (11 travels in one turn in
@@ -284,6 +299,44 @@ export class AcmSessionRuntime {
     this.cachedUsage.delete(session);
     this.gaugeStates.delete(session);
     this.liveAgentSessions.clear(session);
+    this.foldAggregates.delete(session);
+  }
+
+  /**
+   * One aggregate through the per-session cache. `rebuild` is the cold path
+   * (packet rebuild + token sum) and runs only on a miss; a rebuild that
+   * yields nothing is not negatively cached, so the next render retries.
+   */
+  foldAggregate(
+    session: object,
+    key: { kind: "current"; leafId: string | null; entriesLength: number; lastEntryId: string } | { kind: "target"; entryId: string },
+    rebuild: () => MessageAggregate | undefined,
+  ): MessageAggregate | undefined {
+    let state = this.foldAggregates.get(session);
+    if (!state) {
+      state = { currentKey: null, currentValue: undefined, targets: new Map() };
+      this.foldAggregates.set(session, state);
+    }
+    if (key.kind === "current") {
+      const compositeKey = `${key.leafId}|${key.entriesLength}|${key.lastEntryId}`;
+      if (state.currentKey === compositeKey && state.currentValue !== undefined) return state.currentValue;
+      const value = rebuild();
+      if (value === undefined) return undefined;
+      state.currentKey = compositeKey;
+      state.currentValue = value;
+      return value;
+    }
+    const hit = state.targets.get(key.entryId);
+    if (hit !== undefined) return hit;
+    const value = rebuild();
+    if (value === undefined) return undefined;
+    state.targets.set(key.entryId, value);
+    while (state.targets.size > AcmSessionRuntime.FOLD_TARGET_CACHE_LIMIT) {
+      const oldest = state.targets.keys().next().value;
+      if (oldest === undefined) break;
+      state.targets.delete(oldest);
+    }
+    return value;
   }
 
   private gaugeState(session: object): GaugeState {

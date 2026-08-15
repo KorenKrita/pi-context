@@ -1426,4 +1426,51 @@ describe("deferred post-travel context delivery", () => {
     expect(runtime.getContextDeliveryPhase(second)).toBe("active");
     expect(adapter.clearCalls).toBeGreaterThan(0);
   });
+
+  test("fold aggregates cache by key, bound targets, and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let rebuilds = 0;
+    const aggregate = { tokenCount: 10, messageCount: 2 };
+    const build = () => {
+      rebuilds += 1;
+      return aggregate;
+    };
+
+    // Cold current: one rebuild, then warm hits rebuild nothing.
+    expect(runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(aggregate);
+    expect(runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(aggregate);
+    expect(rebuilds).toBe(1);
+
+    // Any append (length, last id) or branch move (leaf) changes the key.
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(2);
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(3);
+
+    // A failed rebuild is not negatively cached: the next render retries.
+    let failNext = true;
+    const flaky = () => (failNext ? undefined : { tokenCount: 1, messageCount: 1 });
+    expect(runtime.foldAggregate(session, { kind: "target", entryId: "t1" }, flaky)).toBeUndefined();
+    failNext = false;
+    expect(runtime.foldAggregate(session, { kind: "target", entryId: "t1" }, flaky)).toEqual({ tokenCount: 1, messageCount: 1 });
+
+    // Target cache is bounded: 12 fresh ids evict the oldest, t1 survives as
+    // a recent insertion only until enough newer ids push it out.
+    for (let index = 0; index < 12; index++) {
+      runtime.foldAggregate(session, { kind: "target", entryId: `t-${index}` }, build);
+    }
+    const before = rebuilds;
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-11" }, build); // still cached
+    expect(rebuilds).toBe(before);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-1" }, build); // evicted by the 12
+    expect(rebuilds).toBe(before + 1);
+
+    // clear() drops the whole per-session cache but keeps the ledger join.
+    const ledgerBefore = runtime.ledgerState(session);
+    runtime.clear(session);
+    expect(runtime.ledgerState(session)).toBe(ledgerBefore);
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(before + 2);
+  });
 });

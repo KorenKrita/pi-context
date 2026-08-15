@@ -19,7 +19,8 @@ import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidan
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { aggregateMessages, type MessageAggregate } from "./usage-estimation.js";
 import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
 import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
 
@@ -164,23 +165,30 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     try {
       const branch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
       if (!Array.isArray(branch) || branch.length === 0) return undefined;
-      const labelMaps = buildLabelMaps(session.getEntries());
+      const entries = session.getEntries();
+      const labelMaps = buildLabelMaps(entries);
       const references = selectFoldReferences(branch, labelMaps);
       if (!references.turn && !references.task) return undefined;
-      const currentPacket = rebuildAcmContextPacket(session);
-      if (!currentPacket.ok) return undefined;
-      const cache = new Map<string, AgentMessage[] | undefined>();
-      return estimateFoldGains({
+      const leafId = session.getLeafId();
+      // One shared snapshot serves every cold-path miss in this render; warm
+      // renders whose keys have not moved rebuild nothing and scan nothing.
+      let snapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+      const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
+        snapshot ??= createAcmPacketSnapshot(session);
+        const result = snapshot.rebuild(wantedLeafId);
+        return result.ok ? aggregateMessages(result.value.messages) : undefined;
+      };
+      const currentAggregate = runtime.foldAggregate(
+        session,
+        { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+        () => aggregateAt(leafId),
+      );
+      if (!currentAggregate) return undefined;
+      return estimateFoldGainsFromAggregates({
         usage: { tokens: pressure.tokens, contextWindow: pressure.contextWindow, percent: 0 },
         workingBudgetTokens: pressure.workingBudgetTokens,
-        currentMessages: currentPacket.value.messages,
-        messagesAt: (entryId) => {
-          if (!cache.has(entryId)) {
-            const result = rebuildAcmContextPacket(session, entryId);
-            cache.set(entryId, result.ok ? result.value.messages : undefined);
-          }
-          return cache.get(entryId);
-        },
+        currentAggregate,
+        aggregateAt: (entryId) => runtime.foldAggregate(session, { kind: "target", entryId }, () => aggregateAt(entryId)),
       }, references);
     } catch {
       return undefined;

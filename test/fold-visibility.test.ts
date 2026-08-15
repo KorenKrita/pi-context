@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { buildGaugeSuffix } from "../src/context-gauge.js";
-import { selectFoldReferences, findNearestSavePoint, estimateFoldGains, type FoldEstimateEntry } from "../src/fold-estimate.js";
+import { selectFoldReferences, findNearestSavePoint, estimateFoldGains, estimateFoldGainsFromAggregates, type FoldEstimateEntry } from "../src/fold-estimate.js";
+import { aggregateMessages } from "../src/usage-estimation.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type LabelMaps } from "../src/label-journal.js";
 import type { ContextUsagePressure } from "../src/context-pressure.js";
 
@@ -278,4 +280,37 @@ test("the turn reference skips the current user turn", () => {
     }
   });
 
+  test("the aggregate path reports numbers identical to the array path", () => {
+    // The gauge now caches {tokenCount, messageCount} per leaf instead of
+    // rebuilding message arrays; both entry points must stay one algorithm.
+    const current = [
+      { role: "user", content: "alpha beta gamma", timestamp: 0 },
+      { role: "assistant", content: [{ type: "text", text: "delta epsilon zeta" }], timestamp: 1 },
+      { role: "user", content: "eta", timestamp: 2 },
+    ] as unknown as AgentMessage[];
+    const turnAfter = current.slice(0, 1);
+    const taskAfter: AgentMessage[] = [];
+    const usage = { tokens: 8000, contextWindow: 100_000, percent: 8 };
+    const references = {
+      turn: { entryId: "turn-1", label: null },
+      task: { entryId: "task-0", label: null },
+    };
+    const viaArrays = estimateFoldGains({
+      usage,
+      workingBudgetTokens: 100_000,
+      currentMessages: current,
+      messagesAt: (entryId) => (entryId === "turn-1" ? turnAfter : entryId === "task-0" ? taskAfter : undefined),
+    }, references);
+    const viaAggregates = estimateFoldGainsFromAggregates({
+      usage,
+      workingBudgetTokens: 100_000,
+      currentAggregate: aggregateMessages(current),
+      aggregateAt: (entryId) => (entryId === "turn-1" ? aggregateMessages(turnAfter) : entryId === "task-0" ? aggregateMessages(taskAfter) : undefined),
+    }, references);
+    expect(viaAggregates).toEqual(viaArrays);
+    expect(viaArrays.turnMessagesRemoved).toBe(2);
+    expect(viaArrays.taskMessagesRemoved).toBe(3);
+    expect(viaArrays.turnPercent).not.toBeNull();
+    expect(viaArrays.taskPercent).not.toBeNull();
+  });
 });
