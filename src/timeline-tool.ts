@@ -3,7 +3,6 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
@@ -15,7 +14,7 @@ import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./
 import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
+import type { AcmSessionRuntime, FoldPacketCacheEntry, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
@@ -755,13 +754,26 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           : undefined;
         // One snapshot for the current leaf, root, and every displayed
         // checkpoint: the whole view shares a single entries read and ID
-        // index instead of one full session projection per target.
+        // index, and every rebuild flows through the runtime's packet cache,
+        // so a repeat checkpoints call reuses each packet instead of paying
+        // per-target protocol analysis again.
         const snapshot = createAcmPacketSnapshot(sessionManager);
-        const currentResult = snapshot.rebuild(leafId);
-        if (!currentResult.ok) {
+        const packetAt = (wantedLeafId: string | null): FoldPacketCacheEntry | undefined => {
+          const result = snapshot.rebuild(wantedLeafId);
+          return result.ok ? { packet: result.value, branch: result.branch } : undefined;
+        };
+        const currentEntryCache = runtime.foldPacket(
+          sessionManager,
+          { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+          () => packetAt(leafId),
+        );
+        if (!currentEntryCache) {
+          // Misses are not negatively cached; re-run to report the real failure.
+          const failed = snapshot.rebuild(leafId);
+          const failureMessage = failed.ok ? "packet rebuild failed without a failure reason" : failed.message;
           return {
-            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
-            details: { error: currentResult.error, message: currentResult.message },
+            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${failureMessage}` }],
+            details: { error: failed.ok ? "host_operation_failed" : failed.error, message: failureMessage },
           };
         }
         // Same aggregate cache the gauge, HUD, and checkpoint receipt render
@@ -771,15 +783,17 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const currentAggregate = runtime.foldAggregate(
           sessionManager,
           { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
-          () => (currentResult.ok ? aggregateMessages(currentResult.value.messages) : undefined),
+          () => aggregateMessages(currentEntryCache.packet.messages),
         );
-        const targetAggregateOf = (entryId: string, messages: AgentMessage[] | undefined): MessageAggregate | undefined =>
-          messages === undefined
+        const packetFor = (entryId: string): FoldPacketCacheEntry | undefined =>
+          runtime.foldPacket(sessionManager, { kind: "target", entryId }, () => packetAt(entryId));
+        const targetAggregateOf = (entryId: string, entry: FoldPacketCacheEntry | undefined): MessageAggregate | undefined =>
+          entry === undefined
             ? undefined
-            : runtime.foldAggregate(sessionManager, { kind: "target", entryId }, () => aggregateMessages(messages));
+            : runtime.foldAggregate(sessionManager, { kind: "target", entryId }, () => aggregateMessages(entry.packet.messages));
         // Header grammar: entry counts only when they carry information.
         // An unfiltered list that fits needs one number, not five.
-        const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
+        const currentSummary = `Current position: ${currentEntryCache.packet.messages.length} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
         if (listings.length === 0 && !rootMatchesFilter) {
           lines.push(filter ? `No checkpoints match '${boundedTimelineValue(params.filter ?? "")}'. ${currentSummary}` : `No checkpoints yet. ${currentSummary}`);
         } else {
@@ -790,23 +804,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
           lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`);
         }
-        const cache = new Map<string, { ok: true; messages: AgentMessage[]; branch: SessionEntry[] } | { ok: false }>();
-        const projectedDepthCache = new Map<string, number>();
         if (rootEntry && rootMatchesFilter) {
-          const rootResult = snapshot.rebuild(rootEntry.id);
-          const rootMessages = rootResult.ok ? rootResult.value.messages : [];
-          cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages, branch: rootResult.branch } : { ok: false });
+          const rootEntryCache = packetFor(rootEntry.id);
+          const rootMessages = rootEntryCache?.packet.messages ?? [];
           rootCandidateDisplayed = true;
           rootCandidateEntryId = rootEntry.id;
-          // The snapshot rebuild already read this branch; reusing it keeps
-          // the projected depth off a second getBranch walk.
+          // The cached rebuild carries its branch; reusing it keeps the
+          // projected depth off a second getBranch walk.
           rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(
-            rootResult.ok ? rootResult.branch : sessionManager.getBranch(rootEntry.id),
+            rootEntryCache ? rootEntryCache.branch : sessionManager.getBranch(rootEntry.id),
           );
-          projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
           let estimateText = "message estimate unavailable";
-          if (rootResult.ok) {
-            const rootAggregate = targetAggregateOf(rootEntry.id, rootResult.ok ? rootMessages : undefined);
+          if (rootEntryCache) {
+            const rootAggregate = targetAggregateOf(rootEntry.id, rootEntryCache);
             const estimated = usage && currentAggregate && rootAggregate
               ? estimateUsageFromAggregates(usage, currentAggregate, rootAggregate)
               : undefined;
@@ -822,35 +832,22 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
-          let cachedTarget = cache.get(checkpoint.entryId);
-          if (!cachedTarget) {
-            const targetResult = snapshot.rebuild(checkpoint.entryId);
-            cachedTarget = targetResult.ok
-              ? { ok: true, messages: targetResult.value.messages, branch: targetResult.branch }
-              : { ok: false };
-            cache.set(checkpoint.entryId, cachedTarget);
-          }
-          const targetAggregate = targetAggregateOf(
-            checkpoint.entryId,
-            cachedTarget.ok ? cachedTarget.messages : undefined,
-          );
+          const targetEntryCache = packetFor(checkpoint.entryId);
+          const targetMessages = targetEntryCache?.packet.messages;
+          const targetAggregate = targetAggregateOf(checkpoint.entryId, targetEntryCache);
           const estimated = usage && currentAggregate && targetAggregate
             ? estimateUsageFromAggregates(usage, currentAggregate, targetAggregate)
             : undefined;
-          const estimateText = !cachedTarget.ok
+          const estimateText = targetEntryCache === undefined || targetMessages === undefined
             ? "message estimate unavailable"
             : estimated
-              ? `~${cachedTarget.messages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
-              : `~${cachedTarget.messages.length} msg(s) kept`;
-          let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
-          if (projectedSummaryDepth === undefined) {
-            // The rebuild already carried this branch; only a failed rebuild
-            // falls back to a second walk.
-            projectedSummaryDepth = projectSummaryDepthAfterTravel(
-              cachedTarget.ok ? cachedTarget.branch : sessionManager.getBranch(checkpoint.entryId),
-            );
-            projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
-          }
+              ? `~${targetMessages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
+              : `~${targetMessages.length} msg(s) kept`;
+          // The cached rebuild carries its branch; only a failed rebuild
+          // falls back to a second walk.
+          const projectedSummaryDepth = projectSummaryDepthAfterTravel(
+            targetEntryCache ? targetEntryCache.branch : sessionManager.getBranch(checkpoint.entryId),
+          );
           const rawArchiveNote = checkpoint.isRawArchive
             ? "; raw archive — restores pre-fold history; fold targets are the entries before the folded material"
             : "";
