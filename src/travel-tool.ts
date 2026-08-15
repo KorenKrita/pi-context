@@ -379,7 +379,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
         };
       }
-      const targetBranch = sessionManager.getBranch(targetId);
+      // The rebuild already read this exact branch; reuse it instead of a
+      // second ancestor walk for the same leaf.
+      const targetBranch = targetPacketResult.branch;
       // FM-15 structural guard: a target that precedes nothing cannot fold
       // anything. The `currentLeaf === targetId` check above misses the common
       // shape — checkpoint, then travel to it — because the checkpoint's own
@@ -475,7 +477,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           window: ANCHOR_SEARCH_WINDOW,
           signal,
           acceptRepairedDirectly: targetPacketResult.value.protocol.status === "repaired",
-          rebuild: createAcmPacketSnapshot(sessionManager).rebuild,
+          rebuild: travelSnapshot.rebuild,
         });
         if (scan.aborted) {
           return {

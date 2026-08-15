@@ -85,6 +85,8 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     foldAggregate: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
     // Same pass-through mirror for the compact projection cache.
     foldProjection: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
+    // Same pass-through mirror for the label replay cache.
+    labelMapsFor: (_session: object, _entries: unknown, rebuild: () => unknown) => rebuild(),
     contextRefresh: {
       getFailure: () => undefined,
       isPending: () => false,

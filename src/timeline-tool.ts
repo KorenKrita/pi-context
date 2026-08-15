@@ -722,16 +722,21 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const branch = sessionManager.getBranch();
       const entries = sessionManager.getEntries();
       const leafId = sessionManager.getLeafId();
-      const labelMaps = buildLabelMaps(entries);
+      // Same per-session label cache the gauge and travel read through: a
+      // timeline right after a gauge render replays nothing.
+      const labelMaps = runtime.labelMapsFor(sessionManager, entries, () => buildLabelMaps(entries));
       const activeIds = new Set(branch.map((entry) => entry.id));
       const activeSummaryDepth = countActiveSummaryDepth(branch);
       // Computed once here: the active view's HUD line and every view's
       // details field ask the same question; the old shape walked entries
       // twice on the active view.
       const offPathSummaryCount = countOffPathSummaries(branch, entries, activeIds);
-      const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
-      const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
-      const rawArchiveAliases = collectRawArchiveAliases(entries, labelMaps);
+      // entriesById/pathOrder serve only the checkpoints listing and move
+      // into that view; the raw archive alias set serves several views and
+      // becomes lazy instead - built on first use, shared thereafter.
+      let rawArchiveAliasesCache: ReadonlySet<string> | undefined;
+      const rawArchiveAliasesOnce = (): ReadonlySet<string> =>
+        (rawArchiveAliasesCache ??= collectRawArchiveAliases(entries, labelMaps));
       const lines: string[] = [];
       let treeTruncated = false;
       let activeVisibleEntries = 0;
@@ -763,7 +768,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
-        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliases);
+        const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+        const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
+        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliasesOnce());
         const rootEntry = treeOnce()[0]?.entry;
         const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
           !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
@@ -787,14 +794,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? { tokens: checkpointsPressure.tokens, contextWindow: checkpointsPressure.contextWindow, percent: checkpointsPressure.usagePercent }
           : undefined;
         // One snapshot for the current leaf, root, and every displayed
-        // checkpoint: the whole view shares a single entries read and ID
-        // index, and every rebuild flows through the runtime's compact
-        // projection cache - the derived numbers are kept, the packet and
-        // branch are released - so a repeat checkpoints call pays neither
-        // per-target protocol analysis nor a per-target memory footprint.
-        const snapshot = createAcmPacketSnapshot(sessionManager);
+        // checkpoint, built lazily: a repeat call whose projections all hit
+        // the runtime cache never reads the entries or builds the ID index
+        // at all. Every rebuild that does run flows through the compact
+        // projection cache - derived numbers kept, packet and branch
+        // released - so no per-target protocol analysis, no per-target
+        // memory.
+        let snapshotCache: ReturnType<typeof createAcmPacketSnapshot> | undefined;
         const projectionAt = (wantedLeafId: string | null): FoldProjectionCacheEntry | undefined => {
-          const result = snapshot.rebuild(wantedLeafId);
+          snapshotCache ??= createAcmPacketSnapshot(sessionManager);
+          const result = snapshotCache.rebuild(wantedLeafId);
           if (!result.ok) return undefined;
           return {
             aggregate: aggregateMessages(result.value.messages),
@@ -811,7 +820,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           // failure from a transient one. A successful re-run means the miss
           // was transient — render with it rather than reporting a fabricated
           // error for a packet that did build.
-          const retried = snapshot.rebuild(leafId);
+          snapshotCache ??= createAcmPacketSnapshot(sessionManager);
+          const retried = snapshotCache.rebuild(leafId);
           if (retried.ok) {
             currentProjection = {
               aggregate: aggregateMessages(retried.value.messages),
@@ -909,7 +919,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         );
         for (const match of search.matches) {
           const body = snippet(entryText(match.entry, true));
-          const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
+          const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
         if (search.truncated) {
@@ -949,7 +959,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         nodeBeforeCount = before.length;
         nodeAfterCount = afterResult.neighbors.length;
         nodeNeighborScanAborted = afterResult.aborted;
-        const displayLabel = formatTimelineLabel(label, rawArchiveAliases);
+        const displayLabel = formatTimelineLabel(label, rawArchiveAliasesOnce());
         const afterCountText = afterResult.aborted ? `${nodeAfterCount}+ (scan interrupted)` : `${nodeAfterCount}`;
         lines.push(`Node ${targetEntry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${nodeRole}] — ${nodeOnActivePath ? "on-path" : "off-path"}; node text below with ${nodeBeforeCount} neighbor(s) before and ${afterCountText} after.`);
         for (const entry of before) {
@@ -970,7 +980,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       } else if (params.view === "tree") {
         const treeVerbose = params.verbose ?? false;
-        const rendered = renderTree(treeOnce(), labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
+        const rendered = renderTree(treeOnce(), labelMaps, rawArchiveAliasesOnce(), leafId, activeIds, effectiveLimit, treeVerbose, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
         if (rendered.hiddenNodes > 0) {
@@ -995,7 +1005,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
         for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
+          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliasesOnce());
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const rawBody = snippet(entryText(entry, verbose));
@@ -1215,7 +1225,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // The raw-archive sentence teaches a thing that does not exist before
       // the first fold; showing it then reads as a dangling term. Trim it
       // while the session has no raw-archive alias.
-      const checkpointsCue = rawArchiveAliases.size > 0
+      const checkpointsCue = rawArchiveAliasesOnce().size > 0
         ? GUIDANCE_CUES.timelineCheckpoints
         : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!;
       const cue = params.view === "active"
