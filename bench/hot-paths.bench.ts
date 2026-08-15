@@ -15,6 +15,7 @@
  */
 import { AcmSessionRuntime } from "../src/runtime.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
+import { registerAcmLifecycle } from "../src/runtime-lifecycle.js";
 import { ACM_CONTINUATION_MARKER, normalizeExistingAcmPacketForSession } from "../src/context-packet.js";
 import { analyzeToolProtocol } from "../src/tool-protocol.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -337,6 +338,69 @@ async function main() {
       retainedKb: null,
       counts: { ...session.counts },
     });
+  }
+
+  // --- Gauge render path: every non-ACM tool_result passes here ------------
+  // Two shapes: the silenced reading (same boundary, unchanged integer
+  // pressure - the odometer declines to render, the common case) and the
+  // rendered reading with warm aggregates (pressure crosses an integer, no
+  // new entry, so the fold projection reads only caches).
+  {
+    process.env.ACM_LEDGER_DISABLED = "1";
+    const emitToolResult = (() => {
+      const handlers: ((event: unknown, ctx: unknown) => unknown)[] = [];
+      const pi = {
+        on: (name: string, handler: (event: unknown, ctx: unknown) => unknown) => {
+          if (name === "tool_result") handlers.push(handler);
+        },
+      };
+      registerAcmLifecycle(pi as never, new AcmSessionRuntime());
+      return async (ctx: unknown) => {
+        for (const handler of handlers) {
+          await handler({ toolName: "read", isError: false, content: [{ type: "text", text: "ok" }] }, ctx);
+        }
+      };
+    })();
+
+    // Silenced: same boundary, fixed usage. First call renders (new boundary),
+    // the rest are the odometer's decline path. Labels give the renderer real
+    // fold references so the projection path is exercised, not short-cut.
+    {
+      const session = makeSession(10_000, { labelEvery: 200 });
+      await emitToolResult(session.context);
+      const times: number[] = [];
+      const cpuStart = process.cpuUsage();
+      for (let index = 0; index < 5; index++) {
+        const start = performance.now();
+        await emitToolResult(session.context);
+        times.push(performance.now() - start);
+      }
+      const cpu = process.cpuUsage(cpuStart);
+      samples.push({ name: "gauge silenced tool_result [10k]", ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / 5, retainedKb: null });
+    }
+
+    // Rendered with warm aggregates: no new entries, but the integer pressure
+    // climbs each call, so the odometer renders and every projection hits.
+    {
+      const session = makeSession(10_000, { labelEvery: 200 });
+      let percent = 30;
+      const context = {
+        sessionManager: session.sessionManager,
+        getContextUsage: () => ({ tokens: 60_000 + percent * 1_000, contextWindow: 200_000, percent: percent++ }),
+        ui: { notify() {} },
+      };
+      await emitToolResult(context); // cold: builds aggregates, renders once
+      const times: number[] = [];
+      const cpuStart = process.cpuUsage();
+      for (let index = 0; index < 5; index++) {
+        const start = performance.now();
+        await emitToolResult(context);
+        times.push(performance.now() - start);
+      }
+      const cpu = process.cpuUsage(cpuStart);
+      samples.push({ name: "gauge rendered warm [10k]", ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / 5, retainedKb: null });
+    }
+    process.env.ACM_LEDGER_DISABLED = undefined;
   }
 
   // --- Cold-cache retention: what one cold checkpoints call leaves behind ---
