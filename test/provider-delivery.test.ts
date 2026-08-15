@@ -164,11 +164,24 @@ describe("ProviderDelivery", () => {
     // A shared non-cyclic reference is still equal, like stringify output.
     const sharedPlain = { deep: true };
     expect(stableMessageMatch({ a: sharedPlain } as unknown as AgentMessage, { a: sharedPlain } as unknown as AgentMessage)).toBe(true);
-    // The SAME reference passed as both arguments: the old top-level identity
-    // shortcut accepted it (true) while serialization would have thrown
-    // (false). The walk must decline it through the same gates.
+    // The SAME reference passed as both arguments: serialization decides, so
+    // a cyclic or BigInt-carrying reference declines (stringify throws on
+    // both sides) while a plain shared reference matches - and a stateful
+    // getter that renders differently per serialization does NOT match
+    // itself.
     expect(stableMessageMatch(cyclic as unknown as AgentMessage, cyclic as unknown as AgentMessage)).toBe(false);
     expect(stableMessageMatch({ v: 1n } as unknown as AgentMessage, { v: 1n } as unknown as AgentMessage)).toBe(false);
+    let renderCount = 0;
+    const statefulSelf: Record<string, unknown> = {};
+    Object.defineProperty(statefulSelf, "v", {
+      enumerable: true,
+      configurable: true,
+      get() {
+        renderCount += 1;
+        return renderCount === 1 ? "first" : "second";
+      },
+    });
+    expect(stableMessageMatch(statefulSelf as unknown as AgentMessage, statefulSelf as unknown as AgentMessage)).toBe(false);
     // With the serializer as the oracle, accessors participate exactly as
     // serialization renders them: a stable getter matches its plain twin, and
     // the exotic-mutation shapes the walker kept losing to (cross-object
