@@ -59,7 +59,28 @@ function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: L
   return aliases;
 }
 
+/** Materialized entry text, cached per immutable entry. Entries are
+ * append-only per the host contract (the caches in runtime.ts already rely on
+ * it), so a rendered entry's text never changes; searches that rescan the
+ * same tree reuse the materialized strings instead of re-joining content
+ * blocks for every scanned node. Slots fill lazily per verbosity level. */
+const entryTextCache = new WeakMap<SessionEntry, { concise?: string; verbose?: string }>();
+
 function entryText(entry: SessionEntry, verbose: boolean): string {
+  let cached = entryTextCache.get(entry);
+  if (cached === undefined) {
+    cached = {};
+    entryTextCache.set(entry, cached);
+  }
+  const slot = verbose ? cached.verbose : cached.concise;
+  if (slot !== undefined) return slot;
+  const text = buildEntryText(entry, verbose);
+  if (verbose) cached.verbose = text;
+  else cached.concise = text;
+  return text;
+}
+
+function buildEntryText(entry: SessionEntry, verbose: boolean): string {
   if (entry.type === "branch_summary" || entry.type === "compaction") return entry.summary || "[No summary provided]";
   if (entry.type === "label") return verbose ? `label ${entry.label ?? "cleared"} → ${entry.targetId}` : "";
   if (entry.type !== "message") return verbose ? entry.type : "";
@@ -67,7 +88,6 @@ function entryText(entry: SessionEntry, verbose: boolean): string {
   if (!verbose && (role === "custom" || (role as string) === "system")) return "";
   return "content" in entry.message ? extractTextFromContent(entry.message.content) : "";
 }
-
 function displayRole(entry: SessionEntry): string {
   if (entry.type === "branch_summary") return "SUMMARY";
   if (entry.type === "compaction") return "COMPACTION";

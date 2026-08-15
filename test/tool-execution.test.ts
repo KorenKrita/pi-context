@@ -1768,10 +1768,12 @@ describe("ACM tool execution contracts", () => {
     expect(await idsOf({ type: "summary" })).toEqual(["needle-summary"]);
     expect(await idsOf({ type: "tool" })).toEqual(["needle-tool"]);
     expect(await idsOf({ scope: "active", type: "user" })).toEqual(["needle-active"]);
-    // The archived node's content is read exactly when it is a candidate
-    // (unfiltered, scope=archive, type=user) and never by the scope=active
-    // runs — that read is the scan cost this filter exists to skip.
-    expect(archivedReads).toBe(3);
+    // The archived node's content is materialized exactly once (the first
+    // scan that treats it as a candidate) and then served from the per-entry
+    // text cache; the scope=active runs never read it — that read is the scan
+    // cost this filter exists to skip, and the cache keeps it skipped across
+    // calls too.
+    expect(archivedReads).toBe(1);
 
     const detailed = await executeTimeline("search-details", { view: "search", query: "needle", scope: "archive", type: "user", limit: 10 }, undefined, undefined, ctx);
     expect(detailed.details).toMatchObject({
