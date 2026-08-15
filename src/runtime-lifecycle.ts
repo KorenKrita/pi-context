@@ -12,7 +12,7 @@ import {
 import { scanProtocolAnchor } from "./anchor-scan.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
-import { buildLabelMaps } from "./label-journal.js";
+import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { ANCHOR_SEARCH_WINDOW } from "./conventions.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
@@ -21,7 +21,6 @@ import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
 import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { aggregateMessages, type MessageAggregate } from "./usage-estimation.js";
-import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
 import { appendLedgerRow, buildBoundaryRow, flushLedgerQueue, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
@@ -160,13 +159,16 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   // session that has not checkpointed still gets both numbers. Estimation is
   // bounded to the two references the gauge renders, and a failed rebuild
   // simply omits that needle.
-  const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
+  const currentFoldEstimates = (
+    ctx: ExtensionContext,
+    pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number },
+    branch: readonly FoldEstimateEntry[] | undefined,
+    entries: { length: number; at(index: number): { id: string } | undefined } | undefined,
+    labelMaps: LabelMaps | undefined,
+  ) => {
     const session = ctx.sessionManager;
     try {
-      const branch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
-      if (!Array.isArray(branch) || branch.length === 0) return undefined;
-      const entries = session.getEntries();
-      const labelMaps = buildLabelMaps(entries);
+      if (!Array.isArray(branch) || branch.length === 0 || entries === undefined || labelMaps === undefined) return undefined;
       const references = selectFoldReferences(branch, labelMaps);
       if (!references.turn && !references.task) return undefined;
       const leafId = session.getLeafId();
@@ -201,19 +203,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     pressure: { pressurePercent: number; usagePercent: number },
     folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
     savePoints: number | null,
+    branch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined,
+    boundaryId: string | null,
   ): void => {
     try {
-      const session = ctx.sessionManager as unknown as object;
-      const branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
       if (!Array.isArray(branch) || branch.length === 0) return;
-      let boundaryId: string | null = null;
-      for (let index = branch.length - 1; index >= 0; index--) {
-        const entry = branch[index]!;
-        if (entry.type === "message" && entry.message?.role === "user") {
-          boundaryId = entry.id;
-          break;
-        }
-      }
+      const session = ctx.sessionManager as unknown as object;
       const state = runtime.ledgerState(session);
       if (!shouldCountBoundary(state, boundaryId)) return;
       const ordinal = markBoundaryCounted(state, boundaryId!);
@@ -250,11 +245,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // has actually decided to render; most readings are silenced and must
     // not pay O(entries) for a suffix that never appears.
     let boundaryId: string | null = null;
+    let gateBranch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined;
     try {
-      const branch = session.getBranch();
-      for (let index = branch.length - 1; index >= 0; index--) {
-        const entry = branch[index]!;
-        if (entry.type === "message" && (entry as { message?: { role?: string } }).message?.role === "user") {
+      gateBranch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+      for (let index = gateBranch.length - 1; index >= 0; index--) {
+        const entry = gateBranch[index]!;
+        if (entry.type === "message" && entry.message?.role === "user") {
           boundaryId = entry.id;
           break;
         }
@@ -263,15 +259,38 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       boundaryId = null;
     }
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
+    // The odometer has decided to render, so everything below pays O(entries)
+    // once per render instead of once per consumer: one branch (already in
+    // hand from the gate scan), one entries read, and one label replay served
+    // from the cross-render cache — shared by the save-point count, the fold
+    // needles, and the boundary ledger row.
+    let branch = gateBranch;
+    if (branch === undefined) {
+      try {
+        branch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+      } catch {
+        branch = undefined;
+      }
+    }
+    let entries: { length: number; at(index: number): { id: string } | undefined } | undefined;
+    let labelMaps: LabelMaps | undefined;
+    try {
+      const readEntries = session.getEntries();
+      entries = readEntries;
+      labelMaps = runtime.labelMapsFor(session, readEntries, () => buildLabelMaps(readEntries));
+    } catch {
+      entries = undefined;
+      labelMaps = undefined;
+    }
     let savePoints: number | null = null;
     try {
-      const branch = session.getBranch();
-      const labelMaps = buildGaugeLabelMaps(session.getEntries());
-      let count = 0;
-      for (const entry of branch) {
-        if (labelMaps.entryToLabel.get(entry.id) !== undefined) count++;
+      if (branch !== undefined && labelMaps !== undefined) {
+        let count = 0;
+        for (const entry of branch) {
+          if (labelMaps.entryToLabel.get(entry.id) !== undefined) count++;
+        }
+        savePoints = count;
       }
-      savePoints = count;
     } catch {
       savePoints = null;
     }
@@ -279,11 +298,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       boundary: runtime.isNewGaugeBoundary(session, boundaryId),
       savePoints,
     };
-    const folds = currentFoldEstimates(ctx, pressure);
+    const folds = currentFoldEstimates(ctx, pressure, branch, entries, labelMaps);
     // Passive boundary ledger: one row per distinct user-request boundary, so
     // "boundaries crossed N, folds M" accumulates without any injection. Never
     // allowed to affect this result — every failure is swallowed inside.
-    recordBoundary(ctx, pressure, folds, savePoints);
+    recordBoundary(ctx, pressure, folds, savePoints, branch, boundaryId);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds, structure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.

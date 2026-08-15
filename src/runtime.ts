@@ -1,5 +1,7 @@
 import { type MessageAggregate, type UsageLike } from "./usage-estimation.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { LabelMaps } from "./label-journal.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import {
   createLiveAgentSessionAdapter,
@@ -77,6 +79,14 @@ export class AcmSessionRuntime {
     targets: Map<string, MessageAggregate>;
   }>();
   private static readonly FOLD_TARGET_CACHE_LIMIT = 8;
+  /**
+   * Label-journal replay, cached per SessionManager on the same key face as
+   * the fold aggregates (entries length + last entry id): the journal is
+   * append-only, so any label change misses, and clear() drops the entry for
+   * the same session-surgery reasons. One replay serves the save-point count
+   * and the fold reference selection on a gauge render instead of two.
+   */
+  private readonly labelMapsCache = new WeakMap<object, { key: string; maps: LabelMaps }>();
   /**
    * Travels completed within the current assistant turn. Low-capability
    * models have oscillated between return tickets (11 travels in one turn in
@@ -300,6 +310,7 @@ export class AcmSessionRuntime {
     this.gaugeStates.delete(session);
     this.liveAgentSessions.clear(session);
     this.foldAggregates.delete(session);
+    this.labelMapsCache.delete(session);
   }
 
   /**
@@ -344,6 +355,26 @@ export class AcmSessionRuntime {
       state.targets.delete(oldest);
     }
     return value;
+  }
+
+  /**
+   * Label maps through the per-session cache, keyed like the fold aggregates:
+   * the journal is append-only, so (entries length, last entry id) keys are
+   * sound, and clear() invalidates on session surgery. `entries` is the array
+   * the caller already read; `rebuild` runs the full replay only on a miss.
+   */
+  labelMapsFor(session: object, entries: readonly SessionEntry[], rebuild: () => LabelMaps): LabelMaps {
+    const key = `${entries.length}|${entries.at(-1)?.id ?? ""}`;
+    let state = this.labelMapsCache.get(session);
+    if (!state) {
+      state = { key: "", maps: undefined! };
+      this.labelMapsCache.set(session, state);
+    }
+    if (state.key === key && state.maps !== undefined) return state.maps;
+    const maps = rebuild();
+    state.key = key;
+    state.maps = maps;
+    return maps;
   }
 
   private gaugeState(session: object): GaugeState {

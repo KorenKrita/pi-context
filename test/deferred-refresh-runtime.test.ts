@@ -1479,4 +1479,28 @@ describe("deferred post-travel context delivery", () => {
     runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
     expect(rebuilds).toBe(before + 1);
   });
+
+  test("label maps cache by entry key and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let replays = 0;
+    const replay = () => {
+      replays += 1;
+      return { entryToLabel: new Map(), labelToEntry: new Map() } as never;
+    };
+    const entriesOf = (ids: readonly string[]) =>
+      ids.map((id) => ({ type: "label", id, targetId: "t", label: `l-${id}` })) as never as readonly never[];
+
+    // Cold replay, warm hit on the same key, miss on any append.
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2"]), replay);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2"]), replay);
+    expect(replays).toBe(1);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2", "e3"]), replay);
+    expect(replays).toBe(2);
+
+    // clear() drops the cache; the ledger join state survives as before.
+    runtime.clear(session);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2", "e3"]), replay);
+    expect(replays).toBe(3);
+  });
 });
