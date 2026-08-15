@@ -109,6 +109,15 @@ describe("ProviderDelivery", () => {
       // Undefined- and function-valued keys are skipped by stringify.
       [{ a: 1, b: undefined }, { a: 1 }, true],
       [{ a: 1, b: () => 2 }, { a: 1 }, true],
+      // JSON renders NaN, Infinity and null identically as null.
+      [{ role: "user", content: "x", ts: Number.NaN }, { role: "user", content: "x", ts: Number.POSITIVE_INFINITY }, true],
+      [{ role: "user", content: "x", ts: Number.NaN }, { role: "user", content: "x", ts: null }, true],
+      [{ role: "user", content: "x", v: [Number.NaN] }, { role: "user", content: "x", v: [null] }, true],
+      // Boxed primitives serialize as their primitive value.
+      [{ v: new Number(5) }, { v: new Number(5) }, true],
+      [{ v: new String("ab") }, { v: new String("ab") }, true],
+      [{ v: new Number(5) }, { v: {} }, false],
+      [{ v: new Number(5) }, { v: 5 }, true],
     ];
     for (const [left, right, expected] of corpus) {
       let oracle: boolean;
@@ -128,11 +137,29 @@ describe("ProviderDelivery", () => {
     const cyclic: Record<string, unknown> = { role: "user", content: "x" };
     cyclic.self = cyclic;
     expect(stableMessageMatch(cyclic as unknown as AgentMessage, structuredClone(cyclic) as unknown as AgentMessage)).toBe(false);
+    // Two distinct messages sharing ONE cyclic sub-object: serialization
+    // throws on either, so this must decline too — no identity shortcut may
+    // accept a sub-object serialization could not even walk.
+    const shared: Record<string, unknown> = { role: "user", content: "x" };
+    shared.self = shared;
+    expect(stableMessageMatch({ m: shared } as unknown as AgentMessage, { n: shared } as unknown as AgentMessage)).toBe(false);
     expect(stableMessageMatch({ role: "user", content: "x", n: 1n } as unknown as AgentMessage, { role: "user", content: "x", n: 1n } as unknown as AgentMessage)).toBe(false);
+    // Boxed BigInt threw under the old serializer as surely as the primitive.
+    expect(stableMessageMatch({ v: Object(1n) } as unknown as AgentMessage, { v: Object(1n) } as unknown as AgentMessage)).toBe(false);
+    // A throwing getter must decline, never throw into the caller.
+    const exploding: Record<string, unknown> = { role: "user", content: "x" };
+    Object.defineProperty(exploding, "boom", {
+      enumerable: true,
+      get() {
+        throw new Error("getter exploded");
+      },
+    });
+    expect(() => stableMessageMatch(exploding as unknown as AgentMessage, structuredClone({ role: "user", content: "x" }) as unknown as AgentMessage)).not.toThrow();
+    expect(stableMessageMatch(exploding as unknown as AgentMessage, structuredClone({ role: "user", content: "x" }) as unknown as AgentMessage)).toBe(false);
     expect(stableMessageMatch(new Date(0) as unknown as AgentMessage, new Date(0) as unknown as AgentMessage)).toBe(false);
     // A shared non-cyclic reference is still equal, like stringify output.
-    const shared = { deep: true };
-    expect(stableMessageMatch({ a: shared } as unknown as AgentMessage, { a: shared } as unknown as AgentMessage)).toBe(true);
+    const sharedPlain = { deep: true };
+    expect(stableMessageMatch({ a: sharedPlain } as unknown as AgentMessage, { a: sharedPlain } as unknown as AgentMessage)).toBe(true);
   });
 
   test("mergeCachedPacket grafts through structurally equal, non-identical message objects", () => {

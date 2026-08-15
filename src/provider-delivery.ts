@@ -33,7 +33,13 @@ interface CachedProviderPacket {
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
   if (left === right) return true;
-  return jsonEquals(left, right, [], []);
+  try {
+    return jsonEquals(left, right, [], []);
+  } catch {
+    // The old serializer's catch-all: getters, proxies, anything that throws
+    // mid-walk is a decline, never an exception into the caller.
+    return false;
+  }
 }
 
 /**
@@ -68,42 +74,78 @@ function arrayElementJsonValue(array: unknown[], index: number): unknown {
   return value;
 }
 
+/**
+ * Boxed primitives serialized as their primitive value, except BigInt which
+ * threw. Returns the unwrapped primitive, "bigint" for the throwing case, or
+ * undefined for everything else (plain objects, arrays, class instances).
+ */
+function boxedPrimitiveOf(value: object): string | number | boolean | "bigint" | undefined {
+  switch (Object.prototype.toString.call(value)) {
+    case "[object BigInt]":
+      return "bigint";
+    case "[object Number]":
+      return (value as Number).valueOf();
+    case "[object String]":
+      return (value as String).valueOf();
+    case "[object Boolean]":
+      return (value as Boolean).valueOf();
+    default:
+      return undefined;
+  }
+}
+
 function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unknown[], rightAncestors: readonly unknown[]): boolean {
-  // BigInt threw under the old serializer, yet 1n === 1n is true in JS — the
-  // identity shortcut below would accept it. Guard before it, fail closed.
+  // BigInt threw under the old serializer, yet 1n === 1n is true in JS — any
+  // identity shortcut below would accept it. Guard first, fail closed.
   if (typeof left === "bigint" || typeof right === "bigint") return false;
-  // A cycle would have thrown under the old serializer. Checking before the
-  // identity shortcut keeps a shared cyclic reference false on both sides.
+  // JSON renders null, NaN and ±Infinity identically as null, so that class
+  // compares equal to itself and to nothing else.
+  const leftNullish = left === null || (typeof left === "number" && !Number.isFinite(left));
+  const rightNullish = right === null || (typeof right === "number" && !Number.isFinite(right));
+  if (leftNullish || rightNullish) return leftNullish && rightNullish;
+  // A cycle would have thrown under the old serializer. Checking before any
+  // shortcut keeps a shared cyclic reference false on both sides — which is
+  // why there is no identity shortcut inside this walk: two messages sharing
+  // one cyclic sub-object must decline exactly as serialization would have.
   if (leftAncestors.includes(left) || rightAncestors.includes(right)) return false;
-  if (left === right) return true;
   const leftIsObject = typeof left === "object" && left !== null;
   const rightIsObject = typeof right === "object" && right !== null;
-  if (!leftIsObject || !rightIsObject) return jsonPrimitiveEquals(left, right);
+  // Boxed primitives serialize as their primitive value (BigInt boxes threw):
+  // unwrap before the object dispatch so a wrapper meets a primitive as its
+  // own value and never passes as a plain empty object.
+  const leftBoxed = leftIsObject ? boxedPrimitiveOf(left) : undefined;
+  const rightBoxed = rightIsObject ? boxedPrimitiveOf(right) : undefined;
+  if (leftBoxed === "bigint" || rightBoxed === "bigint") return false;
+  const effectiveLeft = leftBoxed !== undefined ? leftBoxed : left;
+  const effectiveRight = rightBoxed !== undefined ? rightBoxed : right;
+  if (typeof effectiveLeft !== "object" || effectiveLeft === null || typeof effectiveRight !== "object" || effectiveRight === null) {
+    return jsonPrimitiveEquals(effectiveLeft, effectiveRight);
+  }
   // toJSON is a serialization escape hatch that no AgentMessage surface uses;
   // guessing its output could graft an unrelated tail, so it fails closed.
-  if (typeof (left as { toJSON?: unknown }).toJSON === "function" || typeof (right as { toJSON?: unknown }).toJSON === "function") {
+  if (typeof (effectiveLeft as { toJSON?: unknown }).toJSON === "function" || typeof (effectiveRight as { toJSON?: unknown }).toJSON === "function") {
     return false;
   }
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-    const nextLeft = [...leftAncestors, left];
-    const nextRight = [...rightAncestors, right];
-    for (let index = 0; index < left.length; index++) {
-      if (!jsonEquals(arrayElementJsonValue(left, index), arrayElementJsonValue(right, index), nextLeft, nextRight)) return false;
+  if (Array.isArray(effectiveLeft) || Array.isArray(effectiveRight)) {
+    if (!Array.isArray(effectiveLeft) || !Array.isArray(effectiveRight) || effectiveLeft.length !== effectiveRight.length) return false;
+    const nextLeft = [...leftAncestors, effectiveLeft];
+    const nextRight = [...rightAncestors, effectiveRight];
+    for (let index = 0; index < effectiveLeft.length; index++) {
+      if (!jsonEquals(arrayElementJsonValue(effectiveLeft, index), arrayElementJsonValue(effectiveRight, index), nextLeft, nextRight)) return false;
     }
     return true;
   }
   // Key order is part of stringify output: {a:1,b:2} and {b:2,a:1} differ.
-  const leftKeys = jsonObjectKeys(left);
-  const rightKeys = jsonObjectKeys(right);
+  const leftKeys = jsonObjectKeys(effectiveLeft);
+  const rightKeys = jsonObjectKeys(effectiveRight);
   if (leftKeys.length !== rightKeys.length) return false;
   for (let index = 0; index < leftKeys.length; index++) {
     if (leftKeys[index] !== rightKeys[index]) return false;
   }
-  const nextLeft = [...leftAncestors, left];
-  const nextRight = [...rightAncestors, right];
+  const nextLeft = [...leftAncestors, effectiveLeft];
+  const nextRight = [...rightAncestors, effectiveRight];
   for (const key of leftKeys) {
-    if (!jsonEquals((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key], nextLeft, nextRight)) return false;
+    if (!jsonEquals((effectiveLeft as Record<string, unknown>)[key], (effectiveRight as Record<string, unknown>)[key], nextLeft, nextRight)) return false;
   }
   return true;
 }
