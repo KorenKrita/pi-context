@@ -1471,13 +1471,14 @@ describe("ACM tool execution contracts", () => {
     // narrower query that cannot recover an interrupted render.
     expect(result.details).toMatchObject({
       checkpointsMatchingEntries: 6,
+      checkpointsSelectedEntries: 0,
       checkpointsDisplayedEntries: 0,
       checkpointsDisplayedAliases: 0,
       checkpointAliasNamesShown: 0,
       checkpointsRenderAborted: true,
     });
     const text = result.content[0]?.text ?? "";
-    expect(text).toContain("6 save points matching 'checkpoint', rendering interrupted after 0/6 by cancellation");
+    expect(text).toContain("6 save points matching 'checkpoint', rendering interrupted after 0/6 by cancellation before output fitting");
     expect(text).toContain("render interrupted by cancellation; 6 matching save points not rendered — retry the request");
     expect(text).not.toContain("(limit 6)");
     expect(text).not.toContain("use a narrower filter or query");
@@ -1488,8 +1489,13 @@ describe("ACM tool execution contracts", () => {
     const runtime = new AcmSessionRuntime();
     const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
     const fixture = sortedCheckpointTimelineContext();
-    const controller = new AbortController();
-    controller.abort();
+    let abortReads = 0;
+    const stagedSignal = {
+      get aborted() {
+        abortReads += 1;
+        return abortReads > 1;
+      },
+    } as AbortSignal;
     runtime.contextRefresh.recordFailedAttempt(
       fixture.context.sessionManager as never,
       "E".repeat(9_000),
@@ -1498,20 +1504,24 @@ describe("ACM tool execution contracts", () => {
     const result = await executeWithRuntime(
       "aborted-checkpoints-trimmed",
       { view: "checkpoints", filter: "checkpoint", limit: 1_000_000 },
-      controller.signal,
+      stagedSignal,
       undefined,
       fixture.context,
     );
     expect(result.details).toMatchObject({
       checkpointsMatchingEntries: 6,
+      checkpointsSelectedEntries: 1,
       checkpointsDisplayedEntries: 0,
+      checkpointsDisplayedAliases: 0,
+      checkpointAliasNamesShown: 0,
       checkpointsRenderAborted: true,
       resultBudgetApplied: true,
       outputTruncatedByCharacterBudget: true,
     });
     const text = result.content[0]?.text ?? "";
     expect(text).not.toContain("Checkpoints:");
-    expect(text).toContain("Checkpoint receipt: rendering cancelled after 0/6; 6 matching save point(s) not rendered; retry the request");
+    expect(text).not.toContain("(checkpoint: checkpoint-on-first");
+    expect(text).toContain("Checkpoint receipt: rendering cancelled after 1/6 before output fitting; 0 complete checkpoint row(s) delivered; retry the request");
     expect(text).toContain("Checkpoint rendering was cancelled before completion; retry the request.");
     expect(text).not.toContain("Narrow with filter/query for the remainder");
     expect(text).not.toContain("Use a narrower filter/query or a smaller view");

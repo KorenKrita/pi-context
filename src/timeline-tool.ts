@@ -818,10 +818,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let checkpointsDisplayedAliases = 0;
       let checkpointsMatchingEntries = 0;
       let checkpointsDisplayedEntries = 0;
+      let checkpointsSelectedEntries = 0;
+      let checkpointLineIndexes: number[] = [];
       let checkpointAliasesOnMatchingEntries = 0;
       let checkpointAliasNamesShown = 0;
       let checkpointsRenderAborted = false;
       let rootCandidateDisplayed = false;
+      let rootCandidateLineIndex: number | null = null;
       let rootCandidateEntryId: string | null = null;
       let rootProjectedSummaryDepth: number | null = null;
       let searchSelectedMatches = 0;
@@ -958,6 +961,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
             ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
             : "";
+          rootCandidateLineIndex = lines.length;
           lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} after this fold${rootDepthNote}`);
         }
         let checkpointsRendered = 0;
@@ -980,6 +984,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const rawArchiveNote = checkpoint.isRawArchive
             ? "; raw archive — restores pre-fold history; fold targets are the entries before the folded material"
             : "";
+          checkpointLineIndexes.push(lines.length);
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
         }
         if (signal?.aborted && checkpointsRendered < checkpointsDisplayedEntries) {
@@ -990,19 +995,21 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           checkpointsDisplayedAliases = checkpointsRendered;
           checkpointAliasNamesShown = checkpointsRendered;
         }
+        checkpointsSelectedEntries = checkpointsDisplayedEntries;
         if (checkpointsHeaderSlot >= 0) {
-          // checkpointsDisplayedEntries is already reconciled to the rendered
-          // rows above, so header and body cannot disagree.
+          // This header describes rows selected/rendered before character fitting;
+          // the structural checkpoint receipt reports how many complete rows
+          // actually survive that final fit.
           const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
           const shownNote = checkpointsRenderAborted
-            ? `, rendering interrupted after ${checkpointsDisplayedEntries}/${listings.length} by cancellation`
-            : checkpointsDisplayedEntries < listings.length
-              ? `, showing ${checkpointsDisplayedEntries} (limit ${effectiveLimit})`
+            ? `, rendering interrupted after ${checkpointsSelectedEntries}/${listings.length} by cancellation before output fitting`
+            : checkpointsSelectedEntries < listings.length
+              ? `, ${checkpointsSelectedEntries} selected before output fitting (limit ${effectiveLimit})`
               : "";
           const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
           lines[checkpointsHeaderSlot] = `Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`;
         }
-        const checkpointsOmitted = listings.length - checkpointsDisplayedEntries;
+        const checkpointsOmitted = listings.length - checkpointsSelectedEntries;
         if (checkpointsOmitted > 0) {
           lines.push(checkpointsRenderAborted
             ? `  ... render interrupted by cancellation; ${checkpointsOmitted} matching save point${checkpointsOmitted === 1 ? "" : "s"} not rendered — retry the request`
@@ -1426,20 +1433,53 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             { line: searchReceipt(searchDisplayedMatches), reserveChars: receiptReserveChars },
           );
         }
+      } else if (params.view === "checkpoints") {
+        const receiptReserveChars = 240;
+        const checkpointReceipt = (deliveredEntries: number): string => checkpointsRenderAborted
+          ? `Checkpoint receipt: rendering cancelled after ${checkpointsSelectedEntries}/${checkpointsMatchingEntries} before output fitting; ${deliveredEntries} complete checkpoint row(s) delivered; retry the request`
+          : `Checkpoint receipt: ${checkpointsSelectedEntries} selected before output fitting; ${deliveredEntries} complete checkpoint row(s) delivered`;
+        const checkpointFitOptions = (deliveredEntries: number): { line: string; reserveChars: number; footerRecovery?: string } => {
+          const base = { line: checkpointReceipt(deliveredEntries), reserveChars: receiptReserveChars };
+          return checkpointsRenderAborted
+            ? { ...base, footerRecovery: "Checkpoint rendering was cancelled; retry the request." }
+            : base;
+        };
+        const provisional = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          null,
+          checkpointFitOptions(0),
+        );
+        if (!provisional.truncated) {
+          checkpointsDisplayedEntries = checkpointsSelectedEntries;
+          fittedOutput = provisional;
+        } else {
+          const retainedEnd = provisional.retainedSourcePrefixChars;
+          checkpointsDisplayedEntries = checkpointLineIndexes.reduce((count, lineIndex) => {
+            const lineEnd = lineEndOffsets[lineIndex];
+            return count + (lineEnd !== undefined && lineEnd <= retainedEnd ? 1 : 0);
+          }, 0);
+          checkpointsDisplayedAliases = checkpointsDisplayedEntries;
+          checkpointAliasNamesShown = checkpointsDisplayedEntries;
+          if (rootCandidateLineIndex !== null) {
+            const rootLineEnd = lineEndOffsets[rootCandidateLineIndex];
+            rootCandidateDisplayed = rootLineEnd !== undefined && rootLineEnd <= retainedEnd;
+          }
+          fittedOutput = fitTimelineOutputToBudget(
+            rawOutput,
+            resultCharacterBudget,
+            leafId,
+            null,
+            checkpointFitOptions(checkpointsDisplayedEntries),
+          );
+        }
       } else {
-        const checkpointCancellationReceipt = params.view === "checkpoints" && checkpointsRenderAborted
-          ? {
-              line: `Checkpoint receipt: rendering cancelled after ${checkpointsDisplayedEntries}/${checkpointsMatchingEntries}; ${checkpointsMatchingEntries - checkpointsDisplayedEntries} matching save point(s) not rendered; retry the request`,
-              reserveChars: 240,
-              footerRecovery: "Checkpoint rendering was cancelled; retry the request.",
-            }
-          : null;
         fittedOutput = fitTimelineOutputToBudget(
           rawOutput,
           resultCharacterBudget,
           leafId,
           params.view === "node" ? nodeEntryId : null,
-          checkpointCancellationReceipt,
         );
       }
       return {
@@ -1470,6 +1510,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           checkpointsMatchingAliases: params.view === "checkpoints" ? checkpointsMatchingAliases : null,
           checkpointsDisplayedAliases: params.view === "checkpoints" ? checkpointsDisplayedAliases : null,
           checkpointsMatchingEntries: params.view === "checkpoints" ? checkpointsMatchingEntries : null,
+          checkpointsSelectedEntries: params.view === "checkpoints" ? checkpointsSelectedEntries : null,
           checkpointsDisplayedEntries: params.view === "checkpoints" ? checkpointsDisplayedEntries : null,
           checkpointAliasesOnMatchingEntries: params.view === "checkpoints" ? checkpointAliasesOnMatchingEntries : null,
           checkpointAliasNamesShown: params.view === "checkpoints" ? checkpointAliasNamesShown : null,
