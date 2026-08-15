@@ -31,8 +31,8 @@ interface CheckpointListing {
 interface SearchMatch {
   entry: SessionEntry;
   label: string | undefined;
-  /** The entry's rendered text, already materialized by the matching pass so
-   * the snippet renderer does not join the same content a second time. */
+  /** The ready-to-render snippet, cut at match time - the full rendered
+   * text is never retained past this loop. */
   text: string;
 }
 
@@ -165,10 +165,19 @@ interface SearchFilterOptions {
   scanNodeBudget: number;
 }
 
-type SearchTruncationReason = "limit" | "scan_budget" | "signal" | null;
+type SearchTruncationReason = "limit" | "scan_budget" | "text_budget" | "signal" | null;
 
-function searchTruncationPhrase(reason: "limit" | "scan_budget" | "signal"): string {
+/** One node's rendered text is materialized at most this far for matching;
+ * beyond it, a hit past the cut is honestly out of reach for that node. */
+const SEARCH_NODE_TEXT_MAX_CHARS = 65_536;
+/** Total rendered-text budget per search call: the node budget bounds the
+ * tree's width, this bounds its bytes - a 5,000-node scan over large tool
+ * outputs would otherwise process tens of megabytes of characters. */
+const SEARCH_TOTAL_TEXT_BUDGET_CHARS = 2_000_000;
+
+function searchTruncationPhrase(reason: "limit" | "scan_budget" | "text_budget" | "signal" | null): string {
   if (reason === "scan_budget") return "5,000-node scan limit";
+  if (reason === "text_budget") return `text budget (${SEARCH_TOTAL_TEXT_BUDGET_CHARS.toLocaleString("en-US")} chars)`;
   if (reason === "signal") return "cancelled";
   return "display limit";
 }
@@ -232,7 +241,7 @@ function searchTree(
   limit: number,
   signal: AbortSignal | undefined,
   options: SearchFilterOptions,
-): { matches: SearchMatch[]; truncated: boolean; truncationReason: SearchTruncationReason; scannedNodes: number; scanBudget: number } {
+): { matches: SearchMatch[]; truncated: boolean; truncationReason: SearchTruncationReason; scannedNodes: number; scanBudget: number; textChars: number; textBudget: number } {
   const normalizedQuery = query.toLowerCase();
   const queryIsAscii = isAsciiText(normalizedQuery);
   const stack = [...tree].reverse();
@@ -240,6 +249,7 @@ function searchTree(
   let truncated = false;
   let truncationReason: SearchTruncationReason = null;
   let scannedNodes = 0;
+  let textChars = 0;
   while (stack.length > 0) {
     if (signal?.aborted) {
       truncated = true;
@@ -268,10 +278,20 @@ function searchTree(
       if (label === undefined && isAcmToolEcho(node.entry)) {
         matched = false;
       } else {
-        // Materialize once: this text serves both the match test and, on a
-        // hit, the snippet line - the old shape joined every matched entry
-        // twice per call.
+        // Materialize once, bounded: this text serves the match test and, on
+        // a hit, the snippet line (stored as the snippet, never the full
+        // text). Oversized nodes are cut at the node cap; the call-wide
+        // budget stops the scan when rendered text overall grows too large.
         candidateText = entryText(node.entry, true);
+        if (candidateText.length > SEARCH_NODE_TEXT_MAX_CHARS) {
+          candidateText = candidateText.slice(0, SEARCH_NODE_TEXT_MAX_CHARS);
+        }
+        textChars += candidateText.length;
+        if (textChars > SEARCH_TOTAL_TEXT_BUDGET_CHARS) {
+          truncated = true;
+          truncationReason = "text_budget";
+          break;
+        }
         matched = containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
           || (label !== undefined && containsCaseInsensitive(label, normalizedQuery, queryIsAscii))
           || containsCaseInsensitive(candidateText, normalizedQuery, queryIsAscii);
@@ -279,7 +299,7 @@ function searchTree(
     }
     if (matched) {
       if (matches.length < limit) {
-        matches.push({ entry: node.entry, label, text: candidateText });
+        matches.push({ entry: node.entry, label, text: snippet(candidateText) });
       } else {
         truncated = true;
         truncationReason = "limit";
@@ -288,7 +308,7 @@ function searchTree(
     }
     pushTreeChildrenPreOrder(stack, node.children);
   }
-  return { matches, truncated, truncationReason, scannedNodes, scanBudget: options.scanNodeBudget };
+  return { matches, truncated, truncationReason, scannedNodes, scanBudget: options.scanNodeBudget, textChars, textBudget: SEARCH_TOTAL_TEXT_BUDGET_CHARS };
 }
 
 /** Shorten a rendered body to one line, marking real truncation honestly. */
@@ -616,7 +636,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const budget = asCount(details?.searchScanBudget);
         const scanSuffix = budget > 0 ? ` · scanned ${scanned}/${budget}` : "";
         const truncationSuffix = details?.searchTruncated
-          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${searchTruncationPhrase(details.searchTruncationReason as never)})` : " · truncated")
+          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${searchTruncationPhrase(details.searchTruncationReason as "limit" | "scan_budget" | "text_budget" | "signal" | null)})` : " · truncated")
           : "";
         evidence = `${matches} match${matches === 1 ? "" : "es"}${truncationSuffix}${scanSuffix}`;
       } else if (view === "node") {
@@ -748,8 +768,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let rootProjectedSummaryDepth: number | null = null;
       let searchDisplayedMatches = 0;
       let searchTruncated = false;
-      let searchTruncationReason: "limit" | "scan_budget" | "signal" | null = null;
+      let searchTruncationReason: "limit" | "scan_budget" | "text_budget" | "signal" | null = null;
       let searchScannedNodes = 0;
+      let searchTextChars = 0;
       let searchScope: "active" | "archive" | null = null;
       let searchType: "user" | "summary" | "tool" | null = null;
       let nodeRequestedTarget: string | null = null;
@@ -925,10 +946,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           params.type !== undefined ? `type ${params.type}` : null,
         ].filter((qualifier) => qualifier !== null).join(", ");
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s)${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
-          const body = snippet(match.text);
+          const body = match.text;
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
@@ -939,7 +960,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           // earlier matches; unreachable nodes stay unreachable.
           lines.push(search.truncationReason === "scan_budget"
             ? `  ... scan stopped at the 5,000-node limit; nodes after it were not searched this call — use a more specific query to hit earlier matches, or view=tree to navigate`
-            : `  ... scan stopped early (${search.truncationReason === null ? "display limit" : searchTruncationPhrase(search.truncationReason)}); narrow with scope/type or a longer query`);
+            : search.truncationReason === "text_budget"
+              ? `  ... scan stopped at the text budget; the largest entries were cut before their ends and later nodes were not searched — use a more specific query or view=tree to navigate`
+              : `  ... scan stopped early (${search.truncationReason === null ? "display limit" : searchTruncationPhrase(search.truncationReason)}); narrow with scope/type or a longer query`);
         }
       } else if (params.view === "node") {
         nodeRequestedTarget = params.target;
@@ -1296,6 +1319,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           searchTruncated: params.view === "search" ? searchTruncated : false,
           searchTruncationReason: params.view === "search" ? searchTruncationReason : null,
           searchScannedNodes: params.view === "search" ? searchScannedNodes : null,
+          searchTextChars: params.view === "search" ? searchTextChars : null,
           searchScanBudget: params.view === "search" ? TIMELINE_SEARCH_SCAN_NODE_BUDGET : null,
           searchScope: params.view === "search" ? searchScope : null,
           searchType: params.view === "search" ? searchType : null,

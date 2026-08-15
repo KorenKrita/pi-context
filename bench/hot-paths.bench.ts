@@ -334,6 +334,12 @@ async function main() {
   {
     const session = makeSession(10_000);
     await benchTimelineView(samples, "timeline search no-match [10k]", "search", { query: "zzz-not-present-anywhere" }, session);
+    {
+      // Hit-heavy: most nodes match, exercising snippet-at-match retention
+      // (full text must never be held past the scan).
+      const hitSession = makeSession(10_000);
+      await benchTimelineView(samples, "timeline search hit-heavy [10k]", "search", { query: "entry" }, hitSession);
+    }
     await benchTimelineView(samples, "timeline tree [10k]", "tree", {}, session);
   }
 

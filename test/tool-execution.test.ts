@@ -2333,3 +2333,43 @@ describe("ACM tool execution contracts", () => {
     });
   });
 });
+
+describe("search text budget", () => {
+  test("oversized entries are cut at the node cap and the call budget reports honestly", async () => {
+    const entries = [];
+    for (let index = 0; index < 60; index++) {
+      entries.push({
+        type: "message",
+        id: `big-${index}`,
+        parentId: index === 0 ? null : `big-${index - 1}`,
+        timestamp: new Date(1700000000000 + index * 1000).toISOString(),
+        message: { role: "user", content: `needle ${index} ${"x".repeat(70_000)}` },
+      } as never);
+    }
+    let treeNode;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index], children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "big-59",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    // 60 nodes × 64KB cut = ~3.8MB > 2MB budget: the scan stops early with
+    // the text_budget reason, and the receipt states both budgets.
+    const result = await executeTimeline("text-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("truncated (text budget");
+    expect(result.details).toMatchObject({ searchTruncated: true, searchTruncationReason: "text_budget" });
+    // A hit inside the node cut still matches and renders a bounded snippet.
+    const hit = await executeTimeline("text-budget-hit", { view: "search", query: "needle 3" }, undefined, undefined, ctx);
+    const hitText = hit.content[0]?.text ?? "";
+    expect(hitText).toContain("big-3");
+    expect(hitText).not.toContain("x".repeat(200));
+  });
+});
