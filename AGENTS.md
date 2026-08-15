@@ -133,7 +133,18 @@ ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备�
 
 ### Timeline 契约
 
-strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。每次调用受 context-derived entry/character budget 约束；`search` 另受 5,000 节点遍历预算（`TIMELINE_SEARCH_SCAN_NODE_BUDGET`，与输出 budget 相互独立）——预算按遍历节点计数，`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小遍历边界，预算后的节点本次调用不可达且回执如实说明；回执报告 scanned/scanBudget 与截断原因。
+strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`；abort 打断渲染时 header 的 `showing N`、尾部 `+N more` 与 details 三个计数一起对齐到实际渲染行数（header 行占位、渲染完成后回填）。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。
+
+`search` 面有四层彼此独立的 budget，别混：
+
+| 层 | 常量 | 量纲 | 越界后果 |
+|---|---|---|---|
+| 遍历 | `TIMELINE_SEARCH_SCAN_NODE_BUDGET` = 5,000 | 本次调用遍历的节点数 | 之后的节点本次不可达，`truncationReason: "scan_budget"` |
+| 每节点输入 | `SEARCH_NODE_TEXT_MAX_CHARS` = 65,536 | 单节点消耗的 source chars | 该节点只搜前缀，计入 `nodesCutAtNodeCap`；**不置 truncated** |
+| 每调用输入 | `SEARCH_TOTAL_TEXT_BUDGET_CHARS` = 2,000,000 | 全调用累计 source chars（pre-trim，空白与分隔符照计） | 跨节点边界即 `truncationReason: "text_budget"`；命中节点中段则同时计入 `nodesCutAtCallBudget` |
+| 输出 | context-derived entry/character budget | 结果 entry 数（`effectiveLimit`）与渲染字符数 | 命中 entry 数即 `truncationReason: "limit"`；命中字符数则保留前缀 + 通用 footer、尾部行被裁掉，走独立的 `outputTruncatedByCharacterBudget` 而不置 search 的 truncated |
+
+前三层是输入侧（决定搜了什么），第四层是输出侧（决定看到了什么）。`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小任何遍历边界。搜索面覆盖全部 entry kind，含 assistant message——`searchEntryKind` 对 assistant 返回 null，省略 `type` 时 null 也通过；三个 `type` 值都点不到该 kind。search header 报告 scanned/scanBudget、textChars/textBudget 与截断原因；details 另带 `searchScannedNodes`/`searchScanBudget`/`searchTextChars` 与两个 partial-cut 计数（无 textBudget 键，该分母只在正文）。两个 partial-cut 计数之和另做摘要并进 header（正文首行，落在输出裁剪保留的前缀内），因为节点 cap 截断不置 truncated，而尾部详细通知会被输出 budget 连同 match 行一起裁掉。
 
 ### Manual `/tree`
 
