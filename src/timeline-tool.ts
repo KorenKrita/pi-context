@@ -989,8 +989,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           params.scope !== undefined ? `scope ${params.scope}` : null,
           params.type !== undefined ? `type ${params.type}` : null,
         ].filter((qualifier) => qualifier !== null).join(", ");
+        // Partial-node cuts must ride the header: the header is the first body
+        // line, inside fitTimelineOutputToBudget's retained prefix, while the
+        // detailed notices below sit after the match rows and are cut away
+        // together with them. A node cut at the per-node cap also leaves
+        // search.truncated false, so without this summary a budget-trimmed
+        // result reads as an exhaustive search.
+        const partialNodeCuts = search.nodesCutAtNodeCap + search.nodesCutAtCallBudget;
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}${partialNodeCuts > 0 ? `; ${partialNodeCuts} node(s) partially searched (their later text was not searched)` : ""}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
           const body = match.text;

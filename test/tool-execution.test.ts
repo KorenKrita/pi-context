@@ -2489,4 +2489,57 @@ describe("search text budget", () => {
     expect(text).toContain("later nodes were not searched, and any partial-node cuts are reported above");
     expect(text).not.toContain("largest entries were cut before their ends");
   });
+
+  test("keeps partial-node cuts visible when the output budget trims the tail notices", async () => {
+    // A node cut at the 65,536-char cap does not set search.truncated, so the
+    // header reads " matching node(s)" — complete. Long match rows then push
+    // the detailed cut notices past the character budget. Unless the header
+    // carries the cut summary, a partial search reports itself as exhaustive.
+    const longId = (index: number) => `match-${index}-${"i".repeat(190)}`;
+    const capCarrier = {
+      type: "message",
+      id: "cap-carrier",
+      parentId: null,
+      timestamp: "2026-02-01T00:00:00.000Z",
+      message: { role: "user", content: "y".repeat(65_600) },
+    };
+    const matchEntries = Array.from({ length: 50 }, (_, index) => ({
+      type: "message",
+      id: longId(index),
+      parentId: index === 0 ? "cap-carrier" : longId(index - 1),
+      timestamp: new Date(1770000000000 + index * 1000).toISOString(),
+      message: { role: "user", content: `needle ${index} ${"p".repeat(200)}` },
+    }));
+    const entries = [capCarrier, ...matchEntries] as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => longId(49),
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("cut-under-budget", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchDisplayedMatches: 50,
+      searchTruncated: false,
+      searchNodesCutAtNodeCap: 1,
+      searchNodesCutAtCallBudget: 0,
+    });
+    // The output really was trimmed, and the detailed notice really is gone.
+    expect(text).toContain("timeline output truncated at");
+    expect(text).not.toContain("were searched only through their first");
+    // The surviving search header still admits the partial search.
+    const header = text.split("\n").find((line) => line.startsWith("Search '")) ?? "";
+    expect(header).toContain("50 displayed matching node(s)");
+    expect(header).toContain("1 node(s) partially searched (their later text was not searched)");
+  });
 });
