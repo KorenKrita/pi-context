@@ -393,16 +393,24 @@ function fitTimelineOutputToBudget(
   return { text: `${text.slice(0, prefixLength)}${footer}`.slice(0, budget), truncated: true };
 }
 
-function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], activeIds: Set<string>): number {
+/**
+ * Count branch positions that fold material away below them — the off-path
+ * handoff layers. Equivalent to walking the tree and counting branch nodes
+ * with an off-path branch_summary child, but answerable from entries alone:
+ * one pass marks branch parents that own an off-path summary. Self-parented
+ * entries are roots in the tree and never a child, so they are excluded.
+ */
+function countOffPathSummaries(branch: SessionEntry[], entries: readonly SessionEntry[], activeIds: Set<string>): number {
   const branchIds = new Set(branch.map((entry) => entry.id));
-  let count = 0;
-  const stack = [...tree];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (branchIds.has(node.entry.id) && node.children.some((child) => !activeIds.has(child.entry.id) && child.entry.type === "branch_summary")) count++;
-    stack.push(...node.children);
+  const parentsWithOffPathSummary = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "branch_summary") continue;
+    if (activeIds.has(entry.id)) continue;
+    if (entry.parentId === null || entry.parentId === entry.id) continue;
+    if (!branchIds.has(entry.parentId)) continue;
+    parentsWithOffPathSummary.add(entry.parentId);
   }
-  return count;
+  return parentsWithOffPathSummary.size;
 }
 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
@@ -630,7 +638,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         budgetAuthority ? { tokens: budgetAuthority.tokens, contextWindow: budgetAuthority.contextWindow } : undefined,
       );
       const sessionManager = ctx.sessionManager;
-      const tree = sessionManager.getTree();
+      // getTree() rebuilds the whole tree on every call. Views that can
+      // answer from branch/entries (active) never pay for it; the views that
+      // genuinely walk the tree fetch it once here, lazily.
+      let treeCache: SessionTreeNode[] | undefined;
+      const treeOnce = (): SessionTreeNode[] => (treeCache ??= sessionManager.getTree());
       const branch = sessionManager.getBranch();
       const entries = sessionManager.getEntries();
       const leafId = sessionManager.getLeafId();
@@ -672,7 +684,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
         const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliases);
-        const rootEntry = tree[0]?.entry;
+        const rootEntry = treeOnce()[0]?.entry;
         const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
           !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
         );
@@ -739,7 +751,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               ? `~${rootMessages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
               : `~${rootMessages.length} msg(s) kept`;
           }
-          const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
+          const rootTopology = treeOnce().length > 1 ? `, first of ${treeOnce().length} top-level roots` : "";
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
             ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
             : "";
@@ -779,7 +791,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
-        const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal, {
+        const search = searchTree(treeOnce(), labelMaps, params.query, effectiveLimit, signal, {
           scope: params.scope,
           type: params.type,
           activeIds,
@@ -806,8 +818,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         if (search.truncated) lines.push(`  ... scan stopped early (${search.truncationReason}); narrow with scope/type or a longer query`);
       } else if (params.view === "node") {
         nodeRequestedTarget = params.target;
-        const resolved = resolveTargetId(sessionManager, tree, params.target, activeIds, labelMaps);
-        const treeNode = resolved.id.length > 0 ? findInTree(tree, (n) => n.entry.id === resolved.id) : undefined;
+        const resolved = resolveTargetId(sessionManager, treeOnce(), params.target, activeIds, labelMaps);
+        const treeNode = resolved.id.length > 0 ? findInTree(treeOnce(), (n) => n.entry.id === resolved.id) : undefined;
         if (!treeNode) {
           return {
             content: [{ type: "text" as const, text: `Error: Target '${boundedTimelineValue(params.target)}' not found in the session tree. Valid targets are checkpoint names and node IDs; view=search locates candidates.` }],
@@ -853,7 +865,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       } else if (params.view === "tree") {
         const treeVerbose = params.verbose ?? false;
-        const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
+        const rendered = renderTree(treeOnce(), labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
         if (rendered.hiddenNodes > 0) {
@@ -998,7 +1010,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
         usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
       }
-      const offPathHandoffs = countOffPathSummaries(branch, tree, activeIds);
+      const offPathHandoffs = countOffPathSummaries(branch, entries, activeIds);
       // Funnel line: tree nodes -> LLM messages, one conversion statement.
       // Subtraction is not classification (packet rebuild folds tool results
       // into their parent messages), so the delta says what it is — nodes
@@ -1125,7 +1137,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           stepsSinceCheckpoint,
           activePathNodes: branch.length,
           activeSummaryDepth,
-          offPathSummaries: countOffPathSummaries(branch, tree, activeIds),
+          offPathSummaries: countOffPathSummaries(branch, entries, activeIds),
           view: params.view,
           limit: requestedLimit,
           effectiveLimit,
