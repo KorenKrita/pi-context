@@ -506,11 +506,11 @@ function fitTimelineOutputToBudget(
   budget: number,
   leafId: string | null,
   nodeTargetId?: string | null,
-  // A fact the trimmed body can no longer state on its own. `probe` is looked
-  // for in the retained prefix; when it is gone, `line` is re-attached beside
-  // the footer. Diagnostic lines above the body are unbounded, so a body line's
-  // position in the raw text is not a guarantee that it survives the cut.
-  pinnedIfMissing?: { probe: string; line: string } | null,
+  // A structural fact that must survive whenever character fitting removes
+  // the body that stated it. It is appended unconditionally on truncation:
+  // dynamic HUD text is untrusted data and must never suppress this receipt
+  // merely by containing the same words.
+  pinnedOnTruncate?: { line: string; reserveChars?: number } | null,
 ): { text: string; truncated: boolean } {
   if (text.length <= budget) return { text, truncated: false };
   // The node view reads one entry in full, so "narrow the query" is not an
@@ -521,11 +521,14 @@ function fitTimelineOutputToBudget(
   const footer = nodeTargetId
     ? `\n… [timeline node output truncated at ${budget} characters; node ${boundedId(nodeTargetId)}; active leaf ${leafId === null ? "none" : boundedId(leafId)}.]`
     : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. Use a narrower filter/query or a smaller view.]`;
-  const naivePrefixLength = Math.max(0, budget - footer.length);
-  const pinned = pinnedIfMissing && !text.slice(0, naivePrefixLength).includes(pinnedIfMissing.probe)
-    ? `\n… [${boundedTimelineValue(pinnedIfMissing.line, 200)}]`
+  const pinned = pinnedOnTruncate
+    ? `\n… [${boundedTimelineValue(pinnedOnTruncate.line, 200)}]`
     : "";
-  const prefixLength = Math.max(0, budget - footer.length - pinned.length);
+  // Search fits twice: first with a provisional delivered count, then with
+  // the measured count. A fixed reservation keeps the retained source prefix
+  // identical across both fits, so the count cannot move under its own receipt.
+  const pinnedReserve = Math.max(pinned.length, pinnedOnTruncate?.reserveChars ?? 0);
+  const prefixLength = Math.max(0, budget - footer.length - pinnedReserve);
   // Bounded IDs keep the footer far below the smallest budget; the final
   // slice enforces the budget invariant even if a future footer outgrows it.
   return { text: `${text.slice(0, prefixLength)}${pinned}${footer}`.slice(0, budget), truncated: true };
@@ -814,7 +817,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let rootCandidateDisplayed = false;
       let rootCandidateEntryId: string | null = null;
       let rootProjectedSummaryDepth: number | null = null;
+      let searchSelectedMatches = 0;
       let searchDisplayedMatches = 0;
+      let searchMatchLines: string[] = [];
       let searchTruncated = false;
       let searchTruncationReason: "limit" | "scan_budget" | "text_budget" | "signal" | null = null;
       let searchScannedNodes = 0;
@@ -996,7 +1001,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           activeIds,
           scanNodeBudget: TIMELINE_SEARCH_SCAN_NODE_BUDGET,
         });
-        searchDisplayedMatches = search.matches.length;
+        searchSelectedMatches = search.matches.length;
         searchTruncated = search.truncated;
         searchTruncationReason = search.truncationReason;
         searchScannedNodes = search.scannedNodes;
@@ -1009,21 +1014,20 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           params.scope !== undefined ? `scope ${params.scope}` : null,
           params.type !== undefined ? `type ${params.type}` : null,
         ].filter((qualifier) => qualifier !== null).join(", ");
-        // Partial-node cuts ride the header, ahead of the match rows and the
-        // detailed notices that the output budget trims away with them. A node
-        // cut at the per-node cap also leaves search.truncated false, so without
-        // this summary a trimmed result reads as an exhaustive search. Oversized
-        // diagnostics can push even the header out of the retained prefix, so
-        // the same fact is pinned to the trim footer below.
+        // Selection happens before the result-character budget is fitted. The
+        // final delivered count is measured from complete match rows that
+        // survive fitting and is reported separately below.
         const partialNodeCuts = search.nodesCutAtNodeCap + search.nodesCutAtCallBudget;
         searchPartialNodeCuts = partialNodeCuts;
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}${partialNodeCuts > 0 ? `; ${partialNodeCuts} node(s) partially searched (their later text was not searched)` : ""}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} matching node(s) selected before output fitting${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : ""}${partialNodeCuts > 0 ? `; ${partialNodeCuts} node(s) partially searched (their later text was not searched)` : ""}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
           const body = match.text;
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
-          lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
+          const matchLine = `  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`;
+          searchMatchLines.push(matchLine);
+          lines.push(matchLine);
         }
         if (search.nodesCutAtNodeCap > 0) {
           lines.push(`  ... ${search.nodesCutAtNodeCap} node(s) were searched only through their first ${SEARCH_NODE_TEXT_MAX_CHARS.toLocaleString("en-US")} source chars; matches later in those nodes were not searched`);
@@ -1358,20 +1362,50 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
       const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
-      const fittedOutput = fitTimelineOutputToBudget(
-        rawOutput,
-        resultCharacterBudget,
-        leafId,
-        params.view === "node" ? nodeEntryId : null,
-        // A partially searched tree must never present as exhaustively searched,
-        // whatever the diagnostics above the body cost.
-        searchPartialNodeCuts > 0
-          ? {
-              probe: "node(s) partially searched",
-              line: `${searchPartialNodeCuts} node(s) partially searched: their later text was not searched`,
-            }
-          : null,
-      );
+      let fittedOutput: { text: string; truncated: boolean };
+      if (params.view === "search") {
+        const receiptReserveChars = 240;
+        const searchReceipt = (deliveredMatches: number): string => {
+          const coverage = searchTruncationReason === null
+            ? "scan completed within search budgets"
+            : `search stopped at ${searchTruncationPhrase(searchTruncationReason)}`;
+          const partial = searchPartialNodeCuts > 0
+            ? `; ${searchPartialNodeCuts} node(s) partially searched`
+            : "";
+          return `Search receipt: ${coverage}${partial}; ${searchSelectedMatches} selected before output fitting; ${deliveredMatches} complete result row(s) delivered`;
+        };
+        const provisional = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          null,
+          { line: searchReceipt(0), reserveChars: receiptReserveChars },
+        );
+        if (!provisional.truncated) {
+          searchDisplayedMatches = searchSelectedMatches;
+          fittedOutput = provisional;
+        } else {
+          const deliveredLines = new Set(provisional.text.split("\n"));
+          searchDisplayedMatches = searchMatchLines.reduce(
+            (count, line) => count + (deliveredLines.has(line) ? 1 : 0),
+            0,
+          );
+          fittedOutput = fitTimelineOutputToBudget(
+            rawOutput,
+            resultCharacterBudget,
+            leafId,
+            null,
+            { line: searchReceipt(searchDisplayedMatches), reserveChars: receiptReserveChars },
+          );
+        }
+      } else {
+        fittedOutput = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          params.view === "node" ? nodeEntryId : null,
+        );
+      }
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
@@ -1406,6 +1440,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           rootCandidateDisplayed: params.view === "checkpoints" ? rootCandidateDisplayed : false,
           rootCandidateEntryId: params.view === "checkpoints" ? rootCandidateEntryId : null,
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,
+          searchSelectedMatches: params.view === "search" ? searchSelectedMatches : null,
           searchDisplayedMatches: params.view === "search" ? searchDisplayedMatches : null,
           searchTruncated: params.view === "search" ? searchTruncated : false,
           searchTruncationReason: params.view === "search" ? searchTruncationReason : null,

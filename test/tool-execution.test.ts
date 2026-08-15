@@ -1872,10 +1872,29 @@ describe("ACM tool execution contracts", () => {
     // 5,001 nodes: the scan stops at the budget, says why, and never reads
     // the content of the unvisited tail node.
     const over = buildTree(5_001);
-    const overResult = await executeTimeline("search-budget-over", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, ctxOf(over));
+    const overCtx = ctxOf(over);
+    const overResult = await executeTimeline("search-budget-over", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, overCtx);
     expect(overResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: true, searchTruncationReason: "scan_budget" });
     expect(overResult.content[0]?.text ?? "").toContain("scan stopped at the 5,000-node limit");
     expect(over.tailReads()).toBe(0);
+
+    // Character fitting must preserve the structural scan result even when an
+    // oversized HUD removes both the search header and its detailed recovery.
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    runtime.contextRefresh.recordFailedAttempt(overCtx.sessionManager as never, "E".repeat(9_000));
+    const fitted = await executeWithRuntime("search-budget-fitted", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, overCtx);
+    const fittedText = fitted.content[0]?.text ?? "";
+    expect(fitted.details).toMatchObject({
+      searchSelectedMatches: 0,
+      searchDisplayedMatches: 0,
+      searchTruncated: true,
+      searchTruncationReason: "scan_budget",
+      outputTruncatedByCharacterBudget: true,
+    });
+    expect(fittedText).not.toContain("Search 'zzz-nothing'");
+    expect(fittedText).toContain("Search receipt: search stopped at 5,000-node scan limit");
+    expect(fittedText).toContain("0 selected before output fitting; 0 complete result row(s) delivered");
   });
 
   test("node view returns an off-path entry in full without mutating the tree", async () => {
@@ -2572,19 +2591,32 @@ describe("search text budget", () => {
 
     const result = await executeTimeline("cut-under-budget", { view: "search", query: "needle" }, undefined, undefined, ctx);
     const text = result.content[0]?.text ?? "";
+    const deliveredLineSet = new Set(text.split("\n"));
+    const deliveredRows = matchEntries.reduce((count, _entry, index) => {
+      const content = `needle ${index} ${"p".repeat(200)}`;
+      const expectedSnippet = content.length > 100 ? `${content.slice(0, 100)}…` : content;
+      const expectedLine = `  ${longId(index)} [USER] ${expectedSnippet}`;
+      return count + (deliveredLineSet.has(expectedLine) ? 1 : 0);
+    }, 0);
     expect(result.details).toMatchObject({
-      searchDisplayedMatches: 50,
+      searchSelectedMatches: 50,
+      searchDisplayedMatches: deliveredRows,
       searchTruncated: false,
       searchNodesCutAtNodeCap: 1,
       searchNodesCutAtCallBudget: 0,
     });
+    expect(deliveredRows).toBeGreaterThan(0);
+    expect(deliveredRows).toBeLessThan(50);
     // The output really was trimmed, and the detailed notice really is gone.
     expect(text).toContain("timeline output truncated at");
     expect(text).not.toContain("were searched only through their first");
-    // The surviving search header still admits the partial search.
+    // Selection is explicitly pre-fit; the structural receipt reports how many
+    // complete result rows actually survived character fitting.
     const header = text.split("\n").find((line) => line.startsWith("Search '")) ?? "";
-    expect(header).toContain("50 displayed matching node(s)");
+    expect(header).toContain("50 matching node(s) selected before output fitting");
     expect(header).toContain("1 node(s) partially searched (their later text was not searched)");
+    expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
+    expect(text).toContain(`50 selected before output fitting; ${deliveredRows} complete result row(s) delivered`);
   });
 
   test("keeps partial-node cuts visible when oversized diagnostics push the header out of the budget", async () => {
@@ -2612,19 +2644,25 @@ describe("search text budget", () => {
       getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
       ui: { notify() {} },
     };
-    runtime.contextRefresh.recordFailedAttempt(ctx.sessionManager as never, "E".repeat(9_000));
+    runtime.contextRefresh.recordFailedAttempt(
+      ctx.sessionManager as never,
+      `diagnostic says no node(s) partially searched ${"E".repeat(9_000)}`,
+    );
 
     const result = await executeWithRuntime("cut-under-huge-hud", { view: "search", query: "needle" }, undefined, undefined, ctx);
     const text = result.content[0]?.text ?? "";
     expect(result.details).toMatchObject({
+      searchSelectedMatches: 1,
+      searchDisplayedMatches: 0,
       searchNodesCutAtNodeCap: 1,
       searchTruncated: false,
       outputTruncatedByCharacterBudget: true,
     });
-    // The header itself did not survive this time.
+    // The header itself did not survive this time. A matching phrase inside
+    // dynamic diagnostic text must not suppress the authoritative receipt.
     expect(text).not.toContain("Search '");
-    // The partial search is still disclosed, and the budget invariant holds.
-    expect(text).toContain("1 node(s) partially searched");
+    expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
+    expect(text).toContain("1 selected before output fitting; 0 complete result row(s) delivered");
     expect(text.length).toBeLessThanOrEqual(8_000);
   });
 });
