@@ -174,21 +174,19 @@ export function collectTrustedAcmTravelTransactions(entries: readonly SessionEnt
   return [...grouped.values()].flatMap((candidates) => candidates.length === 1 ? candidates : []);
 }
 
-function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
-  const trusted = new Map<string, AcmProtocolNormalization[]>();
-  for (const transaction of collectTrustedAcmTravelTransactions(entries)) {
-    const candidates = trusted.get(transaction.receiptIdentity) ?? [];
-    candidates.push(transaction.normalization);
-    trusted.set(transaction.receiptIdentity, candidates);
-  }
-  return trusted;
-}
-
 function normalizeAppliedTravelReceipts(
   messages: readonly AgentMessage[],
-  activeEntries: readonly SessionEntry[],
+  trustedTransactions: readonly TrustedAcmTravelTransaction[],
 ): { messages: AgentMessage[]; normalizations: AcmProtocolNormalization[] } {
-  const trustedReceipts = trustedAppliedTravelReceipts(activeEntries);
+  // Receipts arrive pre-collected: the caller already scanned the branch for
+  // its fast-path decision, so a second O(entries) collection here would be
+  // the only reason a traced session pays double.
+  const trustedReceipts = new Map<string, AcmProtocolNormalization[]>();
+  for (const transaction of trustedTransactions) {
+    const candidates = trustedReceipts.get(transaction.receiptIdentity) ?? [];
+    candidates.push(transaction.normalization);
+    trustedReceipts.set(transaction.receiptIdentity, candidates);
+  }
   const packetCandidates = new Map<string, number[]>();
   for (let index = 0; index < messages.length; index++) {
     const identity = receiptIdentity(messages[index]!);
@@ -344,7 +342,8 @@ export function normalizeExistingAcmPacket(
   // identity scan, and the filter are all skipped. Protocol analysis is the
   // outgoing packet's own requirement and is never skipped; it does not
   // mutate its input, so the original array passes through untouched.
-  if (trusted.size === 0 && collectTrustedAcmTravelTransactions(activeEntries).length === 0) {
+  const trustedTransactions = collectTrustedAcmTravelTransactions(activeEntries);
+  if (trusted.size === 0 && trustedTransactions.length === 0) {
     const protocol = analyzeToolProtocol(messages);
     return {
       messages: protocol.messages,
@@ -371,7 +370,7 @@ export function normalizeExistingAcmPacket(
       ? projectContinuation(message, latestCandidate.metadata!)
       : message)
     : [...messages];
-  const normalized = normalizeAppliedTravelReceipts(projected, activeEntries);
+  const normalized = normalizeAppliedTravelReceipts(projected, trustedTransactions);
   const protocol = analyzeToolProtocol(normalized.messages);
   return {
     messages: protocol.messages,
