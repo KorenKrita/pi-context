@@ -1604,6 +1604,38 @@ describe("ACM tool execution contracts", () => {
     expect(tailContentReads).toBe(0);
   });
 
+  test("search matches mixed-case content case-insensitively on both matcher paths", async () => {
+    // The ASCII fast path must reproduce toLowerCase().includes() exactly:
+    // mixed-case content, lowercase query, and a hit that straddles the
+    // first-character check. A non-ASCII query rides the Unicode fallback and
+    // still matches identical text.
+    const root = userEntry("entry-root");
+    const ascii = userEntry("entry-NeEdLe-mixed", root.id);
+    const unicode = userEntry("entry-needle-Ünïcode", ascii.id);
+    const entries = [root, ascii, unicode];
+    let treeNode: SessionTreeNode | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => treeNode ? [treeNode] : [],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => unicode.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const mixedCase = await executeTimeline("search-mixed-case", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    expect(mixedCase.content[0]?.text).toContain("entry-NeEdLe-mixed");
+    expect(mixedCase.content[0]?.text).toContain("entry-needle-Ünïcode");
+
+    const exactUnicode = await executeTimeline("search-unicode", { view: "search", query: "Ünïcode" }, undefined, undefined, ctx);
+    expect(exactUnicode.content[0]?.text).toContain("entry-needle-Ünïcode");
+  });
+
   test("search does not report truncation when matches exactly fill the limit", async () => {
     const root = userEntry("entry-root");
     const first = userEntry("needle-first", root.id);

@@ -163,6 +163,48 @@ function searchEntryKind(entry: SessionEntry): "user" | "summary" | "tool" | nul
   return null;
 }
 
+function isAsciiText(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) > 0x7f) return false;
+  }
+  return true;
+}
+
+/**
+ * Case-insensitive contains without lowercasing the haystack. On a pure-ASCII
+ * pair it compares normalized char codes, which is byte-identical to
+ * toLowerCase().includes() semantics in that range and skips the full-string
+ * lowercase copy the old form allocated for every scanned node. Any
+ * non-ASCII side keeps the exact old form, so Unicode case mappings are
+ * untouched. The needle must already be lowercased.
+ */
+function containsCaseInsensitive(haystack: string, needle: string, needleIsAscii: boolean): boolean {
+  if (!needleIsAscii || !isAsciiText(haystack)) {
+    return haystack.toLowerCase().includes(needle);
+  }
+  const needleLength = needle.length;
+  if (needleLength === 0) return true;
+  const limit = haystack.length - needleLength;
+  if (limit < 0) return false;
+  const first = needle.charCodeAt(0);
+  for (let start = 0; start <= limit; start++) {
+    let code = haystack.charCodeAt(start);
+    if (code !== first) {
+      if (code >= 0x41 && code <= 0x5a) code += 0x20;
+      if (code !== first) continue;
+    }
+    let offset = 1;
+    while (offset < needleLength) {
+      code = haystack.charCodeAt(start + offset);
+      if (code >= 0x41 && code <= 0x5a) code += 0x20;
+      if (code !== needle.charCodeAt(offset)) break;
+      offset++;
+    }
+    if (offset === needleLength) return true;
+  }
+  return false;
+}
+
 function searchTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
@@ -172,6 +214,7 @@ function searchTree(
   options: SearchFilterOptions,
 ): { matches: SearchMatch[]; truncated: boolean; truncationReason: SearchTruncationReason; scannedNodes: number; scanBudget: number } {
   const normalizedQuery = query.toLowerCase();
+  const queryIsAscii = isAsciiText(normalizedQuery);
   const stack = [...tree].reverse();
   const matches: SearchMatch[] = [];
   let truncated = false;
@@ -203,9 +246,9 @@ function searchTree(
       label = getEntryLabel(labelMaps, node.entry.id);
       matched = (label === undefined && isAcmToolEcho(node.entry))
         ? false
-        : node.entry.id.toLowerCase().includes(normalizedQuery)
-          || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
-          || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
+        : containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
+          || (label !== undefined && containsCaseInsensitive(label, normalizedQuery, queryIsAscii))
+          || containsCaseInsensitive(entryText(node.entry, true), normalizedQuery, queryIsAscii);
     }
     if (matched) {
       if (matches.length < limit) {
