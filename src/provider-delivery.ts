@@ -32,8 +32,11 @@ interface CachedProviderPacket {
  * references - the serializer is native code) and survived three review
  * rounds of getter/proxy/tag-forgery holes; simulating JavaScript's
  * serialization semantics through arbitrary object code is unwinnable and
- * was never worth the attempt. This is the original oracle, unchanged: both
- * sides always serialize, identity included.
+ * was never worth the attempt. This is the pre-walker serialization oracle
+ * with one deliberate change from the baseline: the `left === right` identity
+ * shortcut is gone, because a stateful getter can render differently on its
+ * second serialization and the shortcut would call such a pair equal without
+ * ever asking the serializer.
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
   // No identity shortcut, even here: a stateful getter renders differently
