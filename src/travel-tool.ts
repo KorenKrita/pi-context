@@ -856,7 +856,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         } catch {
           savePointsAfter = null;
         }
-        const written = appendLedgerRow("fold", buildFoldRow({
+        appendLedgerRow("fold", buildFoldRow({
           state: ledgerState,
           budgetBefore: budgetBeforePercent,
           budgetAfter: estimatedBudgetAfterPercent,
@@ -865,7 +865,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           savePoints: savePointsAfter,
           model: modelDiscriminator((ctx as { model?: { provider?: unknown; id?: unknown } }).model),
         }));
-        if (written) markFoldCounted(ledgerState);
+        // The fold count describes applied travels, not admitted rows: a
+        // queue-full drop or a later write failure must not erase the fact
+        // that this session folded here, or boundary rows would understate
+        // foldsSoFar for every later boundary.
+        markFoldCounted(ledgerState);
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }

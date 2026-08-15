@@ -672,6 +672,6 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // through shutdown, so returning the flush lets queued ledger rows drain
     // before the process exits. A hard kill can still lose the tail — the
     // ledger's diagnostic contract already prices that in.
-    return flushLedgerQueue();
+    return flushLedgerQueue(500);
   });
 }

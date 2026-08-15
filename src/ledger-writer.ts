@@ -12,10 +12,14 @@ import { dirname } from "node:path";
  * Cross-process safety: several Pi processes may write the same ledger file.
  * The prospective size check and the append run inside a proper-lockfile
  * critical section, so the 8 MiB cap holds under concurrency and JSONL lines
- * never interleave. Processes that do not take the lock (older versions) are
- * not serialized against us — the cap is strict among lock takers only. Every
- * failure, including lock-module unavailability, degrades to unlocked writes
- * or a dropped row; the ledger is a diagnostic and must never throw upward.
+ * never interleave. A lock loss (stale/compromised) aborts the critical
+ * section instead of writing unlocked. Processes that do not take the lock
+ * (older versions) are not serialized against us — the cap is strict among
+ * lock takers only. Every failure degrades to a dropped row; the ledger is a
+ * diagnostic and must never throw upward, and never block the host for long:
+ * rows bound for one file are written under one lock acquisition, and a
+ * flush deadline caps the total wait (shutdown drops what it cannot write in
+ * time — losing diagnostics is priced in, hanging the host is not).
  */
 
 /** Hard cap for the shared ledger file, in bytes. */
@@ -36,6 +40,8 @@ export interface LedgerQueueStats {
   fileFullDrops: number;
   /** Writes that failed after exhausting retries (path unwritable, etc.). */
   writeFailures: number;
+  /** Rows dropped because a flush deadline expired before they were written. */
+  deadlineDrops: number;
 }
 
 interface QueueItem {
@@ -53,6 +59,7 @@ const stats: LedgerQueueStats = {
   oversizeDrops: 0,
   fileFullDrops: 0,
   writeFailures: 0,
+  deadlineDrops: 0,
 };
 let queue: QueueItem[] = [];
 let drainScheduled = false;
@@ -90,9 +97,15 @@ export function enqueueLedgerLine(path: string, row: unknown, maxBytes: number =
   return "enqueued";
 }
 
-/** Wait until every row enqueued so far has reached the file or been dropped. */
-export function flushLedgerQueue(): Promise<void> {
-  return enqueueDrainTask(drainQueue);
+/**
+ * Wait until every row enqueued so far has reached the file or been dropped.
+ * `deadlineMs` bounds the total wait: rows still queued when it expires are
+ * dropped and counted, because the caller (shutdown) must not hang on lock
+ * contention — a diagnostic tail is not worth minutes of blocked exit.
+ */
+export function flushLedgerQueue(deadlineMs?: number): Promise<void> {
+  const deadline = deadlineMs === undefined ? undefined : Date.now() + deadlineMs;
+  return enqueueDrainTask(() => drainQueue(deadline));
 }
 
 function scheduleDrain(): void {
@@ -100,7 +113,7 @@ function scheduleDrain(): void {
   drainScheduled = true;
   setImmediate(() => {
     drainScheduled = false;
-    void enqueueDrainTask(drainQueue);
+    void enqueueDrainTask(() => drainQueue(undefined));
   });
 }
 
@@ -113,24 +126,39 @@ function enqueueDrainTask(task: () => Promise<void>): Promise<void> {
   return next;
 }
 
-async function drainQueue(): Promise<void> {
+async function drainQueue(deadline: number | undefined): Promise<void> {
   while (queue.length > 0) {
-    const item = queue[0]!;
+    if (deadline !== undefined && Date.now() >= deadline) {
+      stats.deadlineDrops += queue.length;
+      queue = [];
+      return;
+    }
+    // Batch every row bound for the same file under one lock acquisition:
+    // one retry window per batch, not per row, and the cap check sees the
+    // batch as a whole so intra-batch accounting stays exact.
+    const path = queue[0]!.path;
+    let batchEnd = 0;
+    while (batchEnd < queue.length && queue[batchEnd]!.path === path) batchEnd++;
     try {
-      await mkdir(dirname(item.path), { recursive: true });
-      await withFileLock(item.path, async () => {
-        const size = await fileSize(item.path);
-        if (size + item.byteLength > item.maxBytes) {
-          stats.fileFullDrops += 1;
-          return;
+      await mkdir(dirname(path), { recursive: true });
+      await withFileLock(path, async (compromised) => {
+        let size = await fileSize(path);
+        for (let index = 0; index < batchEnd; index++) {
+          if (compromised()) throw new Error("ledger lock compromised before write");
+          const item = queue[index]!;
+          if (size + item.byteLength > item.maxBytes) {
+            stats.fileFullDrops += 1;
+            continue;
+          }
+          await appendFile(path, item.line, "utf8");
+          size += item.byteLength;
+          stats.written += 1;
         }
-        await appendFile(item.path, item.line, "utf8");
-        stats.written += 1;
       });
     } catch {
-      stats.writeFailures += 1;
+      stats.writeFailures += batchEnd;
     }
-    queue.shift();
+    queue = queue.slice(batchEnd);
   }
 }
 
@@ -148,33 +176,43 @@ async function fileSize(path: string): Promise<number> {
   }
 }
 
+type LockfileModule = {
+  lock: (file: string, options?: Record<string, unknown>) => Promise<() => Promise<void>>;
+};
+let lockfileModule: LockfileModule | undefined;
+
+async function loadLockfile(): Promise<LockfileModule> {
+  lockfileModule ??= (await import("proper-lockfile")) as LockfileModule;
+  return lockfileModule;
+}
+
 /**
- * Run `critical` under a proper-lockfile lock on the ledger file. The lock
- * module is a direct dependency; if importing or acquiring it fails — broken
- * install, lock contention beyond the retry window, stale-detection errors —
- * the failure propagates so the caller drops that row and counts it. The 8
- * MiB cap and line integrity are the contract; an unlocked writer would let
- * two lock-taking processes cross the cap, so there is no unlocked path.
- * Unlock failures are still swallowed: the write already happened.
+ * Run `critical` under a proper-lockfile lock on the ledger file, passing a
+ * `compromised()` probe the critical section must honor: proper-lockfile
+ * detects stale/compromised locks mid-flight and calls onCompromised, and a
+ * write after that point would run unlocked against the cap. The lock module
+ * is a direct dependency; if importing or acquiring it fails — broken install,
+ * contention beyond the retry window — the failure propagates so the caller
+ * drops those rows and counts them. There is no unlocked write path. Unlock
+ * failures are swallowed: a completed write stays completed.
  */
-async function withFileLock(path: string, critical: () => Promise<void>): Promise<void> {
-  const lockfile = (await import("proper-lockfile")) as {
-    lock: (file: string, options?: Record<string, unknown>) => Promise<void>;
-    unlock: (file: string, options?: Record<string, unknown>) => Promise<void>;
-  };
-  const options = {
+async function withFileLock(path: string, critical: (compromised: () => boolean) => Promise<void>): Promise<void> {
+  const lockfile = await loadLockfile();
+  let compromised = false;
+  const release = await lockfile.lock(path, {
     realpath: false,
     stale: 10_000,
     update: 5_000,
-    retries: { retries: 100, factor: 1, minTimeout: 20, maxTimeout: 100 },
-    onCompromised: () => undefined,
-  };
-  await lockfile.lock(path, options);
+    retries: { retries: 20, factor: 1, minTimeout: 20, maxTimeout: 100 },
+    onCompromised: () => {
+      compromised = true;
+    },
+  });
   try {
-    await critical();
+    await critical(() => compromised);
   } finally {
     try {
-      await lockfile.unlock(path, { realpath: false });
+      await release();
     } catch {
       // Release failure must not turn a completed write into a failure.
     }
