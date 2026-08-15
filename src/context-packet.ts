@@ -331,31 +331,47 @@ function projectContinuation(message: AgentMessage, metadata: TrustedContinuatio
   };
 }
 
-export function normalizeExistingAcmPacket(
+/** Both branch scans a normalize needs, collected once so callers with a
+ * cache can reuse the verdict. */
+interface BranchTrace {
+  trusted: Map<string, TrustedContinuationMetadata[]>;
+  trustedTransactions: readonly TrustedAcmTravelTransaction[];
+}
+
+function analyzeBranchTrace(activeEntries: readonly SessionEntry[]): BranchTrace {
+  return {
+    trusted: trustedContinuationQueues(activeEntries),
+    trustedTransactions: collectTrustedAcmTravelTransactions(activeEntries),
+  };
+}
+
+function isTraceFree(trace: BranchTrace): boolean {
+  return trace.trusted.size === 0 && trace.trustedTransactions.length === 0;
+}
+
+/** The trace-free packet: no projection, no removal, only protocol analysis —
+ * the outgoing packet's own requirement, never skipped. analyzeToolProtocol
+ * does not mutate its input, so the original array passes through untouched. */
+function buildTraceFreePacket(messages: readonly AgentMessage[]): AcmContextPacket {
+  const protocol = analyzeToolProtocol(messages);
+  return {
+    messages: protocol.messages,
+    protocol: {
+      status: protocol.status,
+      normalizations: [],
+      repairs: protocol.repairs,
+      defects: protocol.defects,
+    },
+    continuation: { status: "not_present" },
+  };
+}
+
+function normalizeWithTrace(
   messages: readonly AgentMessage[],
-  activeEntries: readonly SessionEntry[] = [],
+  trace: BranchTrace,
 ): AcmContextPacket {
-  const trusted = trustedContinuationQueues(activeEntries);
-  // Fast path: no ACM trace on the active branch — no trusted continuation
-  // queue and no trusted applied-travel receipt. Nothing can be projected and
-  // nothing can be removed, so the O(messages) candidate scan, the receipt
-  // identity scan, and the filter are all skipped. Protocol analysis is the
-  // outgoing packet's own requirement and is never skipped; it does not
-  // mutate its input, so the original array passes through untouched.
-  const trustedTransactions = collectTrustedAcmTravelTransactions(activeEntries);
-  if (trusted.size === 0 && trustedTransactions.length === 0) {
-    const protocol = analyzeToolProtocol(messages);
-    return {
-      messages: protocol.messages,
-      protocol: {
-        status: protocol.status,
-        normalizations: [],
-        repairs: protocol.repairs,
-        defects: protocol.defects,
-      },
-      continuation: { status: "not_present" },
-    };
-  }
+  const trusted = trace.trusted;
+  const trustedTransactions = trace.trustedTransactions;
   const candidates = messages.flatMap((message, index) => {
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
@@ -388,12 +404,41 @@ export function normalizeExistingAcmPacket(
   };
 }
 
+export function normalizeExistingAcmPacket(
+  messages: readonly AgentMessage[],
+  activeEntries: readonly SessionEntry[] = [],
+): AcmContextPacket {
+  const trace = analyzeBranchTrace(activeEntries);
+  if (isTraceFree(trace)) return buildTraceFreePacket(messages);
+  return normalizeWithTrace(messages, trace);
+}
+
+const traceFreeVerdicts = new WeakMap<object, string>();
+
 export function normalizeExistingAcmPacketForSession(
   messages: readonly AgentMessage[],
   sessionManager: ReadonlySessionManager,
 ): AcmContextPacket {
   try {
-    return normalizeExistingAcmPacket(messages, sessionManager.getBranch());
+    const branch = sessionManager.getBranch();
+    // Every context event pays this normalize; on a trace-free branch the two
+    // entry scans are pure overhead once the verdict is known. The verdict is
+    // cached per session on (branch length, last entry id): the session is
+    // append-only, so the verdict can only flip when a trace entry is
+    // appended, which changes the key. Only positive verdicts are cached - a
+    // traced branch always re-runs the full path. Native compaction rewrites
+    // the branch (different length and last id), and a /tree reload hands ACM
+    // a fresh SessionManager identity.
+    const key = `${branch.length}|${branch.at(-1)?.id ?? ""}`;
+    if (traceFreeVerdicts.get(sessionManager as object) === key) {
+      return buildTraceFreePacket(messages);
+    }
+    const trace = analyzeBranchTrace(branch);
+    if (isTraceFree(trace)) {
+      traceFreeVerdicts.set(sessionManager as object, key);
+      return buildTraceFreePacket(messages);
+    }
+    return normalizeWithTrace(messages, trace);
   } catch {
     // Existing host-projected messages remain usable in archival form. A
     // transient or capability-incomplete branch read must not crash the
