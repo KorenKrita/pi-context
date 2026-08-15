@@ -138,40 +138,87 @@ function isAcmToolEcho(entry: SessionEntry): boolean {
     && entry.message.toolName.startsWith("acm_");
 }
 
+/** Hard ceiling on nodes visited by one search: a no-match query otherwise
+ * reads the full content of every archived node in the tree. */
+const TIMELINE_SEARCH_SCAN_NODE_BUDGET = 5_000;
+
+interface SearchFilterOptions {
+  /** Restrict matches to the active branch (active) or everything off it (archive). */
+  scope?: "active" | "archive" | undefined;
+  /** Restrict matches to one structural entry kind. */
+  type?: "user" | "summary" | "tool" | undefined;
+  /** Entry IDs on the current branch — the definition of "active". */
+  activeIds: ReadonlySet<string>;
+  scanNodeBudget: number;
+}
+
+type SearchTruncationReason = "limit" | "scan_budget" | "signal" | null;
+
+function searchEntryKind(entry: SessionEntry): "user" | "summary" | "tool" | null {
+  if (entry.type === "branch_summary" || entry.type === "compaction") return "summary";
+  if (entry.type === "message") {
+    if (entry.message.role === "user") return "user";
+    if (entry.message.role === "toolResult") return "tool";
+  }
+  return null;
+}
+
 function searchTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
   query: string,
   limit: number,
-  signal?: AbortSignal,
-): { matches: SearchMatch[]; truncated: boolean } {
+  signal: AbortSignal | undefined,
+  options: SearchFilterOptions,
+): { matches: SearchMatch[]; truncated: boolean; truncationReason: SearchTruncationReason; scannedNodes: number; scanBudget: number } {
   const normalizedQuery = query.toLowerCase();
   const stack = [...tree].reverse();
   const matches: SearchMatch[] = [];
   let truncated = false;
+  let truncationReason: SearchTruncationReason = null;
+  let scannedNodes = 0;
   while (stack.length > 0) {
     if (signal?.aborted) {
       truncated = true;
+      truncationReason = "signal";
+      break;
+    }
+    // Hitting the budget with nodes still unvisited is truncation; hitting it
+    // exactly as the stack empties is a complete scan, not a partial one.
+    if (scannedNodes >= options.scanNodeBudget && stack.length > 0) {
+      truncated = true;
+      truncationReason = "scan_budget";
       break;
     }
     const node = stack.pop()!;
-    const label = getEntryLabel(labelMaps, node.entry.id);
-    const matched = (label === undefined && isAcmToolEcho(node.entry))
-      ? false
-      : node.entry.id.toLowerCase().includes(normalizedQuery)
-        || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
-        || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
+    scannedNodes += 1;
+    // Structural filters run before any text is read: on big trees, the
+    // content read is the scan cost, so excluded nodes never pay it.
+    const scopePasses = options.scope === undefined
+      || (options.scope === "active") === options.activeIds.has(node.entry.id);
+    const typePasses = options.type === undefined || searchEntryKind(node.entry) === options.type;
+    let matched = false;
+    let label: string | undefined;
+    if (scopePasses && typePasses) {
+      label = getEntryLabel(labelMaps, node.entry.id);
+      matched = (label === undefined && isAcmToolEcho(node.entry))
+        ? false
+        : node.entry.id.toLowerCase().includes(normalizedQuery)
+          || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
+          || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
+    }
     if (matched) {
       if (matches.length < limit) {
         matches.push({ entry: node.entry, label });
       } else {
         truncated = true;
+        truncationReason = "limit";
         break;
       }
     }
     pushTreeChildrenPreOrder(stack, node.children);
   }
-  return { matches, truncated };
+  return { matches, truncated, truncationReason, scannedNodes, scanBudget: options.scanNodeBudget };
 }
 
 /** Shorten a rendered body to one line, marking real truncation honestly. */
@@ -375,6 +422,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     verbose: Type.Optional(Type.Boolean({ description: "Active view only: show all messages, including internal tool traffic and metadata." })),
     filter: Type.Optional(Type.String({ minLength: 1, description: "Narrow the checkpoints view by label or node-ID substring (case-insensitive)." })),
     query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the whole tree. Required for view=search." })),
+    scope: Type.Optional(Type.Union([
+      Type.Literal("active"),
+      Type.Literal("archive"),
+    ], { description: "Search view only: match entries on the active branch (active) or on archived/folded branches (archive). Default: whole tree." })),
+    type: Type.Optional(Type.Union([
+      Type.Literal("user"),
+      Type.Literal("summary"),
+      Type.Literal("tool"),
+    ], { description: "Search view only: match user messages (user), branch/compaction summaries (summary), or tool results (tool). Default: all kinds." })),
     target: Type.Optional(Type.String({ minLength: 1, description: "Node to read: a checkpoint name or node ID. Required for view=node." })),
   }, { additionalProperties: false });
 
@@ -402,6 +458,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (view === "active" && verbose) qualifiers.push("verbose");
       if (view === "checkpoints" && filter) qualifiers.push(`filter “${sanitizeTerminalText(filter)}”`);
       if (view === "search" && query) qualifiers.push(`query “${sanitizeTerminalText(query)}”`);
+      const scope = optionalString(args.scope);
+      const type = optionalString(args.type);
+      if (view === "search" && scope) qualifiers.push(`scope ${scope}`);
+      if (view === "search" && type) qualifiers.push(`type ${type}`);
       if (view === "node" && target) qualifiers.push(`target “${sanitizeTerminalText(target)}”`);
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
@@ -474,7 +534,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       } else if (view === "search") {
         const matches = asCount(details?.searchDisplayedMatches);
-        evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
+        const scanned = asCount(details?.searchScannedNodes);
+        const budget = asCount(details?.searchScanBudget);
+        const scanSuffix = budget > 0 ? ` · scanned ${scanned}/${budget}` : "";
+        const truncationSuffix = details?.searchTruncated
+          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${details.searchTruncationReason})` : " · truncated")
+          : "";
+        evidence = `${matches} match${matches === 1 ? "" : "es"}${truncationSuffix}${scanSuffix}`;
       } else if (view === "node") {
         const nodeId = typeof details?.nodeEntryId === "string" ? sanitizeTerminalText(details.nodeEntryId) : "unknown";
         const before = asCount(details?.nodeBeforeCount);
@@ -525,10 +591,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const filter = optionalString(rawParams.filter);
       const query = optionalString(rawParams.query);
       const target = optionalString(rawParams.target);
-      const params = { view, limit: limit ?? 50, verbose, filter, query, target } as
+      const scope = optionalString(rawParams.scope) as "active" | "archive" | undefined;
+      const type = optionalString(rawParams.type) as "user" | "summary" | "tool" | undefined;
+      const params = { view, limit: limit ?? 50, verbose, filter, query, target, scope, type } as
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
-        | { view: "search"; limit: number; query: string }
+        | { view: "search"; limit: number; query: string; scope?: "active" | "archive"; type?: "user" | "summary" | "tool" }
         | { view: "node"; limit: number; target: string }
         | { view: "tree"; limit: number; verbose?: boolean };
       // Silently ignored parameters produce false negatives (a filter on the
@@ -538,6 +606,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (query && view !== "search") ignoredParams.push(`'query' (only applies to view=search)`);
       if (target && view !== "node") ignoredParams.push(`'target' (only applies to view=node)`);
       if (verbose !== undefined && view !== "active" && view !== "tree") ignoredParams.push(`'verbose' (only applies to view=active and view=tree)`);
+      if (scope !== undefined && view !== "search") ignoredParams.push(`'scope' (only applies to view=search)`);
+      if (type !== undefined && view !== "search") ignoredParams.push(`'type' (only applies to view=search)`);
       if (params.view === "search" && !params.query) {
         return {
           content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
@@ -586,6 +656,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let rootProjectedSummaryDepth: number | null = null;
       let searchDisplayedMatches = 0;
       let searchTruncated = false;
+      let searchTruncationReason: "limit" | "scan_budget" | "signal" | null = null;
+      let searchScannedNodes = 0;
+      let searchScope: "active" | "archive" | null = null;
+      let searchType: "user" | "summary" | "tool" | null = null;
       let nodeRequestedTarget: string | null = null;
       let nodeEntryId: string | null = null;
       let nodeLabel: string | null = null;
@@ -697,18 +771,31 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
-        const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal);
+        const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal, {
+          scope: params.scope,
+          type: params.type,
+          activeIds,
+          scanNodeBudget: TIMELINE_SEARCH_SCAN_NODE_BUDGET,
+        });
         searchDisplayedMatches = search.matches.length;
         searchTruncated = search.truncated;
+        searchTruncationReason = search.truncationReason;
+        searchScannedNodes = search.scannedNodes;
+        searchScope = params.scope ?? null;
+        searchType = params.type ?? null;
+        const searchQualifiers = [
+          params.scope !== undefined ? `scope ${params.scope}` : null,
+          params.type !== undefined ? `type ${params.type}` : null,
+        ].filter((qualifier) => qualifier !== null).join(", ");
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? `; truncated (${search.truncationReason})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s)${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
           const body = snippet(entryText(match.entry, true));
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
-        if (search.truncated) lines.push("  ... additional matches truncated");
+        if (search.truncated) lines.push(`  ... scan stopped early (${search.truncationReason}); narrow with scope/type or a longer query`);
       } else if (params.view === "node") {
         nodeRequestedTarget = params.target;
         const resolved = resolveTargetId(sessionManager, tree, params.target, activeIds, labelMaps);
@@ -1036,6 +1123,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,
           searchDisplayedMatches: params.view === "search" ? searchDisplayedMatches : null,
           searchTruncated: params.view === "search" ? searchTruncated : false,
+          searchTruncationReason: params.view === "search" ? searchTruncationReason : null,
+          searchScannedNodes: params.view === "search" ? searchScannedNodes : null,
+          searchScanBudget: params.view === "search" ? TIMELINE_SEARCH_SCAN_NODE_BUDGET : null,
+          searchScope: params.view === "search" ? searchScope : null,
+          searchType: params.view === "search" ? searchType : null,
           nodeRequestedTarget: params.view === "node" ? nodeRequestedTarget : null,
           nodeEntryId: params.view === "node" ? nodeEntryId : null,
           nodeLabel: params.view === "node" ? nodeLabel : null,

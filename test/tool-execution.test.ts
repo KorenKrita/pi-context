@@ -1580,7 +1580,7 @@ describe("ACM tool execution contracts", () => {
     expect(text.indexOf("needle-first")).toBeLessThan(text.indexOf("needle-second"));
     expect(text).not.toContain("needle-third");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: true });
-    expect(text).toContain("additional matches truncated");
+    expect(text).toContain("scan stopped early (limit)");
     expect(tailContentReads).toBe(0);
   });
 
@@ -1629,7 +1629,7 @@ describe("ACM tool execution contracts", () => {
     expect(text).toContain("needle-first");
     expect(text).toContain("needle-second");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: false });
-    expect(text).not.toContain("additional matches truncated");
+    expect(text).not.toContain("scan stopped early");
     // The limit is exactly filled, so the scan must keep walking the tree to
     // keep `truncated === false` honest: the sentinel past the last match is
     // still read. A premature stop at the limit-th match would leave it at 0.
@@ -1648,7 +1648,142 @@ describe("ACM tool execution contracts", () => {
       timelineContext(),
     );
     expect(result.details).toMatchObject({ searchDisplayedMatches: 0, searchTruncated: true });
-    expect(result.content[0]?.text ?? "").toContain("additional matches truncated");
+    expect(result.content[0]?.text ?? "").toContain("scan stopped early (signal)");
+  });
+
+  test("search scope and type filters partition the tree without reading excluded content", async () => {
+    const root = userEntry("entry-root");
+    const activeUser = userEntry("needle-active", root.id);
+    const summary: SessionEntry = {
+      type: "branch_summary",
+      id: "needle-summary",
+      parentId: activeUser.id,
+      timestamp: "2026-01-01T00:02:00.000Z",
+      summary: "needle-summary-body",
+    } as SessionEntry;
+    const toolResult: SessionEntry = {
+      type: "message",
+      id: "needle-tool",
+      parentId: summary.id,
+      timestamp: "2026-01-01T00:03:00.000Z",
+      message: { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: "needle-tool-body", isError: false, timestamp: 0 },
+    } as SessionEntry;
+    let archivedReads = 0;
+    const archived: SessionEntry = {
+      type: "message",
+      id: "needle-archived",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:04:00.000Z",
+      message: {
+        role: "user",
+        get content() {
+          archivedReads++;
+          return "needle-archived-body";
+        },
+        timestamp: 0,
+      },
+    } as SessionEntry;
+    const entries = [root, activeUser, summary, toolResult, archived];
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: activeUser, children: [{ entry: summary, children: [{ entry: toolResult, children: [] }] }] },
+        { entry: archived, children: [] },
+      ],
+    }];
+    const ctx = {
+      sessionManager: {
+        getTree: () => tree,
+        getEntries: () => entries,
+        getBranch: () => [root, activeUser, summary, toolResult],
+        getLeafId: () => toolResult.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const idsOf = async (params: Record<string, unknown>): Promise<string[]> => {
+      const result = await executeTimeline("search-filtered", { view: "search", query: "needle", limit: 10, ...params }, undefined, undefined, ctx);
+      const text = result.content[0]?.text ?? "";
+      const ids = ["needle-active", "needle-summary", "needle-tool", "needle-archived"].filter((id) => text.includes(id));
+      return ids;
+    };
+
+    expect(await idsOf({})).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-archived"]);
+    expect(await idsOf({ scope: "active" })).toEqual(["needle-active", "needle-summary", "needle-tool"]);
+    expect(await idsOf({ scope: "archive" })).toEqual(["needle-archived"]);
+    expect(await idsOf({ type: "user" })).toEqual(["needle-active", "needle-archived"]);
+    expect(await idsOf({ type: "summary" })).toEqual(["needle-summary"]);
+    expect(await idsOf({ type: "tool" })).toEqual(["needle-tool"]);
+    expect(await idsOf({ scope: "active", type: "user" })).toEqual(["needle-active"]);
+    // The archived node's content is read exactly when it is a candidate
+    // (unfiltered, scope=archive, type=user) and never by the scope=active
+    // runs — that read is the scan cost this filter exists to skip.
+    expect(archivedReads).toBe(3);
+
+    const detailed = await executeTimeline("search-details", { view: "search", query: "needle", scope: "archive", type: "user", limit: 10 }, undefined, undefined, ctx);
+    expect(detailed.details).toMatchObject({
+      searchScope: "archive",
+      searchType: "user",
+      searchScanBudget: 5000,
+      searchTruncationReason: null,
+      searchTruncated: false,
+    });
+    expect(typeof detailed.details?.searchScannedNodes).toBe("number");
+    expect(detailed.content[0]?.text ?? "").toContain("scope archive, type user");
+  });
+
+  test("search reports the scan budget boundary honestly", async () => {
+    const buildTree = (totalNodes: number) => {
+      const root = userEntry("entry-root");
+      const children: SessionTreeNode[] = [];
+      const entries: SessionEntry[] = [root];
+      let tailReads = 0;
+      for (let index = 0; index < totalNodes - 1; index++) {
+        const isLast = index === totalNodes - 2;
+        const entry: SessionEntry = {
+          type: "message",
+          id: `entry-filler-${index}`,
+          parentId: root.id,
+          timestamp: "2026-01-01T00:00:00.000Z",
+          message: {
+            role: "user",
+            get content() {
+              if (isLast) tailReads++;
+              return "filler-body";
+            },
+            timestamp: 0,
+          },
+        } as SessionEntry;
+        entries.push(entry);
+        children.push({ entry, children: [] });
+      }
+      return { root, children, entries, tailReads: () => tailReads };
+    };
+
+    const ctxOf = (built: ReturnType<typeof buildTree>) => ({
+      sessionManager: {
+        getTree: () => [{ entry: built.root, children: built.children }],
+        getEntries: () => built.entries,
+        getBranch: () => [built.root],
+        getLeafId: () => built.root.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    });
+
+    // Exactly 5,000 nodes, fully scanned, no match: not truncated.
+    const exact = buildTree(5_000);
+    const exactResult = await executeTimeline("search-budget-exact", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, ctxOf(exact));
+    expect(exactResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: false, searchTruncationReason: null });
+
+    // 5,001 nodes: the scan stops at the budget, says why, and never reads
+    // the content of the unvisited tail node.
+    const over = buildTree(5_001);
+    const overResult = await executeTimeline("search-budget-over", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, ctxOf(over));
+    expect(overResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: true, searchTruncationReason: "scan_budget" });
+    expect(overResult.content[0]?.text ?? "").toContain("scan stopped early (scan_budget)");
+    expect(over.tailReads()).toBe(0);
   });
 
   test("node view returns an off-path entry in full without mutating the tree", async () => {
