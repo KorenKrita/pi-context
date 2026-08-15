@@ -31,6 +31,9 @@ interface CheckpointListing {
 interface SearchMatch {
   entry: SessionEntry;
   label: string | undefined;
+  /** The entry's rendered text, already materialized by the matching pass so
+   * the snippet renderer does not join the same content a second time. */
+  text: string;
 }
 
 const TIMELINE_DYNAMIC_VALUE_CHARS = 240;
@@ -259,17 +262,24 @@ function searchTree(
     const typePasses = options.type === undefined || searchEntryKind(node.entry) === options.type;
     let matched = false;
     let label: string | undefined;
+    let candidateText = "";
     if (scopePasses && typePasses) {
       label = getEntryLabel(labelMaps, node.entry.id);
-      matched = (label === undefined && isAcmToolEcho(node.entry))
-        ? false
-        : containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
+      if (label === undefined && isAcmToolEcho(node.entry)) {
+        matched = false;
+      } else {
+        // Materialize once: this text serves both the match test and, on a
+        // hit, the snippet line - the old shape joined every matched entry
+        // twice per call.
+        candidateText = entryText(node.entry, true);
+        matched = containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
           || (label !== undefined && containsCaseInsensitive(label, normalizedQuery, queryIsAscii))
-          || containsCaseInsensitive(entryText(node.entry, true), normalizedQuery, queryIsAscii);
+          || containsCaseInsensitive(candidateText, normalizedQuery, queryIsAscii);
+      }
     }
     if (matched) {
       if (matches.length < limit) {
-        matches.push({ entry: node.entry, label });
+        matches.push({ entry: node.entry, label, text: candidateText });
       } else {
         truncated = true;
         truncationReason = "limit";
@@ -918,7 +928,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s)${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
-          const body = snippet(entryText(match.entry, true));
+          const body = snippet(match.text);
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
