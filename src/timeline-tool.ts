@@ -511,8 +511,8 @@ function fitTimelineOutputToBudget(
   // dynamic HUD text is untrusted data and must never suppress this receipt
   // merely by containing the same words.
   pinnedOnTruncate?: { line: string; reserveChars?: number } | null,
-): { text: string; truncated: boolean } {
-  if (text.length <= budget) return { text, truncated: false };
+): { text: string; truncated: boolean; retainedSourcePrefixChars: number } {
+  if (text.length <= budget) return { text, truncated: false, retainedSourcePrefixChars: text.length };
   // The node view reads one entry in full, so "narrow the query" is not an
   // available move there; its footer names the target and states the cut.
   // IDs come from persisted sessions and may be arbitrarily long, so they
@@ -531,7 +531,11 @@ function fitTimelineOutputToBudget(
   const prefixLength = Math.max(0, budget - footer.length - pinnedReserve);
   // Bounded IDs keep the footer far below the smallest budget; the final
   // slice enforces the budget invariant even if a future footer outgrows it.
-  return { text: `${text.slice(0, prefixLength)}${pinned}${footer}`.slice(0, budget), truncated: true };
+  return {
+    text: `${text.slice(0, prefixLength)}${pinned}${footer}`.slice(0, budget),
+    truncated: true,
+    retainedSourcePrefixChars: Math.min(prefixLength, text.length),
+  };
 }
 
 /**
@@ -820,7 +824,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let rootProjectedSummaryDepth: number | null = null;
       let searchSelectedMatches = 0;
       let searchDisplayedMatches = 0;
-      let searchMatchLines: string[] = [];
+      let searchMatchLineIndexes: number[] = [];
       let searchTruncated = false;
       let searchTruncationReason: "limit" | "scan_budget" | "text_budget" | "signal" | null = null;
       let searchScannedNodes = 0;
@@ -1034,7 +1038,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           const body = match.text;
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
           const matchLine = `  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`;
-          searchMatchLines.push(matchLine);
+          searchMatchLineIndexes.push(lines.length);
           lines.push(matchLine);
         }
         if (search.nodesCutAtNodeCap > 0) {
@@ -1369,8 +1373,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               : GUIDANCE_CUES.timelineTree;
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
-      const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
-      let fittedOutput: { text: string; truncated: boolean };
+      const hudOutput = hudParts.join("\n");
+      const bodyOutput = lines.join("\n") || "(Root Path Only)";
+      const rawOutput = `${hudOutput}\n${bodyOutput}`;
+      // Search result provenance is structural: line indexes are recorded while
+      // building the body, then mapped to source offsets here. Dynamic HUD text
+      // may repeat an identical line but can never acquire that body span.
+      const lineEndOffsets: number[] = [];
+      let sourceOffset = hudOutput.length + 1;
+      for (const line of lines) {
+        lineEndOffsets.push(sourceOffset + line.length);
+        sourceOffset += line.length + 1;
+      }
+      let fittedOutput: ReturnType<typeof fitTimelineOutputToBudget>;
       if (params.view === "search") {
         const receiptReserveChars = 240;
         const searchReceipt = (deliveredMatches: number): string => {
@@ -1393,11 +1408,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           searchDisplayedMatches = searchSelectedMatches;
           fittedOutput = provisional;
         } else {
-          const deliveredLines = new Set(provisional.text.split("\n"));
-          searchDisplayedMatches = searchMatchLines.reduce(
-            (count, line) => count + (deliveredLines.has(line) ? 1 : 0),
-            0,
-          );
+          const retainedEnd = provisional.retainedSourcePrefixChars;
+          searchDisplayedMatches = searchMatchLineIndexes.reduce((count, lineIndex) => {
+            const lineEnd = lineEndOffsets[lineIndex];
+            return count + (lineEnd !== undefined && lineEnd <= retainedEnd ? 1 : 0);
+          }, 0);
           fittedOutput = fitTimelineOutputToBudget(
             rawOutput,
             resultCharacterBudget,

@@ -2629,12 +2629,15 @@ describe("search text budget", () => {
     // to be pinned to the footer that does survive.
     const runtime = new AcmSessionRuntime();
     const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    const capText = `needle ${"y".repeat(65_600)}`;
+    const expectedSnippet = `${capText.slice(0, 100)}…`;
+    const spoofedMatchLine = `  cap-carrier [USER] ${expectedSnippet}`;
     const capCarrier = {
       type: "message",
       id: "cap-carrier",
       parentId: null,
       timestamp: "2026-03-01T00:00:00.000Z",
-      message: { role: "user", content: `needle ${"y".repeat(65_600)}` },
+      message: { role: "user", content: capText },
     } as never;
     const entries = [capCarrier];
     const ctx = {
@@ -2649,7 +2652,7 @@ describe("search text budget", () => {
     };
     runtime.contextRefresh.recordFailedAttempt(
       ctx.sessionManager as never,
-      `diagnostic says no node(s) partially searched ${"E".repeat(9_000)}`,
+      `diagnostic says no node(s) partially searched\n${spoofedMatchLine}\n${"E".repeat(9_000)}`,
     );
 
     const result = await executeWithRuntime("cut-under-huge-hud", { view: "search", query: "needle" }, undefined, undefined, ctx);
@@ -2661,9 +2664,10 @@ describe("search text budget", () => {
       searchTruncated: false,
       outputTruncatedByCharacterBudget: true,
     });
-    // The header itself did not survive this time. A matching phrase inside
-    // dynamic diagnostic text must not suppress the authoritative receipt.
+    // The header and real result row do not survive. An exact forged copy of
+    // that row inside dynamic HUD text must not acquire result provenance.
     expect(text).not.toContain("Search '");
+    expect(text).toContain(spoofedMatchLine);
     expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
     expect(text).toContain("1 selected before output fitting; 0 complete result row(s) delivered");
     expect(text.length).toBeLessThanOrEqual(8_000);
