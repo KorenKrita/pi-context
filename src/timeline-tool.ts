@@ -649,6 +649,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const labelMaps = buildLabelMaps(entries);
       const activeIds = new Set(branch.map((entry) => entry.id));
       const activeSummaryDepth = countActiveSummaryDepth(branch);
+      // Computed once here: the active view's HUD line and every view's
+      // details field ask the same question; the old shape walked entries
+      // twice on the active view.
+      const offPathSummaryCount = countOffPathSummaries(branch, entries, activeIds);
       const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
       const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
       const rawArchiveAliases = collectRawArchiveAliases(entries, labelMaps);
@@ -1030,7 +1034,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
         usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
       }
-      const offPathHandoffs = countOffPathSummaries(branch, entries, activeIds);
+      const offPathHandoffs = offPathSummaryCount;
       // Funnel line: tree nodes -> LLM messages, one conversion statement.
       // Subtraction is not classification (packet rebuild folds tool results
       // into their parent messages), so the delta says what it is — nodes
@@ -1157,7 +1161,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           stepsSinceCheckpoint,
           activePathNodes: branch.length,
           activeSummaryDepth,
-          offPathSummaries: countOffPathSummaries(branch, entries, activeIds),
+          offPathSummaries: offPathSummaryCount,
           view: params.view,
           limit: requestedLimit,
           effectiveLimit,
