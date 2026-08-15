@@ -1455,22 +1455,28 @@ describe("deferred post-travel context delivery", () => {
     failNext = false;
     expect(runtime.foldAggregate(session, { kind: "target", entryId: "t1" }, flaky)).toEqual({ tokenCount: 1, messageCount: 1 });
 
-    // Target cache is bounded: 12 fresh ids evict the oldest, t1 survives as
-    // a recent insertion only until enough newer ids push it out.
-    for (let index = 0; index < 12; index++) {
-      runtime.foldAggregate(session, { kind: "target", entryId: `t-${index}` }, build);
+    // Target cache is a real LRU bounded at 8: refreshing the oldest entry
+    // must protect it, evicting the least-recently-used one instead.
+    const targetIds = ["t-a", "t-b", "t-c", "t-d", "t-e", "t-f", "t-g", "t-h"];
+    for (const entryId of targetIds) {
+      runtime.foldAggregate(session, { kind: "target", entryId }, build);
     }
+    expect(rebuilds).toBe(11); // 3 current rebuilds + 8 targets (the flaky closure never counted)
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-a" }, build); // hit refreshes recency
+    expect(rebuilds).toBe(11);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-i" }, build); // evicts t-b, not t-a
+    expect(rebuilds).toBe(12);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-a" }, build); // survived: was recently used
+    expect(rebuilds).toBe(12);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-b" }, build); // evicted: least recently used
+    expect(rebuilds).toBe(13);
     const before = rebuilds;
-    runtime.foldAggregate(session, { kind: "target", entryId: "t-11" }, build); // still cached
-    expect(rebuilds).toBe(before);
-    runtime.foldAggregate(session, { kind: "target", entryId: "t-1" }, build); // evicted by the 12
-    expect(rebuilds).toBe(before + 1);
 
     // clear() drops the whole per-session cache but keeps the ledger join.
     const ledgerBefore = runtime.ledgerState(session);
     runtime.clear(session);
     expect(runtime.ledgerState(session)).toBe(ledgerBefore);
     runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
-    expect(rebuilds).toBe(before + 2);
+    expect(rebuilds).toBe(before + 1);
   });
 });

@@ -134,51 +134,49 @@ async function drainQueue(): Promise<void> {
   }
 }
 
+/**
+ * Only a genuinely missing file reads as size zero — the normal first write.
+ * Any other stat error propagates so the row is dropped and counted instead
+ * of silently bypassing the cap with a fake zero size.
+ */
 async function fileSize(path: string): Promise<number> {
   try {
     return (await stat(path)).size;
-  } catch {
-    // A missing file is the normal first-write path.
-    return 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return 0;
+    throw error;
   }
 }
 
 /**
  * Run `critical` under a proper-lockfile lock on the ledger file. The lock
- * module is loaded lazily: if it is missing, or locking fails for any reason,
- * the write proceeds unlocked — an unlocked diagnostic append is worth more
- * than a dropped row, and O_APPEND keeps single writes line-atomic in
- * practice. Unlock failures are swallowed for the same reason.
+ * module is a direct dependency; if importing or acquiring it fails — broken
+ * install, lock contention beyond the retry window, stale-detection errors —
+ * the failure propagates so the caller drops that row and counts it. The 8
+ * MiB cap and line integrity are the contract; an unlocked writer would let
+ * two lock-taking processes cross the cap, so there is no unlocked path.
+ * Unlock failures are still swallowed: the write already happened.
  */
 async function withFileLock(path: string, critical: () => Promise<void>): Promise<void> {
-  let release: (() => Promise<void>) | undefined;
-  try {
-    const lockfile = (await import("proper-lockfile")) as {
-      lock: (file: string, options?: Record<string, unknown>) => Promise<void>;
-      unlock: (file: string, options?: Record<string, unknown>) => Promise<void>;
-    };
-    const options = {
-      realpath: false,
-      stale: 10_000,
-      update: 5_000,
-      retries: { retries: 100, factor: 1, minTimeout: 20, maxTimeout: 100 },
-      onCompromised: () => undefined,
-    };
-    await lockfile.lock(path, options);
-    release = () => lockfile.unlock(path, { realpath: false });
-  } catch {
-    await critical();
-    return;
-  }
+  const lockfile = (await import("proper-lockfile")) as {
+    lock: (file: string, options?: Record<string, unknown>) => Promise<void>;
+    unlock: (file: string, options?: Record<string, unknown>) => Promise<void>;
+  };
+  const options = {
+    realpath: false,
+    stale: 10_000,
+    update: 5_000,
+    retries: { retries: 100, factor: 1, minTimeout: 20, maxTimeout: 100 },
+    onCompromised: () => undefined,
+  };
+  await lockfile.lock(path, options);
   try {
     await critical();
   } finally {
-    if (release) {
-      try {
-        await release();
-      } catch {
-        // Release failure must not turn a completed write into a failure.
-      }
+    try {
+      await lockfile.unlock(path, { realpath: false });
+    } catch {
+      // Release failure must not turn a completed write into a failure.
     }
   }
 }

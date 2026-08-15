@@ -327,7 +327,14 @@ export class AcmSessionRuntime {
       return value;
     }
     const hit = state.targets.get(key.entryId);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      // Refresh recency on hit: eviction must remove the least-recently-used
+      // target, not merely the longest-ago-inserted one, or a hot reference
+      // gets repeatedly evicted and rebuilt.
+      state.targets.delete(key.entryId);
+      state.targets.set(key.entryId, hit);
+      return hit;
+    }
     const value = rebuild();
     if (value === undefined) return undefined;
     state.targets.set(key.entryId, value);

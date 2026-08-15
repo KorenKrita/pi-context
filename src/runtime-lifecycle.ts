@@ -607,9 +607,10 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   });
   pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
     runtime.clear(ctx.sessionManager);
-    // Best-effort drain of queued ledger rows; the writer never throws, and a
-    // hard exit may still lose the tail — the ledger's diagnostic contract
-    // already prices that in.
-    void flushLedgerQueue();
+    // The host's extension runner awaits each handler's returned promise
+    // through shutdown, so returning the flush lets queued ledger rows drain
+    // before the process exits. A hard kill can still lose the tail — the
+    // ledger's diagnostic contract already prices that in.
+    return flushLedgerQueue();
   });
 }
