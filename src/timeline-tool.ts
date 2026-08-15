@@ -180,6 +180,13 @@ interface SearchFilterOptions {
 
 type SearchTruncationReason = "limit" | "scan_budget" | "signal" | null;
 
+function searchTruncationPhrase(reason: "limit" | "scan_budget" | "signal"): string {
+  if (reason === "scan_budget") return "5,000-node scan limit";
+  if (reason === "signal") return "cancelled";
+  return "display limit";
+}
+
+
 function searchEntryKind(entry: SessionEntry): "user" | "summary" | "tool" | null {
   if (entry.type === "branch_summary" || entry.type === "compaction") return "summary";
   if (entry.type === "message") {
@@ -615,7 +622,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         const budget = asCount(details?.searchScanBudget);
         const scanSuffix = budget > 0 ? ` · scanned ${scanned}/${budget}` : "";
         const truncationSuffix = details?.searchTruncated
-          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${details.searchTruncationReason})` : " · truncated")
+          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${searchTruncationPhrase(details.searchTruncationReason as never)})` : " · truncated")
           : "";
         evidence = `${matches} match${matches === 1 ? "" : "es"}${truncationSuffix}${scanSuffix}`;
       } else if (view === "node") {
@@ -794,19 +801,28 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             projectedSummaryDepth: projectSummaryDepthAfterTravel(result.branch),
           };
         };
-        const currentProjection = runtime.foldProjection(
+        let currentProjection = runtime.foldProjection(
           sessionManager,
           { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
           () => projectionAt(leafId),
         );
         if (!currentProjection) {
-          // Misses are not negatively cached; re-run to report the real failure.
-          const failed = snapshot.rebuild(leafId);
-          const failureMessage = failed.ok ? "packet rebuild failed without a failure reason" : failed.message;
-          return {
-            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${failureMessage}` }],
-            details: { error: failed.ok ? "host_operation_failed" : failed.error, message: failureMessage },
-          };
+          // Misses are not negatively cached; re-run to distinguish a real
+          // failure from a transient one. A successful re-run means the miss
+          // was transient — render with it rather than reporting a fabricated
+          // error for a packet that did build.
+          const retried = snapshot.rebuild(leafId);
+          if (retried.ok) {
+            currentProjection = {
+              aggregate: aggregateMessages(retried.value.messages),
+              projectedSummaryDepth: projectSummaryDepthAfterTravel(retried.branch),
+            };
+          } else {
+            return {
+              content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${retried.message}` }],
+              details: { error: retried.error, message: retried.message },
+            };
+          }
         }
         // Same aggregate cache the gauge, HUD, and checkpoint receipt render
         // through: the current reading is summed once (and shared with those
@@ -889,14 +905,22 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           params.type !== undefined ? `type ${params.type}` : null,
         ].filter((qualifier) => qualifier !== null).join(", ");
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? `; truncated (${search.truncationReason})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s)${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}; scanned ${search.scannedNodes}/${search.scanBudget} node(s)${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
           const body = snippet(entryText(match.entry, true));
           const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
           lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
         }
-        if (search.truncated) lines.push(`  ... scan stopped early (${search.truncationReason}); narrow with scope/type or a longer query`);
+        if (search.truncated) {
+          // The budget counts traversal, and scope/type only filter content —
+          // narrowing filters does NOT bring later nodes into reach, so the
+          // recovery line must not claim it does. A more specific query finds
+          // earlier matches; unreachable nodes stay unreachable.
+          lines.push(search.truncationReason === "scan_budget"
+            ? `  ... scan stopped at the 5,000-node limit; nodes after it were not searched this call — use a more specific query to hit earlier matches, or view=tree to navigate`
+            : `  ... scan stopped early (${search.truncationReason === null ? "display limit" : searchTruncationPhrase(search.truncationReason)}); narrow with scope/type or a longer query`);
+        }
       } else if (params.view === "node") {
         nodeRequestedTarget = params.target;
         const resolved = resolveTargetId(sessionManager, treeOnce(), params.target, activeIds, labelMaps);

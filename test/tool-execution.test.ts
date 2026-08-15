@@ -1600,7 +1600,7 @@ describe("ACM tool execution contracts", () => {
     expect(text.indexOf("needle-first")).toBeLessThan(text.indexOf("needle-second"));
     expect(text).not.toContain("needle-third");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: true });
-    expect(text).toContain("scan stopped early (limit)");
+    expect(text).toContain("scan stopped early (display limit)");
     expect(tailContentReads).toBe(0);
   });
 
@@ -1700,7 +1700,7 @@ describe("ACM tool execution contracts", () => {
       timelineContext(),
     );
     expect(result.details).toMatchObject({ searchDisplayedMatches: 0, searchTruncated: true });
-    expect(result.content[0]?.text ?? "").toContain("scan stopped early (signal)");
+    expect(result.content[0]?.text ?? "").toContain("scan stopped early (cancelled)");
   });
 
   test("search scope and type filters partition the tree without reading excluded content", async () => {
@@ -1836,7 +1836,7 @@ describe("ACM tool execution contracts", () => {
     const over = buildTree(5_001);
     const overResult = await executeTimeline("search-budget-over", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, ctxOf(over));
     expect(overResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: true, searchTruncationReason: "scan_budget" });
-    expect(overResult.content[0]?.text ?? "").toContain("scan stopped early (scan_budget)");
+    expect(overResult.content[0]?.text ?? "").toContain("scan stopped at the 5,000-node limit");
     expect(over.tailReads()).toBe(0);
   });
 
