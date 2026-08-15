@@ -173,18 +173,41 @@ function median(values: number[]): number {
 interface Sample {
   name: string;
   ms: number;
+  /** user+system CPU across the timed runs, from process.cpuUsage(). */
+  cpuMs: number;
+  /** Heap retained after the scenario settles (forced GC before and after);
+   * for cached views this is the cache's steady-state memory cost. */
+  retainedKb: number;
   counts?: BenchSession["counts"];
+}
+
+function forceGc(): void {
+  // Synchronous full GC where available (Bun); a no-op elsewhere, where the
+  // retained reading just includes normal garbage and reads high.
+  const gc = (globalThis as { Bun?: { gc?: (force: boolean) => void } }).Bun?.gc;
+  gc?.(true);
+}
+
+function heapUsedKb(): number {
+  return Math.round(process.memoryUsage().heapUsed / 1024);
 }
 
 function timeIt(name: string, runs: number, body: () => void | Promise<void>): Sample {
   body(); // warmup: JIT, caches — this benchmark measures warm-path cost deliberately
   const times: number[] = [];
+  const cpuStart = process.cpuUsage();
   for (let run = 0; run < runs; run++) {
     const start = performance.now();
     body();
     times.push(performance.now() - start);
   }
-  return { name, ms: median(times) };
+  const cpu = process.cpuUsage(cpuStart);
+  forceGc();
+  const before = heapUsedKb();
+  for (let run = 0; run < Math.min(runs, 10); run++) body();
+  forceGc();
+  const retainedKb = Math.max(0, heapUsedKb() - before);
+  return { name, ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / runs, retainedKb };
 }
 
 function captureTimeline(runtime: AcmSessionRuntime) {
@@ -216,13 +239,20 @@ async function benchTimelineView(
   };
   await run();
   const times: number[] = [];
+  const cpuStart = process.cpuUsage();
   for (let index = 0; index < 5; index++) {
     for (const key of Object.keys(session.counts)) (session.counts as Record<string, number>)[key] = 0;
     const start = performance.now();
     await tool.execute("bench", { view, limit: 50, ...extra }, undefined, undefined, session.context);
     times.push(performance.now() - start);
   }
-  samples.push({ name, ms: median(times), counts: { ...session.counts } });
+  const cpu = process.cpuUsage(cpuStart);
+  forceGc();
+  const before = heapUsedKb();
+  await tool.execute("bench", { view, limit: 50, ...extra }, undefined, undefined, session.context);
+  forceGc();
+  const retainedKb = Math.max(0, heapUsedKb() - before);
+  samples.push({ name, ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / 5, retainedKb, counts: { ...session.counts } });
 }
 
 // ---------------------------------------------------------------------------
@@ -293,11 +323,35 @@ async function main() {
     await tool.execute("warm", { view: "checkpoints", limit: 50 }, undefined, undefined, session.context);
     for (const key of Object.keys(session.counts)) (session.counts as Record<string, number>)[key] = 0;
     const start = performance.now();
+    const cpuStart = process.cpuUsage();
+    for (const key of Object.keys(session.counts)) (session.counts as Record<string, number>)[key] = 0;
     await tool.execute("warm2", { view: "checkpoints", limit: 50 }, undefined, undefined, session.context);
+    const ms = performance.now() - start;
+    const cpu = process.cpuUsage(cpuStart);
     samples.push({
       name: "timeline checkpoints warm render [10k]",
-      ms: performance.now() - start,
+      ms,
+      cpuMs: (cpu.user + cpu.system) / 1000,
+      retainedKb: 0,
       counts: { ...session.counts },
+    });
+  }
+
+  // --- Cold-cache retention: what one cold checkpoints call leaves behind ---
+  // Retention above measures per-call residue; this measures the caches a
+  // cold call builds (packet LRU, aggregates, label maps) and keeps.
+  {
+    const session = labelSession(10_000);
+    const tool = captureTimeline(new AcmSessionRuntime());
+    forceGc();
+    const before = heapUsedKb();
+    await tool.execute("cold", { view: "checkpoints", limit: 50 }, undefined, undefined, session.context);
+    forceGc();
+    samples.push({
+      name: "timeline checkpoints cold-cache retention [10k]",
+      ms: 0,
+      cpuMs: 0,
+      retainedKb: Math.max(0, heapUsedKb() - before),
     });
   }
 
@@ -307,13 +361,15 @@ async function main() {
     return;
   }
   const nameWidth = Math.max(...samples.map((sample) => sample.name.length));
-  console.log(`\n${"scenario".padEnd(nameWidth)}  median ms   host reads (tree/entries/branch/leaf)`);
-  console.log("-".repeat(nameWidth + 60));
+  console.log(`\n${"scenario".padEnd(nameWidth)}  median ms   cpu ms/run   retained KB   host reads (tree/entries/branch/leaf)`);
+  console.log("-".repeat(nameWidth + 76));
   for (const sample of samples) {
     const counts = sample.counts
       ? `${sample.counts.getTree}/${sample.counts.getEntries}/${sample.counts.getBranch}/${sample.counts.getLeafId}`
       : "-";
-    console.log(`${sample.name.padEnd(nameWidth)}  ${sample.ms.toFixed(3).padStart(9)}   ${counts}`);
+    console.log(
+      `${sample.name.padEnd(nameWidth)}  ${sample.ms.toFixed(3).padStart(9)}  ${sample.cpuMs.toFixed(1).padStart(7)}  ${String(sample.retainedKb).padStart(11)}   ${counts}`,
+    );
   }
   console.log("");
 }
