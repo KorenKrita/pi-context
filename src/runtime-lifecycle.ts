@@ -168,8 +168,30 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   ) => {
     const session = ctx.sessionManager;
     try {
-      if (!Array.isArray(branch) || branch.length === 0 || entries === undefined || labelMaps === undefined) return undefined;
-      const references = selectFoldReferences(branch, labelMaps);
+      // Shared reads are the fast path; a transient acquisition failure must
+      // not lose the needle, so fall back to this consumer's own reads — the
+      // same independent recovery the pre-shared path had.
+      let activeBranch = branch;
+      if (activeBranch === undefined) {
+        try {
+          activeBranch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
+        } catch {
+          return undefined;
+        }
+      }
+      let activeEntries = entries;
+      let activeLabelMaps = labelMaps;
+      if (activeEntries === undefined || activeLabelMaps === undefined) {
+        try {
+          const readEntries = session.getEntries();
+          activeEntries = readEntries;
+          activeLabelMaps = runtime.labelMapsFor(session, readEntries, () => buildLabelMaps(readEntries));
+        } catch {
+          return undefined;
+        }
+      }
+      if (!Array.isArray(activeBranch) || activeBranch.length === 0) return undefined;
+      const references = selectFoldReferences(activeBranch, activeLabelMaps);
       if (!references.turn && !references.task) return undefined;
       const leafId = session.getLeafId();
       // One shared snapshot serves every cold-path miss in this render; warm
@@ -182,7 +204,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       };
       const currentAggregate = runtime.foldAggregate(
         session,
-        { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+        { kind: "current", leafId, entriesLength: activeEntries.length, lastEntryId: activeEntries.at(-1)?.id ?? "" },
         () => aggregateAt(leafId),
       );
       if (!currentAggregate) return undefined;
@@ -203,11 +225,30 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     pressure: { pressurePercent: number; usagePercent: number },
     folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
     savePoints: number | null,
-    branch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined,
-    boundaryId: string | null,
+    sharedBranch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined,
+    sharedBoundaryId: string | null,
   ): void => {
     try {
+      // The shared reads are the fast path; when they failed transiently this
+      // consumer recovers on its own — its own branch read, its own boundary
+      // scan — exactly as it did before the reads were shared. A null
+      // boundaryId with a branch in hand also covers the gate scan having
+      // failed while the render-path branch read succeeded.
+      let branch = sharedBranch;
+      if (branch === undefined) {
+        branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
+      }
       if (!Array.isArray(branch) || branch.length === 0) return;
+      let boundaryId = sharedBoundaryId;
+      if (boundaryId === null) {
+        for (let index = branch.length - 1; index >= 0; index--) {
+          const entry = branch[index]!;
+          if (entry.type === "message" && entry.message?.role === "user") {
+            boundaryId = entry.id;
+            break;
+          }
+        }
+      }
       const session = ctx.sessionManager as unknown as object;
       const state = runtime.ledgerState(session);
       if (!shouldCountBoundary(state, boundaryId)) return;
