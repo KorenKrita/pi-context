@@ -8,7 +8,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { optionalString, sanitizeTerminalText } from "./conventions.js";
-import { aggregateMessages, countActiveSummaryDepth, estimateUsageAfterMessageChange, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
+import { aggregateMessages, countActiveSummaryDepth, estimateUsageFromAggregates, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
 import { extractTextFromContent, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./context-packet.js";
@@ -717,6 +717,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
             details: { error: currentResult.error, message: currentResult.message },
           };
         }
+        // Same aggregate cache the gauge, HUD, and checkpoint receipt render
+        // through: the current reading is summed once (and shared with those
+        // surfaces), each target pays one cold scan ever. The old array form
+        // re-summed the full current message list for every displayed target.
+        const currentAggregate = runtime.foldAggregate(
+          sessionManager,
+          { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+          () => (currentResult.ok ? aggregateMessages(currentResult.value.messages) : undefined),
+        );
+        const targetAggregateOf = (entryId: string, messages: AgentMessage[] | undefined): MessageAggregate | undefined =>
+          messages === undefined
+            ? undefined
+            : runtime.foldAggregate(sessionManager, { kind: "target", entryId }, () => aggregateMessages(messages));
         // Header grammar: entry counts only when they carry information.
         // An unfiltered list that fits needs one number, not five.
         const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
@@ -746,7 +759,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
           let estimateText = "message estimate unavailable";
           if (rootResult.ok) {
-            const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
+            const rootAggregate = targetAggregateOf(rootEntry.id, rootResult.ok ? rootMessages : undefined);
+            const estimated = usage && currentAggregate && rootAggregate
+              ? estimateUsageFromAggregates(usage, currentAggregate, rootAggregate)
+              : undefined;
             estimateText = estimated
               ? `~${rootMessages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
               : `~${rootMessages.length} msg(s) kept`;
@@ -767,8 +783,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               : { ok: false };
             cache.set(checkpoint.entryId, cachedTarget);
           }
-          const estimated = cachedTarget.ok
-            ? estimateUsageAfterMessageChange(usage, currentResult.value.messages, cachedTarget.messages)
+          const targetAggregate = targetAggregateOf(
+            checkpoint.entryId,
+            cachedTarget.ok ? cachedTarget.messages : undefined,
+          );
+          const estimated = usage && currentAggregate && targetAggregate
+            ? estimateUsageFromAggregates(usage, currentAggregate, targetAggregate)
             : undefined;
           const estimateText = !cachedTarget.ok
             ? "message estimate unavailable"
