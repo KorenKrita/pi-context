@@ -1748,6 +1748,13 @@ describe("ACM tool execution contracts", () => {
       timestamp: "2026-01-01T00:03:00.000Z",
       message: { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: "needle-tool-body", isError: false, timestamp: 0 },
     } as SessionEntry;
+    const assistant: SessionEntry = {
+      type: "message",
+      id: "needle-assistant",
+      parentId: toolResult.id,
+      timestamp: "2026-01-01T00:03:30.000Z",
+      message: { role: "assistant", content: [{ type: "text", text: "needle-assistant-body" }], timestamp: 0 },
+    } as SessionEntry;
     let archivedReads = 0;
     const archived: SessionEntry = {
       type: "message",
@@ -1763,11 +1770,11 @@ describe("ACM tool execution contracts", () => {
         timestamp: 0,
       },
     } as SessionEntry;
-    const entries = [root, activeUser, summary, toolResult, archived];
+    const entries = [root, activeUser, summary, toolResult, assistant, archived];
     const tree: SessionTreeNode[] = [{
       entry: root,
       children: [
-        { entry: activeUser, children: [{ entry: summary, children: [{ entry: toolResult, children: [] }] }] },
+        { entry: activeUser, children: [{ entry: summary, children: [{ entry: toolResult, children: [{ entry: assistant, children: [] }] }] }] },
         { entry: archived, children: [] },
       ],
     }];
@@ -1775,8 +1782,8 @@ describe("ACM tool execution contracts", () => {
       sessionManager: {
         getTree: () => tree,
         getEntries: () => entries,
-        getBranch: () => [root, activeUser, summary, toolResult],
-        getLeafId: () => toolResult.id,
+        getBranch: () => [root, activeUser, summary, toolResult, assistant],
+        getLeafId: () => assistant.id,
       },
       getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
       ui: { notify() {} },
@@ -1785,13 +1792,18 @@ describe("ACM tool execution contracts", () => {
     const idsOf = async (params: Record<string, unknown>): Promise<string[]> => {
       const result = await executeTimeline("search-filtered", { view: "search", query: "needle", limit: 10, ...params }, undefined, undefined, ctx);
       const text = result.content[0]?.text ?? "";
-      const ids = ["needle-active", "needle-summary", "needle-tool", "needle-archived"].filter((id) => text.includes(id));
+      const ids = ["needle-active", "needle-summary", "needle-tool", "needle-assistant", "needle-archived"].filter((id) => text.includes(id));
       return ids;
     };
 
-    expect(await idsOf({})).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-archived"]);
-    expect(await idsOf({ scope: "active" })).toEqual(["needle-active", "needle-summary", "needle-tool"]);
+    // Every kind is reachable with no type filter, assistant messages included
+    // - the search cue promises exactly this coverage.
+    expect(await idsOf({})).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-assistant", "needle-archived"]);
+    expect(await idsOf({ scope: "active" })).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-assistant"]);
     expect(await idsOf({ scope: "archive" })).toEqual(["needle-archived"]);
+    // The three type values name user, summary, and tool kinds; an assistant
+    // message answers to none of them, so the cue tells the caller to omit
+    // type when assistant text is in play.
     expect(await idsOf({ type: "user" })).toEqual(["needle-active", "needle-archived"]);
     expect(await idsOf({ type: "summary" })).toEqual(["needle-summary"]);
     expect(await idsOf({ type: "tool" })).toEqual(["needle-tool"]);
