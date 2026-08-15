@@ -172,12 +172,13 @@ function median(values: number[]): number {
 
 interface Sample {
   name: string;
-  ms: number;
-  /** user+system CPU across the timed runs, from process.cpuUsage(). */
-  cpuMs: number;
+  /** Median wall ms, or null when the scenario does not time this dimension. */
+  ms: number | null;
+  /** user+system CPU per run, or null when unmeasured. */
+  cpuMs: number | null;
   /** Heap retained after the scenario settles (forced GC before and after);
-   * for cached views this is the cache's steady-state memory cost. */
-  retainedKb: number;
+   * null when unmeasured. Never read as an allocation count. */
+  retainedKb: number | null;
   counts?: BenchSession["counts"];
 }
 
@@ -247,12 +248,13 @@ async function benchTimelineView(
     times.push(performance.now() - start);
   }
   const cpu = process.cpuUsage(cpuStart);
+  const counts = { ...session.counts }; // snapshot before the retained probe re-runs the tool
   forceGc();
   const before = heapUsedKb();
   await tool.execute("bench", { view, limit: 50, ...extra }, undefined, undefined, session.context);
   forceGc();
   const retainedKb = Math.max(0, heapUsedKb() - before);
-  samples.push({ name, ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / 5, retainedKb, counts: { ...session.counts } });
+  samples.push({ name, ms: median(times), cpuMs: (cpu.user + cpu.system) / 1000 / 5, retainedKb, counts });
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +334,7 @@ async function main() {
       name: "timeline checkpoints warm render [10k]",
       ms,
       cpuMs: (cpu.user + cpu.system) / 1000,
-      retainedKb: 0,
+      retainedKb: null,
       counts: { ...session.counts },
     });
   }
@@ -349,8 +351,8 @@ async function main() {
     forceGc();
     samples.push({
       name: "timeline checkpoints cold-cache retention [10k]",
-      ms: 0,
-      cpuMs: 0,
+      ms: null,
+      cpuMs: null,
       retainedKb: Math.max(0, heapUsedKb() - before),
     });
   }
@@ -367,8 +369,11 @@ async function main() {
     const counts = sample.counts
       ? `${sample.counts.getTree}/${sample.counts.getEntries}/${sample.counts.getBranch}/${sample.counts.getLeafId}`
       : "-";
+    const ms = sample.ms === null ? "-" : sample.ms.toFixed(3).padStart(9);
+    const cpu = sample.cpuMs === null ? "-" : sample.cpuMs.toFixed(1).padStart(7);
+    const retained = sample.retainedKb === null ? "-" : String(sample.retainedKb).padStart(11);
     console.log(
-      `${sample.name.padEnd(nameWidth)}  ${sample.ms.toFixed(3).padStart(9)}  ${sample.cpuMs.toFixed(1).padStart(7)}  ${String(sample.retainedKb).padStart(11)}   ${counts}`,
+      `${sample.name.padEnd(nameWidth)}  ${ms.padStart(9)}  ${cpu.padStart(7)}  ${retained.padStart(11)}   ${counts}`,
     );
   }
   console.log("");

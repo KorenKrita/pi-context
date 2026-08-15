@@ -1480,6 +1480,49 @@ describe("deferred post-travel context delivery", () => {
     expect(rebuilds).toBe(before + 1);
   });
 
+  test("fold projections cache compact entries, cover the checkpoints budget, and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let rebuilds = 0;
+    const projection = { aggregate: { tokenCount: 7, messageCount: 3 }, projectedSummaryDepth: 2 };
+    const build = () => {
+      rebuilds += 1;
+      return projection;
+    };
+
+    // Cold current rebuilds once; warm hits rebuild nothing; key changes miss.
+    expect(runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(projection);
+    expect(runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(projection);
+    expect(rebuilds).toBe(1);
+    runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(2);
+
+    // A failed rebuild is not negatively cached.
+    let failNext = true;
+    const flaky = () => (failNext ? undefined : projection);
+    expect(runtime.foldProjection(session, { kind: "target", entryId: "t1" }, flaky)).toBeUndefined();
+    failNext = false;
+    expect(runtime.foldProjection(session, { kind: "target", entryId: "t1" }, flaky)).toEqual(projection);
+
+    // The target capacity covers the checkpoints view's full result-entry
+    // budget (400) with headroom: no thrash across two full sweeps.
+    const budget = 400;
+    for (let index = 0; index < budget; index++) {
+      runtime.foldProjection(session, { kind: "target", entryId: `t-${index}` }, build);
+    }
+    const afterSweep = rebuilds;
+    for (let index = 0; index < budget; index++) {
+      runtime.foldProjection(session, { kind: "target", entryId: `t-${index}` }, build);
+    }
+    expect(rebuilds).toBe(afterSweep); // every second-sweep entry hit
+
+    // clear() drops the projection cache alongside the aggregates.
+    runtime.clear(session);
+    runtime.foldProjection(session, { kind: "target", entryId: "t-0" }, build);
+    expect(rebuilds).toBe(afterSweep + 1);
+  });
+
+
   test("label maps cache by entry key and drop on clear", () => {
     const runtime = new AcmSessionRuntime();
     const session = {};

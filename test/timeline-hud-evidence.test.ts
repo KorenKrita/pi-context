@@ -83,8 +83,8 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     // Minimal mirror of AcmSessionRuntime.foldAggregate: pass-through, no
     // cache — the HUD tests exercise presentation, not cache behavior.
     foldAggregate: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
-    // Same pass-through mirror for the whole-packet cache.
-    foldPacket: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
+    // Same pass-through mirror for the compact projection cache.
+    foldProjection: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
     contextRefresh: {
       getFailure: () => undefined,
       isPending: () => false,

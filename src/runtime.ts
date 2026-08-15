@@ -2,14 +2,13 @@ import { type MessageAggregate, type UsageLike } from "./usage-estimation.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { LabelMaps } from "./label-journal.js";
-import type { AcmContextPacket } from "./context-packet.js";
-
-/** One cached packet rebuild: the packet itself plus the branch it was
- * normalized against, so fold-depth projections reuse the branch instead of
- * walking getBranch again. */
-export interface FoldPacketCacheEntry {
-  packet: AcmContextPacket;
-  branch: SessionEntry[];
+/** One cached fold projection: the compact facts the checkpoints view renders
+ * per target, kept instead of the packet itself so the per-entry memory is a
+ * few numbers regardless of session depth - the packet and its branch arrays
+ * are O(history) each and are released as soon as the numbers are derived. */
+export interface FoldProjectionCacheEntry {
+  aggregate: MessageAggregate;
+  projectedSummaryDepth: number;
 }
 
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
@@ -89,22 +88,18 @@ export class AcmSessionRuntime {
     targets: Map<string, MessageAggregate>;
   }>();
   /**
-   * Whole-packet companions to the fold aggregates, same key faces. The
-   * aggregates answer "how many tokens"; the packet views (checkpoints)
-   * additionally need the message array itself for rebuild-level work, and
-   * rebuilding 50+ targets per call is dominated by protocol analysis, not
-   * token sums. Marginal memory per entry is one array of shared message
-   * references (roughly 8 bytes per session message) plus the branch array -
-   * normalization only mints new objects for the few messages it repairs or
-   * projects - so the limit can track the checkpoints view's own display cap
-   * without copying history. Dropped by clear() with the aggregates.
+   * Compact fold projections, same key faces as the aggregates: the
+   * checkpoints view's per-target cost is the rebuild (protocol analysis),
+   * so the rebuild's derived facts are cached instead of its packet. Each
+   * entry is a few numbers, so the limit safely tracks the checkpoints
+   * view's full result-entry budget. Dropped by clear() with the aggregates.
    */
-  private readonly foldPackets = new WeakMap<object, {
+  private readonly foldProjections = new WeakMap<object, {
     currentKey: string | null;
-    currentEntry: FoldPacketCacheEntry | undefined;
-    targets: Map<string, FoldPacketCacheEntry>;
+    currentEntry: FoldProjectionCacheEntry | undefined;
+    targets: Map<string, FoldProjectionCacheEntry>;
   }>();
-  private static readonly FOLD_PACKET_CACHE_LIMIT = 100;
+  private static readonly FOLD_PROJECTION_CACHE_LIMIT = 512;
   private static readonly FOLD_TARGET_CACHE_LIMIT = 8;
   /**
    * Label-journal replay, cached per SessionManager on the same key face as
@@ -337,7 +332,7 @@ export class AcmSessionRuntime {
     this.gaugeStates.delete(session);
     this.liveAgentSessions.clear(session);
     this.foldAggregates.delete(session);
-    this.foldPackets.delete(session);
+    this.foldProjections.delete(session);
     this.labelMapsCache.delete(session);
   }
 
@@ -386,21 +381,21 @@ export class AcmSessionRuntime {
   }
 
   /**
-   * One whole packet through the per-session packet cache - the same key
-   * faces and miss semantics as foldAggregate, but holding the rebuild
-   * result itself for views whose per-target cost is the rebuild (protocol
-   * analysis), not the token sum. A rebuild that yields nothing is not
-   * negatively cached.
+   * One compact fold projection through the per-session cache - the same key
+   * faces and miss semantics as foldAggregate, for views whose per-target
+   * cost is the rebuild (protocol analysis) rather than the token sum. The
+   * rebuild callback derives the projection and releases the packet. A
+   * rebuild that yields nothing is not negatively cached.
    */
-  foldPacket(
+  foldProjection(
     session: object,
     key: { kind: "current"; leafId: string | null; entriesLength: number; lastEntryId: string } | { kind: "target"; entryId: string },
-    rebuild: () => FoldPacketCacheEntry | undefined,
-  ): FoldPacketCacheEntry | undefined {
-    let state = this.foldPackets.get(session);
+    rebuild: () => FoldProjectionCacheEntry | undefined,
+  ): FoldProjectionCacheEntry | undefined {
+    let state = this.foldProjections.get(session);
     if (!state) {
       state = { currentKey: null, currentEntry: undefined, targets: new Map() };
-      this.foldPackets.set(session, state);
+      this.foldProjections.set(session, state);
     }
     if (key.kind === "current") {
       const compositeKey = `${key.leafId}|${key.entriesLength}|${key.lastEntryId}`;
@@ -420,7 +415,7 @@ export class AcmSessionRuntime {
     const entry = rebuild();
     if (entry === undefined) return undefined;
     state.targets.set(key.entryId, entry);
-    while (state.targets.size > AcmSessionRuntime.FOLD_PACKET_CACHE_LIMIT) {
+    while (state.targets.size > AcmSessionRuntime.FOLD_PROJECTION_CACHE_LIMIT) {
       const oldest = state.targets.keys().next().value;
       if (oldest === undefined) break;
       state.targets.delete(oldest);
