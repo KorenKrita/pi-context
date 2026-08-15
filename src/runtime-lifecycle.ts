@@ -287,17 +287,28 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // not pay O(entries) for a suffix that never appears.
     let boundaryId: string | null = null;
     let gateBranch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined;
+    const resolveBoundary = (branch: readonly { id: string; type?: string; message?: { role?: string } }[]): string | null => {
+      for (let index = branch.length - 1; index >= 0; index--) {
+        const entry = branch[index]!;
+        if (entry.type === "message" && entry.message?.role === "user") return entry.id;
+      }
+      return null;
+    };
     try {
       gateBranch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
-      for (let index = gateBranch.length - 1; index >= 0; index--) {
-        const entry = gateBranch[index]!;
-        if (entry.type === "message" && entry.message?.role === "user") {
-          boundaryId = entry.id;
-          break;
-        }
-      }
+      boundaryId = resolveBoundary(gateBranch);
     } catch {
-      boundaryId = null;
+      // A transient read must not swallow this request's first reading: the
+      // odometer gates on the boundary id, and a null boundary silences a
+      // first-reading render whose integer pressure has not moved. Retry
+      // once before the gate; only a second failure degrades to null.
+      try {
+        gateBranch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+        boundaryId = resolveBoundary(gateBranch);
+      } catch {
+        boundaryId = null;
+        gateBranch = undefined;
+      }
     }
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
     // The odometer has decided to render, so everything below pays O(entries)

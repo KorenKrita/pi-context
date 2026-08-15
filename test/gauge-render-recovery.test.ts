@@ -81,16 +81,24 @@ describe("gauge render recovery", () => {
     expect(runtime.ledgerState(session).boundaries).toBe(1);
   });
 
-  test("a gate branch failure that the render path recovers from still counts the boundary", () => {
-    // First getBranch() throws (gate scan gets null); the render-path branch
-    // read succeeds. The ledger must scan that recovered branch itself —
-    // receiving the stale null boundaryId must not drop the row.
+  test("a gate branch failure that the immediate retry recovers keeps the boundary reading", () => {
+    // First getBranch() throws; the pre-gate retry succeeds and resolves the
+    // real boundary, so the first reading of a new request renders WITH its
+    // boundary marker — a transient read must not silence or strip it.
     const { runtime, session, runToolResult } = harness({ branchFailures: 1 });
     const patch = runToolResult();
     expect(patch).toBeTruthy();
     expect(runtime.ledgerState(session).boundaries).toBe(1);
-    // The odometer saw the gate's null boundary, not a phantom marker.
-    expect(patchText(patch)).not.toContain("boundary");
+    expect(patchText(patch)).toContain("boundary");
+  });
+
+  test("two consecutive gate branch failures degrade honestly to a null boundary", () => {
+    // Both the read and its retry throw: the gate sees null, the gauge may
+    // still render on integer movement, and no phantom boundary appears.
+    const { runToolResult, reads } = harness({ branchFailures: 2 });
+    const patch = runToolResult();
+    if (patch) expect(patchText(patch)).not.toContain("boundary");
+    expect(reads().branchReads).toBeGreaterThanOrEqual(2);
   });
 
   test("a shared entries failure does not take the fold needles with it", () => {
