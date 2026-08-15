@@ -32,7 +32,7 @@ interface CachedProviderPacket {
  * references - the serializer is native code) and survived three review
  * rounds of getter/proxy/tag-forgery holes; simulating JavaScript's
  * serialization semantics through arbitrary object code is unwinnable and
- * was never worth the attempt. This is the original oracle, never worth the attempt. This is the original oracle, unchanged: both
+ * was never worth the attempt. This is the original oracle, unchanged: both
  * sides always serialize, identity included.
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
