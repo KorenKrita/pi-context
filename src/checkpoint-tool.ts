@@ -8,10 +8,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps } from "./label-journal.js";
 import { ANCHOR_SEARCH_WINDOW, isReservedTargetName, optionalString, sanitizeTerminalText } from "./conventions.js";
 import { isValidEntryId, resolveTargetId } from "./target-resolution.js";
-import { createAcmPacketSnapshot, rebuildAcmContextPacket, type AcmProtocolNormalization } from "./context-packet.js";
+import { createAcmPacketSnapshot, type AcmProtocolNormalization } from "./context-packet.js";
 import { scanProtocolAnchor } from "./anchor-scan.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure } from "./context-pressure.js";
-import { estimateFoldGains, findNearestSavePoint, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { estimateFoldGainsFromAggregates, findNearestSavePoint, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { aggregateMessages, type MessageAggregate } from "./usage-estimation.js";
 import {
   appendCheckpointLabel,
   type CheckpointLabelConflict,
@@ -326,16 +327,28 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
         const references = selectFoldReferences(foldBranch, labelMaps, entryId);
         const nearest = findNearestSavePoint(foldBranch, labelMaps);
-        const currentPacket = rebuildAcmContextPacket(sessionManager);
-        const estimates = pressure && currentPacket.ok
-          ? estimateFoldGains({
+        const foldEntries = sessionManager.getEntries();
+        const foldLeafId = sessionManager.getLeafId();
+        // Same aggregate cache the gauge renders through: a checkpoint right
+        // after a gauge render — the common case — rebuilds nothing, and the
+        // numbers stay identical because both paths share one estimate core.
+        let foldSnapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+        const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
+          foldSnapshot ??= createAcmPacketSnapshot(sessionManager);
+          const result = foldSnapshot.rebuild(wantedLeafId);
+          return result.ok ? aggregateMessages(result.value.messages) : undefined;
+        };
+        const currentAggregate = runtime.foldAggregate(
+          sessionManager,
+          { kind: "current", leafId: foldLeafId, entriesLength: foldEntries.length, lastEntryId: foldEntries.at(-1)?.id ?? "" },
+          () => aggregateAt(foldLeafId),
+        );
+        const estimates = pressure && currentAggregate
+          ? estimateFoldGainsFromAggregates({
               usage: { tokens: pressure.tokens, contextWindow: pressure.contextWindow, percent: 0 },
               workingBudgetTokens: pressure.workingBudgetTokens,
-              currentMessages: currentPacket.value.messages,
-              messagesAt: (id) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
+              currentAggregate,
+              aggregateAt: (id) => runtime.foldAggregate(sessionManager, { kind: "target", entryId: id }, () => aggregateAt(id)),
             }, references)
           : { turnPercent: null, taskPercent: null };
         const scale = pressure ? foldProjectionScaleName(pressure.policy) : "budget";
