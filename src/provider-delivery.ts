@@ -22,13 +22,90 @@ interface CachedProviderPacket {
   readonly sourceMessages: AgentMessage[];
 }
 
-function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
+/**
+ * Structural equality over the JSON-observable projection of two messages:
+ * exactly the values the old serializer would emit, in key order. This is a
+ * correctness boundary — a false positive grafts an unrelated tail onto the
+ * cached packet — so every case the old serializer threw on (cycles, BigInt)
+ * or that cannot be compared faithfully without re-running serialization
+ * (objects with toJSON) fails closed to false, which only ever declines a
+ * graft, never invents one.
+ */
+export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
   if (left === right) return true;
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
+  return jsonEquals(left, right, [], []);
+}
+
+/**
+ * JSON renders NaN, +Infinity and -Infinity all as "null", so they compare
+ * equal to each other and to nothing else; every other primitive compares
+ * exactly by ===. Functions, symbols, and BigInt never serialize as object
+ * values, so they never reach this comparison as equal-by-rendering.
+ */
+function jsonPrimitiveEquals(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left === "number" && typeof right === "number") {
+    return !Number.isFinite(left) && !Number.isFinite(right);
+  }
+  return false;
+}
+
+/** Enumerable own string keys that survive serialization, in stringify order. */
+function jsonObjectKeys(value: object): string[] {
+  const keys: string[] = [];
+  for (const key of Object.keys(value)) {
+    const nested = (value as Record<string, unknown>)[key];
+    if (nested === undefined || typeof nested === "function" || typeof nested === "symbol") continue;
+    keys.push(key);
+  }
+  return keys;
+}
+
+/** Array slots that stringify renders as null: holes, undefined, functions, symbols. */
+function arrayElementJsonValue(array: unknown[], index: number): unknown {
+  const value = array[index];
+  if (value === undefined || typeof value === "function" || typeof value === "symbol") return null;
+  return value;
+}
+
+function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unknown[], rightAncestors: readonly unknown[]): boolean {
+  // BigInt threw under the old serializer, yet 1n === 1n is true in JS — the
+  // identity shortcut below would accept it. Guard before it, fail closed.
+  if (typeof left === "bigint" || typeof right === "bigint") return false;
+  // A cycle would have thrown under the old serializer. Checking before the
+  // identity shortcut keeps a shared cyclic reference false on both sides.
+  if (leftAncestors.includes(left) || rightAncestors.includes(right)) return false;
+  if (left === right) return true;
+  const leftIsObject = typeof left === "object" && left !== null;
+  const rightIsObject = typeof right === "object" && right !== null;
+  if (!leftIsObject || !rightIsObject) return jsonPrimitiveEquals(left, right);
+  // toJSON is a serialization escape hatch that no AgentMessage surface uses;
+  // guessing its output could graft an unrelated tail, so it fails closed.
+  if (typeof (left as { toJSON?: unknown }).toJSON === "function" || typeof (right as { toJSON?: unknown }).toJSON === "function") {
     return false;
   }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    const nextLeft = [...leftAncestors, left];
+    const nextRight = [...rightAncestors, right];
+    for (let index = 0; index < left.length; index++) {
+      if (!jsonEquals(arrayElementJsonValue(left, index), arrayElementJsonValue(right, index), nextLeft, nextRight)) return false;
+    }
+    return true;
+  }
+  // Key order is part of stringify output: {a:1,b:2} and {b:2,a:1} differ.
+  const leftKeys = jsonObjectKeys(left);
+  const rightKeys = jsonObjectKeys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index++) {
+    if (leftKeys[index] !== rightKeys[index]) return false;
+  }
+  const nextLeft = [...leftAncestors, left];
+  const nextRight = [...rightAncestors, right];
+  for (const key of leftKeys) {
+    if (!jsonEquals((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key], nextLeft, nextRight)) return false;
+  }
+  return true;
 }
 
 function suffixAfterKnownPrefix(
