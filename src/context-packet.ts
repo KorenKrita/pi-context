@@ -174,21 +174,19 @@ export function collectTrustedAcmTravelTransactions(entries: readonly SessionEnt
   return [...grouped.values()].flatMap((candidates) => candidates.length === 1 ? candidates : []);
 }
 
-function trustedAppliedTravelReceipts(entries: readonly SessionEntry[]): Map<string, AcmProtocolNormalization[]> {
-  const trusted = new Map<string, AcmProtocolNormalization[]>();
-  for (const transaction of collectTrustedAcmTravelTransactions(entries)) {
-    const candidates = trusted.get(transaction.receiptIdentity) ?? [];
-    candidates.push(transaction.normalization);
-    trusted.set(transaction.receiptIdentity, candidates);
-  }
-  return trusted;
-}
-
 function normalizeAppliedTravelReceipts(
   messages: readonly AgentMessage[],
-  activeEntries: readonly SessionEntry[],
+  trustedTransactions: readonly TrustedAcmTravelTransaction[],
 ): { messages: AgentMessage[]; normalizations: AcmProtocolNormalization[] } {
-  const trustedReceipts = trustedAppliedTravelReceipts(activeEntries);
+  // Receipts arrive pre-collected: the caller already scanned the branch for
+  // its fast-path decision, so a second O(entries) collection here would be
+  // the only reason a traced session pays double.
+  const trustedReceipts = new Map<string, AcmProtocolNormalization[]>();
+  for (const transaction of trustedTransactions) {
+    const candidates = trustedReceipts.get(transaction.receiptIdentity) ?? [];
+    candidates.push(transaction.normalization);
+    trustedReceipts.set(transaction.receiptIdentity, candidates);
+  }
   const packetCandidates = new Map<string, number[]>();
   for (let index = 0; index < messages.length; index++) {
     const identity = receiptIdentity(messages[index]!);
@@ -333,11 +331,47 @@ function projectContinuation(message: AgentMessage, metadata: TrustedContinuatio
   };
 }
 
-export function normalizeExistingAcmPacket(
+/** Both branch scans a normalize needs, collected once so callers with a
+ * cache can reuse the verdict. */
+interface BranchTrace {
+  trusted: Map<string, TrustedContinuationMetadata[]>;
+  trustedTransactions: readonly TrustedAcmTravelTransaction[];
+}
+
+function analyzeBranchTrace(activeEntries: readonly SessionEntry[]): BranchTrace {
+  return {
+    trusted: trustedContinuationQueues(activeEntries),
+    trustedTransactions: collectTrustedAcmTravelTransactions(activeEntries),
+  };
+}
+
+function isTraceFree(trace: BranchTrace): boolean {
+  return trace.trusted.size === 0 && trace.trustedTransactions.length === 0;
+}
+
+/** The trace-free packet: no projection, no removal, only protocol analysis —
+ * the outgoing packet's own requirement, never skipped. analyzeToolProtocol
+ * does not mutate its input, so the original array passes through untouched. */
+function buildTraceFreePacket(messages: readonly AgentMessage[]): AcmContextPacket {
+  const protocol = analyzeToolProtocol(messages);
+  return {
+    messages: protocol.messages,
+    protocol: {
+      status: protocol.status,
+      normalizations: [],
+      repairs: protocol.repairs,
+      defects: protocol.defects,
+    },
+    continuation: { status: "not_present" },
+  };
+}
+
+function normalizeWithTrace(
   messages: readonly AgentMessage[],
-  activeEntries: readonly SessionEntry[] = [],
+  trace: BranchTrace,
 ): AcmContextPacket {
-  const trusted = trustedContinuationQueues(activeEntries);
+  const trusted = trace.trusted;
+  const trustedTransactions = trace.trustedTransactions;
   const candidates = messages.flatMap((message, index) => {
     const match = trustedContinuationMetadata(message, trusted);
     return match ? [{ index, ...match }] : [];
@@ -352,7 +386,7 @@ export function normalizeExistingAcmPacket(
       ? projectContinuation(message, latestCandidate.metadata!)
       : message)
     : [...messages];
-  const normalized = normalizeAppliedTravelReceipts(projected, activeEntries);
+  const normalized = normalizeAppliedTravelReceipts(projected, trustedTransactions);
   const protocol = analyzeToolProtocol(normalized.messages);
   return {
     messages: protocol.messages,
@@ -370,12 +404,40 @@ export function normalizeExistingAcmPacket(
   };
 }
 
+export function normalizeExistingAcmPacket(
+  messages: readonly AgentMessage[],
+  activeEntries: readonly SessionEntry[] = [],
+): AcmContextPacket {
+  const trace = analyzeBranchTrace(activeEntries);
+  if (isTraceFree(trace)) return buildTraceFreePacket(messages);
+  return normalizeWithTrace(messages, trace);
+}
+
 export function normalizeExistingAcmPacketForSession(
   messages: readonly AgentMessage[],
   sessionManager: ReadonlySessionManager,
+  verdictCache?: { traceFreeVerdictFor(session: object, branch: readonly SessionEntry[], probe: () => boolean): boolean },
 ): AcmContextPacket {
   try {
-    return normalizeExistingAcmPacket(messages, sessionManager.getBranch());
+    const branch = sessionManager.getBranch();
+    // Every context event pays this normalize; on a trace-free branch the two
+    // entry scans are pure overhead once the verdict is known. The verdict
+    // rides the runtime's per-session cache (cleared by clear(), so session
+    // surgery re-scans instead of inheriting a pre-surgery key); callers
+    // without a runtime skip the cache entirely. The probe runs the scans
+    // once and hands the trace back so a traced branch pays nothing twice.
+    if (verdictCache) {
+      let trace: BranchTrace | undefined;
+      const traceFree = verdictCache.traceFreeVerdictFor(sessionManager as object, branch, () => {
+        trace = analyzeBranchTrace(branch);
+        return isTraceFree(trace);
+      });
+      if (traceFree) return buildTraceFreePacket(messages);
+      return normalizeWithTrace(messages, trace ?? analyzeBranchTrace(branch));
+    }
+    const trace = analyzeBranchTrace(branch);
+    if (isTraceFree(trace)) return buildTraceFreePacket(messages);
+    return normalizeWithTrace(messages, trace);
   } catch {
     // Existing host-projected messages remain usable in archival form. A
     // transient or capability-incomplete branch read must not crash the
@@ -409,9 +471,14 @@ export function rebuildAcmContextPacket(
   return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
 }
 
+/** A snapshot rebuild's success carries the branch it just read, so callers
+ * that need the entries (fold-depth projections, structural checks) do not
+ * walk getBranch(leafId) a second time for a fact already in hand. */
+export type AcmPacketSnapshotOk = { ok: true; value: AcmContextPacket; branch: SessionEntry[] };
+
 export interface AcmPacketSnapshot {
   /** Rebuild one explicit leaf's packet on the shared entries/ID index; null means the root/empty branch, matching rebuildAcmContextPacket. */
-  rebuild(leafId: string | null): ReturnType<typeof rebuildAcmContextPacket>;
+  rebuild(leafId: string | null): Exclude<ReturnType<typeof rebuildAcmContextPacket>, { ok: true }> | AcmPacketSnapshotOk;
 }
 
 /**
@@ -436,7 +503,7 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
       const result = snapshot.value.messagesAt(leafId);
       if (!result.ok) return result;
       if (leafId === null) {
-        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []) };
+        return { ok: true as const, value: normalizeExistingAcmPacket(result.value, []), branch: [] };
       }
       // Mixed provenance is deliberate: packet messages come from the shared
       // snapshot while activeEntries reads the live branch. The scans that
@@ -455,7 +522,7 @@ export function createAcmPacketSnapshot(sessionManager: ReadonlySessionManager):
           details: { leafId: leafId ?? null, cause },
         };
       }
-      return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries) };
+      return { ok: true as const, value: normalizeExistingAcmPacket(result.value, activeEntries), branch: activeEntries };
     },
   };
 }

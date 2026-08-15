@@ -195,3 +195,43 @@ describe("acm_travel strict-mode compatibility", () => {
     expect(valid.backupCurrentHeadAs).toBe("keep");
   });
 });
+
+// Guards against a real incident: a packaging commit once replaced AGENTS.md
+// wholesale with TypeScript source (an errant write target), and the whole
+// verify gate stayed green because nothing looks at markdown. These are
+// cheap structural checks on the files the extension ships.
+describe("documentation file integrity", () => {
+  test("AGENTS.md is markdown and never source code", async () => {
+    const file = Bun.file("AGENTS.md");
+    expect(file.size).toBeGreaterThan(1000);
+    const text = await file.text();
+    expect(text.startsWith("# AGENTS.md")).toBe(true);
+    expect(text).not.toMatch(/^import .* from "node:/m);
+  });
+
+  test("no shipped markdown file embeds node imports", async () => {
+    // Enumerate from the package manifest, not a hand list: whatever the
+    // extension ships as markdown must be markdown.
+    const pkg = await Bun.file("package.json").json();
+    const shipped: string[] = [];
+    const walk = async (entry: string) => {
+      if (entry.endsWith(".md")) {
+        shipped.push(entry);
+        return;
+      }
+      // Manifest entries name directories without trailing slashes (src,
+      // guidance) as well as globs: enumerate what each actually covers.
+      const directory = entry.replace(/\*+$/, "").replace(/\/$/, "");
+      for (const path of new Bun.Glob(`${directory}/**/*.md`).scanSync(".")) shipped.push(path.replaceAll("\\", "/"));
+    };
+    for (const entry of [...(pkg.files ?? []), "AGENTS.md", "README.md"]) await walk(entry);
+    expect(shipped).toContain("AGENTS.md");
+    expect(shipped).toContain("guidance/CORE.md"); // canonical docs must be covered
+    for (const path of new Set(shipped)) {
+      const file = Bun.file(path);
+      if (!(await file.exists())) continue; // globs may match nothing under a path
+      const text = await file.text();
+      expect(text).not.toMatch(/^import .* from "node:/m);
+    }
+  });
+});

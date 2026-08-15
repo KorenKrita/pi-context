@@ -29,7 +29,7 @@ import { buildTravelTargetFacts } from "./travel-target-facts.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
-import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator } from "./boundary-ledger.js";
+import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator, type LedgerState } from "./boundary-ledger.js";
 import { calculateContextUsagePressure, foldProjectionScaleName } from "./context-pressure.js";
 
 /**
@@ -278,8 +278,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
 
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
-      const branch = sessionManager.getBranch();
-      const labelMaps = buildLabelMaps(sessionManager.getEntries());
+      // Same pre-mutation version preTravelBranch already read - nothing has
+      // been mutated between the two reads, so walk it once.
+      const branch = preTravelBranch;
+      const labelEntries = sessionManager.getEntries();
+      const labelMaps = runtime.labelMapsFor(sessionManager, labelEntries, () => buildLabelMaps(labelEntries));
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));
       const requestedRoot = params.target.toLowerCase() === "root";
       const resolvedBy = requestedRoot ? "root" : labelMaps.labelToEntryId.has(params.target) ? "checkpoint" : "entry_id";
@@ -339,7 +342,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ? { tokens: authoritativeBefore.tokens, contextWindow: authoritativeBefore.contextWindow, percent: authoritativeBefore.usagePercent }
         : undefined;
       const usageBeforeText = formatContextUsage(usageBefore);
-      const currentPacketResult = rebuildAcmContextPacket(sessionManager);
+      // One snapshot serves both pre-mutation packets: current and target
+      // read the same session version, so they share one entries read and
+      // one ID index instead of each rebuilding the full acquisition.
+      const travelSnapshot = createAcmPacketSnapshot(sessionManager);
+      const currentPacketResult = travelSnapshot.rebuild(sessionManager.getLeafId());
       if (!currentPacketResult.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: cannot build current session messages: ${currentPacketResult.message}. Travel aborted.` }],
@@ -367,14 +374,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         };
       }
       const currentMessages = currentPacket.messages;
-      const targetPacketResult = rebuildAcmContextPacket(sessionManager, targetId);
+      const targetPacketResult = travelSnapshot.rebuild(targetId);
       if (!targetPacketResult.ok) {
         return {
           content: [{ type: "text" as const, text: `Error: cannot build target session messages: ${targetPacketResult.message}. Travel aborted.` }],
           details: { error: "build_messages_failed", message: targetPacketResult.message, target: params.target, targetId },
         };
       }
-      const targetBranch = sessionManager.getBranch(targetId);
+      // The rebuild already read this exact branch; reuse it instead of a
+      // second ancestor walk for the same leaf.
+      const targetBranch = targetPacketResult.branch;
       // FM-15 structural guard: a target that precedes nothing cannot fold
       // anything. The `currentLeaf === targetId` check above misses the common
       // shape — checkpoint, then travel to it — because the checkpoint's own
@@ -470,7 +479,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           window: ANCHOR_SEARCH_WINDOW,
           signal,
           acceptRepairedDirectly: targetPacketResult.value.protocol.status === "repaired",
-          rebuild: createAcmPacketSnapshot(sessionManager).rebuild,
+          rebuild: travelSnapshot.rebuild,
         });
         if (scan.aborted) {
           return {
@@ -678,6 +687,19 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       }
 
       runtime.resetGaugeCycle(sessionManager);
+      // The fold count describes applied travels, so it advances the moment the
+      // mutation is durable — before any post-mutation observation that may
+      // fail and return early. The fold row itself needs the receipt's
+      // before/after pressure and is written further down; a session that
+      // folded but could not be observed still reports truthful foldsSoFar on
+      // every later boundary row.
+      let ledgerState: LedgerState | undefined;
+      try {
+        ledgerState = runtime.ledgerState(sessionManager);
+        markFoldCounted(ledgerState);
+      } catch {
+        // A diagnostic counter must never affect a travel receipt.
+      }
       const summaryEntryId = mutation.summaryEntryId;
       const resultingLeafId = mutation.resultingLeafId;
       const backupOutcome = mutation.backupOutcome;
@@ -834,14 +856,16 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       // on the same yardstick. Swallowed on any failure.
       try {
         // The session's own ledger state: fold rows must share the boundary
-        // rows' discriminator or the per-session join breaks, and the fold
-        // count must advance so boundary rows report foldsSoFar truthfully.
-        const ledgerState = runtime.ledgerState(sessionManager);
+        // rows' discriminator or the per-session join breaks. The count already
+        // advanced when the mutation applied; a queue-full drop or a later write
+        // failure must not erase the fact that this session folded here.
+        if (ledgerState === undefined) throw new Error("ledger state unavailable");
         // Boundary rows and the receipt now share the working-budget yardstick;
         // reuse the receipt's pressure conversions directly.
         let savePointsAfter: number | null = null;
         try {
-          const postMaps = buildLabelMaps(sessionManager.getEntries());
+          const postEntries = sessionManager.getEntries();
+          const postMaps = runtime.labelMapsFor(sessionManager, postEntries, () => buildLabelMaps(postEntries));
           let count = 0;
           for (const entry of sessionManager.getBranch()) {
             if (postMaps.entryToLabel.get(entry.id) !== undefined) count++;
@@ -850,7 +874,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         } catch {
           savePointsAfter = null;
         }
-        const written = appendLedgerRow("fold", buildFoldRow({
+        appendLedgerRow("fold", buildFoldRow({
           state: ledgerState,
           budgetBefore: budgetBeforePercent,
           budgetAfter: estimatedBudgetAfterPercent,
@@ -859,7 +883,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           savePoints: savePointsAfter,
           model: modelDiscriminator((ctx as { model?: { provider?: unknown; id?: unknown } }).model),
         }));
-        if (written) markFoldCounted(ledgerState);
       } catch {
         // A diagnostic writer must never affect a travel receipt.
       }

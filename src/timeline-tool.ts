@@ -3,19 +3,18 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { SessionEntry, SessionTreeNode } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Type, type Static } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { optionalString, sanitizeTerminalText } from "./conventions.js";
-import { countActiveSummaryDepth, estimateUsageAfterMessageChange, formatContextUsage, projectSummaryDepthAfterTravel } from "./usage-estimation.js";
-import { extractTextFromContent, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
+import { aggregateMessages, countActiveSummaryDepth, estimateUsageFromAggregates, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
+import { extractTextFromContent, extractTextFromContentBounded, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
-import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot, rebuildAcmContextPacket } from "./context-packet.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./context-packet.js";
+import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime, ProviderDeliveryPhase } from "./runtime.js";
+import type { AcmSessionRuntime, FoldProjectionCacheEntry, ProviderDeliveryPhase } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
@@ -32,6 +31,9 @@ interface CheckpointListing {
 interface SearchMatch {
   entry: SessionEntry;
   label: string | undefined;
+  /** The ready-to-render snippet, cut at match time - the full rendered
+   * text is never retained past this loop. */
+  text: string;
 }
 
 const TIMELINE_DYNAMIC_VALUE_CHARS = 240;
@@ -60,7 +62,40 @@ function collectRawArchiveAliases(entries: readonly SessionEntry[], labelMaps: L
   return aliases;
 }
 
+/**
+ * Rendered entry text. No cross-call cache: entries live as long as the
+ * session, so a WeakMap keyed by them pins every string it stores for the
+ * session's lifetime, and every bounded variant review suggested (size
+ * threshold, LRU, per-session ownership) traded that pinning for invalidation
+ * machinery guarding a ~10% join saving. Searches re-join on demand; the
+ * scan budget already bounds how much that can cost per call.
+ */
 function entryText(entry: SessionEntry, verbose: boolean): string {
+  return buildEntryText(entry, verbose);
+}
+
+/** Bounded materialization. Message content - the shape that carries large
+ * tool output - is extracted part-by-part and stops at the source-work
+ * budget, so the full joined string is never built. Short single-field shapes
+ * (summaries, labels) go through the full builder with a bounded prefix. */
+function boundedEntryText(
+  entry: SessionEntry,
+  verbose: boolean,
+  maxChars: number,
+): { text: string; sourceCharsConsumed: number; truncated: boolean } {
+  if (entry.type === "message" && "content" in entry.message) {
+    return extractTextFromContentBounded(entry.message.content, maxChars);
+  }
+  const full = buildEntryText(entry, verbose);
+  const sourceCharsConsumed = Math.min(full.length, maxChars);
+  return {
+    text: full.slice(0, sourceCharsConsumed),
+    sourceCharsConsumed,
+    truncated: sourceCharsConsumed < full.length,
+  };
+}
+
+function buildEntryText(entry: SessionEntry, verbose: boolean): string {
   if (entry.type === "branch_summary" || entry.type === "compaction") return entry.summary || "[No summary provided]";
   if (entry.type === "label") return verbose ? `label ${entry.label ?? "cleared"} → ${entry.targetId}` : "";
   if (entry.type !== "message") return verbose ? entry.type : "";
@@ -68,7 +103,6 @@ function entryText(entry: SessionEntry, verbose: boolean): string {
   if (!verbose && (role === "custom" || (role as string) === "system")) return "";
   return "content" in entry.message ? extractTextFromContent(entry.message.content) : "";
 }
-
 function displayRole(entry: SessionEntry): string {
   if (entry.type === "branch_summary") return "SUMMARY";
   if (entry.type === "compaction") return "COMPACTION";
@@ -138,40 +172,182 @@ function isAcmToolEcho(entry: SessionEntry): boolean {
     && entry.message.toolName.startsWith("acm_");
 }
 
+/** Hard ceiling on nodes visited by one search: a no-match query otherwise
+ * reads the full content of every archived node in the tree. */
+const TIMELINE_SEARCH_SCAN_NODE_BUDGET = 5_000;
+
+interface SearchFilterOptions {
+  /** Restrict matches to the active branch (active) or everything off it (archive). */
+  scope?: "active" | "archive" | undefined;
+  /** Restrict matches to one structural entry kind. */
+  type?: "user" | "summary" | "tool" | undefined;
+  /** Entry IDs on the current branch — the definition of "active". */
+  activeIds: ReadonlySet<string>;
+  scanNodeBudget: number;
+}
+
+type SearchTruncationReason = "limit" | "scan_budget" | "text_budget" | "signal" | null;
+
+/** One node's source text is consumed at most this far for matching; beyond
+ * it, a hit past the cut is honestly out of reach for that node. */
+const SEARCH_NODE_TEXT_MAX_CHARS = 65_536;
+/** Total source-text work budget per search call: the node budget bounds the
+ * tree's width, while this bounds trim-independent extraction and matching
+ * work across large tool outputs. */
+const SEARCH_TOTAL_TEXT_BUDGET_CHARS = 2_000_000;
+
+function searchTruncationPhrase(reason: "limit" | "scan_budget" | "text_budget" | "signal" | null): string {
+  if (reason === "scan_budget") return "5,000-node scan limit";
+  if (reason === "text_budget") return `text budget (${SEARCH_TOTAL_TEXT_BUDGET_CHARS.toLocaleString("en-US")} chars)`;
+  if (reason === "signal") return "cancelled";
+  return "display limit";
+}
+
+
+function searchEntryKind(entry: SessionEntry): "user" | "summary" | "tool" | null {
+  if (entry.type === "branch_summary" || entry.type === "compaction") return "summary";
+  if (entry.type === "message") {
+    if (entry.message.role === "user") return "user";
+    if (entry.message.role === "toolResult") return "tool";
+  }
+  return null;
+}
+
+function isAsciiText(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    if (value.charCodeAt(index) > 0x7f) return false;
+  }
+  return true;
+}
+
+/**
+ * Case-insensitive contains without lowercasing the haystack. On a pure-ASCII
+ * pair it compares normalized char codes, which is byte-identical to
+ * toLowerCase().includes() semantics in that range and skips the full-string
+ * lowercase copy the old form allocated for every scanned node. Any
+ * non-ASCII side keeps the exact old form, so Unicode case mappings are
+ * untouched. The needle must already be lowercased.
+ */
+function containsCaseInsensitive(haystack: string, needle: string, needleIsAscii: boolean): boolean {
+  if (!needleIsAscii || !isAsciiText(haystack)) {
+    return haystack.toLowerCase().includes(needle);
+  }
+  const needleLength = needle.length;
+  if (needleLength === 0) return true;
+  const limit = haystack.length - needleLength;
+  if (limit < 0) return false;
+  const first = needle.charCodeAt(0);
+  for (let start = 0; start <= limit; start++) {
+    let code = haystack.charCodeAt(start);
+    if (code !== first) {
+      if (code >= 0x41 && code <= 0x5a) code += 0x20;
+      if (code !== first) continue;
+    }
+    let offset = 1;
+    while (offset < needleLength) {
+      code = haystack.charCodeAt(start + offset);
+      if (code >= 0x41 && code <= 0x5a) code += 0x20;
+      if (code !== needle.charCodeAt(offset)) break;
+      offset++;
+    }
+    if (offset === needleLength) return true;
+  }
+  return false;
+}
+
 function searchTree(
   tree: SessionTreeNode[],
   labelMaps: LabelMaps,
   query: string,
   limit: number,
-  signal?: AbortSignal,
-): { matches: SearchMatch[]; truncated: boolean } {
+  signal: AbortSignal | undefined,
+  options: SearchFilterOptions,
+): { matches: SearchMatch[]; truncated: boolean; truncationReason: SearchTruncationReason; scannedNodes: number; scanBudget: number; textChars: number; textBudget: number; nodesCutAtNodeCap: number; nodesCutAtCallBudget: number } {
   const normalizedQuery = query.toLowerCase();
+  const queryIsAscii = isAsciiText(normalizedQuery);
   const stack = [...tree].reverse();
   const matches: SearchMatch[] = [];
   let truncated = false;
+  let truncationReason: SearchTruncationReason = null;
+  let scannedNodes = 0;
+  let textChars = 0;
+  let nodesCutAtNodeCap = 0;
+  let nodesCutAtCallBudget = 0;
   while (stack.length > 0) {
     if (signal?.aborted) {
       truncated = true;
+      truncationReason = "signal";
+      break;
+    }
+    // Hitting the budget with nodes still unvisited is truncation; hitting it
+    // exactly as the stack empties is a complete scan, not a partial one.
+    if (scannedNodes >= options.scanNodeBudget && stack.length > 0) {
+      truncated = true;
+      truncationReason = "scan_budget";
+      break;
+    }
+    // The text budget is checked BEFORE materializing the next node: a node
+    // read past the budget would pay its join for nothing and inflate the
+    // cut-node count without ever being matched.
+    if (textChars >= SEARCH_TOTAL_TEXT_BUDGET_CHARS && stack.length > 0) {
+      truncated = true;
+      truncationReason = "text_budget";
       break;
     }
     const node = stack.pop()!;
-    const label = getEntryLabel(labelMaps, node.entry.id);
-    const matched = (label === undefined && isAcmToolEcho(node.entry))
-      ? false
-      : node.entry.id.toLowerCase().includes(normalizedQuery)
-        || (label !== undefined && label.toLowerCase().includes(normalizedQuery))
-        || entryText(node.entry, true).toLowerCase().includes(normalizedQuery);
+    scannedNodes += 1;
+    // Structural filters run before any text is read: on big trees, the
+    // content read is the scan cost, so excluded nodes never pay it.
+    const scopePasses = options.scope === undefined
+      || (options.scope === "active") === options.activeIds.has(node.entry.id);
+    const typePasses = options.type === undefined || searchEntryKind(node.entry) === options.type;
+    let matched = false;
+    let label: string | undefined;
+    let candidateText = "";
+    let cutAtCallBudget = false;
+    if (scopePasses && typePasses) {
+      label = getEntryLabel(labelMaps, node.entry.id);
+      if (label === undefined && isAcmToolEcho(node.entry)) {
+        matched = false;
+      } else {
+        // Materialize once under both budgets. Matching/snippets use the
+        // trimmed rendered prefix; the call budget charges pre-trim source
+        // work, so whitespace and separators cannot bypass it.
+        const remainingCallBudget = SEARCH_TOTAL_TEXT_BUDGET_CHARS - textChars;
+        const appliedNodeBudget = Math.min(SEARCH_NODE_TEXT_MAX_CHARS, Math.max(0, remainingCallBudget));
+        const bounded = boundedEntryText(node.entry, true, appliedNodeBudget);
+        candidateText = bounded.text;
+        textChars += bounded.sourceCharsConsumed;
+        if (bounded.truncated) {
+          if (appliedNodeBudget < SEARCH_NODE_TEXT_MAX_CHARS) {
+            nodesCutAtCallBudget += 1;
+            cutAtCallBudget = true;
+          } else {
+            nodesCutAtNodeCap += 1;
+          }
+        }
+        matched = containsCaseInsensitive(node.entry.id, normalizedQuery, queryIsAscii)
+          || (label !== undefined && containsCaseInsensitive(label, normalizedQuery, queryIsAscii))
+          || containsCaseInsensitive(candidateText, normalizedQuery, queryIsAscii);
+      }
+    }
     if (matched) {
       if (matches.length < limit) {
-        matches.push({ entry: node.entry, label });
+        matches.push({ entry: node.entry, label, text: snippet(candidateText) });
       } else {
         truncated = true;
+        truncationReason = "limit";
         break;
       }
     }
+    if (cutAtCallBudget) {
+      truncated = true;
+      truncationReason = "text_budget";
+      break;
+    }
     pushTreeChildrenPreOrder(stack, node.children);
   }
-  return { matches, truncated };
+  return { matches, truncated, truncationReason, scannedNodes, scanBudget: options.scanNodeBudget, textChars, textBudget: SEARCH_TOTAL_TEXT_BUDGET_CHARS, nodesCutAtNodeCap, nodesCutAtCallBudget };
 }
 
 /** Shorten a rendered body to one line, marking real truncation honestly. */
@@ -330,32 +506,58 @@ function fitTimelineOutputToBudget(
   budget: number,
   leafId: string | null,
   nodeTargetId?: string | null,
-): { text: string; truncated: boolean } {
-  if (text.length <= budget) return { text, truncated: false };
+  // A structural fact that must survive whenever character fitting removes
+  // the body that stated it. It is appended unconditionally on truncation:
+  // dynamic HUD text is untrusted data and must never suppress this receipt
+  // merely by containing the same words.
+  pinnedOnTruncate?: { line: string; reserveChars?: number; footerRecovery?: string } | null,
+): { text: string; truncated: boolean; retainedSourcePrefixChars: number } {
+  if (text.length <= budget) return { text, truncated: false, retainedSourcePrefixChars: text.length };
   // The node view reads one entry in full, so "narrow the query" is not an
   // available move there; its footer names the target and states the cut.
   // IDs come from persisted sessions and may be arbitrarily long, so they
   // are bounded here to keep the footer itself within the budget.
   const boundedId = (value: string) => boundedTimelineValue(value, 80);
+  const footerRecovery = pinnedOnTruncate?.footerRecovery
+    ?? "Use a narrower filter/query or a smaller view.";
   const footer = nodeTargetId
     ? `\n… [timeline node output truncated at ${budget} characters; node ${boundedId(nodeTargetId)}; active leaf ${leafId === null ? "none" : boundedId(leafId)}.]`
-    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. Use a narrower filter/query or a smaller view.]`;
-  const prefixLength = Math.max(0, budget - footer.length);
+    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. ${footerRecovery}]`;
+  const pinned = pinnedOnTruncate
+    ? `\n… [${boundedTimelineValue(pinnedOnTruncate.line, 200)}]`
+    : "";
+  // Search fits twice: first with a provisional delivered count, then with
+  // the measured count. A fixed reservation keeps the retained source prefix
+  // identical across both fits, so the count cannot move under its own receipt.
+  const pinnedReserve = Math.max(pinned.length, pinnedOnTruncate?.reserveChars ?? 0);
+  const prefixLength = Math.max(0, budget - footer.length - pinnedReserve);
   // Bounded IDs keep the footer far below the smallest budget; the final
   // slice enforces the budget invariant even if a future footer outgrows it.
-  return { text: `${text.slice(0, prefixLength)}${footer}`.slice(0, budget), truncated: true };
+  return {
+    text: `${text.slice(0, prefixLength)}${pinned}${footer}`.slice(0, budget),
+    truncated: true,
+    retainedSourcePrefixChars: Math.min(prefixLength, text.length),
+  };
 }
 
-function countOffPathSummaries(branch: SessionEntry[], tree: SessionTreeNode[], activeIds: Set<string>): number {
+/**
+ * Count branch positions that fold material away below them — the off-path
+ * handoff layers. Equivalent to walking the tree and counting branch nodes
+ * with an off-path branch_summary child, but answerable from entries alone:
+ * one pass marks branch parents that own an off-path summary. Self-parented
+ * entries are roots in the tree and never a child, so they are excluded.
+ */
+function countOffPathSummaries(branch: SessionEntry[], entries: readonly SessionEntry[], activeIds: Set<string>): number {
   const branchIds = new Set(branch.map((entry) => entry.id));
-  let count = 0;
-  const stack = [...tree];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    if (branchIds.has(node.entry.id) && node.children.some((child) => !activeIds.has(child.entry.id) && child.entry.type === "branch_summary")) count++;
-    stack.push(...node.children);
+  const parentsWithOffPathSummary = new Set<string>();
+  for (const entry of entries) {
+    if (entry.type !== "branch_summary") continue;
+    if (activeIds.has(entry.id)) continue;
+    if (entry.parentId === null || entry.parentId === entry.id) continue;
+    if (!branchIds.has(entry.parentId)) continue;
+    parentsWithOffPathSummary.add(entry.parentId);
   }
-  return count;
+  return parentsWithOffPathSummary.size;
 }
 
 export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntime): void {
@@ -374,7 +576,16 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
     limit: limitSchema,
     verbose: Type.Optional(Type.Boolean({ description: "Active view only: show all messages, including internal tool traffic and metadata." })),
     filter: Type.Optional(Type.String({ minLength: 1, description: "Narrow the checkpoints view by label or node-ID substring (case-insensitive)." })),
-    query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the whole tree. Required for view=search." })),
+    query: Type.Optional(Type.String({ minLength: 1, description: "Search text; matches labels, node IDs, and content across the tree, bounded by the 5,000-node scan budget. Required for view=search." })),
+    scope: Type.Optional(Type.Union([
+      Type.Literal("active"),
+      Type.Literal("archive"),
+    ], { description: "Search view only: match entries on the active branch (active) or on archived/folded branches (archive). Default: the whole tree within the scan budget." })),
+    type: Type.Optional(Type.Union([
+      Type.Literal("user"),
+      Type.Literal("summary"),
+      Type.Literal("tool"),
+    ], { description: "Search view only: match user messages (user), branch/compaction summaries (summary), or tool results (tool). Default: all kinds." })),
     target: Type.Optional(Type.String({ minLength: 1, description: "Node to read: a checkpoint name or node ID. Required for view=node." })),
   }, { additionalProperties: false });
 
@@ -402,6 +613,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (view === "active" && verbose) qualifiers.push("verbose");
       if (view === "checkpoints" && filter) qualifiers.push(`filter “${sanitizeTerminalText(filter)}”`);
       if (view === "search" && query) qualifiers.push(`query “${sanitizeTerminalText(query)}”`);
+      const scope = optionalString(args.scope);
+      const type = optionalString(args.type);
+      if (view === "search" && scope) qualifiers.push(`scope ${scope}`);
+      if (view === "search" && type) qualifiers.push(`type ${type}`);
       if (view === "node" && target) qualifiers.push(`target “${sanitizeTerminalText(target)}”`);
       component.setText(
         theme.fg("toolTitle", theme.bold("◆ ACM TIMELINE  "))
@@ -474,7 +689,13 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       } else if (view === "search") {
         const matches = asCount(details?.searchDisplayedMatches);
-        evidence = `${matches} match${matches === 1 ? "" : "es"}${details?.searchTruncated ? " · truncated" : ""}`;
+        const scanned = asCount(details?.searchScannedNodes);
+        const budget = asCount(details?.searchScanBudget);
+        const scanSuffix = budget > 0 ? ` · scanned ${scanned}/${budget}` : "";
+        const truncationSuffix = details?.searchTruncated
+          ? (typeof details?.searchTruncationReason === "string" ? ` · truncated (${searchTruncationPhrase(details.searchTruncationReason as "limit" | "scan_budget" | "text_budget" | "signal" | null)})` : " · truncated")
+          : "";
+        evidence = `${matches} match${matches === 1 ? "" : "es"}${truncationSuffix}${scanSuffix}`;
       } else if (view === "node") {
         const nodeId = typeof details?.nodeEntryId === "string" ? sanitizeTerminalText(details.nodeEntryId) : "unknown";
         const before = asCount(details?.nodeBeforeCount);
@@ -525,10 +746,12 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const filter = optionalString(rawParams.filter);
       const query = optionalString(rawParams.query);
       const target = optionalString(rawParams.target);
-      const params = { view, limit: limit ?? 50, verbose, filter, query, target } as
+      const scope = optionalString(rawParams.scope) as "active" | "archive" | undefined;
+      const type = optionalString(rawParams.type) as "user" | "summary" | "tool" | undefined;
+      const params = { view, limit: limit ?? 50, verbose, filter, query, target, scope, type } as
         | { view: "active"; limit: number; verbose?: boolean }
         | { view: "checkpoints"; limit: number; filter?: string }
-        | { view: "search"; limit: number; query: string }
+        | { view: "search"; limit: number; query: string; scope?: "active" | "archive"; type?: "user" | "summary" | "tool" }
         | { view: "node"; limit: number; target: string }
         | { view: "tree"; limit: number; verbose?: boolean };
       // Silently ignored parameters produce false negatives (a filter on the
@@ -538,6 +761,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (query && view !== "search") ignoredParams.push(`'query' (only applies to view=search)`);
       if (target && view !== "node") ignoredParams.push(`'target' (only applies to view=node)`);
       if (verbose !== undefined && view !== "active" && view !== "tree") ignoredParams.push(`'verbose' (only applies to view=active and view=tree)`);
+      if (scope !== undefined && view !== "search") ignoredParams.push(`'scope' (only applies to view=search)`);
+      if (type !== undefined && view !== "search") ignoredParams.push(`'type' (only applies to view=search)`);
       if (params.view === "search" && !params.query) {
         return {
           content: [{ type: "text" as const, text: "Error: 'query' is required when view=search." }],
@@ -560,16 +785,30 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         budgetAuthority ? { tokens: budgetAuthority.tokens, contextWindow: budgetAuthority.contextWindow } : undefined,
       );
       const sessionManager = ctx.sessionManager;
-      const tree = sessionManager.getTree();
+      // getTree() rebuilds the whole tree on every call. Views that can
+      // answer from branch/entries (active) never pay for it; the views that
+      // genuinely walk the tree fetch it once here, lazily.
+      let treeCache: SessionTreeNode[] | undefined;
+      const treeOnce = (): SessionTreeNode[] => (treeCache ??= sessionManager.getTree());
       const branch = sessionManager.getBranch();
       const entries = sessionManager.getEntries();
       const leafId = sessionManager.getLeafId();
-      const labelMaps = buildLabelMaps(entries);
+      // Same per-session label cache the gauge and travel read through: a
+      // timeline right after a gauge render replays nothing.
+      const labelMaps = runtime.labelMapsFor(sessionManager, entries, () => buildLabelMaps(entries));
       const activeIds = new Set(branch.map((entry) => entry.id));
       const activeSummaryDepth = countActiveSummaryDepth(branch);
-      const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
-      const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
-      const rawArchiveAliases = collectRawArchiveAliases(entries, labelMaps);
+      // Computed once here: the active view's HUD line and every view's
+      // details field ask the same question; the old shape walked entries
+      // twice on the active view.
+      const offPathSummaryCount = countOffPathSummaries(branch, entries, activeIds);
+      // entriesById/pathOrder serve only the checkpoints listing and move
+      // into that view; the raw archive alias set serves several views and
+      // becomes lazy instead - built on first use, shared thereafter.
+      const EMPTY_LABEL_ALIASES: ReadonlySet<string> = new Set();
+      let rawArchiveAliasesCache: ReadonlySet<string> | undefined;
+      const rawArchiveAliasesOnce = (): ReadonlySet<string> =>
+        (rawArchiveAliasesCache ??= collectRawArchiveAliases(entries, labelMaps));
       const lines: string[] = [];
       let treeTruncated = false;
       let activeVisibleEntries = 0;
@@ -579,13 +818,27 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let checkpointsDisplayedAliases = 0;
       let checkpointsMatchingEntries = 0;
       let checkpointsDisplayedEntries = 0;
+      let checkpointsSelectedEntries = 0;
+      let checkpointLineIndexes: number[] = [];
       let checkpointAliasesOnMatchingEntries = 0;
       let checkpointAliasNamesShown = 0;
+      let checkpointsRenderAborted = false;
       let rootCandidateDisplayed = false;
+      let rootCandidateLineIndex: number | null = null;
       let rootCandidateEntryId: string | null = null;
       let rootProjectedSummaryDepth: number | null = null;
+      let searchSelectedMatches = 0;
       let searchDisplayedMatches = 0;
+      let searchMatchLineIndexes: number[] = [];
       let searchTruncated = false;
+      let searchTruncationReason: "limit" | "scan_budget" | "text_budget" | "signal" | null = null;
+      let searchScannedNodes = 0;
+      let searchTextChars = 0;
+      let searchNodesCutAtNodeCap = 0;
+      let searchNodesCutAtCallBudget = 0;
+      let searchPartialNodeCuts = 0;
+      let searchScope: "active" | "archive" | null = null;
+      let searchType: "user" | "summary" | "tool" | null = null;
       let nodeRequestedTarget: string | null = null;
       let nodeEntryId: string | null = null;
       let nodeLabel: string | null = null;
@@ -597,8 +850,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
 
       if (params.view === "checkpoints") {
         const filter = params.filter?.toLowerCase() ?? "";
-        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliases);
-        const rootEntry = tree[0]?.entry;
+        const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
+        const pathOrder = new Map(branch.map((entry, index) => [entry.id, index]));
+        const listings = collectListings(labelMaps, activeIds, leafId, filter, entriesById, pathOrder, rawArchiveAliasesOnce());
+        const rootEntry = treeOnce()[0]?.entry;
         const rootMatchesFilter = rootEntry && rootEntry.id !== leafId && (
           !filter || "root".includes(filter) || rootEntry.id.toLowerCase().includes(filter)
         );
@@ -621,98 +876,201 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? { tokens: checkpointsPressure.tokens, contextWindow: checkpointsPressure.contextWindow, percent: checkpointsPressure.usagePercent }
           : undefined;
         // One snapshot for the current leaf, root, and every displayed
-        // checkpoint: the whole view shares a single entries read and ID
-        // index instead of one full session projection per target.
-        const snapshot = createAcmPacketSnapshot(sessionManager);
-        const currentResult = snapshot.rebuild(leafId);
-        if (!currentResult.ok) {
+        // checkpoint, built lazily: a repeat call whose projections all hit
+        // the runtime cache never reads the entries or builds the ID index
+        // at all. Every rebuild that does run flows through the compact
+        // projection cache - derived numbers kept, packet and branch
+        // released - so no per-target protocol analysis, no per-target
+        // memory.
+        let snapshotCache: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+        const projectionAt = (wantedLeafId: string | null): FoldProjectionCacheEntry | undefined => {
+          snapshotCache ??= createAcmPacketSnapshot(sessionManager);
+          const result = snapshotCache.rebuild(wantedLeafId);
+          if (!result.ok) {
+            // A failed snapshot (transient entries read) must not be reused:
+            // drop it so the next attempt rebuilds from the host instead of
+            // replaying the failure forever.
+            snapshotCache = undefined;
+            return undefined;
+          }
           return {
-            content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${currentResult.message}` }],
-            details: { error: currentResult.error, message: currentResult.message },
+            aggregate: aggregateMessages(result.value.messages),
+            projectedSummaryDepth: projectSummaryDepthAfterTravel(result.branch),
           };
+        };
+        let currentProjection = runtime.foldProjection(
+          sessionManager,
+          { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+          () => projectionAt(leafId),
+        );
+        if (!currentProjection) {
+          // Misses are not negatively cached; re-run to distinguish a real
+          // failure from a transient one. A successful re-run means the miss
+          // was transient — render with it rather than reporting a fabricated
+          // error for a packet that did build.
+          snapshotCache = createAcmPacketSnapshot(sessionManager);
+          const retried = snapshotCache.rebuild(leafId);
+          if (retried.ok) {
+            currentProjection = {
+              aggregate: aggregateMessages(retried.value.messages),
+              projectedSummaryDepth: projectSummaryDepthAfterTravel(retried.branch),
+            };
+          } else {
+            return {
+              content: [{ type: "text" as const, text: `Checkpoints (${listings.length} matching entries / ${checkpointsMatchingAliases} matched aliases / ${checkpointAliasesOnMatchingEntries} total aliases, 0 displayed). Current messages could not be built: ${retried.message}` }],
+              details: { error: retried.error, message: retried.message },
+            };
+          }
         }
+        // Same aggregate cache the gauge, HUD, and checkpoint receipt render
+        // through: the current reading is summed once (and shared with those
+        // surfaces), each target pays one cold scan ever. The old array form
+        // re-summed the full current message list for every displayed target.
+        const currentAggregate = currentProjection.aggregate;
+        const projectionFor = (entryId: string): FoldProjectionCacheEntry | undefined =>
+          runtime.foldProjection(sessionManager, { kind: "target", entryId }, () => projectionAt(entryId));
         // Header grammar: entry counts only when they carry information.
         // An unfiltered list that fits needs one number, not five.
-        const currentSummary = `Current position: ${currentResult.value.messages.length} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
+        const currentSummary = `Current position: ${currentAggregate.messageCount} msg(s) in context, ${describeUsageLike(usage)}${activeSummaryDepth > 0 ? `, handoff layers ${activeSummaryDepth}` : ""}.`;
         if (listings.length === 0 && !rootMatchesFilter) {
           lines.push(filter ? `No checkpoints match '${boundedTimelineValue(params.filter ?? "")}'. ${currentSummary}` : `No checkpoints yet. ${currentSummary}`);
-        } else {
-          const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
-          const shownNote = displayedListings.length < listings.length
-            ? `, showing ${displayedListings.length} (limit ${effectiveLimit})`
-            : "";
-          const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
-          lines.push(`Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`);
         }
-        const cache = new Map<string, { ok: true; messages: AgentMessage[] } | { ok: false }>();
-        const projectedDepthCache = new Map<string, number>();
+        // The header states how many rows follow, but an abort can stop the
+        // render mid-list. Reserve its slot now and write it once the rendered
+        // count is final, so "showing N" and the "+N more" tail describe the
+        // rows actually present instead of the pre-abort plan.
+        const checkpointsHeaderSlot = listings.length === 0 && !rootMatchesFilter ? -1 : lines.length;
+        if (checkpointsHeaderSlot >= 0) lines.push("");
         if (rootEntry && rootMatchesFilter) {
-          const rootResult = snapshot.rebuild(rootEntry.id);
-          const rootMessages = rootResult.ok ? rootResult.value.messages : [];
-          cache.set(rootEntry.id, rootResult.ok ? { ok: true, messages: rootMessages } : { ok: false });
+          const rootProjection = projectionFor(rootEntry.id);
           rootCandidateDisplayed = true;
           rootCandidateEntryId = rootEntry.id;
-          rootProjectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
-          projectedDepthCache.set(rootEntry.id, rootProjectedSummaryDepth);
+          rootProjectedSummaryDepth = rootProjection
+            ? rootProjection.projectedSummaryDepth
+            : projectSummaryDepthAfterTravel(sessionManager.getBranch(rootEntry.id));
           let estimateText = "message estimate unavailable";
-          if (rootResult.ok) {
-            const estimated = estimateUsageAfterMessageChange(usage, currentResult.value.messages, rootMessages);
+          if (rootProjection) {
+            const estimated = usage && currentAggregate
+              ? estimateUsageFromAggregates(usage, currentAggregate, rootProjection.aggregate)
+              : undefined;
             estimateText = estimated
-              ? `~${rootMessages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
-              : `~${rootMessages.length} msg(s) kept`;
+              ? `~${rootProjection.aggregate.messageCount} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
+              : `~${rootProjection.aggregate.messageCount} msg(s) kept`;
           }
-          const rootTopology = tree.length > 1 ? `, first of ${tree.length} top-level roots` : "";
+          const rootTopology = treeOnce().length > 1 ? `, first of ${treeOnce().length} top-level roots` : "";
           const rootDepthNote = activeSummaryDepth > 0 && rootProjectedSummaryDepth === 1
             ? "; projected depth is 1 rather than 0 because travel appends one new handoff"
             : "";
+          rootCandidateLineIndex = lines.length;
           lines.push(`  root → ${rootEntry.id} (session start — not a named checkpoint, but a valid travel target${rootTopology}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${rootProjectedSummaryDepth} after this fold${rootDepthNote}`);
         }
+        let checkpointsRendered = 0;
         for (const checkpoint of displayedListings) {
           if (signal?.aborted) break;
-          let cachedTarget = cache.get(checkpoint.entryId);
-          if (!cachedTarget) {
-            const targetResult = snapshot.rebuild(checkpoint.entryId);
-            cachedTarget = targetResult.ok
-              ? { ok: true, messages: targetResult.value.messages }
-              : { ok: false };
-            cache.set(checkpoint.entryId, cachedTarget);
-          }
-          const estimated = cachedTarget.ok
-            ? estimateUsageAfterMessageChange(usage, currentResult.value.messages, cachedTarget.messages)
+          checkpointsRendered += 1;
+          const targetProjection = projectionFor(checkpoint.entryId);
+          const estimated = usage && currentAggregate && targetProjection
+            ? estimateUsageFromAggregates(usage, currentAggregate, targetProjection.aggregate)
             : undefined;
-          const estimateText = !cachedTarget.ok
+          const estimateText = targetProjection === undefined
             ? "message estimate unavailable"
             : estimated
-              ? `~${cachedTarget.messages.length} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
-              : `~${cachedTarget.messages.length} msg(s) kept`;
-          let projectedSummaryDepth = projectedDepthCache.get(checkpoint.entryId);
-          if (projectedSummaryDepth === undefined) {
-            projectedSummaryDepth = projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
-            projectedDepthCache.set(checkpoint.entryId, projectedSummaryDepth);
-          }
+              ? `~${targetProjection.aggregate.messageCount} msg(s) kept, ~${formatContextUsage(estimated)} est. (incl. the new handoff)`
+              : `~${targetProjection.aggregate.messageCount} msg(s) kept`;
+          // Only a failed projection falls back to a live branch walk.
+          const projectedSummaryDepth = targetProjection
+            ? targetProjection.projectedSummaryDepth
+            : projectSummaryDepthAfterTravel(sessionManager.getBranch(checkpoint.entryId));
           const rawArchiveNote = checkpoint.isRawArchive
             ? "; raw archive — restores pre-fold history; fold targets are the entries before the folded material"
             : "";
+          checkpointLineIndexes.push(lines.length);
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
         }
-        if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
+        if (signal?.aborted && checkpointsRendered < checkpointsDisplayedEntries) {
+          // Every displayed count must match rendered rows, and the reason for
+          // missing rows must remain distinct from the ordinary result limit.
+          checkpointsRenderAborted = true;
+          checkpointsDisplayedEntries = checkpointsRendered;
+          checkpointsDisplayedAliases = checkpointsRendered;
+          checkpointAliasNamesShown = checkpointsRendered;
+        }
+        checkpointsSelectedEntries = checkpointsDisplayedEntries;
+        if (checkpointsHeaderSlot >= 0) {
+          // This header describes rows selected/rendered before character fitting;
+          // the structural checkpoint receipt reports how many complete rows
+          // actually survive that final fit.
+          const savePointCount = `${listings.length} save point${listings.length === 1 ? "" : "s"}`;
+          const shownNote = checkpointsRenderAborted
+            ? `, rendering interrupted after ${checkpointsSelectedEntries}/${listings.length} by cancellation before output fitting`
+            : checkpointsSelectedEntries < listings.length
+              ? `, ${checkpointsSelectedEntries} selected before output fitting (limit ${effectiveLimit})`
+              : "";
+          const filterNote = filter ? ` matching '${boundedTimelineValue(params.filter ?? "")}'` : "";
+          lines[checkpointsHeaderSlot] = `Checkpoints: ${savePointCount}${filterNote}${shownNote}. ${currentSummary} Each line projects the state after folding to that target (a handoff layer is one fold's summary standing in for replaced history):`;
+        }
+        const checkpointsOmitted = listings.length - checkpointsSelectedEntries;
+        if (checkpointsOmitted > 0) {
+          lines.push(checkpointsRenderAborted
+            ? `  ... render interrupted by cancellation; ${checkpointsOmitted} matching save point${checkpointsOmitted === 1 ? "" : "s"} not rendered — retry the request`
+            : `  ... +${checkpointsOmitted} more — use a narrower filter or query`);
+        }
       } else if (params.view === "search") {
-        const search = searchTree(tree, labelMaps, params.query, effectiveLimit, signal);
-        searchDisplayedMatches = search.matches.length;
+        const search = searchTree(treeOnce(), labelMaps, params.query, effectiveLimit, signal, {
+          scope: params.scope,
+          type: params.type,
+          activeIds,
+          scanNodeBudget: TIMELINE_SEARCH_SCAN_NODE_BUDGET,
+        });
+        searchSelectedMatches = search.matches.length;
         searchTruncated = search.truncated;
+        searchTruncationReason = search.truncationReason;
+        searchScannedNodes = search.scannedNodes;
+        searchTextChars = search.textChars;
+        searchNodesCutAtNodeCap = search.nodesCutAtNodeCap;
+        searchNodesCutAtCallBudget = search.nodesCutAtCallBudget;
+        searchScope = params.scope ?? null;
+        searchType = params.type ?? null;
+        const searchQualifiers = [
+          params.scope !== undefined ? `scope ${params.scope}` : null,
+          params.type !== undefined ? `type ${params.type}` : null,
+        ].filter((qualifier) => qualifier !== null).join(", ");
+        // Selection happens before the result-character budget is fitted. The
+        // final delivered count is measured from complete match rows that
+        // survive fitting and is reported separately below.
+        const partialNodeCuts = search.nodesCutAtNodeCap + search.nodesCutAtCallBudget;
+        searchPartialNodeCuts = partialNodeCuts;
         lines.push(
-          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated ? "; additional matches truncated" : " matching node(s)"}.`,
+          `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} matching node(s) selected before output fitting${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : ""}${partialNodeCuts > 0 ? `; ${partialNodeCuts} node(s) partially searched (their later text was not searched)` : ""}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
         for (const match of search.matches) {
-          const body = snippet(entryText(match.entry, true));
-          const displayLabel = formatTimelineLabel(match.label, rawArchiveAliases);
-          lines.push(`  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`);
+          const body = match.text;
+          const displayLabel = formatTimelineLabel(match.label, rawArchiveAliasesOnce());
+          const matchLine = `  ${match.entry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${displayRole(match.entry)}] ${body}`;
+          searchMatchLineIndexes.push(lines.length);
+          lines.push(matchLine);
         }
-        if (search.truncated) lines.push("  ... additional matches truncated");
+        if (search.nodesCutAtNodeCap > 0) {
+          lines.push(`  ... ${search.nodesCutAtNodeCap} node(s) were searched only through their first ${SEARCH_NODE_TEXT_MAX_CHARS.toLocaleString("en-US")} source chars; matches later in those nodes were not searched`);
+        }
+        if (search.nodesCutAtCallBudget > 0) {
+          lines.push(`  ... ${search.nodesCutAtCallBudget} node(s) were cut at the remaining per-call text budget; matches later in those nodes were not searched`);
+        }
+        if (search.truncated) {
+          // The budget counts traversal, and scope/type only filter content —
+          // narrowing filters does NOT bring later nodes into reach, so the
+          // recovery line must not claim it does. A more specific query finds
+          // earlier matches; unreachable nodes stay unreachable.
+          lines.push(search.truncationReason === "scan_budget"
+            ? `  ... scan stopped at the 5,000-node limit; nodes after it were not searched this call — use a more specific query to hit earlier matches, or view=tree to navigate`
+            : search.truncationReason === "text_budget"
+              ? `  ... scan stopped at the text budget; later nodes were not searched, and any partial-node cuts are reported above — use a more specific query or view=tree to navigate`
+              : `  ... scan stopped early (${search.truncationReason === null ? "display limit" : searchTruncationPhrase(search.truncationReason)}); narrow with scope/type or a longer query`);
+        }
       } else if (params.view === "node") {
         nodeRequestedTarget = params.target;
-        const resolved = resolveTargetId(sessionManager, tree, params.target, activeIds, labelMaps);
-        const treeNode = resolved.id.length > 0 ? findInTree(tree, (n) => n.entry.id === resolved.id) : undefined;
+        const resolved = resolveTargetId(sessionManager, treeOnce(), params.target, activeIds, labelMaps);
+        const treeNode = resolved.id.length > 0 ? findInTree(treeOnce(), (n) => n.entry.id === resolved.id) : undefined;
         if (!treeNode) {
           return {
             content: [{ type: "text" as const, text: `Error: Target '${boundedTimelineValue(params.target)}' not found in the session tree. Valid targets are checkpoint names and node IDs; view=search locates candidates.` }],
@@ -737,7 +1095,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         nodeBeforeCount = before.length;
         nodeAfterCount = afterResult.neighbors.length;
         nodeNeighborScanAborted = afterResult.aborted;
-        const displayLabel = formatTimelineLabel(label, rawArchiveAliases);
+        const displayLabel = formatTimelineLabel(label, rawArchiveAliasesOnce());
         const afterCountText = afterResult.aborted ? `${nodeAfterCount}+ (scan interrupted)` : `${nodeAfterCount}`;
         lines.push(`Node ${targetEntry.id}${displayLabel ? ` (checkpoint: ${displayLabel})` : ""} [${nodeRole}] — ${nodeOnActivePath ? "on-path" : "off-path"}; node text below with ${nodeBeforeCount} neighbor(s) before and ${afterCountText} after.`);
         for (const entry of before) {
@@ -758,7 +1116,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       } else if (params.view === "tree") {
         const treeVerbose = params.verbose ?? false;
-        const rendered = renderTree(tree, labelMaps, rawArchiveAliases, leafId, activeIds, effectiveLimit, treeVerbose, signal);
+        const rendered = renderTree(treeOnce(), labelMaps, rawArchiveAliasesOnce(), leafId, activeIds, effectiveLimit, treeVerbose, signal);
         lines.push(...rendered.lines);
         treeTruncated = rendered.truncated || lines.length >= 200;
         if (rendered.hiddenNodes > 0) {
@@ -782,8 +1140,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`Showing the latest ${shown} of ${branch.length} tree nodes${reductions.length > 0 ? ` — ${reductions.join(", ")}` : ""}. Markers: * = current position (HEAD), • = user message, | = assistant/summary rows.`);
         }
         if (activeOmittedEntries > 0) lines.push(`  :  ... (${activeOmittedEntries} earlier visible entries omitted by limit) ...`);
-        for (const entry of visible.slice(-effectiveLimit)) {
-          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), rawArchiveAliases);
+        // The alias scan only runs when the visible window actually contains
+        // a labelled entry - the only rows that can render a checkpoint
+        // annotation. Label-free windows skip the O(entries) pass entirely.
+        const displayedVisible = visible.slice(-effectiveLimit);
+        const visibleAliases = displayedVisible.some((entry) => labelMaps.entryToLabel.has(entry.id))
+          ? rawArchiveAliasesOnce()
+          : EMPTY_LABEL_ALIASES;
+        for (const entry of displayedVisible) {
+          const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), visibleAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);
           const rawBody = snippet(entryText(entry, verbose));
@@ -828,26 +1193,45 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // as a contradiction the moment the two sources diverge (same pattern as
       // the gauge adapter in runtime-lifecycle). Facts only — whether the
       // extraction is complete stays CORE's bar.
-      // One packet rebuild serves both the fold projection and the message
-      // count on the Active Path line — msg is the unit fold decisions read.
-      const hudCurrent = rebuildAcmContextPacket(sessionManager);
+      // One aggregate serves both the fold projection and the message count
+      // on the Active Path line — msg is the unit fold decisions read. It
+      // flows through the same shared cache the gauge renders through, so a
+      // timeline HUD right after a gauge render — the common case, since both
+      // read the same session around the same boundaries — rebuilds nothing.
+      let foldSnapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+      const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
+        foldSnapshot ??= createAcmPacketSnapshot(sessionManager);
+        const result = foldSnapshot.rebuild(wantedLeafId);
+        return result.ok ? aggregateMessages(result.value.messages) : undefined;
+      };
+      // Key inputs reuse the consistent snapshot this tool already read
+      // (entries/leafId above): no second unprotected host read, and a
+      // failure anywhere in acquisition degrades to the fallback lines
+      // instead of rejecting the whole timeline call.
+      let hudAggregate: MessageAggregate | undefined;
+      try {
+        hudAggregate = runtime.foldAggregate(
+          sessionManager,
+          { kind: "current", leafId, entriesLength: entries.length, lastEntryId: entries.at(-1)?.id ?? "" },
+          () => aggregateAt(leafId),
+        );
+      } catch {
+        hudAggregate = undefined;
+      }
       let foldProjectionText = "unavailable";
       try {
         const foldBranch = branch as unknown as readonly FoldEstimateEntry[];
         const references = selectFoldReferences(foldBranch, labelMaps);
-        const estimates = authoritativePressure && hudCurrent.ok
-          ? estimateFoldGains({
+        const estimates = authoritativePressure && hudAggregate
+          ? estimateFoldGainsFromAggregates({
               usage: {
                 tokens: authoritativePressure.tokens,
                 contextWindow: authoritativePressure.contextWindow,
                 percent: 0,
               },
               workingBudgetTokens: authoritativePressure.workingBudgetTokens,
-              currentMessages: hudCurrent.value.messages,
-              messagesAt: (id: string) => {
-                const result = rebuildAcmContextPacket(sessionManager, id);
-                return result.ok ? result.value.messages : undefined;
-              },
+              currentAggregate: hudAggregate,
+              aggregateAt: (id: string) => runtime.foldAggregate(sessionManager, { kind: "target", entryId: id }, () => aggregateAt(id)),
             }, references)
           : { turnPercent: null, taskPercent: null };
         const scale = authoritativePressure ? foldProjectionScaleName(authoritativePressure.policy) : "budget";
@@ -884,7 +1268,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
         usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
       }
-      const offPathHandoffs = countOffPathSummaries(branch, tree, activeIds);
+      const offPathHandoffs = offPathSummaryCount;
       // Funnel line: tree nodes -> LLM messages, one conversion statement.
       // Subtraction is not classification (packet rebuild folds tool results
       // into their parent messages), so the delta says what it is — nodes
@@ -892,8 +1276,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       // inspected. Tiers: zero delta needs no aside; a large one answers the
       // real question ("did I lose content?"), not the arithmetic.
       let activePathLine: string;
-      if (hudCurrent.ok) {
-        const msgs = hudCurrent.value.messages.length;
+      if (hudAggregate) {
+        const msgs = hudAggregate.messageCount;
         const nodes = branch.length;
         const delta = nodes - msgs;
         const aside = delta <= 0
@@ -927,7 +1311,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         hudParts.push(`• Ignored Params:   ${ignoredParams.join("; ")}`);
       }
       if (resultBudgetApplied) {
-        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
+        const resultBudgetRecovery = params.view === "checkpoints" && checkpointsRenderAborted
+          ? "Checkpoint rendering was cancelled before completion; retry the request."
+          : "Narrow with filter/query for the remainder.";
+        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. ${resultBudgetRecovery}`);
       }
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
@@ -982,15 +1369,15 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       }
       // The raw-archive sentence teaches a thing that does not exist before
-      // the first fold; showing it then reads as a dangling term. Trim it
-      // while the session has no raw-archive alias.
-      const checkpointsCue = rawArchiveAliases.size > 0
-        ? GUIDANCE_CUES.timelineCheckpoints
-        : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!;
+      // the first fold; showing it then reads as a dangling term. The alias
+      // scan only runs for the one view whose cue needs it - every other
+      // view skips the O(entries) pass entirely.
       const cue = params.view === "active"
         ? GUIDANCE_CUES.timelineActive
         : params.view === "checkpoints"
-          ? checkpointsCue
+          ? (rawArchiveAliasesOnce().size > 0
+              ? GUIDANCE_CUES.timelineCheckpoints
+              : GUIDANCE_CUES.timelineCheckpoints.split(" Raw-archive")[0]!)
           : params.view === "search"
             ? GUIDANCE_CUES.timelineSearch
             : params.view === "node"
@@ -998,8 +1385,103 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
               : GUIDANCE_CUES.timelineTree;
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
-      const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
-      const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId, params.view === "node" ? nodeEntryId : null);
+      const hudOutput = hudParts.join("\n");
+      const bodyOutput = lines.join("\n") || "(Root Path Only)";
+      const rawOutput = `${hudOutput}\n${bodyOutput}`;
+      // Search result provenance is structural: line indexes are recorded while
+      // building the body, then mapped to source offsets here. Dynamic HUD text
+      // may repeat an identical line but can never acquire that body span.
+      const lineEndOffsets: number[] = [];
+      let sourceOffset = hudOutput.length + 1;
+      for (const line of lines) {
+        lineEndOffsets.push(sourceOffset + line.length);
+        sourceOffset += line.length + 1;
+      }
+      let fittedOutput: ReturnType<typeof fitTimelineOutputToBudget>;
+      if (params.view === "search") {
+        const receiptReserveChars = 240;
+        const searchReceipt = (deliveredMatches: number): string => {
+          const coverage = searchTruncationReason === null
+            ? "scan completed within search budgets"
+            : `search stopped at ${searchTruncationPhrase(searchTruncationReason)}`;
+          const partial = searchPartialNodeCuts > 0
+            ? `; ${searchPartialNodeCuts} node(s) partially searched`
+            : "";
+          return `Search receipt: ${coverage}${partial}; ${searchSelectedMatches} selected before output fitting; ${deliveredMatches} complete result row(s) delivered`;
+        };
+        const provisional = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          null,
+          { line: searchReceipt(0), reserveChars: receiptReserveChars },
+        );
+        if (!provisional.truncated) {
+          searchDisplayedMatches = searchSelectedMatches;
+          fittedOutput = provisional;
+        } else {
+          const retainedEnd = provisional.retainedSourcePrefixChars;
+          searchDisplayedMatches = searchMatchLineIndexes.reduce((count, lineIndex) => {
+            const lineEnd = lineEndOffsets[lineIndex];
+            return count + (lineEnd !== undefined && lineEnd <= retainedEnd ? 1 : 0);
+          }, 0);
+          fittedOutput = fitTimelineOutputToBudget(
+            rawOutput,
+            resultCharacterBudget,
+            leafId,
+            null,
+            { line: searchReceipt(searchDisplayedMatches), reserveChars: receiptReserveChars },
+          );
+        }
+      } else if (params.view === "checkpoints") {
+        const receiptReserveChars = 240;
+        const checkpointReceipt = (deliveredEntries: number): string => checkpointsRenderAborted
+          ? `Checkpoint receipt: rendering cancelled after ${checkpointsSelectedEntries}/${checkpointsMatchingEntries} before output fitting; ${deliveredEntries} complete checkpoint row(s) delivered; retry the request`
+          : `Checkpoint receipt: ${checkpointsSelectedEntries} selected before output fitting; ${deliveredEntries} complete checkpoint row(s) delivered`;
+        const checkpointFitOptions = (deliveredEntries: number): { line: string; reserveChars: number; footerRecovery?: string } => {
+          const base = { line: checkpointReceipt(deliveredEntries), reserveChars: receiptReserveChars };
+          return checkpointsRenderAborted
+            ? { ...base, footerRecovery: "Checkpoint rendering was cancelled; retry the request." }
+            : base;
+        };
+        const provisional = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          null,
+          checkpointFitOptions(0),
+        );
+        if (!provisional.truncated) {
+          checkpointsDisplayedEntries = checkpointsSelectedEntries;
+          fittedOutput = provisional;
+        } else {
+          const retainedEnd = provisional.retainedSourcePrefixChars;
+          checkpointsDisplayedEntries = checkpointLineIndexes.reduce((count, lineIndex) => {
+            const lineEnd = lineEndOffsets[lineIndex];
+            return count + (lineEnd !== undefined && lineEnd <= retainedEnd ? 1 : 0);
+          }, 0);
+          checkpointsDisplayedAliases = checkpointsDisplayedEntries;
+          checkpointAliasNamesShown = checkpointsDisplayedEntries;
+          if (rootCandidateLineIndex !== null) {
+            const rootLineEnd = lineEndOffsets[rootCandidateLineIndex];
+            rootCandidateDisplayed = rootLineEnd !== undefined && rootLineEnd <= retainedEnd;
+          }
+          fittedOutput = fitTimelineOutputToBudget(
+            rawOutput,
+            resultCharacterBudget,
+            leafId,
+            null,
+            checkpointFitOptions(checkpointsDisplayedEntries),
+          );
+        }
+      } else {
+        fittedOutput = fitTimelineOutputToBudget(
+          rawOutput,
+          resultCharacterBudget,
+          leafId,
+          params.view === "node" ? nodeEntryId : null,
+        );
+      }
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
@@ -1011,7 +1493,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           stepsSinceCheckpoint,
           activePathNodes: branch.length,
           activeSummaryDepth,
-          offPathSummaries: countOffPathSummaries(branch, tree, activeIds),
+          offPathSummaries: offPathSummaryCount,
           view: params.view,
           limit: requestedLimit,
           effectiveLimit,
@@ -1028,14 +1510,25 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           checkpointsMatchingAliases: params.view === "checkpoints" ? checkpointsMatchingAliases : null,
           checkpointsDisplayedAliases: params.view === "checkpoints" ? checkpointsDisplayedAliases : null,
           checkpointsMatchingEntries: params.view === "checkpoints" ? checkpointsMatchingEntries : null,
+          checkpointsSelectedEntries: params.view === "checkpoints" ? checkpointsSelectedEntries : null,
           checkpointsDisplayedEntries: params.view === "checkpoints" ? checkpointsDisplayedEntries : null,
           checkpointAliasesOnMatchingEntries: params.view === "checkpoints" ? checkpointAliasesOnMatchingEntries : null,
           checkpointAliasNamesShown: params.view === "checkpoints" ? checkpointAliasNamesShown : null,
+          checkpointsRenderAborted: params.view === "checkpoints" ? checkpointsRenderAborted : false,
           rootCandidateDisplayed: params.view === "checkpoints" ? rootCandidateDisplayed : false,
           rootCandidateEntryId: params.view === "checkpoints" ? rootCandidateEntryId : null,
           rootProjectedSummaryDepth: params.view === "checkpoints" ? rootProjectedSummaryDepth : null,
+          searchSelectedMatches: params.view === "search" ? searchSelectedMatches : null,
           searchDisplayedMatches: params.view === "search" ? searchDisplayedMatches : null,
           searchTruncated: params.view === "search" ? searchTruncated : false,
+          searchTruncationReason: params.view === "search" ? searchTruncationReason : null,
+          searchScannedNodes: params.view === "search" ? searchScannedNodes : null,
+          searchTextChars: params.view === "search" ? searchTextChars : null,
+          searchNodesCutAtNodeCap: params.view === "search" ? searchNodesCutAtNodeCap : null,
+          searchNodesCutAtCallBudget: params.view === "search" ? searchNodesCutAtCallBudget : null,
+          searchScanBudget: params.view === "search" ? TIMELINE_SEARCH_SCAN_NODE_BUDGET : null,
+          searchScope: params.view === "search" ? searchScope : null,
+          searchType: params.view === "search" ? searchType : null,
           nodeRequestedTarget: params.view === "node" ? nodeRequestedTarget : null,
           nodeEntryId: params.view === "node" ? nodeEntryId : null,
           nodeLabel: params.view === "node" ? nodeLabel : null,

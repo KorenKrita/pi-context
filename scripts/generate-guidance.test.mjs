@@ -163,7 +163,7 @@ describe("canonical guidance generation", () => {
     expect(GUIDANCE_CUES.checkpoint).toContain("context unchanged");
     expect(GUIDANCE_CUES.travel).toContain("execute next");
     expect(GUIDANCE_CUES.timelineCheckpoints).toContain("Raw-archive");
-    expect(GUIDANCE_CUES.timelineSearch).toContain("whole tree");
+    expect(GUIDANCE_CUES.timelineSearch).toContain("up to its traversal budget");
     expect(GUIDANCE_CUES.timelineNode).toContain("active branch is unchanged");
   });
 

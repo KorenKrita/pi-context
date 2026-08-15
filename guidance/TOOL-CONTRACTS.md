@@ -11,7 +11,7 @@ Name the current conversation position so a later fold or travel can return to i
 <!-- ACM:TOOL_CHECKPOINT:END -->
 
 <!-- ACM:TOOL_TIMELINE:START -->
-View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (whole-tree search, folded history included), `node` (one entry's full text with its nearest neighbors — archived text returned this way joins the active context), `tree` (branch structure). Reports token usage.
+View the session. One view per call: `active` (what is in context now), `checkpoints` (save points with projected fold gains), `search` (tree search up to the 5,000-node scan budget, folded history included), `node` (one entry's full text with its nearest neighbors — archived text returned this way joins the active context), `tree` (branch structure). Reports token usage.
 <!-- ACM:TOOL_TIMELINE:END -->
 
 <!-- ACM:TOOL_TRAVEL:START -->
@@ -65,7 +65,7 @@ For a fold, choose an entry immediately before the material being replaced. Raw-
 <!-- ACM:CUE_TIMELINE_CHECKPOINTS:END -->
 
 <!-- ACM:CUE_TIMELINE_SEARCH:START -->
-Search covers the whole tree, folded history included; ACM's own tool receipts and provider-injected content are not searched. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.
+Search covers the tree up to its traversal budget (5,000 nodes per call), folded history included — every entry kind, assistant messages among them; unlabelled ACM tool receipts stay out so past receipts cannot self-pollute recall (labelled checkpoints remain searchable). `scope` narrows to the active branch or the archive, `type` to user messages, summaries, or tool results — pass either when you already know where the answer lives, and on big trees prefer them over a broad query: the scan stops at 5,000 nodes or a per-call text budget and says so when it does. Omit `type` to search assistant messages along with the rest. Node IDs in the results work directly as node-view, travel, or checkpoint targets; pass one to view=node to read that entry in full.
 <!-- ACM:CUE_TIMELINE_SEARCH:END -->
 
 <!-- ACM:CUE_TIMELINE_NODE:START -->

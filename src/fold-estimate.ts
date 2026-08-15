@@ -1,5 +1,11 @@
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
-import { estimateUsageAfterMessageChange, type UsageLike } from "./usage-estimation.js";
+import {
+  aggregateMessages,
+  estimateUsageAfterMessageChange,
+  estimateUsageFromAggregates,
+  type MessageAggregate,
+  type UsageLike,
+} from "./usage-estimation.js";
 import { getEntryLabel } from "./target-resolution.js";
 
 /**
@@ -116,8 +122,9 @@ export function selectFoldReferences(
   for (let index = 0; index < branch.length; index++) {
     const entry = branch[index]!;
     if (entry.id === excludeId) continue;
-    if (labelOf(labelMaps, entry.id) !== null) {
-      task = { entryId: entry.id, label: labelOf(labelMaps, entry.id) };
+    const label = labelOf(labelMaps, entry.id);
+    if (label !== null) {
+      task = { entryId: entry.id, label };
       break;
     }
   }
@@ -158,44 +165,65 @@ export interface FoldEstimateInputs {
   messagesAt: (entryId: string) => Parameters<typeof estimateUsageAfterMessageChange>[2] | undefined;
 }
 
-function projectedFold(
-  inputs: FoldEstimateInputs,
+/** Inputs as precomputed aggregates: the gauge path caches exactly these two
+ * numbers per leaf, so a warm render rebuilds nothing. */
+export interface FoldAggregateInputs {
+  usage: UsageLike | undefined;
+  /** Working-budget token cap so a projected percent uses the same yardstick as the gauge. */
+  workingBudgetTokens: number;
+  currentAggregate: MessageAggregate;
+  aggregateAt: (entryId: string) => MessageAggregate | undefined;
+}
+
+function projectedFoldCore(
+  inputs: FoldAggregateInputs,
   reference: FoldReference | null,
 ): { percent: number; messagesRemoved: number } | null {
   if (!reference || !inputs.usage || inputs.workingBudgetTokens <= 0) return null;
-  const after = inputs.messagesAt(reference.entryId);
+  const after = inputs.aggregateAt(reference.entryId);
   if (!after) return null;
   // A fold does not merely remove messages: it appends one handoff. Excluding
   // that cost makes every needle optimistic, and worst exactly where it matters
   // — at turn granularity, where the handoff can be the same order of magnitude
   // as the saving. estimateUsageAtTravelTarget already charges it; charge the
   // same nominal cost here so the needle cannot promise more than travel gives.
-  const estimate = estimateUsageAfterMessageChange(
-    inputs.usage,
-    inputs.currentMessages,
-    after,
-    NOMINAL_HANDOFF_TOKENS,
-  );
+  const estimate = estimateUsageFromAggregates(inputs.usage, inputs.currentAggregate, after, NOMINAL_HANDOFF_TOKENS);
   if (!estimate) return null;
   return {
     percent: (estimate.tokens * 100) / inputs.workingBudgetTokens,
-    messagesRemoved: Math.max(0, inputs.currentMessages.length - after.length),
+    messagesRemoved: Math.max(0, inputs.currentAggregate.messageCount - after.messageCount),
   };
 }
 
 /** Project both needles against the working budget the gauge already reports. */
-export function estimateFoldGains(
-  inputs: FoldEstimateInputs,
+export function estimateFoldGainsFromAggregates(
+  inputs: FoldAggregateInputs,
   references: FoldReferences,
 ): FoldEstimates {
-  const turn = projectedFold(inputs, references.turn);
-  const task = projectedFold(inputs, references.task);
+  const turn = projectedFoldCore(inputs, references.turn);
+  const task = projectedFoldCore(inputs, references.task);
   return {
     turnPercent: turn?.percent ?? null,
     turnMessagesRemoved: turn?.messagesRemoved ?? null,
     taskPercent: task?.percent ?? null,
     taskMessagesRemoved: task?.messagesRemoved ?? null,
   };
+}
+
+/** Array-based form; delegates to the aggregate core with the same semantics. */
+export function estimateFoldGains(
+  inputs: FoldEstimateInputs,
+  references: FoldReferences,
+): FoldEstimates {
+  return estimateFoldGainsFromAggregates({
+    usage: inputs.usage,
+    workingBudgetTokens: inputs.workingBudgetTokens,
+    currentAggregate: aggregateMessages(inputs.currentMessages),
+    aggregateAt: (entryId) => {
+      const after = inputs.messagesAt(entryId);
+      return after === undefined ? undefined : aggregateMessages(after);
+    },
+  }, references);
 }
 
 export { buildLabelMaps };

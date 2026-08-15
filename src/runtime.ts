@@ -1,5 +1,16 @@
-import { type UsageLike } from "./usage-estimation.js";
+import { type MessageAggregate, type UsageLike } from "./usage-estimation.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { LabelMaps } from "./label-journal.js";
+/** One cached fold projection: the compact facts the checkpoints view renders
+ * per target, kept instead of the packet itself so the per-entry memory is a
+ * few numbers regardless of session depth - the packet and its branch arrays
+ * are O(history) each and are released as soon as the numbers are derived. */
+export interface FoldProjectionCacheEntry {
+  aggregate: MessageAggregate;
+  projectedSummaryDepth: number;
+}
+
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import {
   createLiveAgentSessionAdapter,
@@ -62,6 +73,51 @@ export class AcmSessionRuntime {
    */
   private readonly ledgerStates = new WeakMap<object, LedgerState>();
   private ledgerSeq = 0;
+  /**
+   * Token/message aggregates behind the gauge fold needles, per SessionManager.
+   * Values are two numbers — no message bodies are retained. The current-leaf
+   * slot keys on (leafId, entries length, last entry id) so any append or
+   * branch move misses; historical leaves key on the entry id alone, sound
+   * because the session is append-only. Unlike the ledger counters above,
+   * this cache IS dropped by clear(): compaction and session surgery are
+   * exactly the events whose key math no longer holds.
+   */
+  private readonly foldAggregates = new WeakMap<object, {
+    currentKey: string | null;
+    currentValue: MessageAggregate | undefined;
+    targets: Map<string, MessageAggregate>;
+  }>();
+  /**
+   * Compact fold projections, same key faces as the aggregates: the
+   * checkpoints view's per-target cost is the rebuild (protocol analysis),
+   * so the rebuild's derived facts are cached instead of its packet. Each
+   * entry is a few numbers, so the limit safely tracks the checkpoints
+   * view's full result-entry budget. Dropped by clear() with the aggregates.
+   */
+  private readonly foldProjections = new WeakMap<object, {
+    currentKey: string | null;
+    currentEntry: FoldProjectionCacheEntry | undefined;
+    targets: Map<string, FoldProjectionCacheEntry>;
+  }>();
+  private static readonly FOLD_PROJECTION_CACHE_LIMIT = 512;
+  /**
+   * Trace-free branch verdicts for the context-event normalize path. Keyed
+   * like the other caches on (branch length, last entry id): every host
+   * mutation is an append with a fresh id, so a verdict can only flip when
+   * the key changes. Unlike a module-level cache, this one is dropped by
+   * clear() — session surgery (compact, /tree, start) re-establishes the
+   * verdict from a scan, not from a key that predates the surgery.
+   */
+  private readonly traceFreeVerdicts = new WeakMap<object, string>();
+  private static readonly FOLD_TARGET_CACHE_LIMIT = 8;
+  /**
+   * Label-journal replay, cached per SessionManager on the same key face as
+   * the fold aggregates (entries length + last entry id): the journal is
+   * append-only, so any label change misses, and clear() drops the entry for
+   * the same session-surgery reasons. One replay serves the save-point count
+   * and the fold reference selection on a gauge render instead of two.
+   */
+  private readonly labelMapsCache = new WeakMap<object, { key: string; maps: LabelMaps }>();
   /**
    * Travels completed within the current assistant turn. Low-capability
    * models have oscillated between return tickets (11 travels in one turn in
@@ -284,6 +340,128 @@ export class AcmSessionRuntime {
     this.cachedUsage.delete(session);
     this.gaugeStates.delete(session);
     this.liveAgentSessions.clear(session);
+    this.foldAggregates.delete(session);
+    this.foldProjections.delete(session);
+    this.traceFreeVerdicts.delete(session);
+    this.travelTurnCounters.delete(session);
+    this.labelMapsCache.delete(session);
+  }
+
+  /**
+   * One aggregate through the per-session cache. `rebuild` is the cold path
+   * (packet rebuild + token sum) and runs only on a miss; a rebuild that
+   * yields nothing is not negatively cached, so the next render retries.
+   */
+  foldAggregate(
+    session: object,
+    key: { kind: "current"; leafId: string | null; entriesLength: number; lastEntryId: string } | { kind: "target"; entryId: string },
+    rebuild: () => MessageAggregate | undefined,
+  ): MessageAggregate | undefined {
+    let state = this.foldAggregates.get(session);
+    if (!state) {
+      state = { currentKey: null, currentValue: undefined, targets: new Map() };
+      this.foldAggregates.set(session, state);
+    }
+    if (key.kind === "current") {
+      const compositeKey = `${key.leafId}|${key.entriesLength}|${key.lastEntryId}`;
+      if (state.currentKey === compositeKey && state.currentValue !== undefined) return state.currentValue;
+      const value = rebuild();
+      if (value === undefined) return undefined;
+      state.currentKey = compositeKey;
+      state.currentValue = value;
+      return value;
+    }
+    const hit = state.targets.get(key.entryId);
+    if (hit !== undefined) {
+      // Refresh recency on hit: eviction must remove the least-recently-used
+      // target, not merely the longest-ago-inserted one, or a hot reference
+      // gets repeatedly evicted and rebuilt.
+      state.targets.delete(key.entryId);
+      state.targets.set(key.entryId, hit);
+      return hit;
+    }
+    const value = rebuild();
+    if (value === undefined) return undefined;
+    state.targets.set(key.entryId, value);
+    while (state.targets.size > AcmSessionRuntime.FOLD_TARGET_CACHE_LIMIT) {
+      const oldest = state.targets.keys().next().value;
+      if (oldest === undefined) break;
+      state.targets.delete(oldest);
+    }
+    return value;
+  }
+
+  /** Trace-free verdict through the per-session cache. Only positive verdicts
+   * are cached - a traced branch always re-runs the probe - and clear() drops
+   * the entry so session surgery cannot inherit a pre-surgery verdict. */
+  traceFreeVerdictFor(session: object, branch: readonly SessionEntry[], probe: () => boolean): boolean {
+    const key = `${branch.length}|${branch.at(-1)?.id ?? ""}`;
+    if (this.traceFreeVerdicts.get(session) === key) return true;
+    if (!probe()) return false;
+    this.traceFreeVerdicts.set(session, key);
+    return true;
+  }
+
+  /**
+   * One compact fold projection through the per-session cache - the same key
+   * faces and miss semantics as foldAggregate, for views whose per-target
+   * cost is the rebuild (protocol analysis) rather than the token sum. The
+   * rebuild callback derives the projection and releases the packet. A
+   * rebuild that yields nothing is not negatively cached.
+   */
+  foldProjection(
+    session: object,
+    key: { kind: "current"; leafId: string | null; entriesLength: number; lastEntryId: string } | { kind: "target"; entryId: string },
+    rebuild: () => FoldProjectionCacheEntry | undefined,
+  ): FoldProjectionCacheEntry | undefined {
+    let state = this.foldProjections.get(session);
+    if (!state) {
+      state = { currentKey: null, currentEntry: undefined, targets: new Map() };
+      this.foldProjections.set(session, state);
+    }
+    if (key.kind === "current") {
+      const compositeKey = `${key.leafId}|${key.entriesLength}|${key.lastEntryId}`;
+      if (state.currentKey === compositeKey && state.currentEntry !== undefined) return state.currentEntry;
+      const entry = rebuild();
+      if (entry === undefined) return undefined;
+      state.currentKey = compositeKey;
+      state.currentEntry = entry;
+      return entry;
+    }
+    const hit = state.targets.get(key.entryId);
+    if (hit !== undefined) {
+      state.targets.delete(key.entryId);
+      state.targets.set(key.entryId, hit);
+      return hit;
+    }
+    const entry = rebuild();
+    if (entry === undefined) return undefined;
+    state.targets.set(key.entryId, entry);
+    while (state.targets.size > AcmSessionRuntime.FOLD_PROJECTION_CACHE_LIMIT) {
+      const oldest = state.targets.keys().next().value;
+      if (oldest === undefined) break;
+      state.targets.delete(oldest);
+    }
+    return entry;
+  }
+  /**
+   * Label maps through the per-session cache, keyed like the fold aggregates:
+   * the journal is append-only, so (entries length, last entry id) keys are
+   * sound, and clear() invalidates on session surgery. `entries` is the array
+   * the caller already read; `rebuild` runs the full replay only on a miss.
+   */
+  labelMapsFor(session: object, entries: readonly SessionEntry[], rebuild: () => LabelMaps): LabelMaps {
+    const key = `${entries.length}|${entries.at(-1)?.id ?? ""}`;
+    let state = this.labelMapsCache.get(session);
+    if (!state) {
+      state = { key: "", maps: undefined! };
+      this.labelMapsCache.set(session, state);
+    }
+    if (state.key === key && state.maps !== undefined) return state.maps;
+    const maps = rebuild();
+    state.key = key;
+    state.maps = maps;
+    return maps;
   }
 
   private gaugeState(session: object): GaugeState {

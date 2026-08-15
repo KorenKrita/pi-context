@@ -67,27 +67,54 @@ export function projectSummaryDepthAfterTravel(targetBranch: SessionEntry[]): nu
  return countActiveSummaryDepth(targetBranch) + 1;
 }
 
-export function sumMessageTokens(messages: AgentMessage[]): number {
+export function sumMessageTokens(messages: readonly AgentMessage[]): number {
  return messages.reduce((sum, msg) => sum + estimateTokens(msg), 0);
 }
 
-export function estimateUsageAfterMessageChange(
+/** Token and message counts of one packet — the only state the gauge needs to
+ * keep per leaf, so caches hold two numbers instead of message bodies. */
+export interface MessageAggregate {
+ tokenCount: number;
+ messageCount: number;
+}
+
+export function aggregateMessages(messages: readonly AgentMessage[]): MessageAggregate {
+ return { tokenCount: sumMessageTokens(messages), messageCount: messages.length };
+}
+
+/** The estimate core, given precomputed aggregates. Same arithmetic as the
+ * array form: fixed overhead from the before-reading, plus the after tokens
+ * and any extra, clamped to the window. */
+export function estimateUsageFromAggregates(
  usageBefore: UsageLike | undefined,
- messagesBefore: AgentMessage[],
- messagesAfter: AgentMessage[],
+ before: MessageAggregate,
+ after: MessageAggregate,
  extraTokens = 0,
 ): UsageLike | undefined {
  if (!usageBefore || usageBefore.contextWindow <= 0) return undefined;
- const beforeMsgTokens = sumMessageTokens(messagesBefore);
- const afterMsgTokens = sumMessageTokens(messagesAfter);
- const fixedOverhead = Math.max(0, usageBefore.tokens - beforeMsgTokens);
- const estimatedTokens = fixedOverhead + afterMsgTokens + extraTokens;
+ const fixedOverhead = Math.max(0, usageBefore.tokens - before.tokenCount);
+ const estimatedTokens = fixedOverhead + after.tokenCount + extraTokens;
  const rawPercent = (estimatedTokens / usageBefore.contextWindow) * 100;
  return {
   tokens: estimatedTokens,
   contextWindow: usageBefore.contextWindow,
   percent: Math.min(100, Math.max(0, rawPercent)),
  };
+}
+
+export function estimateUsageAfterMessageChange(
+ usageBefore: UsageLike | undefined,
+ messagesBefore: readonly AgentMessage[],
+ messagesAfter: readonly AgentMessage[],
+ extraTokens = 0,
+): UsageLike | undefined {
+ if (!usageBefore || usageBefore.contextWindow <= 0) return undefined;
+ return estimateUsageFromAggregates(
+  usageBefore,
+  aggregateMessages(messagesBefore),
+  aggregateMessages(messagesAfter),
+  extraTokens,
+ );
 }
 
 export function estimateUsageAtTravelTarget(

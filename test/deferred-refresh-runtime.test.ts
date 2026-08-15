@@ -1426,4 +1426,161 @@ describe("deferred post-travel context delivery", () => {
     expect(runtime.getContextDeliveryPhase(second)).toBe("active");
     expect(adapter.clearCalls).toBeGreaterThan(0);
   });
+
+  test("fold aggregates cache by key, bound targets, and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let rebuilds = 0;
+    const aggregate = { tokenCount: 10, messageCount: 2 };
+    const build = () => {
+      rebuilds += 1;
+      return aggregate;
+    };
+
+    // Cold current: one rebuild, then warm hits rebuild nothing.
+    expect(runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(aggregate);
+    expect(runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(aggregate);
+    expect(rebuilds).toBe(1);
+
+    // Any append (length, last id) or branch move (leaf) changes the key.
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-1", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(2);
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(3);
+
+    // A failed rebuild is not negatively cached: the next render retries.
+    let failNext = true;
+    const flaky = () => (failNext ? undefined : { tokenCount: 1, messageCount: 1 });
+    expect(runtime.foldAggregate(session, { kind: "target", entryId: "t1" }, flaky)).toBeUndefined();
+    failNext = false;
+    expect(runtime.foldAggregate(session, { kind: "target", entryId: "t1" }, flaky)).toEqual({ tokenCount: 1, messageCount: 1 });
+
+    // Target cache is a real LRU bounded at 8: refreshing the oldest entry
+    // must protect it, evicting the least-recently-used one instead.
+    const targetIds = ["t-a", "t-b", "t-c", "t-d", "t-e", "t-f", "t-g", "t-h"];
+    for (const entryId of targetIds) {
+      runtime.foldAggregate(session, { kind: "target", entryId }, build);
+    }
+    expect(rebuilds).toBe(11); // 3 current rebuilds + 8 targets (the flaky closure never counted)
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-a" }, build); // hit refreshes recency
+    expect(rebuilds).toBe(11);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-i" }, build); // evicts t-b, not t-a
+    expect(rebuilds).toBe(12);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-a" }, build); // survived: was recently used
+    expect(rebuilds).toBe(12);
+    runtime.foldAggregate(session, { kind: "target", entryId: "t-b" }, build); // evicted: least recently used
+    expect(rebuilds).toBe(13);
+    const before = rebuilds;
+
+    // clear() drops the whole per-session cache but keeps the ledger join.
+    const ledgerBefore = runtime.ledgerState(session);
+    runtime.clear(session);
+    expect(runtime.ledgerState(session)).toBe(ledgerBefore);
+    runtime.foldAggregate(session, { kind: "current", leafId: "leaf-9", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(before + 1);
+  });
+
+  test("fold projections cache compact entries, cover the checkpoints budget, and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let rebuilds = 0;
+    const projection = { aggregate: { tokenCount: 7, messageCount: 3 }, projectedSummaryDepth: 2 };
+    const build = () => {
+      rebuilds += 1;
+      return projection;
+    };
+
+    // Cold current rebuilds once; warm hits rebuild nothing; key changes miss.
+    expect(runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(projection);
+    expect(runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 5, lastEntryId: "e5" }, build)).toEqual(projection);
+    expect(rebuilds).toBe(1);
+    runtime.foldProjection(session, { kind: "current", leafId: "leaf-1", entriesLength: 6, lastEntryId: "e6" }, build);
+    expect(rebuilds).toBe(2);
+
+    // A failed rebuild is not negatively cached.
+    let failNext = true;
+    const flaky = () => (failNext ? undefined : projection);
+    expect(runtime.foldProjection(session, { kind: "target", entryId: "t1" }, flaky)).toBeUndefined();
+    failNext = false;
+    expect(runtime.foldProjection(session, { kind: "target", entryId: "t1" }, flaky)).toEqual(projection);
+
+    // The target capacity covers the checkpoints view's full result-entry
+    // budget (400) with headroom: no thrash across two full sweeps.
+    const budget = 400;
+    for (let index = 0; index < budget; index++) {
+      runtime.foldProjection(session, { kind: "target", entryId: `t-${index}` }, build);
+    }
+    const afterSweep = rebuilds;
+    for (let index = 0; index < budget; index++) {
+      runtime.foldProjection(session, { kind: "target", entryId: `t-${index}` }, build);
+    }
+    expect(rebuilds).toBe(afterSweep); // every second-sweep entry hit
+
+    // clear() drops the projection cache alongside the aggregates.
+    runtime.clear(session);
+    runtime.foldProjection(session, { kind: "target", entryId: "t-0" }, build);
+    expect(rebuilds).toBe(afterSweep + 1);
+  });
+
+  test("fold projections evict least-recently-used beyond the limit and stay per-session", () => {
+    const runtime = new AcmSessionRuntime();
+    const sessionA = {};
+    const sessionB = {};
+    let rebuilds = 0;
+    const build = () => {
+      rebuilds += 1;
+      return { aggregate: { tokenCount: 1, messageCount: 1 }, projectedSummaryDepth: 1 };
+    };
+
+    // Fill exactly to the 512-entry limit with "a" refreshed (recent) and
+    // "b" stale, then insert one more: eviction must remove "b" (least
+    // recently used), never "a". An unbounded or FIFO map fails one arm.
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "b" }, build);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build); // refresh recency
+    for (let index = 0; index < 510; index++) {
+      runtime.foldProjection(sessionA, { kind: "target", entryId: `bulk-${index}` }, build);
+    }
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "overflow" }, build); // evicts b
+    const rebuildsAtLimit = rebuilds;
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build); // survived: was recent
+    expect(rebuilds).toBe(rebuildsAtLimit);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "b" }, build); // evicted: was stale
+    expect(rebuilds).toBe(rebuildsAtLimit + 1);
+
+    // Per-session isolation: session B has its own cache and its own miss.
+    runtime.foldProjection(sessionB, { kind: "target", entryId: "shared-id" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 2);
+    // ...and clearing one session leaves the other intact.
+    runtime.clear(sessionB);
+    runtime.foldProjection(sessionB, { kind: "target", entryId: "shared-id" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 3);
+    runtime.foldProjection(sessionA, { kind: "target", entryId: "a" }, build);
+    expect(rebuilds).toBe(rebuildsAtLimit + 3); // A untouched by B's clear
+  });
+
+
+  test("label maps cache by entry key and drop on clear", () => {
+    const runtime = new AcmSessionRuntime();
+    const session = {};
+    let replays = 0;
+    const replay = () => {
+      replays += 1;
+      return { entryToLabel: new Map(), labelToEntry: new Map() } as never;
+    };
+    const entriesOf = (ids: readonly string[]) =>
+      ids.map((id) => ({ type: "label", id, targetId: "t", label: `l-${id}` })) as never as readonly never[];
+
+    // Cold replay, warm hit on the same key, miss on any append.
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2"]), replay);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2"]), replay);
+    expect(replays).toBe(1);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2", "e3"]), replay);
+    expect(replays).toBe(2);
+
+    // clear() drops the cache; the ledger join state survives as before.
+    runtime.clear(session);
+    runtime.labelMapsFor(session, entriesOf(["e1", "e2", "e3"]), replay);
+    expect(replays).toBe(3);
+  });
 });

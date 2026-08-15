@@ -380,9 +380,14 @@ export function appendCheckpointLabel(
   let owner: string | undefined;
   try {
     entriesAfter = sm.getEntries();
-    labelAfter = currentLabel(sm, targetId);
+    // One replay on the post-mutation entries answers both questions:
+    // the target's current label and the new name's owner. A separate
+    // currentLabel() call here would re-read and re-replay the whole
+    // journal for a fact the same map already carries.
+    const mapsAfter = buildLabelMaps(entriesAfter);
+    labelAfter = mapsAfter.entryToLabel.get(targetId);
     observed = findNewLabelEntry(entriesAfter, beforeIds, targetId, name);
-    owner = buildLabelMaps(entriesAfter).labelToEntryId.get(name);
+    owner = mapsAfter.labelToEntryId.get(name);
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     return {

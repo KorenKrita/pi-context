@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { enqueueLedgerLine } from "./ledger-writer.js";
 import { ACM_CORE } from "./generated-guidance.js";
 
 /**
@@ -109,9 +109,11 @@ export function isLedgerDisabled(env: Record<string, string | undefined> = proce
 }
 
 /**
- * Append one row. Never throws, never reports: a diagnostic writer must not be
- * able to affect a tool result. Silence on failure is the contract, not an
- * oversight — the only cost of a lost row is a slightly smaller n.
+ * Append one row. Never throws, never blocks: the row is serialized and
+ * enqueued synchronously; the file write happens on the async writer's
+ * serialized drain. Silence on failure is the contract, not an oversight —
+ * the only cost of a lost row is a slightly smaller n. The boolean reports
+ * whether the row entered the queue, not whether it reached disk.
  */
 export function appendLedgerRow(
   kind: "boundary" | "fold",
@@ -120,16 +122,7 @@ export function appendLedgerRow(
 ): boolean {
   if (isLedgerDisabled(env)) return false;
   try {
-    const path = ledgerPath(env);
-    try {
-      if (statSync(path).size > MAX_LEDGER_BYTES) return false;
-    } catch {
-      // Missing file is the normal first-write path; any other stat failure
-      // falls through to the append attempt, which is itself guarded.
-    }
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify({ kind, ...row })}\n`, "utf8");
-    return true;
+    return enqueueLedgerLine(ledgerPath(env), { kind, ...row }, MAX_LEDGER_BYTES) === "enqueued";
   } catch {
     return false;
   }
@@ -249,3 +242,4 @@ export function buildFoldRow(input: {
 }
 
 export { ledgerPath as acmLedgerPath, MAX_LEDGER_BYTES as ACM_LEDGER_MAX_BYTES };
+export { flushLedgerQueue, ledgerQueueStats } from "./ledger-writer.js";

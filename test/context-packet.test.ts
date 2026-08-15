@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { AcmSessionRuntime } from "../src/runtime.js";
 import {
   ACM_CONTINUATION_MARKER,
   collectTrustedAcmTravelTransactions,
@@ -174,6 +175,106 @@ describe("ACM context packet", () => {
 
     expect(packet.messages).toEqual(messages);
     expect(packet.continuation).toEqual({ status: "not_present" });
+  });
+
+  test("the trace-free verdict caches per session and every mutation invalidates it", () => {
+    // Same SessionManager identity throughout - the cache must survive on key
+    // math alone, not on a fresh manager per event.
+    const root = {
+      type: "message",
+      id: "root",
+      parentId: null,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      message: { role: "user", content: "root" },
+    } as SessionEntry;
+    const plain = {
+      type: "message",
+      id: "plain",
+      parentId: "root",
+      timestamp: "2026-01-01T00:00:01.000Z",
+      message: { role: "user", content: "plain request" },
+    } as SessionEntry;
+    let currentBranch: SessionEntry[] = [root, plain];
+    const sm = {
+      getBranch: () => currentBranch,
+    };
+    const user = { role: "user" as const, content: "plain request", timestamp: 1 };
+
+    // Trace-free verdict: cached after the first scan, and the repeat call
+    // provably reuses it - the branch summary field is a counting getter, and
+    // a cache hit must not read it again.
+    const runtime = new AcmSessionRuntime();
+    let summaryReads = 0;
+    // The scan reads `summary` only on branch_summary entries; a counting
+    // getter there observes every verdict scan (and only scans).
+    const probeEntry = {
+      type: "branch_summary",
+      id: "probe-summary",
+      parentId: "plain",
+      timestamp: "2026-01-01T00:00:01.500Z",
+      fromId: "plain",
+      get summary() {
+        summaryReads += 1;
+        return "a native summary without the ACM marker";
+      },
+    } as unknown as SessionEntry;
+    const smWithProbe = {
+      getBranch: () => [...currentBranch, probeEntry],
+    };
+    const first = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
+    expect(first.continuation).toEqual({ status: "not_present" });
+    const readsAfterFirst = summaryReads;
+    const second = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
+    expect(second.messages).toEqual(first.messages);
+    expect(second.continuation).toEqual({ status: "not_present" });
+    expect(summaryReads).toBe(readsAfterFirst); // hit: no re-scan
+
+    // Session surgery drops the verdict: clear() must force a re-scan, not
+    // let a pre-surgery verdict survive into a post-surgery branch.
+    runtime.clear(smWithProbe as never);
+    const readsBeforeClearCheck = summaryReads;
+    const afterClear = normalizeExistingAcmPacketForSession([user], smWithProbe as never, runtime);
+    expect(afterClear.continuation).toEqual({ status: "not_present" });
+    expect(summaryReads).toBeGreaterThan(readsBeforeClearCheck); // probe re-ran
+
+    // Appending a trusted trace entry changes the key by length alone - the
+    // probe entry stays last, so `branch.at(-1).id` is unchanged and only
+    // `branch.length` moves. The cached positive verdict must still fall, the
+    // probe must re-run, and the marked summary must project.
+    const markedSummary = `${ACM_CONTINUATION_MARKER}\nGoal: g\nState: s\nEvidence: e\nExternal: x\nExclusions: c\nRecover: r\nNEXT: n`;
+    const trace = {
+      type: "branch_summary",
+      id: "summary-trace",
+      parentId: "plain",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      fromId: "plain",
+      summary: markedSummary,
+      details: { kind: "acm_travel", handoffVersion: 1, currentUserTurnOpen: false },
+    } as SessionEntry;
+    currentBranch = [root, plain, trace];
+    const marked = { role: "branchSummary" as const, summary: markedSummary, fromId: "plain", timestamp: Date.parse("2026-01-01T00:00:02.000Z") };
+    const readsBeforeThird = summaryReads;
+    const third = normalizeExistingAcmPacketForSession([user, marked], smWithProbe as never, runtime);
+    expect(summaryReads).toBeGreaterThan(readsBeforeThird); // length change alone invalidated
+    expect(third.continuation).toEqual({ status: "projected", count: 1 });
+    expect(third.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
+
+    // A compaction append also changes the key: only positive verdicts cache,
+    // so a traced branch re-scans every call and no earlier trace-free verdict
+    // can be inherited across the append.
+    const compacted = {
+      type: "compaction",
+      id: "compaction-1",
+      parentId: "summary-trace",
+      timestamp: "2026-01-01T00:00:03.000Z",
+      summary: "native compaction",
+    } as SessionEntry;
+    const branchBefore = currentBranch;
+    currentBranch = [...branchBefore, compacted];
+    const readsBeforeFourth = summaryReads;
+    const fourth = normalizeExistingAcmPacketForSession([user, marked], smWithProbe as never, runtime);
+    expect(summaryReads).toBeGreaterThan(readsBeforeFourth); // no stale verdict survived
+    expect(fourth.continuation).toEqual({ status: "projected", count: 1 });
   });
 
   test("treats a provenance-matched applied ACM receipt as safe normalization", () => {
@@ -572,5 +673,68 @@ describe("ACM context packet", () => {
     const packet = normalizeExistingAcmPacket(messages, []);
     expect(packet.protocol.status).toBe("repaired");
     expect(packet.messages).toHaveLength(0);
+  });
+
+  test("fast path: a trace-free branch skips projection and receipt work but never protocol analysis", () => {
+    // No branch_summary with the ACM marker, no trusted applied-travel
+    // receipt: the candidate scan, receipt identity scan, and filter are all
+    // skipped. The packet must be indistinguishable from the array path:
+    // same element references protocol analysis would produce, no
+    // normalizations, not_present.
+    const messages = [
+      { role: "user" as const, content: "plain request", timestamp: 1 },
+      { role: "assistant" as const, content: [{ type: "text" as const, text: "answer" }], timestamp: 2 },
+      { role: "branchSummary" as const, summary: "a native summary without any ACM marker", fromId: "leaf", timestamp: 3 },
+    ] as AgentMessage[];
+    const activeEntries = [{
+      type: "message",
+      id: "m-1",
+      parentId: null,
+      timestamp: new Date(1).toISOString(),
+      message: { role: "user", content: "plain request" },
+    }] as SessionEntry[];
+
+    const packet = normalizeExistingAcmPacket(messages, activeEntries);
+
+    expect(packet.continuation).toEqual({ status: "not_present" });
+    expect(packet.protocol.normalizations).toEqual([]);
+    expect(packet.messages).toHaveLength(3);
+    expect(packet.messages[0]).toBe(messages[0]);
+    expect(packet.messages[2]).toBe(messages[2]);
+    // Protocol analysis still ran: a defective transcript is repaired on the
+    // fast path exactly as the array path would.
+    const defective = [
+      { role: "user" as const, content: "q", timestamp: 1 },
+      {
+        role: "toolResult" as const,
+        toolCallId: "orphan",
+        toolName: "read",
+        content: [{ type: "text" as const, text: "stale" }],
+        isError: true,
+        timestamp: 2,
+      },
+    ] as AgentMessage[];
+    const repaired = normalizeExistingAcmPacket(defective, activeEntries);
+    expect(repaired.protocol.status).toBe("repaired");
+    expect(repaired.protocol.repairs.length).toBe(1);
+    expect(repaired.messages).toHaveLength(1);
+  });
+
+  test("fast path: an unmarked summary message stays archival when no trusted queue exists", () => {
+    // A branchSummary message carrying the ACM marker still cannot project
+    // without a matching trusted entry on the branch; the fast path must
+    // leave it exactly as the scanning path would — archival, untouched.
+    const summary = `${ACM_CONTINUATION_MARKER}\nGoal: g\nState: s\nEvidence: e\nExternal: x\nExclusions: c\nRecover: r\nNEXT: n`;
+    const messages = [
+      { role: "user" as const, content: "before", timestamp: 1 },
+      { role: "branchSummary" as const, summary, fromId: "leaf", timestamp: 2 },
+      { role: "user" as const, content: "after", timestamp: 3 },
+    ] as AgentMessage[];
+
+    const packet = normalizeExistingAcmPacket(messages, []);
+
+    expect(packet.continuation).toEqual({ status: "not_present" });
+    expect(packet.messages[1]).toBe(messages[1]);
+    expect(packet.messages).toHaveLength(3);
   });
 });

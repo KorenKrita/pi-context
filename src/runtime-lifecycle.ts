@@ -12,16 +12,16 @@ import {
 import { scanProtocolAnchor } from "./anchor-scan.js";
 import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
-import { buildLabelMaps } from "./label-journal.js";
+import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { ANCHOR_SEARCH_WINDOW } from "./conventions.js";
 import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { RECOVERY_GUIDANCE, TREE_SUMMARY_INSTRUCTIONS } from "./generated-guidance.js";
 import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gauge.js";
-import { estimateFoldGains, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
-import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
-import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
+import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
+import { aggregateMessages, type MessageAggregate } from "./usage-estimation.js";
+import { appendLedgerRow, buildBoundaryRow, flushLedgerQueue, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -159,28 +159,60 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   // session that has not checkpointed still gets both numbers. Estimation is
   // bounded to the two references the gauge renders, and a failed rebuild
   // simply omits that needle.
-  const currentFoldEstimates = (ctx: ExtensionContext, pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number }) => {
+  const currentFoldEstimates = (
+    ctx: ExtensionContext,
+    pressure: { workingBudgetTokens: number; tokens: number; contextWindow: number },
+    branch: readonly FoldEstimateEntry[] | undefined,
+    entries: { length: number; at(index: number): { id: string } | undefined } | undefined,
+    labelMaps: LabelMaps | undefined,
+  ) => {
     const session = ctx.sessionManager;
     try {
-      const branch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
-      if (!Array.isArray(branch) || branch.length === 0) return undefined;
-      const labelMaps = buildLabelMaps(session.getEntries());
-      const references = selectFoldReferences(branch, labelMaps);
+      // Shared reads are the fast path; a transient acquisition failure must
+      // not lose the needle, so fall back to this consumer's own reads — the
+      // same independent recovery the pre-shared path had.
+      let activeBranch = branch;
+      if (activeBranch === undefined) {
+        try {
+          activeBranch = session.getBranch() as unknown as readonly FoldEstimateEntry[];
+        } catch {
+          return undefined;
+        }
+      }
+      let activeEntries = entries;
+      let activeLabelMaps = labelMaps;
+      if (activeEntries === undefined || activeLabelMaps === undefined) {
+        try {
+          const readEntries = session.getEntries();
+          activeEntries = readEntries;
+          activeLabelMaps = runtime.labelMapsFor(session, readEntries, () => buildLabelMaps(readEntries));
+        } catch {
+          return undefined;
+        }
+      }
+      if (!Array.isArray(activeBranch) || activeBranch.length === 0) return undefined;
+      const references = selectFoldReferences(activeBranch, activeLabelMaps);
       if (!references.turn && !references.task) return undefined;
-      const currentPacket = rebuildAcmContextPacket(session);
-      if (!currentPacket.ok) return undefined;
-      const cache = new Map<string, AgentMessage[] | undefined>();
-      return estimateFoldGains({
+      const leafId = session.getLeafId();
+      // One shared snapshot serves every cold-path miss in this render; warm
+      // renders whose keys have not moved rebuild nothing and scan nothing.
+      let snapshot: ReturnType<typeof createAcmPacketSnapshot> | undefined;
+      const aggregateAt = (wantedLeafId: string | null): MessageAggregate | undefined => {
+        snapshot ??= createAcmPacketSnapshot(session);
+        const result = snapshot.rebuild(wantedLeafId);
+        return result.ok ? aggregateMessages(result.value.messages) : undefined;
+      };
+      const currentAggregate = runtime.foldAggregate(
+        session,
+        { kind: "current", leafId, entriesLength: activeEntries.length, lastEntryId: activeEntries.at(-1)?.id ?? "" },
+        () => aggregateAt(leafId),
+      );
+      if (!currentAggregate) return undefined;
+      return estimateFoldGainsFromAggregates({
         usage: { tokens: pressure.tokens, contextWindow: pressure.contextWindow, percent: 0 },
         workingBudgetTokens: pressure.workingBudgetTokens,
-        currentMessages: currentPacket.value.messages,
-        messagesAt: (entryId) => {
-          if (!cache.has(entryId)) {
-            const result = rebuildAcmContextPacket(session, entryId);
-            cache.set(entryId, result.ok ? result.value.messages : undefined);
-          }
-          return cache.get(entryId);
-        },
+        currentAggregate,
+        aggregateAt: (entryId) => runtime.foldAggregate(session, { kind: "target", entryId }, () => aggregateAt(entryId)),
       }, references);
     } catch {
       return undefined;
@@ -193,19 +225,31 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     pressure: { pressurePercent: number; usagePercent: number },
     folds: { turnPercent: number | null; taskPercent: number | null } | undefined,
     savePoints: number | null,
+    sharedBranch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined,
+    sharedBoundaryId: string | null,
   ): void => {
     try {
-      const session = ctx.sessionManager as unknown as object;
-      const branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
+      // The shared reads are the fast path; when they failed transiently this
+      // consumer recovers on its own — its own branch read, its own boundary
+      // scan — exactly as it did before the reads were shared. A null
+      // boundaryId with a branch in hand also covers the gate scan having
+      // failed while the render-path branch read succeeded.
+      let branch = sharedBranch;
+      if (branch === undefined) {
+        branch = (ctx.sessionManager as { getBranch?: () => readonly { id: string; type?: string; message?: { role?: string } }[] }).getBranch?.();
+      }
       if (!Array.isArray(branch) || branch.length === 0) return;
-      let boundaryId: string | null = null;
-      for (let index = branch.length - 1; index >= 0; index--) {
-        const entry = branch[index]!;
-        if (entry.type === "message" && entry.message?.role === "user") {
-          boundaryId = entry.id;
-          break;
+      let boundaryId = sharedBoundaryId;
+      if (boundaryId === null) {
+        for (let index = branch.length - 1; index >= 0; index--) {
+          const entry = branch[index]!;
+          if (entry.type === "message" && entry.message?.role === "user") {
+            boundaryId = entry.id;
+            break;
+          }
         }
       }
+      const session = ctx.sessionManager as unknown as object;
       const state = runtime.ledgerState(session);
       if (!shouldCountBoundary(state, boundaryId)) return;
       const ordinal = markBoundaryCounted(state, boundaryId!);
@@ -242,28 +286,63 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // has actually decided to render; most readings are silenced and must
     // not pay O(entries) for a suffix that never appears.
     let boundaryId: string | null = null;
-    try {
-      const branch = session.getBranch();
+    let gateBranch: readonly { id: string; type?: string; message?: { role?: string } }[] | undefined;
+    const resolveBoundary = (branch: readonly { id: string; type?: string; message?: { role?: string } }[]): string | null => {
       for (let index = branch.length - 1; index >= 0; index--) {
         const entry = branch[index]!;
-        if (entry.type === "message" && (entry as { message?: { role?: string } }).message?.role === "user") {
-          boundaryId = entry.id;
-          break;
-        }
+        if (entry.type === "message" && entry.message?.role === "user") return entry.id;
       }
+      return null;
+    };
+    try {
+      gateBranch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+      boundaryId = resolveBoundary(gateBranch);
     } catch {
-      boundaryId = null;
+      // A transient read must not swallow this request's first reading: the
+      // odometer gates on the boundary id, and a null boundary silences a
+      // first-reading render whose integer pressure has not moved. Retry
+      // once before the gate; only a second failure degrades to null.
+      try {
+        gateBranch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+        boundaryId = resolveBoundary(gateBranch);
+      } catch {
+        boundaryId = null;
+        gateBranch = undefined;
+      }
     }
     if (!runtime.shouldShowGaugeNow(session, pressure.pressurePercent, boundaryId)) return;
+    // The odometer has decided to render, so everything below pays O(entries)
+    // once per render instead of once per consumer: one branch (already in
+    // hand from the gate scan), one entries read, and one label replay served
+    // from the cross-render cache — shared by the save-point count, the fold
+    // needles, and the boundary ledger row.
+    let branch = gateBranch;
+    if (branch === undefined) {
+      try {
+        branch = session.getBranch() as readonly { id: string; type?: string; message?: { role?: string } }[];
+      } catch {
+        branch = undefined;
+      }
+    }
+    let entries: { length: number; at(index: number): { id: string } | undefined } | undefined;
+    let labelMaps: LabelMaps | undefined;
+    try {
+      const readEntries = session.getEntries();
+      entries = readEntries;
+      labelMaps = runtime.labelMapsFor(session, readEntries, () => buildLabelMaps(readEntries));
+    } catch {
+      entries = undefined;
+      labelMaps = undefined;
+    }
     let savePoints: number | null = null;
     try {
-      const branch = session.getBranch();
-      const labelMaps = buildGaugeLabelMaps(session.getEntries());
-      let count = 0;
-      for (const entry of branch) {
-        if (labelMaps.entryToLabel.get(entry.id) !== undefined) count++;
+      if (branch !== undefined && labelMaps !== undefined) {
+        let count = 0;
+        for (const entry of branch) {
+          if (labelMaps.entryToLabel.get(entry.id) !== undefined) count++;
+        }
+        savePoints = count;
       }
-      savePoints = count;
     } catch {
       savePoints = null;
     }
@@ -271,11 +350,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
       boundary: runtime.isNewGaugeBoundary(session, boundaryId),
       savePoints,
     };
-    const folds = currentFoldEstimates(ctx, pressure);
+    const folds = currentFoldEstimates(ctx, pressure, branch, entries, labelMaps);
     // Passive boundary ledger: one row per distinct user-request boundary, so
     // "boundaries crossed N, folds M" accumulates without any injection. Never
     // allowed to affect this result — every failure is swallowed inside.
-    recordBoundary(ctx, pressure, folds, savePoints);
+    recordBoundary(ctx, pressure, folds, savePoints, branch, boundaryId);
     const patch = appendSuffixPatch(event.content, buildGaugeSuffix(pressure, folds, structure));
     // Move the odometer only on actual delivery; an undeliverable result (no
     // text part) leaves the tick armed for the next tool completion.
@@ -388,7 +467,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
     if (!contextRefresh.isPending(sessionManager) && !runtime.shouldRebuildProviderContext(sessionManager)) {
       const original = event.messages as AgentMessage[];
-      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager).messages;
+      const fixed = normalizeExistingAcmPacketForSession(original, sessionManager, runtime).messages;
       const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
       return changed ? { messages: fixed as typeof event.messages } : undefined;
     }
@@ -527,7 +606,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const sessionManager = ctx.sessionManager;
     const branch = sessionManager.getBranch();
     if (branch.length === 0) return;
-    const labelMaps = buildLabelMaps(sessionManager.getEntries());
+    const compactEntries = sessionManager.getEntries();
+    const labelMaps = runtime.labelMapsFor(sessionManager, compactEntries, () => buildLabelMaps(compactEntries));
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     const checkpointBase = `pre-compact-${timestamp}`;
     let checkpointName = checkpointBase;
@@ -597,5 +677,12 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // always shows once. No persisted gauge state exists by design.
     runtime.clear(ctx.sessionManager);
   });
-  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
+  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
+    runtime.clear(ctx.sessionManager);
+    // The host's extension runner awaits each handler's returned promise
+    // through shutdown, so returning the flush lets queued ledger rows drain
+    // before the process exits. A hard kill can still lose the tail — the
+    // ledger's diagnostic contract already prices that in.
+    return flushLedgerQueue(500);
+  });
 }

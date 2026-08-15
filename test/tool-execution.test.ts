@@ -134,8 +134,12 @@ function largeTimelineContext(count = 250) {
     treeNode = { entry: messages[index]!, children: treeNode ? [treeNode] : [] };
   }
   let branchReads = 0;
+  let treeReads = 0;
   const sessionManager = {
-    getTree: () => treeNode ? [treeNode] : [],
+    getTree: () => {
+      treeReads++;
+      return treeNode ? [treeNode] : [];
+    },
     getEntries: () => [...messages, ...labels],
     getBranch: (fromId?: string) => {
       branchReads++;
@@ -152,6 +156,7 @@ function largeTimelineContext(count = 250) {
       ui: { notify() {} },
     },
     getBranchReads: () => branchReads,
+    getTreeReads: () => treeReads,
   };
 }
 
@@ -173,8 +178,12 @@ function largeLabelTimelineContext(count = 250) {
   }
   const entries = [...messages, ...labels];
   const leafId = messages.at(-1)?.id ?? null;
+  let treeReads = 0;
   const sessionManager = {
-    getTree: () => treeNode ? [treeNode] : [],
+    getTree: () => {
+      treeReads++;
+      return treeNode ? [treeNode] : [];
+    },
     getEntries: () => entries,
     getBranch: (fromId?: string) => {
       if (!fromId) return messages;
@@ -191,6 +200,7 @@ function largeLabelTimelineContext(count = 250) {
     },
     longLabel,
     leafId,
+    getTreeReads: () => treeReads,
   };
 }
 
@@ -1443,6 +1453,80 @@ describe("ACM tool execution contracts", () => {
     expect(limited.content[0]?.text).toContain("... +4 more — use a narrower filter or query");
   });
 
+  test("an aborted checkpoint render reconciles the header and the omitted tail with the rendered rows", async () => {
+    const fixture = sortedCheckpointTimelineContext();
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executeTimeline(
+      "aborted-checkpoints",
+      { view: "checkpoints", filter: "checkpoint", limit: 6 },
+      controller.signal,
+      undefined,
+      fixture.context,
+    );
+
+    // Cancellation is its own omission reason: it must reconcile every count
+    // without pretending the result limit hid the rows or recommending a
+    // narrower query that cannot recover an interrupted render.
+    expect(result.details).toMatchObject({
+      checkpointsMatchingEntries: 6,
+      checkpointsSelectedEntries: 0,
+      checkpointsDisplayedEntries: 0,
+      checkpointsDisplayedAliases: 0,
+      checkpointAliasNamesShown: 0,
+      checkpointsRenderAborted: true,
+    });
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("6 save points matching 'checkpoint', rendering interrupted after 0/6 by cancellation before output fitting");
+    expect(text).toContain("render interrupted by cancellation; 6 matching save points not rendered — retry the request");
+    expect(text).not.toContain("(limit 6)");
+    expect(text).not.toContain("use a narrower filter or query");
+    expect(text).not.toContain("(checkpoint: checkpoint-on-first");
+  });
+
+  test("keeps checkpoint cancellation visible through output fitting and result-budget advice", async () => {
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    const fixture = sortedCheckpointTimelineContext();
+    let abortReads = 0;
+    const stagedSignal = {
+      get aborted() {
+        abortReads += 1;
+        return abortReads > 1;
+      },
+    } as AbortSignal;
+    runtime.contextRefresh.recordFailedAttempt(
+      fixture.context.sessionManager as never,
+      "E".repeat(9_000),
+    );
+
+    const result = await executeWithRuntime(
+      "aborted-checkpoints-trimmed",
+      { view: "checkpoints", filter: "checkpoint", limit: 1_000_000 },
+      stagedSignal,
+      undefined,
+      fixture.context,
+    );
+    expect(result.details).toMatchObject({
+      checkpointsMatchingEntries: 6,
+      checkpointsSelectedEntries: 1,
+      checkpointsDisplayedEntries: 0,
+      checkpointsDisplayedAliases: 0,
+      checkpointAliasNamesShown: 0,
+      checkpointsRenderAborted: true,
+      resultBudgetApplied: true,
+      outputTruncatedByCharacterBudget: true,
+    });
+    const text = result.content[0]?.text ?? "";
+    expect(text).not.toContain("Checkpoints:");
+    expect(text).not.toContain("(checkpoint: checkpoint-on-first");
+    expect(text).toContain("Checkpoint receipt: rendering cancelled after 1/6 before output fitting; 0 complete checkpoint row(s) delivered; retry the request");
+    expect(text).toContain("Checkpoint rendering was cancelled before completion; retry the request.");
+    expect(text).not.toContain("Narrow with filter/query for the remainder");
+    expect(text).not.toContain("Use a narrower filter/query or a smaller view");
+  });
+
   test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
     const result = await executeTimeline(
       "filtered-checkpoints",
@@ -1497,7 +1581,14 @@ describe("ACM tool execution contracts", () => {
       checkpointsMatchingEntries: 250,
       checkpointsDisplayedEntries: 99,
     });
-    expect(fixture.getBranchReads()).toBeLessThanOrEqual(205);
+    // The branch budget is the perf contract: one rebuild per target (101
+    // packets: current, root, and 99 checkpoints, each reading its branch
+    // once inside the snapshot) plus a few view-level branch reads. The old
+    // two-walks-per-target shape lands at ~205 and must fail here.
+    expect(fixture.getBranchReads()).toBeLessThanOrEqual(106);
+    // Checkpoints needs the tree only for the root lookup: exactly one
+    // build, never one per target.
+    expect(fixture.getTreeReads()).toBe(1);
     expect(result.content[0]?.text).toContain("Result Budget:    requested 1000000000");
     expect(result.content[0]?.text).toContain("+151 more");
   });
@@ -1513,6 +1604,9 @@ describe("ACM tool execution contracts", () => {
       fixture.context,
     );
     const activeText = active.content[0]?.text ?? "";
+    // Perf contract: the active view answers from branch/entries and never
+    // builds the session tree.
+    expect(fixture.getTreeReads()).toBe(0);
     const activeBudget = active.details?.resultCharacterBudget;
     if (typeof activeBudget !== "number") throw new Error("timeline result omitted its character budget");
     expect(active.details).toMatchObject({ outputTruncatedByCharacterBudget: true });
@@ -1580,8 +1674,40 @@ describe("ACM tool execution contracts", () => {
     expect(text.indexOf("needle-first")).toBeLessThan(text.indexOf("needle-second"));
     expect(text).not.toContain("needle-third");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: true });
-    expect(text).toContain("additional matches truncated");
+    expect(text).toContain("scan stopped early (display limit)");
     expect(tailContentReads).toBe(0);
+  });
+
+  test("search matches mixed-case content case-insensitively on both matcher paths", async () => {
+    // The ASCII fast path must reproduce toLowerCase().includes() exactly:
+    // mixed-case content, lowercase query, and a hit that straddles the
+    // first-character check. A non-ASCII query rides the Unicode fallback and
+    // still matches identical text.
+    const root = userEntry("entry-root");
+    const ascii = userEntry("entry-NeEdLe-mixed", root.id);
+    const unicode = userEntry("entry-needle-Ünïcode", ascii.id);
+    const entries = [root, ascii, unicode];
+    let treeNode: SessionTreeNode | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => treeNode ? [treeNode] : [],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => unicode.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const mixedCase = await executeTimeline("search-mixed-case", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    expect(mixedCase.content[0]?.text).toContain("entry-NeEdLe-mixed");
+    expect(mixedCase.content[0]?.text).toContain("entry-needle-Ünïcode");
+
+    const exactUnicode = await executeTimeline("search-unicode", { view: "search", query: "Ünïcode" }, undefined, undefined, ctx);
+    expect(exactUnicode.content[0]?.text).toContain("entry-needle-Ünïcode");
   });
 
   test("search does not report truncation when matches exactly fill the limit", async () => {
@@ -1629,7 +1755,7 @@ describe("ACM tool execution contracts", () => {
     expect(text).toContain("needle-first");
     expect(text).toContain("needle-second");
     expect(result.details).toMatchObject({ searchDisplayedMatches: 2, searchTruncated: false });
-    expect(text).not.toContain("additional matches truncated");
+    expect(text).not.toContain("scan stopped early");
     // The limit is exactly filled, so the scan must keep walking the tree to
     // keep `truncated === false` honest: the sentinel past the last match is
     // still read. A premature stop at the limit-th match would leave it at 0.
@@ -1648,7 +1774,173 @@ describe("ACM tool execution contracts", () => {
       timelineContext(),
     );
     expect(result.details).toMatchObject({ searchDisplayedMatches: 0, searchTruncated: true });
-    expect(result.content[0]?.text ?? "").toContain("additional matches truncated");
+    expect(result.content[0]?.text ?? "").toContain("scan stopped early (cancelled)");
+  });
+
+  test("search scope and type filters partition the tree without reading excluded content", async () => {
+    const root = userEntry("entry-root");
+    const activeUser = userEntry("needle-active", root.id);
+    const summary: SessionEntry = {
+      type: "branch_summary",
+      id: "needle-summary",
+      parentId: activeUser.id,
+      timestamp: "2026-01-01T00:02:00.000Z",
+      summary: "needle-summary-body",
+    } as SessionEntry;
+    const toolResult: SessionEntry = {
+      type: "message",
+      id: "needle-tool",
+      parentId: summary.id,
+      timestamp: "2026-01-01T00:03:00.000Z",
+      message: { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: "needle-tool-body", isError: false, timestamp: 0 },
+    } as SessionEntry;
+    const assistant: SessionEntry = {
+      type: "message",
+      id: "needle-assistant",
+      parentId: toolResult.id,
+      timestamp: "2026-01-01T00:03:30.000Z",
+      message: { role: "assistant", content: [{ type: "text", text: "needle-assistant-body" }], timestamp: 0 },
+    } as SessionEntry;
+    let archivedReads = 0;
+    const archived: SessionEntry = {
+      type: "message",
+      id: "needle-archived",
+      parentId: root.id,
+      timestamp: "2026-01-01T00:04:00.000Z",
+      message: {
+        role: "user",
+        get content() {
+          archivedReads++;
+          return "needle-archived-body";
+        },
+        timestamp: 0,
+      },
+    } as SessionEntry;
+    const entries = [root, activeUser, summary, toolResult, assistant, archived];
+    const tree: SessionTreeNode[] = [{
+      entry: root,
+      children: [
+        { entry: activeUser, children: [{ entry: summary, children: [{ entry: toolResult, children: [{ entry: assistant, children: [] }] }] }] },
+        { entry: archived, children: [] },
+      ],
+    }];
+    const ctx = {
+      sessionManager: {
+        getTree: () => tree,
+        getEntries: () => entries,
+        getBranch: () => [root, activeUser, summary, toolResult, assistant],
+        getLeafId: () => assistant.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const idsOf = async (params: Record<string, unknown>): Promise<string[]> => {
+      const result = await executeTimeline("search-filtered", { view: "search", query: "needle", limit: 10, ...params }, undefined, undefined, ctx);
+      const text = result.content[0]?.text ?? "";
+      const ids = ["needle-active", "needle-summary", "needle-tool", "needle-assistant", "needle-archived"].filter((id) => text.includes(id));
+      return ids;
+    };
+
+    // Every kind is reachable with no type filter, assistant messages included
+    // - the search cue promises exactly this coverage.
+    expect(await idsOf({})).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-assistant", "needle-archived"]);
+    expect(await idsOf({ scope: "active" })).toEqual(["needle-active", "needle-summary", "needle-tool", "needle-assistant"]);
+    expect(await idsOf({ scope: "archive" })).toEqual(["needle-archived"]);
+    // The three type values name user, summary, and tool kinds; an assistant
+    // message answers to none of them, so the cue tells the caller to omit
+    // type when assistant text is in play.
+    expect(await idsOf({ type: "user" })).toEqual(["needle-active", "needle-archived"]);
+    expect(await idsOf({ type: "summary" })).toEqual(["needle-summary"]);
+    expect(await idsOf({ type: "tool" })).toEqual(["needle-tool"]);
+    expect(await idsOf({ scope: "active", type: "user" })).toEqual(["needle-active"]);
+    // The archived node's content is read exactly when it is a candidate
+    // (unfiltered, scope=archive, type=user) and never by the scope=active
+    // runs — that read is the scan cost this filter exists to skip.
+    expect(archivedReads).toBe(3);
+
+    const detailed = await executeTimeline("search-details", { view: "search", query: "needle", scope: "archive", type: "user", limit: 10 }, undefined, undefined, ctx);
+    expect(detailed.details).toMatchObject({
+      searchScope: "archive",
+      searchType: "user",
+      searchScanBudget: 5000,
+      searchTruncationReason: null,
+      searchTruncated: false,
+    });
+    expect(typeof detailed.details?.searchScannedNodes).toBe("number");
+    expect(detailed.content[0]?.text ?? "").toContain("scope archive, type user");
+  });
+
+  test("search reports the scan budget boundary honestly", async () => {
+    const buildTree = (totalNodes: number) => {
+      const root = userEntry("entry-root");
+      const children: SessionTreeNode[] = [];
+      const entries: SessionEntry[] = [root];
+      let tailReads = 0;
+      for (let index = 0; index < totalNodes - 1; index++) {
+        const isLast = index === totalNodes - 2;
+        const entry: SessionEntry = {
+          type: "message",
+          id: `entry-filler-${index}`,
+          parentId: root.id,
+          timestamp: "2026-01-01T00:00:00.000Z",
+          message: {
+            role: "user",
+            get content() {
+              if (isLast) tailReads++;
+              return "filler-body";
+            },
+            timestamp: 0,
+          },
+        } as SessionEntry;
+        entries.push(entry);
+        children.push({ entry, children: [] });
+      }
+      return { root, children, entries, tailReads: () => tailReads };
+    };
+
+    const ctxOf = (built: ReturnType<typeof buildTree>) => ({
+      sessionManager: {
+        getTree: () => [{ entry: built.root, children: built.children }],
+        getEntries: () => built.entries,
+        getBranch: () => [built.root],
+        getLeafId: () => built.root.id,
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    });
+
+    // Exactly 5,000 nodes, fully scanned, no match: not truncated.
+    const exact = buildTree(5_000);
+    const exactResult = await executeTimeline("search-budget-exact", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, ctxOf(exact));
+    expect(exactResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: false, searchTruncationReason: null });
+
+    // 5,001 nodes: the scan stops at the budget, says why, and never reads
+    // the content of the unvisited tail node.
+    const over = buildTree(5_001);
+    const overCtx = ctxOf(over);
+    const overResult = await executeTimeline("search-budget-over", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, overCtx);
+    expect(overResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: true, searchTruncationReason: "scan_budget" });
+    expect(overResult.content[0]?.text ?? "").toContain("scan stopped at the 5,000-node limit");
+    expect(over.tailReads()).toBe(0);
+
+    // Character fitting must preserve the structural scan result even when an
+    // oversized HUD removes both the search header and its detailed recovery.
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    runtime.contextRefresh.recordFailedAttempt(overCtx.sessionManager as never, "E".repeat(9_000));
+    const fitted = await executeWithRuntime("search-budget-fitted", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, overCtx);
+    const fittedText = fitted.content[0]?.text ?? "";
+    expect(fitted.details).toMatchObject({
+      searchSelectedMatches: 0,
+      searchDisplayedMatches: 0,
+      searchTruncated: true,
+      searchTruncationReason: "scan_budget",
+      outputTruncatedByCharacterBudget: true,
+    });
+    expect(fittedText).not.toContain("Search 'zzz-nothing'");
+    expect(fittedText).toContain("Search receipt: search stopped at 5,000-node scan limit");
+    expect(fittedText).toContain("0 selected before output fitting; 0 complete result row(s) delivered");
   });
 
   test("node view returns an off-path entry in full without mutating the tree", async () => {
@@ -2073,6 +2365,10 @@ describe("ACM tool execution contracts", () => {
     });
     expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
     expect(result.content[0]?.text).toContain("Travel complete");
+    // The mutation applied, so the fold count describes it even though the
+    // post-mutation observation failed before the fold row could be built.
+    // Otherwise every later boundary row understates foldsSoFar.
+    expect(runtime.ledgerState(context.sessionManager as never).folds).toBe(1);
   });
 
   test("keeps an applied travel receipt and protocol defects when post-mutation packet evidence is invalid", async () => {
@@ -2144,5 +2440,279 @@ describe("ACM tool execution contracts", () => {
       summaryEntryId: "travel-summary",
       backupEntryId: "travel-head",
     });
+  });
+});
+
+describe("search text budget", () => {
+  test("oversized entries are cut at the node cap and the call budget reports honestly", async () => {
+    const entries = [];
+    for (let index = 0; index < 60; index++) {
+      entries.push({
+        type: "message",
+        id: `big-${index}`,
+        parentId: index === 0 ? null : `big-${index - 1}`,
+        timestamp: new Date(1700000000000 + index * 1000).toISOString(),
+        message: { role: "user", content: `needle ${index} ${"x".repeat(70_000)}` },
+      } as never);
+    }
+    let treeNode;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index], children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "big-59",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    // 60 nodes × 64KB cut = ~3.8MB > 2MB budget: the scan stops early with
+    // the text_budget reason, and the receipt states both budgets.
+    const result = await executeTimeline("text-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(text).toContain("truncated (text budget");
+    expect(result.details).toMatchObject({ searchTruncated: true, searchTruncationReason: "text_budget" });
+    // A hit inside the node cut still matches and renders a bounded snippet.
+    const hit = await executeTimeline("text-budget-hit", { view: "search", query: "needle 3" }, undefined, undefined, ctx);
+    const hitText = hit.content[0]?.text ?? "";
+    expect(hitText).toContain("big-3");
+    expect(hitText).not.toContain("x".repeat(200));
+    // Source work reaches the call budget exactly. The final partial node is
+    // attributed to the call-budget remainder, not misreported as a full
+    // 65,536-char node-cap cut.
+    expect(hit.details).toMatchObject({
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 30,
+      searchNodesCutAtCallBudget: 1,
+    });
+    expect(hitText).toContain("30 node(s) were searched only through their first 65,536 source chars");
+    expect(hitText).toContain("1 node(s) were cut at the remaining per-call text budget");
+
+    // A hit that exists ONLY past the 65,536-char cut must not read as a
+    // clean zero: the cut is reported, so the model knows where it did not
+    // look.
+    const tailEntry = {
+      type: "message",
+      id: "tail-carrier",
+      parentId: "big-59",
+      timestamp: "2026-01-01T00:00:59.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "y".repeat(65_536) },
+          { type: "toolCall", id: "tail-call", name: "read" },
+          { type: "text", text: "UNIQUE_TAIL_NEEDLE" },
+        ],
+      },
+    } as never;
+    const tailCtx = {
+      sessionManager: {
+        getTree: () => [{ entry: tailEntry, children: [] }],
+        getEntries: () => [tailEntry],
+        getBranch: () => [tailEntry],
+        getLeafId: () => "tail-carrier",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    const tail = await executeTimeline("tail-needle", { view: "search", query: "UNIQUE_TAIL_NEEDLE" }, undefined, undefined, tailCtx);
+    const tailText = tail.content[0]?.text ?? "";
+    expect(tailText).toContain("0");
+    expect(tailText).toContain("1 node(s) were searched only through their first 65,536 source chars");
+    expect(tail.details).toMatchObject({ searchNodesCutAtNodeCap: 1, searchNodesCutAtCallBudget: 0 });
+  });
+
+  test("charges whitespace source work against the call budget", async () => {
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      type: "message",
+      id: `space-${index}`,
+      parentId: index === 0 ? null : `space-${index - 1}`,
+      timestamp: new Date(1700001000000 + index * 1000).toISOString(),
+      message: { role: "user", content: " ".repeat(65_536) },
+    })) as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "space-39",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("whitespace-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchDisplayedMatches: 0,
+      searchTruncated: true,
+      searchTruncationReason: "text_budget",
+      searchScannedNodes: 31,
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 0,
+      searchNodesCutAtCallBudget: 1,
+    });
+    expect(text).toContain("2000000/2000000 text-budget chars");
+    expect(text).toContain("1 node(s) were cut at the remaining per-call text budget");
+  });
+
+  test("does not claim a node cut when the call budget ends on a full-node boundary", async () => {
+    const entries = Array.from({ length: 32 }, (_, index) => ({
+      type: "message",
+      id: `boundary-${index}`,
+      parentId: index === 0 ? null : `boundary-${index - 1}`,
+      timestamp: new Date(1700002000000 + index * 1000).toISOString(),
+      message: { role: "user", content: "x".repeat(index < 30 ? 65_536 : index === 30 ? 33_920 : 10) },
+    })) as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "boundary-31",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("exact-text-budget", { view: "search", query: "zzz-absent" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchTruncationReason: "text_budget",
+      searchScannedNodes: 31,
+      searchTextChars: 2_000_000,
+      searchNodesCutAtNodeCap: 0,
+      searchNodesCutAtCallBudget: 0,
+    });
+    expect(text).toContain("later nodes were not searched, and any partial-node cuts are reported above");
+    expect(text).not.toContain("largest entries were cut before their ends");
+  });
+
+  test("keeps partial-node cuts visible when the output budget trims the tail notices", async () => {
+    // A node cut at the 65,536-char cap does not set search.truncated, so the
+    // header reads " matching node(s)" — complete. Long match rows then push
+    // the detailed cut notices past the character budget. Unless the header
+    // carries the cut summary, a partial search reports itself as exhaustive.
+    const longId = (index: number) => `match-${index}-${"i".repeat(190)}`;
+    const capCarrier = {
+      type: "message",
+      id: "cap-carrier",
+      parentId: null,
+      timestamp: "2026-02-01T00:00:00.000Z",
+      message: { role: "user", content: "y".repeat(65_600) },
+    };
+    const matchEntries = Array.from({ length: 50 }, (_, index) => ({
+      type: "message",
+      id: longId(index),
+      parentId: index === 0 ? "cap-carrier" : longId(index - 1),
+      timestamp: new Date(1770000000000 + index * 1000).toISOString(),
+      message: { role: "user", content: `needle ${index} ${"p".repeat(200)}` },
+    }));
+    const entries = [capCarrier, ...matchEntries] as never[];
+    let treeNode: { entry: never; children: unknown[] } | undefined;
+    for (let index = entries.length - 1; index >= 0; index--) {
+      treeNode = { entry: entries[index]!, children: treeNode ? [treeNode] : [] };
+    }
+    const ctx = {
+      sessionManager: {
+        getTree: () => [treeNode],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => longId(49),
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+
+    const result = await executeTimeline("cut-under-budget", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    const deliveredLineSet = new Set(text.split("\n"));
+    const deliveredRows = matchEntries.reduce((count, _entry, index) => {
+      const content = `needle ${index} ${"p".repeat(200)}`;
+      const expectedSnippet = content.length > 100 ? `${content.slice(0, 100)}…` : content;
+      const expectedLine = `  ${longId(index)} [USER] ${expectedSnippet}`;
+      return count + (deliveredLineSet.has(expectedLine) ? 1 : 0);
+    }, 0);
+    expect(result.details).toMatchObject({
+      searchSelectedMatches: 50,
+      searchDisplayedMatches: deliveredRows,
+      searchTruncated: false,
+      searchNodesCutAtNodeCap: 1,
+      searchNodesCutAtCallBudget: 0,
+    });
+    expect(deliveredRows).toBeGreaterThan(0);
+    expect(deliveredRows).toBeLessThan(50);
+    // The output really was trimmed, and the detailed notice really is gone.
+    expect(text).toContain("timeline output truncated at");
+    expect(text).not.toContain("were searched only through their first");
+    // Selection is explicitly pre-fit; the structural receipt reports how many
+    // complete result rows actually survived character fitting.
+    const header = text.split("\n").find((line) => line.startsWith("Search '")) ?? "";
+    expect(header).toContain("50 matching node(s) selected before output fitting");
+    expect(header).toContain("1 node(s) partially searched (their later text was not searched)");
+    expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
+    expect(text).toContain(`50 selected before output fitting; ${deliveredRows} complete result row(s) delivered`);
+  });
+
+  test("keeps partial-node cuts visible when oversized diagnostics push the header out of the budget", async () => {
+    // The HUD interpolates refresh/provider diagnostics without a length bound,
+    // so a large enough one consumes the whole character budget before the body
+    // starts. Position in the raw text is therefore not survival: the fact has
+    // to be pinned to the footer that does survive.
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    const capText = `needle ${"y".repeat(65_600)}`;
+    const expectedSnippet = `${capText.slice(0, 100)}…`;
+    const spoofedMatchLine = `  cap-carrier [USER] ${expectedSnippet}`;
+    const capCarrier = {
+      type: "message",
+      id: "cap-carrier",
+      parentId: null,
+      timestamp: "2026-03-01T00:00:00.000Z",
+      message: { role: "user", content: capText },
+    } as never;
+    const entries = [capCarrier];
+    const ctx = {
+      sessionManager: {
+        getTree: () => [{ entry: capCarrier, children: [] }],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "cap-carrier",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    runtime.contextRefresh.recordFailedAttempt(
+      ctx.sessionManager as never,
+      `diagnostic says no node(s) partially searched\n${spoofedMatchLine}\n${"E".repeat(9_000)}`,
+    );
+
+    const result = await executeWithRuntime("cut-under-huge-hud", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchSelectedMatches: 1,
+      searchDisplayedMatches: 0,
+      searchNodesCutAtNodeCap: 1,
+      searchTruncated: false,
+      outputTruncatedByCharacterBudget: true,
+    });
+    // The header and real result row do not survive. An exact forged copy of
+    // that row inside dynamic HUD text must not acquire result provenance.
+    expect(text).not.toContain("Search '");
+    expect(text).toContain(spoofedMatchLine);
+    expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
+    expect(text).toContain("1 selected before output fitting; 0 complete result row(s) delivered");
+    expect(text.length).toBeLessThanOrEqual(8_000);
   });
 });

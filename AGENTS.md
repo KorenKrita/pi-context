@@ -55,6 +55,7 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 | `src/context-pressure.ts` | working-budget pressure（400K cap policy） |
 | `src/fold-estimate.ts` | 双折叠针投影（剩余压力 + 消息数），计入 handoff 名义成本 |
 | `src/boundary-ledger.ts` | 被动 append-only 观测（boundary/fold 行，fold 区分 direction） |
+| `src/ledger-writer.ts` | ledger 行的异步有界队列与跨进程锁写（batch 持锁、flush deadline、lock-compromise 中止） |
 | `src/live-agent-session-adapter.ts` | capability-probed live sync 与 settled-boundary replacement |
 | `src/generated-guidance.ts` | 生成产物，不要手改 |
 
@@ -116,7 +117,7 @@ wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recov
 
 ### Boundary ledger
 
-被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数、百分比与结构性判别字段，绝不记消息内容；写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带三个 provenance 字段：`gauge` cohort（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）、`core`（注入 CORE 文本的 sha256 前 12 hex，`ACM_CORE_HASH`——CORE 不落盘 session，此字段是文案归因的唯一取证途径）、`model`（`provider/id` 判别符，经 `modelDiscriminator` 归一化，host 无 model 时为 null、绝不猜占位串）；旧行缺失字段即 legacy cohort，不写 null。
+被动 append-only 观测：每个不同 user boundary 一行、每次 applied travel 一行（`direction: "fold" | "restore"`，按 messageDelta 符号区分）。只记计数、百分比与结构性判别字段，绝不记消息内容。写入经 `src/ledger-writer.ts` 异步化：enqueue 即返回（`appendLedgerRow` 的返回值语义是"已入队"而非"已落盘"）、队列 256 行 × 单行 16 KiB 双上限、同文件行 batch 于一次 `proper-lockfile` 临界区内做 cap 检查与 append、lock compromise 中止临界区、flush 带 deadline（`session_shutdown` 500ms；deadline 在批间检查，上界 = deadline + 一个锁窗口，超时按诊断可丢契约丢弃剩余行并计 `deadlineDrops`）。写失败一律吞掉；`MAX_LEDGER_BYTES` 上限；`ACM_LEDGER_DISABLED=1` 静默。fold 计数描述 applied travels（与队列 admission/落盘结果解耦）。测试经 `test/setup.ts` bunfig preload 与 fixture `ledger-guard.ts` 强制禁用。两类行都带三个 provenance 字段：`gauge` cohort（`ACM_GAUGE_FORMAT_VERSION`，当前 `"v2"`）、`core`（注入 CORE 文本的 sha256 前 12 hex，`ACM_CORE_HASH`——CORE 不落盘 session，此字段是文案归因的唯一取证途径；cohort 切换时历史样本按 cohort 分段分析、不跨段合并，切换前后的比例不直接可比）、`model`（`provider/id` 判别符，经 `modelDiscriminator` 归一化，host 无 model 时为 null、绝不猜占位串）；旧行缺失字段即 legacy cohort，不写 null。
 
 **核心观测指标**：跨 40% budget 的真实 session 中出现 ≥1 次 fold 的比例（重构前基线 0/42）。
 
@@ -132,7 +133,20 @@ ledger 之外的第二只眼睛：对单个真实 session 产出中文定性备�
 
 ### Timeline 契约
 
-strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。每次调用受 context-derived entry/character budget 约束。
+strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `node` / `tree`。HUD 报告 usage、pressure、handoff layers（模型可见术语；details 键仍为 `activeSummaryDepth`）、fold projection、sync state——状态与数值行只报事实；末尾另带 generated result cue，失败状态附 recovery guidance（均来自 generated guidance 层，不属于 gauge 感知面）。checkpoints 视图列出投影收益并标注 `[raw archive]`；abort 打断渲染时 header 的 `showing N`、尾部 `+N more` 与 details 三个计数一起对齐到实际渲染行数（header 行占位、渲染完成后回填）。`node` 视图按 `target`（checkpoint 名或节点 ID）只读返回单个节点的完整可读文本投影（`entryText`，非原始 wire payload）+ 前后近邻 snippet，off-path 节点可读、active branch 不变；返回的归档文本进入 active context 是固有代价；截断 footer 报告节点身份、不建议收窄查询。
+
+`search` 面有四层彼此独立的 budget，别混：
+
+| 层 | 常量 | 量纲 | 越界后果 |
+|---|---|---|---|
+| 遍历 | `TIMELINE_SEARCH_SCAN_NODE_BUDGET` = 5,000 | 本次调用遍历的节点数 | 之后的节点本次不可达，`truncationReason: "scan_budget"` |
+| 每节点输入 | `SEARCH_NODE_TEXT_MAX_CHARS` = 65,536 | 单节点消耗的 source chars | 该节点只搜前缀，计入 `nodesCutAtNodeCap`；**不置 truncated** |
+| 每调用输入 | `SEARCH_TOTAL_TEXT_BUDGET_CHARS` = 2,000,000 | 全调用累计 source chars（pre-trim，空白与分隔符照计） | 跨节点边界即 `truncationReason: "text_budget"`；命中节点中段则同时计入 `nodesCutAtCallBudget` |
+| 输出 | context-derived entry/character budget | 结果 entry 数（`effectiveLimit`）与渲染字符数 | 命中 entry 数即 `truncationReason: "limit"`；命中字符数则保留前缀 + 通用 footer、尾部行被裁掉，走独立的 `outputTruncatedByCharacterBudget` 而不置 search 的 truncated |
+
+前三层是输入侧（决定搜了什么），第四层是输出侧（决定看到了什么）。`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小任何遍历边界。搜索面覆盖全部 entry kind，含 assistant message——`searchEntryKind` 对 assistant 返回 null，省略 `type` 时 null 也通过；三个 `type` 值都点不到该 kind。search header 报告 scanned/scanBudget、textChars/textBudget 与截断原因；details 另带 `searchScannedNodes`/`searchScanBudget`/`searchTextChars` 与两个 partial-cut 计数（无 textBudget 键，该分母只在正文）。
+
+「部分搜索绝不呈现为穷尽搜索」是双层保证，因为节点 cap 截断不置 truncated、尾部详细通知会被输出 budget 连同 match 行一起裁掉：① 两个 partial-cut 计数之和并进 search header（正文首行）；② `fitTimelineOutputToBudget` 的 `pinnedIfMissing` 参数在保留前缀里探测不到该短语时，把它重新贴在 footer 旁。第二层不是冗余——HUD 的 `refreshFailure`、`providerDelivery.error` 等诊断字段无长度上限，单条就能吃满最小 8,000 字符预算，把正文（含首行）整个挤出保留前缀；正文行在 raw text 里的位置不构成存活保证。两层都不破坏 `text.length <= budget` 不变量。
 
 ### Manual `/tree`
 

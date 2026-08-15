@@ -18,15 +18,37 @@ interface DeferredTravelRefreshState {
 interface CachedProviderPacket {
   readonly messages: AgentMessage[];
   readonly leafId: string | null;
-  /** Provider messages observed when this compact packet was built. */
-  readonly sourceMessages: AgentMessage[];
+  /** Provider messages observed when this compact packet was built. Omitted
+   * when the packet was built from the live provider array itself — then it
+   * is `messages`, and holding a second container of the same references
+   * only doubles the ticket's footprint for the refresh window. */
+  readonly sourceMessages?: AgentMessage[];
 }
 
-function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
-  if (left === right) return true;
+/**
+ * Prefix-identity comparison over the serializer's own semantics. The
+ * structural walker this PR shipped was slower than `JSON.stringify` on
+ * both measured shapes (3.5x on deep-cloned messages, worse on shared
+ * references - the serializer is native code) and survived three review
+ * rounds of getter/proxy/tag-forgery holes; simulating JavaScript's
+ * serialization semantics through arbitrary object code is unwinnable and
+ * was never worth the attempt. This is the pre-walker serialization oracle
+ * with one deliberate change from the baseline: the `left === right` identity
+ * shortcut is gone, because a stateful getter can render differently on its
+ * second serialization and the shortcut would call such a pair equal without
+ * ever asking the serializer.
+ */
+export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
+  // No identity shortcut, even here: a stateful getter renders differently
+  // on its second serialization, so stringify(left) === stringify(right) is
+  // the one true oracle even when both sides are the same object. The cost
+  // is one extra serialization of a shared reference (~0.6ms per 10k
+  // messages) - cheap next to grafting an unrelated tail.
   try {
     return JSON.stringify(left) === JSON.stringify(right);
   } catch {
+    // Getters, proxies, cycles - anything the serializer cannot render
+    // declines, never throws into the caller.
     return false;
   }
 }
@@ -227,7 +249,7 @@ export class ProviderDelivery {
     this.tickets.set(session, {
       ...withoutError,
       providerPhase: "active",
-      providerPacket: { messages: [...messages], leafId, sourceMessages: [...sourceMessages] },
+      providerPacket: { messages: [...messages], leafId, ...(sourceMessages !== messages ? { sourceMessages: [...sourceMessages] } : {}) },
     });
     return true;
   }
@@ -266,8 +288,10 @@ export class ProviderDelivery {
   ): AgentMessage[] | undefined {
     const packet = this.tickets.get(session)?.providerPacket;
     if (!packet) return undefined;
-    const tail = suffixAfterKnownPrefix(packet.sourceMessages, incomingMessages)
-      ?? suffixAfterKnownPrefix(packet.messages, incomingMessages);
+    const tail = packet.sourceMessages === undefined
+      ? suffixAfterKnownPrefix(packet.messages, incomingMessages)
+      : suffixAfterKnownPrefix(packet.sourceMessages, incomingMessages)
+        ?? suffixAfterKnownPrefix(packet.messages, incomingMessages);
     return tail === undefined ? undefined : [...packet.messages, ...tail];
   }
 
@@ -285,7 +309,7 @@ export class ProviderDelivery {
       providerPacket: {
         messages: [...messages],
         leafId: existing.leafId,
-        sourceMessages: [...sourceMessages],
+        ...(sourceMessages !== messages ? { sourceMessages: [...sourceMessages] } : {}),
       },
     });
     return true;
