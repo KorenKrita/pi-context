@@ -1484,6 +1484,39 @@ describe("ACM tool execution contracts", () => {
     expect(text).not.toContain("(checkpoint: checkpoint-on-first");
   });
 
+  test("keeps checkpoint cancellation visible through output fitting and result-budget advice", async () => {
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    const fixture = sortedCheckpointTimelineContext();
+    const controller = new AbortController();
+    controller.abort();
+    runtime.contextRefresh.recordFailedAttempt(
+      fixture.context.sessionManager as never,
+      "E".repeat(9_000),
+    );
+
+    const result = await executeWithRuntime(
+      "aborted-checkpoints-trimmed",
+      { view: "checkpoints", filter: "checkpoint", limit: 1_000_000 },
+      controller.signal,
+      undefined,
+      fixture.context,
+    );
+    expect(result.details).toMatchObject({
+      checkpointsMatchingEntries: 6,
+      checkpointsDisplayedEntries: 0,
+      checkpointsRenderAborted: true,
+      resultBudgetApplied: true,
+      outputTruncatedByCharacterBudget: true,
+    });
+    const text = result.content[0]?.text ?? "";
+    expect(text).not.toContain("Checkpoints:");
+    expect(text).toContain("Checkpoint receipt: rendering cancelled after 0/6; 6 matching save point(s) not rendered; retry the request");
+    expect(text).toContain("Checkpoint rendering was cancelled before completion; retry the request.");
+    expect(text).not.toContain("Narrow with filter/query for the remainder");
+    expect(text).not.toContain("Use a narrower filter/query or a smaller view");
+  });
+
   test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
     const result = await executeTimeline(
       "filtered-checkpoints",

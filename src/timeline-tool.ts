@@ -510,7 +510,7 @@ function fitTimelineOutputToBudget(
   // the body that stated it. It is appended unconditionally on truncation:
   // dynamic HUD text is untrusted data and must never suppress this receipt
   // merely by containing the same words.
-  pinnedOnTruncate?: { line: string; reserveChars?: number } | null,
+  pinnedOnTruncate?: { line: string; reserveChars?: number; footerRecovery?: string } | null,
 ): { text: string; truncated: boolean; retainedSourcePrefixChars: number } {
   if (text.length <= budget) return { text, truncated: false, retainedSourcePrefixChars: text.length };
   // The node view reads one entry in full, so "narrow the query" is not an
@@ -518,9 +518,11 @@ function fitTimelineOutputToBudget(
   // IDs come from persisted sessions and may be arbitrarily long, so they
   // are bounded here to keep the footer itself within the budget.
   const boundedId = (value: string) => boundedTimelineValue(value, 80);
+  const footerRecovery = pinnedOnTruncate?.footerRecovery
+    ?? "Use a narrower filter/query or a smaller view.";
   const footer = nodeTargetId
     ? `\n… [timeline node output truncated at ${budget} characters; node ${boundedId(nodeTargetId)}; active leaf ${leafId === null ? "none" : boundedId(leafId)}.]`
-    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. Use a narrower filter/query or a smaller view.]`;
+    : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. ${footerRecovery}]`;
   const pinned = pinnedOnTruncate
     ? `\n… [${boundedTimelineValue(pinnedOnTruncate.line, 200)}]`
     : "";
@@ -1302,7 +1304,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         hudParts.push(`• Ignored Params:   ${ignoredParams.join("; ")}`);
       }
       if (resultBudgetApplied) {
-        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. Narrow with filter/query for the remainder.`);
+        const resultBudgetRecovery = params.view === "checkpoints" && checkpointsRenderAborted
+          ? "Checkpoint rendering was cancelled before completion; retry the request."
+          : "Narrow with filter/query for the remainder.";
+        hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. ${resultBudgetRecovery}`);
       }
       if (refreshFailure) {
         const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
@@ -1422,11 +1427,19 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           );
         }
       } else {
+        const checkpointCancellationReceipt = params.view === "checkpoints" && checkpointsRenderAborted
+          ? {
+              line: `Checkpoint receipt: rendering cancelled after ${checkpointsDisplayedEntries}/${checkpointsMatchingEntries}; ${checkpointsMatchingEntries - checkpointsDisplayedEntries} matching save point(s) not rendered; retry the request`,
+              reserveChars: 240,
+              footerRecovery: "Checkpoint rendering was cancelled; retry the request.",
+            }
+          : null;
         fittedOutput = fitTimelineOutputToBudget(
           rawOutput,
           resultCharacterBudget,
           leafId,
           params.view === "node" ? nodeEntryId : null,
+          checkpointCancellationReceipt,
         );
       }
       return {
