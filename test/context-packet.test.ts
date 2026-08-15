@@ -237,8 +237,10 @@ describe("ACM context packet", () => {
     expect(afterClear.continuation).toEqual({ status: "not_present" });
     expect(summaryReads).toBeGreaterThan(readsBeforeClearCheck); // probe re-ran
 
-    // Appending a trusted trace entry changes (length, last id): the verdict
-    // re-runs and the marked summary projects.
+    // Appending a trusted trace entry changes the key by length alone - the
+    // probe entry stays last, so `branch.at(-1).id` is unchanged and only
+    // `branch.length` moves. The cached positive verdict must still fall, the
+    // probe must re-run, and the marked summary must project.
     const markedSummary = `${ACM_CONTINUATION_MARKER}\nGoal: g\nState: s\nEvidence: e\nExternal: x\nExclusions: c\nRecover: r\nNEXT: n`;
     const trace = {
       type: "branch_summary",
@@ -251,12 +253,15 @@ describe("ACM context packet", () => {
     } as SessionEntry;
     currentBranch = [root, plain, trace];
     const marked = { role: "branchSummary" as const, summary: markedSummary, fromId: "plain", timestamp: Date.parse("2026-01-01T00:00:02.000Z") };
-    const third = normalizeExistingAcmPacketForSession([user, marked], sm as never);
+    const readsBeforeThird = summaryReads;
+    const third = normalizeExistingAcmPacketForSession([user, marked], smWithProbe as never, runtime);
+    expect(summaryReads).toBeGreaterThan(readsBeforeThird); // length change alone invalidated
     expect(third.continuation).toEqual({ status: "projected", count: 1 });
     expect(third.messages[1]).toMatchObject({ role: "custom", customType: "acm:continuation" });
 
-    // A compaction append also changes the key: the cached trace-free verdict
-    // from the earlier branch shape cannot survive it.
+    // A compaction append also changes the key: only positive verdicts cache,
+    // so a traced branch re-scans every call and no earlier trace-free verdict
+    // can be inherited across the append.
     const compacted = {
       type: "compaction",
       id: "compaction-1",
@@ -266,7 +271,9 @@ describe("ACM context packet", () => {
     } as SessionEntry;
     const branchBefore = currentBranch;
     currentBranch = [...branchBefore, compacted];
-    const fourth = normalizeExistingAcmPacketForSession([user, marked], sm as never);
+    const readsBeforeFourth = summaryReads;
+    const fourth = normalizeExistingAcmPacketForSession([user, marked], smWithProbe as never, runtime);
+    expect(summaryReads).toBeGreaterThan(readsBeforeFourth); // no stale verdict survived
     expect(fourth.continuation).toEqual({ status: "projected", count: 1 });
   });
 
