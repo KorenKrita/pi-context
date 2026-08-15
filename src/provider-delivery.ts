@@ -77,18 +77,18 @@ function arrayElementJsonValue(array: unknown[], index: number): unknown {
  * undefined for everything else (plain objects, arrays, class instances).
  */
 function boxedPrimitiveOf(value: object): string | number | boolean | "bigint" | undefined {
-  switch (Object.prototype.toString.call(value)) {
-    case "[object BigInt]":
-      return "bigint";
-    case "[object Number]":
-      return (value as Number).valueOf();
-    case "[object String]":
-      return (value as String).valueOf();
-    case "[object Boolean]":
-      return (value as Boolean).valueOf();
-    default:
-      return undefined;
-  }
+  // Prototype identity, not Object.prototype.toString: Symbol.toStringTag
+  // can forge the "[object Number]" tag and smuggle a plain object through
+  // the unwrap. A forged tag leaves the prototype untouched, and a genuine
+  // wrapper's valueOf reads its slot; anything shaped like a wrapper but not
+  // being one throws in valueOf, which the caller's catch turns into a
+  // decline.
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Number.prototype) return (value as Number).valueOf();
+  if (prototype === String.prototype) return (value as String).valueOf();
+  if (prototype === Boolean.prototype) return (value as Boolean).valueOf();
+  if (prototype === BigInt.prototype) return "bigint";
+  return undefined;
 }
 
 function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unknown[], rightAncestors: readonly unknown[]): boolean {
@@ -132,28 +132,29 @@ function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unkno
     }
     return true;
   }
-  // Key order is part of stringify output: {a:1,b:2} and {b:2,a:1} differ.
-  // Properties are processed strictly in stringify's depth-first order -
-  // one key fully read and compared (both sides) before the next key is even
-  // looked at - because a stateful getter reached during an earlier key's
-  // subtree can mutate a later sibling, and stringify would serialize the
-  // mutated value. Pre-reading the whole level would compare the stale one.
-  const leftKeys = Object.keys(effectiveLeft);
-  const rightKeys = Object.keys(effectiveRight);
+  // Objects are compared through their property descriptors, in stringify's
+  // key order. Any accessor (getter/setter) declines the whole match:
+  // accessors can mutate siblings, add keys mid-walk, forge boxed tags, or
+  // disagree with themselves between reads - chasing JSON semantics through
+  // arbitrary code is unwinnable, and a decline only ever fails to graft,
+  // never invents one. Data values are read exactly once, from the
+  // descriptor, so no code runs during the comparison at all.
   const nextLeft = [...leftAncestors, effectiveLeft];
   const nextRight = [...rightAncestors, effectiveRight];
+  const leftKeys = Object.keys(effectiveLeft);
+  const rightKeys = Object.keys(effectiveRight);
+  const leftDescriptors = Object.getOwnPropertyDescriptors(effectiveLeft);
+  const rightDescriptors = Object.getOwnPropertyDescriptors(effectiveRight);
   let leftIndex = 0;
   let rightIndex = 0;
   while (true) {
-    // Advance past keys stringify drops (undefined/function/symbol values).
-    // Each value is read exactly once - here, captured for the comparison -
-    // at the same point in the sequence stringify's own per-key emission
-    // would reach it.
     let leftKey: string | undefined;
     let leftValue: unknown;
     while (leftIndex < leftKeys.length) {
       const key = leftKeys[leftIndex]!;
-      const value = (effectiveLeft as Record<string, unknown>)[key]!;
+      const descriptor = leftDescriptors[key]!;
+      if (descriptor.get !== undefined || descriptor.set !== undefined) return false;
+      const value = descriptor.value;
       if (value === undefined || typeof value === "function" || typeof value === "symbol") leftIndex += 1;
       else {
         leftKey = key;
@@ -165,7 +166,9 @@ function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unkno
     let rightValue: unknown;
     while (rightIndex < rightKeys.length) {
       const key = rightKeys[rightIndex]!;
-      const value = (effectiveRight as Record<string, unknown>)[key]!;
+      const descriptor = rightDescriptors[key]!;
+      if (descriptor.get !== undefined || descriptor.set !== undefined) return false;
+      const value = descriptor.value;
       if (value === undefined || typeof value === "function" || typeof value === "symbol") rightIndex += 1;
       else {
         rightKey = key;

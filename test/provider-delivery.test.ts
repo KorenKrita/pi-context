@@ -165,51 +165,46 @@ describe("ProviderDelivery", () => {
     // (false). The walk must decline it through the same gates.
     expect(stableMessageMatch(cyclic as unknown as AgentMessage, cyclic as unknown as AgentMessage)).toBe(false);
     expect(stableMessageMatch({ v: 1n } as unknown as AgentMessage, { v: 1n } as unknown as AgentMessage)).toBe(false);
-    // A stateful getter returning different values per read must not produce
-    // a false positive by being read twice (key filtering once, comparison
-    // again). Each property is now read exactly once, so a getter whose first
-    // read passes the filter and whose second read would differ can never
-    // make two unequal messages compare equal.
+    // Any accessor declines the whole match. Getters can disagree with
+    // themselves between reads, mutate siblings mid-walk, or add keys after
+    // a snapshot - chasing JSON semantics through arbitrary code is
+    // unwinnable, and a decline never invents a graft. This subsumes the
+    // earlier read-once patchwork: no code runs during the comparison now.
     let readCount = 0;
-    const stateful: Record<string, unknown> = {};
-    Object.defineProperty(stateful, "v", {
+    const withAccessor: Record<string, unknown> = {};
+    Object.defineProperty(withAccessor, "v", {
       enumerable: true,
       configurable: true,
       get() {
         readCount += 1;
-        return readCount <= 1 ? "a" : "b";
-      },
-    });
-    const statefulTwin: Record<string, unknown> = {};
-    Object.defineProperty(statefulTwin, "v", {
-      enumerable: true,
-      configurable: true,
-      get() {
         return "a";
       },
     });
-    // stateful's first read of v yields "a" (filter), and the captured value
-    // "a" compares against the twin's "a" — no second read can flip it.
-    expect(stableMessageMatch(stateful as unknown as AgentMessage, statefulTwin as unknown as AgentMessage)).toBe(true);
-    readCount = 0;
-    // Once the captured values differ, the mismatch is reported from the
-    // captured pair, not from a re-read that could coincidentally agree.
-    Object.defineProperty(stateful, "v", {
+    const plainTwin: Record<string, unknown> = { v: "a" };
+    expect(stableMessageMatch(withAccessor as unknown as AgentMessage, plainTwin as unknown as AgentMessage)).toBe(false);
+    expect(stableMessageMatch(plainTwin as unknown as AgentMessage, withAccessor as unknown as AgentMessage)).toBe(false);
+    expect(readCount).toBe(0); // the getter never even runs
+
+    // A getter that ADDS a key to the other side mid-comparison (the shape
+    // that beat the key-snapshot approach): declined before any code runs.
+    const addingLeft: Record<string, unknown> = { keep: 1 };
+    const addingRight: Record<string, unknown> = { keep: 1 };
+    Object.defineProperty(addingLeft, "trigger", {
       enumerable: true,
-      get() {
-        readCount += 1;
-        return readCount <= 1 ? "a" : "a";
-      },
       configurable: true,
-    });
-    Object.defineProperty(statefulTwin, "v", {
-      enumerable: true,
       get() {
-        return "b";
+        addingRight.added = 2;
+        return 1;
       },
-      configurable: true,
     });
-    expect(stableMessageMatch(stateful as unknown as AgentMessage, statefulTwin as unknown as AgentMessage)).toBe(false);
+    expect(stableMessageMatch(addingLeft as unknown as AgentMessage, addingRight as unknown as AgentMessage)).toBe(false);
+
+    // A forged Symbol.toStringTag must not smuggle a plain object through
+    // the boxed-primitive unwrap: {tag: "Number"} is a plain object to
+    // stringify, never a Number.
+    const forged: Record<string, unknown> = { marker: "x" };
+    Object.defineProperty(forged, Symbol.toStringTag, { value: "Number" });
+    expect(stableMessageMatch({ v: forged } as unknown as AgentMessage, { v: 5 } as unknown as AgentMessage)).toBe(false);
     // A nested getter that mutates a LATER sibling: stringify serializes the
     // sibling after the getter ran (mutated value), so the oracle rejects;
     // the walk must process keys in the same depth-first order and read the
