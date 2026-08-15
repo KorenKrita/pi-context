@@ -22,7 +22,7 @@ import { buildGaugeSuffix, isAcmTool, type GaugeStructure } from "./context-gaug
 import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { aggregateMessages, type MessageAggregate } from "./usage-estimation.js";
 import { buildLabelMaps as buildGaugeLabelMaps } from "./label-journal.js";
-import { appendLedgerRow, buildBoundaryRow, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
+import { appendLedgerRow, buildBoundaryRow, flushLedgerQueue, markBoundaryCounted, modelDiscriminator, shouldCountBoundary } from "./boundary-ledger.js";
 
 type ToolResultEventContent = { type: "text"; text: string } | { type: string };
 
@@ -605,5 +605,11 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     // always shows once. No persisted gauge state exists by design.
     runtime.clear(ctx.sessionManager);
   });
-  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => runtime.clear(ctx.sessionManager));
+  pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
+    runtime.clear(ctx.sessionManager);
+    // Best-effort drain of queued ledger rows; the writer never throws, and a
+    // hard exit may still lose the tail — the ledger's diagnostic contract
+    // already prices that in.
+    void flushLedgerQueue();
+  });
 }
