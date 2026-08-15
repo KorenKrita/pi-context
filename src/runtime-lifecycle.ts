@@ -595,7 +595,8 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     const sessionManager = ctx.sessionManager;
     const branch = sessionManager.getBranch();
     if (branch.length === 0) return;
-    const labelMaps = buildLabelMaps(sessionManager.getEntries());
+    const compactEntries = sessionManager.getEntries();
+    const labelMaps = runtime.labelMapsFor(sessionManager, compactEntries, () => buildLabelMaps(compactEntries));
     const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     const checkpointBase = `pre-compact-${timestamp}`;
     let checkpointName = checkpointBase;

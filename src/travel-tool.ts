@@ -279,7 +279,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const sessionManager = ctx.sessionManager;
       const tree = sessionManager.getTree();
       const branch = sessionManager.getBranch();
-      const labelMaps = buildLabelMaps(sessionManager.getEntries());
+      const labelEntries = sessionManager.getEntries();
+      const labelMaps = runtime.labelMapsFor(sessionManager, labelEntries, () => buildLabelMaps(labelEntries));
       const branchIds = new Set(branch.map((entry: SessionEntry) => entry.id));
       const requestedRoot = params.target.toLowerCase() === "root";
       const resolvedBy = requestedRoot ? "root" : labelMaps.labelToEntryId.has(params.target) ? "checkpoint" : "entry_id";
@@ -845,7 +846,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         // reuse the receipt's pressure conversions directly.
         let savePointsAfter: number | null = null;
         try {
-          const postMaps = buildLabelMaps(sessionManager.getEntries());
+          const postEntries = sessionManager.getEntries();
+          const postMaps = runtime.labelMapsFor(sessionManager, postEntries, () => buildLabelMaps(postEntries));
           let count = 0;
           for (const entry of sessionManager.getBranch()) {
             if (postMaps.entryToLabel.get(entry.id) !== undefined) count++;
