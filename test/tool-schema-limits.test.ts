@@ -222,7 +222,7 @@ describe("documentation file integrity", () => {
       // Manifest entries name directories without trailing slashes (src,
       // guidance) as well as globs: enumerate what each actually covers.
       const directory = entry.replace(/\*+$/, "").replace(/\/$/, "");
-      for (const path of new Bun.Glob(`${directory}/**/*.md`).scanSync(".")) shipped.push(path);
+      for (const path of new Bun.Glob(`${directory}/**/*.md`).scanSync(".")) shipped.push(path.replaceAll("\\", "/"));
     };
     for (const entry of [...(pkg.files ?? []), "AGENTS.md", "README.md"]) await walk(entry);
     expect(shipped).toContain("AGENTS.md");
