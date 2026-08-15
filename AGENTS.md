@@ -144,7 +144,9 @@ strict `view` discriminator：`active`（默认）/ `checkpoints` / `search` / `
 | 每调用输入 | `SEARCH_TOTAL_TEXT_BUDGET_CHARS` = 2,000,000 | 全调用累计 source chars（pre-trim，空白与分隔符照计） | 跨节点边界即 `truncationReason: "text_budget"`；命中节点中段则同时计入 `nodesCutAtCallBudget` |
 | 输出 | context-derived entry/character budget | 结果 entry 数（`effectiveLimit`）与渲染字符数 | 命中 entry 数即 `truncationReason: "limit"`；命中字符数则保留前缀 + 通用 footer、尾部行被裁掉，走独立的 `outputTruncatedByCharacterBudget` 而不置 search 的 truncated |
 
-前三层是输入侧（决定搜了什么），第四层是输出侧（决定看到了什么）。`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小任何遍历边界。搜索面覆盖全部 entry kind，含 assistant message——`searchEntryKind` 对 assistant 返回 null，省略 `type` 时 null 也通过；三个 `type` 值都点不到该 kind。search header 报告 scanned/scanBudget、textChars/textBudget 与截断原因；details 另带 `searchScannedNodes`/`searchScanBudget`/`searchTextChars` 与两个 partial-cut 计数（无 textBudget 键，该分母只在正文）。两个 partial-cut 计数之和另做摘要并进 header（正文首行，落在输出裁剪保留的前缀内），因为节点 cap 截断不置 truncated，而尾部详细通知会被输出 budget 连同 match 行一起裁掉。
+前三层是输入侧（决定搜了什么），第四层是输出侧（决定看到了什么）。`scope`（active/archive）与 `type`（user/summary/tool）只过滤内容不缩小任何遍历边界。搜索面覆盖全部 entry kind，含 assistant message——`searchEntryKind` 对 assistant 返回 null，省略 `type` 时 null 也通过；三个 `type` 值都点不到该 kind。search header 报告 scanned/scanBudget、textChars/textBudget 与截断原因；details 另带 `searchScannedNodes`/`searchScanBudget`/`searchTextChars` 与两个 partial-cut 计数（无 textBudget 键，该分母只在正文）。
+
+「部分搜索绝不呈现为穷尽搜索」是双层保证，因为节点 cap 截断不置 truncated、尾部详细通知会被输出 budget 连同 match 行一起裁掉：① 两个 partial-cut 计数之和并进 search header（正文首行）；② `fitTimelineOutputToBudget` 的 `pinnedIfMissing` 参数在保留前缀里探测不到该短语时，把它重新贴在 footer 旁。第二层不是冗余——HUD 的 `refreshFailure`、`providerDelivery.error` 等诊断字段无长度上限，单条就能吃满最小 8,000 字符预算，把正文（含首行）整个挤出保留前缀；正文行在 raw text 里的位置不构成存活保证。两层都不破坏 `text.length <= budget` 不变量。
 
 ### Manual `/tree`
 

@@ -506,6 +506,11 @@ function fitTimelineOutputToBudget(
   budget: number,
   leafId: string | null,
   nodeTargetId?: string | null,
+  // A fact the trimmed body can no longer state on its own. `probe` is looked
+  // for in the retained prefix; when it is gone, `line` is re-attached beside
+  // the footer. Diagnostic lines above the body are unbounded, so a body line's
+  // position in the raw text is not a guarantee that it survives the cut.
+  pinnedIfMissing?: { probe: string; line: string } | null,
 ): { text: string; truncated: boolean } {
   if (text.length <= budget) return { text, truncated: false };
   // The node view reads one entry in full, so "narrow the query" is not an
@@ -516,10 +521,14 @@ function fitTimelineOutputToBudget(
   const footer = nodeTargetId
     ? `\n… [timeline node output truncated at ${budget} characters; node ${boundedId(nodeTargetId)}; active leaf ${leafId === null ? "none" : boundedId(leafId)}.]`
     : `\n… [timeline output truncated at ${budget} characters; active leaf ${leafId === null ? "none" : boundedId(leafId)}. Use a narrower filter/query or a smaller view.]`;
-  const prefixLength = Math.max(0, budget - footer.length);
+  const naivePrefixLength = Math.max(0, budget - footer.length);
+  const pinned = pinnedIfMissing && !text.slice(0, naivePrefixLength).includes(pinnedIfMissing.probe)
+    ? `\n… [${boundedTimelineValue(pinnedIfMissing.line, 200)}]`
+    : "";
+  const prefixLength = Math.max(0, budget - footer.length - pinned.length);
   // Bounded IDs keep the footer far below the smallest budget; the final
   // slice enforces the budget invariant even if a future footer outgrows it.
-  return { text: `${text.slice(0, prefixLength)}${footer}`.slice(0, budget), truncated: true };
+  return { text: `${text.slice(0, prefixLength)}${pinned}${footer}`.slice(0, budget), truncated: true };
 }
 
 /**
@@ -812,6 +821,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       let searchTextChars = 0;
       let searchNodesCutAtNodeCap = 0;
       let searchNodesCutAtCallBudget = 0;
+      let searchPartialNodeCuts = 0;
       let searchScope: "active" | "archive" | null = null;
       let searchType: "user" | "summary" | "tool" | null = null;
       let nodeRequestedTarget: string | null = null;
@@ -999,13 +1009,14 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           params.scope !== undefined ? `scope ${params.scope}` : null,
           params.type !== undefined ? `type ${params.type}` : null,
         ].filter((qualifier) => qualifier !== null).join(", ");
-        // Partial-node cuts must ride the header: the header is the first body
-        // line, inside fitTimelineOutputToBudget's retained prefix, while the
-        // detailed notices below sit after the match rows and are cut away
-        // together with them. A node cut at the per-node cap also leaves
-        // search.truncated false, so without this summary a budget-trimmed
-        // result reads as an exhaustive search.
+        // Partial-node cuts ride the header, ahead of the match rows and the
+        // detailed notices that the output budget trims away with them. A node
+        // cut at the per-node cap also leaves search.truncated false, so without
+        // this summary a trimmed result reads as an exhaustive search. Oversized
+        // diagnostics can push even the header out of the retained prefix, so
+        // the same fact is pinned to the trim footer below.
         const partialNodeCuts = search.nodesCutAtNodeCap + search.nodesCutAtCallBudget;
+        searchPartialNodeCuts = partialNodeCuts;
         lines.push(
           `Search '${boundedTimelineValue(params.query)}': ${search.matches.length} displayed${search.truncated && search.truncationReason !== null ? `; truncated (${searchTruncationPhrase(search.truncationReason)})` : " matching node(s)"}${partialNodeCuts > 0 ? `; ${partialNodeCuts} node(s) partially searched (their later text was not searched)` : ""}; scanned ${search.scannedNodes}/${search.scanBudget} node(s), ${search.textChars}/${search.textBudget} text-budget chars${searchQualifiers.length > 0 ? `; ${searchQualifiers}` : ""}.`,
         );
@@ -1347,7 +1358,20 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       hudParts.push(`• Guidance:        ${cue}`, "---------------------------------------------------");
 
       const rawOutput = `${hudParts.join("\n")}\n${lines.join("\n") || "(Root Path Only)"}`;
-      const fittedOutput = fitTimelineOutputToBudget(rawOutput, resultCharacterBudget, leafId, params.view === "node" ? nodeEntryId : null);
+      const fittedOutput = fitTimelineOutputToBudget(
+        rawOutput,
+        resultCharacterBudget,
+        leafId,
+        params.view === "node" ? nodeEntryId : null,
+        // A partially searched tree must never present as exhaustively searched,
+        // whatever the diagnostics above the body cost.
+        searchPartialNodeCuts > 0
+          ? {
+              probe: "node(s) partially searched",
+              line: `${searchPartialNodeCuts} node(s) partially searched: their later text was not searched`,
+            }
+          : null,
+      );
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {

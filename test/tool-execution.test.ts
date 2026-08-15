@@ -2586,4 +2586,45 @@ describe("search text budget", () => {
     expect(header).toContain("50 displayed matching node(s)");
     expect(header).toContain("1 node(s) partially searched (their later text was not searched)");
   });
+
+  test("keeps partial-node cuts visible when oversized diagnostics push the header out of the budget", async () => {
+    // The HUD interpolates refresh/provider diagnostics without a length bound,
+    // so a large enough one consumes the whole character budget before the body
+    // starts. Position in the raw text is therefore not survival: the fact has
+    // to be pinned to the footer that does survive.
+    const runtime = new AcmSessionRuntime();
+    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
+    const capCarrier = {
+      type: "message",
+      id: "cap-carrier",
+      parentId: null,
+      timestamp: "2026-03-01T00:00:00.000Z",
+      message: { role: "user", content: `needle ${"y".repeat(65_600)}` },
+    } as never;
+    const entries = [capCarrier];
+    const ctx = {
+      sessionManager: {
+        getTree: () => [{ entry: capCarrier, children: [] }],
+        getEntries: () => entries,
+        getBranch: () => entries,
+        getLeafId: () => "cap-carrier",
+      },
+      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
+      ui: { notify() {} },
+    };
+    runtime.contextRefresh.recordFailedAttempt(ctx.sessionManager as never, "E".repeat(9_000));
+
+    const result = await executeWithRuntime("cut-under-huge-hud", { view: "search", query: "needle" }, undefined, undefined, ctx);
+    const text = result.content[0]?.text ?? "";
+    expect(result.details).toMatchObject({
+      searchNodesCutAtNodeCap: 1,
+      searchTruncated: false,
+      outputTruncatedByCharacterBudget: true,
+    });
+    // The header itself did not survive this time.
+    expect(text).not.toContain("Search '");
+    // The partial search is still disclosed, and the budget invariant holds.
+    expect(text).toContain("1 node(s) partially searched");
+    expect(text.length).toBeLessThanOrEqual(8_000);
+  });
 });
