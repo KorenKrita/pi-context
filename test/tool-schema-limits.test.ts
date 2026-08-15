@@ -210,9 +210,21 @@ describe("documentation file integrity", () => {
   });
 
   test("no shipped markdown file embeds node imports", async () => {
-    for (const path of ["AGENTS.md", "README.md", "guidance/CORE.md", "guidance/TOOL-CONTRACTS.md"]) {
+    // Enumerate from the package manifest, not a hand list: whatever the
+    // extension ships as markdown must be markdown.
+    const pkg = await Bun.file("package.json").json();
+    const shipped: string[] = [];
+    const walk = async (entry: string) => {
+      if (entry.endsWith(".md")) shipped.push(entry);
+      else if (entry.endsWith("/") || entry === "*") {
+        for (const path of new Bun.Glob(`${entry === "*" ? "" : entry}**/*.md`).scanSync(".")) shipped.push(path);
+      }
+    };
+    for (const entry of [...(pkg.files ?? []), "AGENTS.md", "README.md"]) await walk(entry);
+    expect(shipped.length).toBeGreaterThan(0);
+    for (const path of new Set(shipped)) {
       const file = Bun.file(path);
-      if (!(await file.exists())) continue;
+      if (!(await file.exists())) continue; // directories may hold patterns
       const text = await file.text();
       expect(text).not.toMatch(/^import .* from "node:/m);
     }

@@ -890,7 +890,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           lines.push(`  ${checkpoint.entryId} (checkpoint: ${formatCheckpointLabel(checkpoint)}; ${checkpoint.onActivePath ? "on-path" : "off-path"}${checkpoint.isHead ? ", *HEAD*" : ""}${rawArchiveNote}) ${estimateText}; handoff layers ${activeSummaryDepth} → ${projectedSummaryDepth} after this fold`);
         }
         if (signal?.aborted && checkpointsRendered < checkpointsDisplayedEntries) {
-          checkpointsDisplayedEntries = checkpointsRendered; // details must match rendered rows
+          // Every displayed count must match rendered rows, or the receipt
+          // contradicts its own body.
+          checkpointsDisplayedEntries = checkpointsRendered;
+          checkpointsDisplayedAliases = checkpointsRendered;
+          checkpointAliasNamesShown = checkpointsRendered;
         }
         if (listings.length > displayedListings.length) lines.push(`  ... +${listings.length - displayedListings.length} more — use a narrower filter or query`);
       } else if (params.view === "search") {
@@ -1003,10 +1007,11 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         // The alias scan only runs when the visible window actually contains
         // a labelled entry - the only rows that can render a checkpoint
         // annotation. Label-free windows skip the O(entries) pass entirely.
-        const visibleAliases = visible.some((entry) => labelMaps.entryToLabel.has(entry.id))
+        const displayedVisible = visible.slice(-effectiveLimit);
+        const visibleAliases = displayedVisible.some((entry) => labelMaps.entryToLabel.has(entry.id))
           ? rawArchiveAliasesOnce()
           : EMPTY_LABEL_ALIASES;
-        for (const entry of visible.slice(-effectiveLimit)) {
+        for (const entry of displayedVisible) {
           const labels = formatTimelineLabel(getEntryLabel(labelMaps, entry.id), visibleAliases);
           const tags = [entry === branch[0] ? "ROOT" : null, entry.id === leafId ? "HEAD" : null, labels ? `checkpoint: ${labels}` : null]
             .filter((tag): tag is string => tag !== null);

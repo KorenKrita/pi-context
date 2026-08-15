@@ -26,161 +26,32 @@ interface CachedProviderPacket {
 }
 
 /**
- * Structural equality over the JSON-observable projection of two messages:
- * exactly the values the old serializer would emit, in key order. This is a
- * correctness boundary — a false positive grafts an unrelated tail onto the
- * cached packet — so every case the old serializer threw on (cycles, BigInt)
- * or that cannot be compared faithfully without re-running serialization
- * (objects with toJSON) fails closed to false, which only ever declines a
- * graft, never invents one.
+ * Prefix-identity comparison over the serializer's own semantics. The
+ * structural walker this PR shipped was slower than `JSON.stringify` on
+ * both measured shapes (3.5x on deep-cloned messages, worse on shared
+ * references - the serializer is native code) and survived three review
+ * rounds of getter/proxy/tag-forgery holes; simulating JavaScript's
+ * serialization semantics through arbitrary object code is unwinnable and
+ * was never worth the attempt. This is the original oracle, plus a
+ * verified identity fast path: a shared reference equals itself exactly
+ * when the serializer can render it at all, so cycles and BigInt (which
+ * throw) still decline instead of shortcutting to true.
  */
 export function stableMessageMatch(left: AgentMessage, right: AgentMessage): boolean {
-  // No identity shortcut at this level: a shared reference that is cyclic or
-  // BigInt-carrying must decline exactly as the old serializer's throw did,
-  // and only the walk's own guards decide that. Two identical plain-data
-  // references still return true quickly — every primitive inside meets its
-  // === partner on the way down.
+  if (left === right) {
+    try {
+      JSON.stringify(left);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
-    return jsonEquals(left, right, [], []);
+    return JSON.stringify(left) === JSON.stringify(right);
   } catch {
-    // The old serializer's catch-all: getters, proxies, anything that throws
-    // mid-walk is a decline, never an exception into the caller.
+    // Getters, proxies, cycles - anything the serializer cannot render
+    // declines, never throws into the caller.
     return false;
-  }
-}
-
-/**
- * JSON renders NaN, +Infinity and -Infinity all as "null", so they compare
- * equal to each other and to nothing else; every other primitive compares
- * exactly by ===. Functions, symbols, and BigInt never serialize as object
- * values, so they never reach this comparison as equal-by-rendering.
- */
-function jsonPrimitiveEquals(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (typeof left === "number" && typeof right === "number") {
-    return !Number.isFinite(left) && !Number.isFinite(right);
-  }
-  return false;
-}
-
-
-/** Array slots that stringify renders as null: holes, undefined, functions, symbols. */
-function arrayElementJsonValue(array: unknown[], index: number): unknown {
-  const value = array[index];
-  if (value === undefined || typeof value === "function" || typeof value === "symbol") return null;
-  return value;
-}
-
-/**
- * Boxed primitives serialized as their primitive value, except BigInt which
- * threw. Returns the unwrapped primitive, "bigint" for the throwing case, or
- * undefined for everything else (plain objects, arrays, class instances).
- */
-function boxedPrimitiveOf(value: object): string | number | boolean | "bigint" | undefined {
-  // Prototype identity, not Object.prototype.toString: Symbol.toStringTag
-  // can forge the "[object Number]" tag and smuggle a plain object through
-  // the unwrap. A forged tag leaves the prototype untouched, and a genuine
-  // wrapper's valueOf reads its slot; anything shaped like a wrapper but not
-  // being one throws in valueOf, which the caller's catch turns into a
-  // decline.
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype === Number.prototype) return (value as Number).valueOf();
-  if (prototype === String.prototype) return (value as String).valueOf();
-  if (prototype === Boolean.prototype) return (value as Boolean).valueOf();
-  if (prototype === BigInt.prototype) return "bigint";
-  return undefined;
-}
-
-function jsonEquals(left: unknown, right: unknown, leftAncestors: readonly unknown[], rightAncestors: readonly unknown[]): boolean {
-  // BigInt threw under the old serializer, yet 1n === 1n is true in JS — any
-  // identity shortcut below would accept it. Guard first, fail closed.
-  if (typeof left === "bigint" || typeof right === "bigint") return false;
-  // JSON renders null, NaN and ±Infinity identically as null, so that class
-  // compares equal to itself and to nothing else.
-  const leftNullish = left === null || (typeof left === "number" && !Number.isFinite(left));
-  const rightNullish = right === null || (typeof right === "number" && !Number.isFinite(right));
-  if (leftNullish || rightNullish) return leftNullish && rightNullish;
-  // A cycle would have thrown under the old serializer. Checking before any
-  // shortcut keeps a shared cyclic reference false on both sides — which is
-  // why there is no identity shortcut inside this walk: two messages sharing
-  // one cyclic sub-object must decline exactly as serialization would have.
-  if (leftAncestors.includes(left) || rightAncestors.includes(right)) return false;
-  const leftIsObject = typeof left === "object" && left !== null;
-  const rightIsObject = typeof right === "object" && right !== null;
-  // Boxed primitives serialize as their primitive value (BigInt boxes threw):
-  // unwrap before the object dispatch so a wrapper meets a primitive as its
-  // own value and never passes as a plain empty object.
-  const leftBoxed = leftIsObject ? boxedPrimitiveOf(left) : undefined;
-  const rightBoxed = rightIsObject ? boxedPrimitiveOf(right) : undefined;
-  if (leftBoxed === "bigint" || rightBoxed === "bigint") return false;
-  const effectiveLeft = leftBoxed !== undefined ? leftBoxed : left;
-  const effectiveRight = rightBoxed !== undefined ? rightBoxed : right;
-  if (typeof effectiveLeft !== "object" || effectiveLeft === null || typeof effectiveRight !== "object" || effectiveRight === null) {
-    return jsonPrimitiveEquals(effectiveLeft, effectiveRight);
-  }
-  // toJSON is a serialization escape hatch that no AgentMessage surface uses;
-  // guessing its output could graft an unrelated tail, so it fails closed.
-  if (typeof (effectiveLeft as { toJSON?: unknown }).toJSON === "function" || typeof (effectiveRight as { toJSON?: unknown }).toJSON === "function") {
-    return false;
-  }
-  if (Array.isArray(effectiveLeft) || Array.isArray(effectiveRight)) {
-    if (!Array.isArray(effectiveLeft) || !Array.isArray(effectiveRight) || effectiveLeft.length !== effectiveRight.length) return false;
-    const nextLeft = [...leftAncestors, effectiveLeft];
-    const nextRight = [...rightAncestors, effectiveRight];
-    for (let index = 0; index < effectiveLeft.length; index++) {
-      if (!jsonEquals(arrayElementJsonValue(effectiveLeft, index), arrayElementJsonValue(effectiveRight, index), nextLeft, nextRight)) return false;
-    }
-    return true;
-  }
-  // Objects are compared through their property descriptors, in stringify's
-  // key order. Any accessor (getter/setter) declines the whole match:
-  // accessors can mutate siblings, add keys mid-walk, forge boxed tags, or
-  // disagree with themselves between reads - chasing JSON semantics through
-  // arbitrary code is unwinnable, and a decline only ever fails to graft,
-  // never invents one. Data values are read exactly once, from the
-  // descriptor, so no code runs during the comparison at all.
-  const nextLeft = [...leftAncestors, effectiveLeft];
-  const nextRight = [...rightAncestors, effectiveRight];
-  const leftKeys = Object.keys(effectiveLeft);
-  const rightKeys = Object.keys(effectiveRight);
-  const leftDescriptors = Object.getOwnPropertyDescriptors(effectiveLeft);
-  const rightDescriptors = Object.getOwnPropertyDescriptors(effectiveRight);
-  let leftIndex = 0;
-  let rightIndex = 0;
-  while (true) {
-    let leftKey: string | undefined;
-    let leftValue: unknown;
-    while (leftIndex < leftKeys.length) {
-      const key = leftKeys[leftIndex]!;
-      const descriptor = leftDescriptors[key]!;
-      if (descriptor.get !== undefined || descriptor.set !== undefined) return false;
-      const value = descriptor.value;
-      if (value === undefined || typeof value === "function" || typeof value === "symbol") leftIndex += 1;
-      else {
-        leftKey = key;
-        leftValue = value;
-        break;
-      }
-    }
-    let rightKey: string | undefined;
-    let rightValue: unknown;
-    while (rightIndex < rightKeys.length) {
-      const key = rightKeys[rightIndex]!;
-      const descriptor = rightDescriptors[key]!;
-      if (descriptor.get !== undefined || descriptor.set !== undefined) return false;
-      const value = descriptor.value;
-      if (value === undefined || typeof value === "function" || typeof value === "symbol") rightIndex += 1;
-      else {
-        rightKey = key;
-        rightValue = value;
-        break;
-      }
-    }
-    if (leftKey === undefined || rightKey === undefined) return leftKey === undefined && rightKey === undefined;
-    if (leftKey !== rightKey) return false;
-    if (!jsonEquals(leftValue, rightValue, nextLeft, nextRight)) return false;
-    leftIndex += 1;
-    rightIndex += 1;
   }
 }
 

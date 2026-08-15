@@ -156,7 +156,11 @@ describe("ProviderDelivery", () => {
     });
     expect(() => stableMessageMatch(exploding as unknown as AgentMessage, structuredClone({ role: "user", content: "x" }) as unknown as AgentMessage)).not.toThrow();
     expect(stableMessageMatch(exploding as unknown as AgentMessage, structuredClone({ role: "user", content: "x" }) as unknown as AgentMessage)).toBe(false);
-    expect(stableMessageMatch(new Date(0) as unknown as AgentMessage, new Date(0) as unknown as AgentMessage)).toBe(false);
+    // toJSON is honored by the serializer, so Date identity follows the
+    // oracle: equal renderings match, and the walker's old blanket decline
+    // is gone with the walker.
+    expect(stableMessageMatch(new Date(0) as unknown as AgentMessage, new Date(0) as unknown as AgentMessage)).toBe(true);
+    expect(stableMessageMatch(new Date(0) as unknown as AgentMessage, new Date(1) as unknown as AgentMessage)).toBe(false);
     // A shared non-cyclic reference is still equal, like stringify output.
     const sharedPlain = { deep: true };
     expect(stableMessageMatch({ a: sharedPlain } as unknown as AgentMessage, { a: sharedPlain } as unknown as AgentMessage)).toBe(true);
@@ -165,28 +169,25 @@ describe("ProviderDelivery", () => {
     // (false). The walk must decline it through the same gates.
     expect(stableMessageMatch(cyclic as unknown as AgentMessage, cyclic as unknown as AgentMessage)).toBe(false);
     expect(stableMessageMatch({ v: 1n } as unknown as AgentMessage, { v: 1n } as unknown as AgentMessage)).toBe(false);
-    // Any accessor declines the whole match. Getters can disagree with
-    // themselves between reads, mutate siblings mid-walk, or add keys after
-    // a snapshot - chasing JSON semantics through arbitrary code is
-    // unwinnable, and a decline never invents a graft. This subsumes the
-    // earlier read-once patchwork: no code runs during the comparison now.
-    let readCount = 0;
+    // With the serializer as the oracle, accessors participate exactly as
+    // serialization renders them: a stable getter matches its plain twin, and
+    // the exotic-mutation shapes the walker kept losing to (cross-object
+    // writes, keys added mid-walk, forged toString tags, proxies) are simply
+    // the serializer's own semantics now - consistent by construction.
     const withAccessor: Record<string, unknown> = {};
     Object.defineProperty(withAccessor, "v", {
       enumerable: true,
       configurable: true,
       get() {
-        readCount += 1;
         return "a";
       },
     });
     const plainTwin: Record<string, unknown> = { v: "a" };
-    expect(stableMessageMatch(withAccessor as unknown as AgentMessage, plainTwin as unknown as AgentMessage)).toBe(false);
-    expect(stableMessageMatch(plainTwin as unknown as AgentMessage, withAccessor as unknown as AgentMessage)).toBe(false);
-    expect(readCount).toBe(0); // the getter never even runs
+    expect(stableMessageMatch(withAccessor as unknown as AgentMessage, plainTwin as unknown as AgentMessage)).toBe(true);
 
-    // A getter that ADDS a key to the other side mid-comparison (the shape
-    // that beat the key-snapshot approach): declined before any code runs.
+    // A getter that adds a key to the other side mid-serialization: the
+    // oracle renders each side fully before comparing, so the added key
+    // appears in the right side's output and the pair declines.
     const addingLeft: Record<string, unknown> = { keep: 1 };
     const addingRight: Record<string, unknown> = { keep: 1 };
     Object.defineProperty(addingLeft, "trigger", {
@@ -197,11 +198,16 @@ describe("ProviderDelivery", () => {
         return 1;
       },
     });
-    expect(stableMessageMatch(addingLeft as unknown as AgentMessage, addingRight as unknown as AgentMessage)).toBe(false);
+    let addingOracle = false;
+    try {
+      addingOracle = JSON.stringify(addingLeft) === JSON.stringify(addingRight);
+    } catch {
+      addingOracle = false;
+    }
+    expect(stableMessageMatch(addingLeft as unknown as AgentMessage, addingRight as unknown as AgentMessage)).toBe(addingOracle);
 
-    // A forged Symbol.toStringTag must not smuggle a plain object through
-    // the boxed-primitive unwrap: {tag: "Number"} is a plain object to
-    // stringify, never a Number.
+    // A forged Symbol.toStringTag renders as a plain object; the serializer
+    // never unwraps it, so it cannot equal the number it forged a tag for.
     const forged: Record<string, unknown> = { marker: "x" };
     Object.defineProperty(forged, Symbol.toStringTag, { value: "Number" });
     expect(stableMessageMatch({ v: forged } as unknown as AgentMessage, { v: 5 } as unknown as AgentMessage)).toBe(false);

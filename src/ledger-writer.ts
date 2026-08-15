@@ -146,7 +146,13 @@ function enqueueDrainTask(task: () => Promise<void>): Promise<void> {
 
 async function drainQueue(deadline: number | undefined): Promise<void> {
   while (queue.length > 0) {
-    if (deadline !== undefined && Date.now() >= deadline) {
+    // Re-read the shared deadline every round: a flush that arrives after
+    // this drain started must still bound its remaining batches, which a
+    // parameter snapshot taken at startup can never see.
+    const effectiveDeadline = sharedDrainDeadline !== undefined && (deadline === undefined || sharedDrainDeadline < deadline)
+      ? sharedDrainDeadline
+      : deadline;
+    if (effectiveDeadline !== undefined && Date.now() >= effectiveDeadline) {
       stats.deadlineDrops += queue.length;
       queue = [];
       return;
@@ -159,9 +165,12 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
     let batchEnd = 0;
     while (batchEnd < queue.length && queue[batchEnd]!.path === path) batchEnd++;
     let writtenInBatch = 0;
+    let attemptedInBatch = 0;
+    let criticalStarted = false;
     try {
       await mkdir(dirname(path), { recursive: true });
       await withFileLock(path, async (compromised) => {
+        criticalStarted = true;
         const size = await fileSize(path);
         const writable: string[] = [];
         let prospective = size;
@@ -175,6 +184,7 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
           writable.push(item.line);
           prospective += item.byteLength;
         }
+        attemptedInBatch = writable.length;
         if (writable.length > 0) {
           await appendFile(path, writable.join(""), "utf8");
           writtenInBatch = writable.length;
@@ -182,7 +192,13 @@ async function drainQueue(deadline: number | undefined): Promise<void> {
         }
       });
     } catch {
-      stats.writeFailures += batchEnd - writtenInBatch;
+      // Before the critical section starts (mkdir, lock acquisition), every
+      // row in the batch failed together. Inside it, only the rows that
+      // passed the cap and were attempted can have failed - rows the cap
+      // dropped were already counted in fileFullDrops and must not be
+      // counted twice.
+      const failedRows = criticalStarted ? attemptedInBatch : batchEnd;
+      stats.writeFailures += failedRows - writtenInBatch;
     }
     queue = queue.slice(batchEnd);
   }
