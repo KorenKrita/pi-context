@@ -215,16 +215,21 @@ describe("documentation file integrity", () => {
     const pkg = await Bun.file("package.json").json();
     const shipped: string[] = [];
     const walk = async (entry: string) => {
-      if (entry.endsWith(".md")) shipped.push(entry);
-      else if (entry.endsWith("/") || entry === "*") {
-        for (const path of new Bun.Glob(`${entry === "*" ? "" : entry}**/*.md`).scanSync(".")) shipped.push(path);
+      if (entry.endsWith(".md")) {
+        shipped.push(entry);
+        return;
       }
+      // Manifest entries name directories without trailing slashes (src,
+      // guidance) as well as globs: enumerate what each actually covers.
+      const directory = entry.replace(/\*+$/, "").replace(/\/$/, "");
+      for (const path of new Bun.Glob(`${directory}/**/*.md`).scanSync(".")) shipped.push(path);
     };
     for (const entry of [...(pkg.files ?? []), "AGENTS.md", "README.md"]) await walk(entry);
-    expect(shipped.length).toBeGreaterThan(0);
+    expect(shipped).toContain("AGENTS.md");
+    expect(shipped).toContain("guidance/CORE.md"); // canonical docs must be covered
     for (const path of new Set(shipped)) {
       const file = Bun.file(path);
-      if (!(await file.exists())) continue; // directories may hold patterns
+      if (!(await file.exists())) continue; // globs may match nothing under a path
       const text = await file.text();
       expect(text).not.toMatch(/^import .* from "node:/m);
     }
