@@ -65,9 +65,20 @@ const stats: LedgerQueueStats = {
 };
 let queue: QueueItem[] = [];
 let drainScheduled = false;
-// A flush-installed deadline that also binds any background drain running
-// when the flush arrives; cleared when the flushing drain task settles.
-let sharedDrainDeadline: number | undefined;
+// Deadlines installed by flushes in flight. Each flush owns its token and
+// removes it only after ITS drain task settles - a finishing flush must
+// never clear a deadline another pending flush still needs. Drains (background
+// or flush-driven) read the earliest pending token every round.
+const pendingFlushDeadlines = new Set<number>();
+
+function earliestPendingDeadline(): number | undefined {
+  if (pendingFlushDeadlines.size === 0) return undefined;
+  let earliest: number | undefined;
+  for (const deadline of pendingFlushDeadlines) {
+    if (earliest === undefined || deadline < earliest) earliest = deadline;
+  }
+  return earliest;
+}
 // Serialized drain tasks: every flush enqueues behind any in-flight drain, so
 // awaiting a flush always means awaiting every already-queued row.
 let drainChain: Promise<void> = Promise.resolve();
@@ -113,15 +124,20 @@ export function enqueueLedgerLine(path: string, row: unknown, maxBytes: number =
  * no-deadline drain cannot stretch the wait across extra lock windows.
  */
 export function flushLedgerQueue(deadlineMs?: number): Promise<void> {
+  let token: number | undefined;
   if (deadlineMs !== undefined) {
-    const deadline = Date.now() + deadlineMs;
-    if (sharedDrainDeadline === undefined || deadline < sharedDrainDeadline) sharedDrainDeadline = deadline;
+    token = Date.now() + deadlineMs;
+    pendingFlushDeadlines.add(token);
   }
-  return enqueueDrainTask(() => {
+  return enqueueDrainTask(async () => {
+    // async matters: the finally below must run after this drain settles,
+    // not synchronously when the task callback returns its promise - that
+    // old shape let one finishing flush clear another pending flush's
+    // deadline.
     try {
-      return drainQueue(sharedDrainDeadline);
+      return await drainQueue(undefined);
     } finally {
-      sharedDrainDeadline = undefined;
+      if (token !== undefined) pendingFlushDeadlines.delete(token);
     }
   });
 }
@@ -131,7 +147,7 @@ function scheduleDrain(): void {
   drainScheduled = true;
   setImmediate(() => {
     drainScheduled = false;
-    void enqueueDrainTask(() => drainQueue(sharedDrainDeadline));
+    void enqueueDrainTask(() => drainQueue(undefined));
   });
 }
 
@@ -146,11 +162,12 @@ function enqueueDrainTask(task: () => Promise<void>): Promise<void> {
 
 async function drainQueue(deadline: number | undefined): Promise<void> {
   while (queue.length > 0) {
-    // Re-read the shared deadline every round: a flush that arrives after
-    // this drain started must still bound its remaining batches, which a
-    // parameter snapshot taken at startup can never see.
-    const effectiveDeadline = sharedDrainDeadline !== undefined && (deadline === undefined || sharedDrainDeadline < deadline)
-      ? sharedDrainDeadline
+    // Re-read the earliest pending flush deadline every round: a flush that
+    // arrives after this drain started must still bound its remaining
+    // batches, which a parameter snapshot taken at startup can never see.
+    const pending = earliestPendingDeadline();
+    const effectiveDeadline = pending !== undefined && (deadline === undefined || pending < deadline)
+      ? pending
       : deadline;
     if (effectiveDeadline !== undefined && Date.now() >= effectiveDeadline) {
       stats.deadlineDrops += queue.length;
