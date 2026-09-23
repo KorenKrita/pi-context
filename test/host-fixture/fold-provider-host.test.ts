@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Type, fauxAssistantMessage, fauxProvider, fauxToolCall, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import registerAcmExtension from "./.acm-build/index.js";
+import { analyzeToolProtocol } from "./.acm-build/tool-protocol.js";
 import { ACM_CORE_MARKER } from "../../src/generated-guidance.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
@@ -26,9 +27,11 @@ const HANDOFF = {
   exclusions: null,
 };
 
-async function runSession(responses: AssistantMessage[], prompts: string[], options: { before?: ExtensionFactory[]; after?: ExtensionFactory[] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "pi-context-fold-provider-"));
-  tempDirs.push(dir);
+type RunOptions = { before?: ExtensionFactory[]; after?: ExtensionFactory[]; dir?: string; sessionManager?: (dir: string) => SessionManager };
+
+async function runSession(responses: AssistantMessage[], prompts: string[], options: RunOptions = {}) {
+  const dir = options.dir ?? mkdtempSync(join(tmpdir(), "pi-context-fold-provider-"));
+  if (!options.dir) tempDirs.push(dir);
   const faux = fauxProvider({ provider: "faux", models: [{ id: "m", contextWindow: 200_000 }] });
   const requests: TranscriptContext[] = [];
   faux.setResponses(responses.map((message) => (context: TranscriptContext) => {
@@ -53,10 +56,11 @@ async function runSession(responses: AssistantMessage[], prompts: string[], opti
   (modelRuntime as unknown as { hasConfiguredAuth: () => boolean }).hasConfiguredAuth = () => true;
   const { session } = await createAgentSession({
     cwd: dir, agentDir: dir, model: faux.getModel(), thinkingLevel: "off", modelRuntime, resourceLoader,
-    sessionManager: SessionManager.inMemory(dir),
+    sessionManager: options.sessionManager?.(dir) ?? SessionManager.inMemory(dir),
     settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
   });
   let transcriptInSync = false;
+  const sessionFile = session.sessionManager.getSessionFile();
   try {
     for (const prompt of prompts) {
       await session.prompt(prompt);
@@ -66,7 +70,7 @@ async function runSession(responses: AssistantMessage[], prompts: string[], opti
   } finally {
     session.dispose();
   }
-  return Object.assign((i: number) => JSON.stringify(requests[i]?.messages ?? null), { transcriptInSync });
+  return Object.assign((i: number) => JSON.stringify(requests[i]?.messages ?? null), { transcriptInSync, requests, sessionFile, dir });
 }
 
 const FOLD_RUN = () => [
@@ -98,10 +102,16 @@ test("an acm_travel fold reaches the provider in the same run and in the next pr
 for (const [name, rewrite] of [
   ["rejected as an error", { isError: true, details: { error: "denied by later extension" } }],
   ["stripped of its trusted details", { isError: false, details: { rewrittenByLaterExtension: true } }],
+  ["rejected after an audit entry landed between summary and receipt", { isError: true, details: { error: "rejected" }, audit: true }],
 ] as const) {
   test(`a travel receipt ${name} by a later tool_result handler does not become an authoritative continuation`, async () => {
     const request = await runSession(FOLD_RUN(), PROMPTS, {
-      after: [(pi) => pi.on("tool_result", (event) => (event.toolName === "acm_travel" ? rewrite : undefined))],
+      after: [(pi) => pi.on("tool_result", (event) => {
+        if (event.toolName !== "acm_travel") return undefined;
+        const { audit, ...result } = rewrite as { audit?: boolean; isError: boolean; details: Record<string, unknown> };
+        if (audit) pi.appendEntry("audit", { rejected: true });
+        return result;
+      })],
     });
     expect(request(4)).not.toBe("null");
     for (const i of [3, 4]) expect(count(request(i), FENCE)).toBe(0);
@@ -114,4 +124,36 @@ test("CORE still reaches the provider when an earlier extension forces the whole
   });
   expect(request(0)).toContain("FORCED BASE");
   expect(count(request(0), ACM_CORE_MARKER)).toBe(1);
+});
+
+test("a reused tool call id after a fold never reaches the provider as an invalid tool protocol", async () => {
+  const duplicate = fauxAssistantMessage([
+    fauxToolCall("dump", {}, { id: "dup-call" }),
+    fauxToolCall("dump", {}, { id: "dup-call" }),
+  ], { stopReason: "toolUse" });
+  const responses = FOLD_RUN();
+  responses.splice(3, 0, duplicate);
+  const request = await runSession(responses, PROMPTS);
+  expect(request(5)).not.toBe("null");
+  for (const i of [4, 5]) {
+    expect(analyzeToolProtocol(request.requests[i]!.messages).status).not.toBe("invalid");
+    expect(request(i)).toContain("edit tokenizeComment in src/lexer.ts");
+  }
+});
+
+test("a resumed session keeps the fold: fresh extension runtime, persisted branch only", async () => {
+  const first = await runSession(FOLD_RUN(), PROMPTS.slice(0, 1), {
+    sessionManager: (dir) => SessionManager.create(dir, join(dir, "sessions")),
+  });
+  expect(first.sessionFile).toBeDefined();
+  const resumed = await runSession([fauxAssistantMessage("Resumed answer.")], ["Resume the work."], {
+    dir: first.dir,
+    sessionManager: (dir) => SessionManager.open(first.sessionFile!, join(dir, "sessions")),
+  });
+  const text = resumed(0);
+  expect(text).not.toBe("null");
+  expect(text).not.toContain("DUMPED-LINE");
+  expect(count(text, FENCE)).toBe(1);
+  expect(count(text, ACM_CORE_MARKER)).toBe(1);
+  expect(analyzeToolProtocol(resumed.requests[0]!.messages).status).not.toBe("invalid");
 });

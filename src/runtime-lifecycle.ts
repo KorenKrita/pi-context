@@ -9,6 +9,7 @@ import {
   normalizeExistingAcmPacketForSession,
 } from "./context-packet.js";
 import { scanProtocolAnchor } from "./anchor-scan.js";
+import { analyzeToolProtocol, formatToolProtocolDefects } from "./tool-protocol.js";
 import { calculateContextUsagePressure } from "./context-pressure.js";
 import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { ANCHOR_SEARCH_WINDOW } from "./conventions.js";
@@ -39,6 +40,27 @@ function appendSuffixPatch<T extends ToolResultEventContent>(
     }
   }
   return undefined;
+}
+
+function protocolRecoveryMessage(): AgentMessage {
+  return {
+    role: "custom",
+    customType: "acm:protocol-recovery",
+    content: "[ACM CONTEXT RECOVERY] No protocol-valid provider messages remained after defensive repair. Stop tool execution and reload or repair the session before continuing.",
+    display: false,
+    details: { kind: "acm-protocol-recovery", reason: "no_protocol_valid_messages" },
+    timestamp: Date.now(),
+  };
+}
+function buildSafeCurrentProviderFallback(messages: readonly AgentMessage[]): AgentMessage[] {
+  const initial = analyzeToolProtocol(messages);
+  if (initial.status !== "invalid" && initial.messages.length > 0) return initial.messages;
+  const rejectedAssistants = new Set(initial.defects.map((defect) => defect.assistantIndex));
+  const withoutMalformedAssistants = messages.filter((_message, index) => !rejectedAssistants.has(index));
+  const repaired = analyzeToolProtocol(withoutMalformedAssistants);
+  return repaired.status !== "invalid" && repaired.messages.length > 0
+    ? repaired.messages
+    : [protocolRecoveryMessage()];
 }
 
 /**
@@ -271,11 +293,21 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
   // persisted fold reaches the next request (same run included) without any delivery state.
   // This hook only normalizes that projection: trusted continuation projection, applied-travel
   // receipt normalization, and orphan repair. Pi hands conversation messages only and restores
-  // prompt/tool system state afterwards, so system messages are never returned.
+  // prompt/tool system state afterwards, so system messages are never returned. A packet whose
+  // tool protocol stays invalid after normalization (e.g. a provider reused a tool call id) is
+  // never forwarded: the malformed assistant is dropped so the session can still recover.
   pi.on("context", (event, ctx: ExtensionContext) => {
     const original = event.messages as AgentMessage[];
-    const fixed = normalizeExistingAcmPacketForSession(original, ctx.sessionManager, runtime).messages
-      .filter((message) => message.role !== "system");
+    const packet = normalizeExistingAcmPacketForSession(original, ctx.sessionManager, runtime);
+    let messages = packet.messages;
+    if (packet.protocol.status === "invalid") {
+      ctx.ui.notify(
+        `Outgoing context has an invalid tool protocol (${formatToolProtocolDefects(packet.protocol.defects) || "no defect details were supplied"}); the malformed assistant turn was left out of this request. Reload or repair the session if this repeats.`,
+        "warning",
+      );
+      messages = buildSafeCurrentProviderFallback(messages);
+    }
+    const fixed = messages.filter((message) => message.role !== "system");
     const changed = fixed.length !== original.length || fixed.some((message, index) => message !== original[index]);
     return changed ? { messages: fixed as typeof event.messages } : undefined;
   });

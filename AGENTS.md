@@ -110,7 +110,8 @@ wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recov
 - mutation outcome 三态：`applied` / `not_applied` / `indeterminate`
 - Pi ≥ 0.87 每次请求都由 SessionManager 投影生成，applied travel 在下一次请求（含同一 run）即生效；ACM 不持有投递状态，`context` hook 只做无状态归一化（trusted continuation 投影、applied receipt 归一、孤儿修复、去掉 system 消息）
 - ACM 注册一个空 `turn_end` handler：Pi 仅在存在 turn_end handler 时于 boundary commit 刷新 `agent.state.messages`，否则 travel 后 `session.messages` 与 Pi 的 system section diff 读旧数组（host fixture 断言同步）
-- receipt 存在但不可信（被后续 `tool_result` handler 改成 error 或剥掉 details）的 travel summary 保持 archival，不投影为 continuation
+- receipt（按 travel 的 toolCallId 匹配，不要求紧邻 summary）存在但不可信（被后续 `tool_result` handler 改成 error 或剥掉 details）的 travel summary 保持 archival，不投影为 continuation
+- 归一化后工具协议仍 invalid（如 provider 复用 tool call id）时不转发：剔除畸形 assistant 并 notify
 - travel 只改会话上下文，不回滚文件/进程/外部系统
 
 ### Boundary ledger
@@ -161,7 +162,7 @@ bun run generate:guidance # 从 canonical 源重新生成
 bun run verify:acm        # 完整 gate：guidance check + 测试 + typecheck + host fixture
 ```
 
-host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel 全链路、fold 到 provider 请求的端到端（真实 AgentSession + faux provider，含 receipt 被改写与强制 system prompt）。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
+host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel 全链路、fold 到 provider 请求的端到端（真实 AgentSession + faux provider，含 receipt 被改写、强制 system prompt、复用 tool call id、resume）。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
 
 不要使用 `console.log`；用户可见 warning 用 `ctx.ui.notify()`。
 
