@@ -163,7 +163,7 @@ bun run generate:guidance # 从 canonical 源重新生成
 bun run verify:acm        # 完整 gate：guidance check + 测试 + typecheck + host fixture
 ```
 
-host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel/settled sync 全链路、multi-session 隔离。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
+host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel/settled sync 全链路、fold 到 provider 请求的端到端（真实 AgentSession + faux provider）、multi-session 隔离。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
 
 不要使用 `console.log`；用户可见 warning 用 `ctx.ui.notify()`。
 
