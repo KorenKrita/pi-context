@@ -1018,54 +1018,6 @@ describe("ACM tool execution contracts", () => {
     expect(text).toContain("contextPercent=10% window →");
   });
 
-  test("travel receipt and checkpoint receipt read provider usage during a provider epoch", async () => {
-    // Between an earlier travel's provider cutover and its native
-    // replacement, ctx.getContextUsage() still describes the pre-travel
-    // branch. Receipts starting from that stale numerator would contradict
-    // the gauge: provider says 300K/1M (75% budget), native says 90K/1M.
-    const prepareProviderEpoch = (runtime: AcmSessionRuntime, session: object, leafId: string) => {
-      runtime.deferPostTravelRefresh(session, "prior-travel", leafId);
-      runtime.markProviderCutoverReady(session, "prior-travel");
-      runtime.activateProviderPacket(session, [{ role: "user", content: "packet", timestamp: 1 }], leafId);
-      runtime.setUsage(session, { tokens: 300_000, contextWindow: 1_000_000, percent: 30 });
-      runtime.markProviderUsageObserved(session);
-    };
-
-    const travelRuntime = new AcmSessionRuntime();
-    const travelExecute = captureExecute((pi) => registerTravelTool(pi, travelRuntime));
-    const travelFixture = successfulTravelContext();
-    (travelFixture as { getContextUsage: () => unknown }).getContextUsage =
-      () => ({ tokens: 90_000, contextWindow: 1_000_000, percent: 9 });
-    prepareProviderEpoch(travelRuntime, travelFixture.sessionManager, "travel-head");
-    const travel = await travelExecute(
-      "provider-epoch-travel",
-      { target: "travel-root", handoff: HANDOFF },
-      undefined,
-      undefined,
-      travelFixture,
-    );
-    expect(travel.details?.error).toBeUndefined();
-    // 300K/400K working budget = 75%, not the native 90K-derived 22.5%.
-    expect(travel.details).toMatchObject({ budgetBeforePercent: 75, usageBeforeTokens: 300_000 });
-
-    const checkpointRuntime = new AcmSessionRuntime();
-    const checkpointExecute = captureExecute((pi) => registerCheckpointTool(pi, checkpointRuntime));
-    const checkpointFixture = checkpointContext();
-    (checkpointFixture.ctx as { getContextUsage: () => unknown }).getContextUsage =
-      () => ({ tokens: 90_000, contextWindow: 1_000_000, percent: 9 });
-    prepareProviderEpoch(checkpointRuntime, checkpointFixture.ctx.sessionManager, "entry-1");
-    const checkpoint = await checkpointExecute(
-      "provider-epoch-checkpoint",
-      { name: "provider-epoch-mark" },
-      undefined,
-      undefined,
-      checkpointFixture.ctx,
-    );
-    expect(checkpoint.details?.error).toBeUndefined();
-    const checkpointText = (checkpoint.content[0] as { text: string }).text;
-    expect(checkpointText).toContain("Context usage: 75% budget(400K) · 300K/1M window");
-  });
-
   test("treats null optional tool parameters as omitted", async () => {
     const travel = await executeTravel(
       "null-backup",
@@ -1485,48 +1437,6 @@ describe("ACM tool execution contracts", () => {
     expect(text).not.toContain("(checkpoint: checkpoint-on-first");
   });
 
-  test("keeps checkpoint cancellation visible through output fitting and result-budget advice", async () => {
-    const runtime = new AcmSessionRuntime();
-    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
-    const fixture = sortedCheckpointTimelineContext();
-    let abortReads = 0;
-    const stagedSignal = {
-      get aborted() {
-        abortReads += 1;
-        return abortReads > 1;
-      },
-    } as AbortSignal;
-    runtime.contextRefresh.recordFailedAttempt(
-      fixture.context.sessionManager as never,
-      "E".repeat(9_000),
-    );
-
-    const result = await executeWithRuntime(
-      "aborted-checkpoints-trimmed",
-      { view: "checkpoints", filter: "checkpoint", limit: 1_000_000 },
-      stagedSignal,
-      undefined,
-      fixture.context,
-    );
-    expect(result.details).toMatchObject({
-      checkpointsMatchingEntries: 6,
-      checkpointsSelectedEntries: 1,
-      checkpointsDisplayedEntries: 0,
-      checkpointsDisplayedAliases: 0,
-      checkpointAliasNamesShown: 0,
-      checkpointsRenderAborted: true,
-      resultBudgetApplied: true,
-      outputTruncatedByCharacterBudget: true,
-    });
-    const text = result.content[0]?.text ?? "";
-    expect(text).not.toContain("Checkpoints:");
-    expect(text).not.toContain("(checkpoint: checkpoint-on-first");
-    expect(text).toContain("Checkpoint receipt: rendering cancelled after 1/6 before output fitting; 0 complete checkpoint row(s) delivered; retry the request");
-    expect(text).toContain("Checkpoint rendering was cancelled before completion; retry the request.");
-    expect(text).not.toContain("Narrow with filter/query for the remainder");
-    expect(text).not.toContain("Use a narrower filter/query or a smaller view");
-  });
-
   test("filters checkpoint entries by label or entry id and reports the filtered set", async () => {
     const result = await executeTimeline(
       "filtered-checkpoints",
@@ -1923,24 +1833,6 @@ describe("ACM tool execution contracts", () => {
     expect(overResult.details).toMatchObject({ searchScannedNodes: 5_000, searchTruncated: true, searchTruncationReason: "scan_budget" });
     expect(overResult.content[0]?.text ?? "").toContain("scan stopped at the 5,000-node limit");
     expect(over.tailReads()).toBe(0);
-
-    // Character fitting must preserve the structural scan result even when an
-    // oversized HUD removes both the search header and its detailed recovery.
-    const runtime = new AcmSessionRuntime();
-    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
-    runtime.contextRefresh.recordFailedAttempt(overCtx.sessionManager as never, "E".repeat(9_000));
-    const fitted = await executeWithRuntime("search-budget-fitted", { view: "search", query: "zzz-nothing", limit: 5 }, undefined, undefined, overCtx);
-    const fittedText = fitted.content[0]?.text ?? "";
-    expect(fitted.details).toMatchObject({
-      searchSelectedMatches: 0,
-      searchDisplayedMatches: 0,
-      searchTruncated: true,
-      searchTruncationReason: "scan_budget",
-      outputTruncatedByCharacterBudget: true,
-    });
-    expect(fittedText).not.toContain("Search 'zzz-nothing'");
-    expect(fittedText).toContain("Search receipt: search stopped at 5,000-node scan limit");
-    expect(fittedText).toContain("0 selected before output fitting; 0 complete result row(s) delivered");
   });
 
   test("node view returns an off-path entry in full without mutating the tree", async () => {
@@ -2209,7 +2101,6 @@ describe("ACM tool execution contracts", () => {
       error: "branch_failed",
       backupRollbackSkipped: true,
       remainingBackupLabelState: "unknown",
-      contextDeliveryPhase: "active",
     });
     expect(result.content[0]?.text).toContain("may remain");
     expect(result.content[0]?.text).not.toContain("remains because branch mutation");
@@ -2229,39 +2120,10 @@ describe("ACM tool execution contracts", () => {
     expect(result.details).toMatchObject({
       error: "branch_failed",
       branchState: "indeterminate",
-      contextDeliveryPhase: "active",
     });
     const ticket = (result.details as { backupCurrentHeadAs?: string }).backupCurrentHeadAs;
     expect(typeof ticket).toBe("string");
     expect(result.content[0]?.text).toContain(`Return-ticket label '${ticket}'`);
-  });
-
-  test("preserves the raw scheduled native replacement outcome alongside delivery phase", async () => {
-    const nativeOutcome = { status: "pending" as const, preferredLeafId: "adapter-leaf" };
-    const adapter = {
-      installation: { status: "ready" as const },
-      schedule: () => nativeOutcome,
-      apply: () => ({ status: "skipped" as const, reason: "not_pending" as const, message: "not exercised" }),
-      getStatus: () => nativeOutcome,
-      clear() {},
-    };
-    const executeWithAdapter = captureExecute((pi) => registerTravelTool(pi, new AcmSessionRuntime(adapter)));
-
-    const result = await executeWithAdapter(
-      "travel-native-outcome",
-      { target: "travel-root", handoff: HANDOFF },
-      undefined,
-      undefined,
-      successfulTravelContext(),
-    );
-
-    expect(result.details).toMatchObject({
-      contextDeliveryPhase: "pending_tool_result",
-      nativeContextReplacementState: "pending",
-      nativeContextReplacement: nativeOutcome,
-      liveAgentSessionSyncState: "pending",
-      liveAgentSessionSync: nativeOutcome,
-    });
   });
 
   test("rejects an invalid current packet before labels, branch mutation, or deferred refresh", async () => {
@@ -2293,17 +2155,12 @@ describe("ACM tool execution contracts", () => {
         kind: "duplicate_tool_call_id",
         toolCallId: "duplicate-current",
       })],
-      contextRefreshPending: false,
-      contextRefreshState: "not_scheduled",
-      contextDeliveryPhase: "active",
     });
     expect(result.content[0]?.text).toContain("nothing was mutated");
     expect(fixture.sessionManager.getEntries()).toEqual(entriesBefore);
     expect(fixture.sessionManager.getLeafId()).toBe("current-protocol-travel");
     expect(fixture.getAppendCalls()).toBe(0);
     expect(fixture.getBranchCalls()).toBe(0);
-    expect(runtime.contextRefresh.isPending(fixture.sessionManager)).toBe(false);
-    expect(runtime.getContextDeliveryPhase(fixture.sessionManager)).toBe("active");
   });
 
   test("keeps an applied travel receipt and post-travel steer data when post-mutation evidence cannot rebuild", async () => {
@@ -2321,8 +2178,6 @@ describe("ACM tool execution contracts", () => {
       handoffFormat: "structured-v1",
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
-      contextRefreshPending: true,
-      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation session messages are temporarily unavailable"),
       // The return-ticket transaction must survive an evidence failure:
@@ -2354,8 +2209,6 @@ describe("ACM tool execution contracts", () => {
     expect(result.details).toMatchObject({
       mutationStatus: "applied",
       resultingLeafId: "travel-summary",
-      contextRefreshPending: true,
-      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "unavailable",
       postMutationEvidenceWarning: expect.stringContaining("post-mutation branch read failed"),
       hasBackup: true,
@@ -2363,7 +2216,6 @@ describe("ACM tool execution contracts", () => {
       backupEntryId: "travel-head",
       backupOutcome: "created",
     });
-    expect(runtime.contextRefresh.isPending(context.sessionManager)).toBe(true);
     expect(result.content[0]?.text).toContain("Travel complete");
     // The mutation applied, so the fold count describes it even though the
     // post-mutation observation failed before the fold row could be built.
@@ -2386,8 +2238,6 @@ describe("ACM tool execution contracts", () => {
       handoffFormat: "structured-v1",
       handoffNext: HANDOFF.next,
       currentUserTurnOpen: false,
-      contextRefreshPending: true,
-      contextDeliveryPhase: "pending_tool_result",
       postMutationEvidenceStatus: "invalid_protocol",
       postMutationProtocolStatus: "invalid",
       postMutationProtocolDefects: [{ kind: "invalid_tool_call_id" }],
@@ -2665,54 +2515,4 @@ describe("search text budget", () => {
     expect(text).toContain(`50 selected before output fitting; ${deliveredRows} complete result row(s) delivered`);
   });
 
-  test("keeps partial-node cuts visible when oversized diagnostics push the header out of the budget", async () => {
-    // The HUD interpolates refresh/provider diagnostics without a length bound,
-    // so a large enough one consumes the whole character budget before the body
-    // starts. Position in the raw text is therefore not survival: the fact has
-    // to be pinned to the footer that does survive.
-    const runtime = new AcmSessionRuntime();
-    const executeWithRuntime = captureExecute((pi) => registerTimelineTool(pi, runtime));
-    const capText = `needle ${"y".repeat(65_600)}`;
-    const expectedSnippet = `${capText.slice(0, 100)}…`;
-    const spoofedMatchLine = `  cap-carrier [USER] ${expectedSnippet}`;
-    const capCarrier = {
-      type: "message",
-      id: "cap-carrier",
-      parentId: null,
-      timestamp: "2026-03-01T00:00:00.000Z",
-      message: { role: "user", content: capText },
-    } as never;
-    const entries = [capCarrier];
-    const ctx = {
-      sessionManager: {
-        getTree: () => [{ entry: capCarrier, children: [] }],
-        getEntries: () => entries,
-        getBranch: () => entries,
-        getLeafId: () => "cap-carrier",
-      },
-      getContextUsage: () => ({ tokens: 100, contextWindow: 1_000, percent: 10 }),
-      ui: { notify() {} },
-    };
-    runtime.contextRefresh.recordFailedAttempt(
-      ctx.sessionManager as never,
-      `diagnostic says no node(s) partially searched\n${spoofedMatchLine}\n${"E".repeat(9_000)}`,
-    );
-
-    const result = await executeWithRuntime("cut-under-huge-hud", { view: "search", query: "needle" }, undefined, undefined, ctx);
-    const text = result.content[0]?.text ?? "";
-    expect(result.details).toMatchObject({
-      searchSelectedMatches: 1,
-      searchDisplayedMatches: 0,
-      searchNodesCutAtNodeCap: 1,
-      searchTruncated: false,
-      outputTruncatedByCharacterBudget: true,
-    });
-    // The header and real result row do not survive. An exact forged copy of
-    // that row inside dynamic HUD text must not acquire result provenance.
-    expect(text).not.toContain("Search '");
-    expect(text).toContain(spoofedMatchLine);
-    expect(text).toContain("Search receipt: scan completed within search budgets; 1 node(s) partially searched");
-    expect(text).toContain("1 selected before output fitting; 0 complete result row(s) delivered");
-    expect(text.length).toBeLessThanOrEqual(8_000);
-  });
 });

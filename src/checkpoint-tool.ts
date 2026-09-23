@@ -108,8 +108,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
       const entryId = sanitizeTerminalText(typeof details?.entryId === "string" ? details.entryId : "unknown entry");
       const role = sanitizeTerminalText(typeof details?.role === "string" ? details.role : "node");
       // The receipt records the authoritative pressure in details; the legacy
-      // contextUsage detail (raw host usage) survives for compatibility but
-      // can describe the pre-travel branch during a provider epoch. Fallback
+      // contextUsage detail (raw host usage) survives for compatibility. Fallback
       // is presence-based: a receipt without the contextPressure key is a
       // legacy replay and may use the raw detail, but a receipt that carries
       // the key with a malformed payload fails closed to unknown — degrading
@@ -312,11 +311,7 @@ export function registerCheckpointTool(pi: ExtensionAPI, runtime: AcmSessionRunt
         ?? (resolvedEntry ? getMessageRoleLabel(resolvedEntry) : undefined)
         ?? (resolvedEntry ? `session event (${resolvedEntry.type})` : "NODE");
       const usage = ctx.getContextUsage();
-      // One pressure authority for every perception surface: between a
-      // travel's provider cutover and its native replacement the host
-      // estimate still describes the pre-travel branch, so the receipt must
-      // read the same authoritative pressure the gauge and HUD render.
-      const pressure = runtime.authoritativeContextPressure(ctx.sessionManager, usage);
+      const pressure = calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
       const usageText = pressure ? formatContextUsagePressure(pressure) : "unknown";
       const cue = GUIDANCE_CUES.checkpoint;
       // Fold projections and segment distance, restored from the preview that

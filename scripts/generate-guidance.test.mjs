@@ -172,8 +172,6 @@ describe("canonical guidance generation", () => {
       "branchRolledBack",
       "hostCapability",
       "nameCollision",
-      "refreshExhausted",
-      "refreshPending",
       "restoredHistory",
       "rollbackFailed",
       "rollbackSkipped",

@@ -26,7 +26,6 @@ import {
 } from "./tool-protocol.js";
 import { executeTravelMutation } from "./travel-coordinator.js";
 import { buildTravelTargetFacts } from "./travel-target-facts.js";
-import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
 import type { AcmSessionRuntime } from "./runtime.js";
 import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 import { appendLedgerRow, buildFoldRow, markFoldCounted, modelDiscriminator, type LedgerState } from "./boundary-ledger.js";
@@ -182,7 +181,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const depthBefore = typeof details?.activeSummaryDepthBefore === "number" ? details.activeSummaryDepthBefore : null;
       const depthAfter = typeof details?.activeSummaryDepthAfter === "number" ? details.activeSummaryDepthAfter : null;
       const backup = sanitizeTerminalText(typeof details?.backupCurrentHeadAs === "string" ? details.backupCurrentHeadAs : "none");
-      const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string" ? details.contextDeliveryPhase : "unknown");
       // A result without an evidence status must not claim verification: only an
       // explicit "verified" from the receipt earns the success style.
       const evidenceStatus = sanitizeTerminalText(typeof details?.postMutationEvidenceStatus === "string" ? details.postMutationEvidenceStatus : "unknown");
@@ -195,7 +193,7 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         ),
         theme.fg("dim",
           `  handoff layers ${formatNumericValue(depthBefore)} → ${formatNumericValue(depthAfter)}`
-            + ` · return ticket ${backup} · delivery ${delivery} · evidence ${evidenceStatus} · persisted refresh pending`,
+            + ` · return ticket ${backup} · evidence ${evidenceStatus}`,
         ),
       ];
       if (expanded && raw) {
@@ -328,16 +326,9 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       const originId = currentLeaf;
       const originLabel = formatEntryLabel(labelMaps, originId);
       const usageBeforeRaw = ctx.getContextUsage();
-      // Same pressure authority as the gauge: between an earlier travel's
-      // provider cutover and its native replacement, the host estimate still
-      // describes the pre-travel branch. The receipt, its estimates, and the
-      // fold ledger row must all start from the authoritative tokens.
-      const authoritativeBefore = runtime.authoritativeContextPressure(
-        sessionManager,
-        usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
-          ? { tokens: usageBeforeRaw.tokens, contextWindow: usageBeforeRaw.contextWindow, percent: usageBeforeRaw.percent }
-          : undefined,
-      );
+      const authoritativeBefore = usageBeforeRaw && usageBeforeRaw.tokens != null && usageBeforeRaw.percent != null
+        ? calculateContextUsagePressure(usageBeforeRaw.tokens, usageBeforeRaw.contextWindow, usageBeforeRaw.percent)
+        : undefined;
       const usageBefore = authoritativeBefore
         ? { tokens: authoritativeBefore.tokens, contextWindow: authoritativeBefore.contextWindow, percent: authoritativeBefore.usagePercent }
         : undefined;
@@ -367,9 +358,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             originId,
             currentProtocolStatus: "invalid",
             defects: currentPacket.protocol.defects,
-            contextRefreshPending: false,
-            contextRefreshState: "not_scheduled",
-            contextDeliveryPhase: "active",
           },
         };
       }
@@ -621,7 +609,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
       });
 
       if (!mutation.ok) {
-        if (mutation.refreshRequired) runtime.scheduleRefresh(sessionManager, mutation.refreshLeafId);
         const backupRecoveryNode = backupEntryId ? `history node ${backupEntryId}` : "the reported history node";
         let recoveryAction: string;
         if (mutation.backupRollbackFailed || mutation.backupRollbackSkipped) {
@@ -655,12 +642,11 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         } else if (mutation.backupRolledBack) {
           backupNote = ` Return-ticket label '${returnTicketName}' was rolled back.`;
         }
-        const refreshNote = mutation.refreshRequired ? ` ${RECOVERY_GUIDANCE.refreshPending}` : "";
         const prefix = mutation.error === "backup_label_failed"
           ? `Error: return ticket '${returnTicketName}' could not be set`
           : "Error: branchWithSummary failed";
         return {
-          content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}${refreshNote}` }],
+          content: [{ type: "text" as const, text: `${prefix}: ${mutation.message}.${backupNote} ${recoveryAction}` }],
           details: {
             error: mutation.error,
             hostError: mutation.hostError,
@@ -676,9 +662,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             backupRollbackSkipReason: mutation.backupRollbackSkipReason,
             remainingBackupLabel: mutation.remainingBackupLabel,
             remainingBackupLabelState: mutation.remainingBackupLabelState,
-            contextRefreshPending: mutation.refreshRequired,
-            contextRefreshState: mutation.refreshRequired ? "pending" : "not_scheduled",
-            contextDeliveryPhase: "active",
             recoveryAction,
             targetFacts: targetAnalysis.facts,
             targetWarnings: targetAnalysis.warnings,
@@ -719,16 +702,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         backupProtocolRepairs,
         backupProtocolNormalizations,
       };
-      // The mutation is already durable. Establish both refresh tickets before
-      // any diagnostic read that may fail, so an applied travel can never fall
-      // back into an untracked split-brain state.
-      const liveAgentSessionSync = runtime.deferPostTravelRefresh(
-        sessionManager,
-        toolCallId,
-        resultingLeafId,
-      );
-      const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
-      const liveAgentSessionSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveAgentSessionSync);
       let activeSummaryDepthAfter = targetSummaryDepth + 1;
       let postMutationDiagnosticWarning: string | undefined;
       try {
@@ -761,14 +734,13 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           content: [{
             type: "text" as const,
             text: [
-              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; returnTicket=${backupText} (${backupOutcome}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+              `Travel complete. target=${params.target} (${targetId}); summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; returnTicket=${backupText} (${backupOutcome}); persistentMutation=applied.`,
               `Post-mutation evidence warning: ${postMutationEvidence.warning}.`,
-              "The tree mutation is applied; persistent Context Packet refresh remains scheduled and will retry on a later LLM turn.",
+              "The tree mutation is applied; the next request is built from the persisted branch.",
               `Applied handoff NEXT: ${canonicalHandoff.fields.next}`,
               currentUserTurnOpen
                 ? "Current user turn remains open: deliver the requested visible result before treating this turn as complete; State is not delivery."
                 : null,
-              liveAgentSessionSyncRecovery,
               GUIDANCE_CUES.travel,
             ].filter((line): line is string => line !== null).join("\n"),
           }],
@@ -784,21 +756,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
             activeSummaryDepthBefore,
             activeSummaryDepthAfter,
             activeSummaryDepthDelta,
-            contextRefreshPending: true,
-            contextRefreshState: "pending_tool_result",
-            contextDeliveryPhase: "pending_tool_result",
-            providerDeliveryPhase: providerDelivery.phase,
-            providerPacketMessageCount: providerDelivery.packetMessageCount,
-            providerPacketLeafId: providerDelivery.leafId,
-            providerPacketError: providerDelivery.error,
-            // Keep the raw adapter outcome available to callers that need to
-            // distinguish native replacement capability from delivery phase.
-            nativeContextReplacementState: liveAgentSessionSync.status,
-            nativeContextReplacement: liveAgentSessionSync,
-            // Compatibility aliases retained for existing integrations.
-            liveAgentSessionSyncState: liveAgentSessionSync.status,
-            liveAgentSessionSync,
-            recoveryAction: RECOVERY_GUIDANCE.refreshPending,
             postMutationEvidenceStatus: postMutationEvidence.status,
             postMutationEvidenceWarning: postMutationEvidence.warning,
             ...(postMutationEvidence.status === "invalid_protocol"
@@ -906,9 +863,8 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
         content: [{
           type: "text" as const,
           text: [
-            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; returnTicket=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(budgetPercentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; handoffLayers=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied; providerDelivery=${providerDelivery.phase}; providerPacket=none; nativeReplacement=${liveAgentSessionSync.status}.`,
+            `Travel complete. target=${params.target} (${targetId}); origin=${originLabel ? `${originLabel}@${originId}` : originId}; summaryEntryId=${summaryEntryId}; resultingLeafId=${resultingLeafId}; returnTicket=${backupText} (${backupOutcome}); contextTokens=${formatNumericValue(usageBeforeTokens)} → ${formatNumericValue(estimatedUsageAfterTokens)} est. (delta=${formatSignedDelta(usageDelta.tokenDelta)}); contextPercent=${usageBeforePercentText} → ${estimatedUsageAfterPercentText} est. (delta=${formatSignedDelta(budgetPercentagePointDelta, 1, " pp")}); sessionMessages=${messageDelta}; handoffLayers=${activeSummaryDepthBefore} → ${activeSummaryDepthAfter} (delta=${formatSignedDelta(activeSummaryDepthDelta)}); persistentMutation=applied.`,
             summaryDepthNote,
-            liveAgentSessionSyncRecovery,
             resolved.fromOffPath ? RECOVERY_GUIDANCE.restoredHistory : null,
             targetAnalysis.warnings.length > 0
               ? `Target warnings: ${targetAnalysis.warnings.join(", ")}. These are structural facts, not an automatic semantic verdict.`
@@ -931,7 +887,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           originLabel,
           ...appliedBackupDetails,
           usageBefore: usageBeforeText,
-          usageAfter: "pending_next_context_event",
           estimatedUsagePreview: estimatedPreviewText,
           estimatedUsageAfter: estimatedUsageAfterText,
           usageBeforeTokens,
@@ -959,20 +914,6 @@ export function registerTravelTool(pi: ExtensionAPI, runtime: AcmSessionRuntime)
           messagesAfter,
           summaryEntryId,
           resultingLeafId,
-          contextRefreshPending: true,
-          contextRefreshState: "pending_tool_result",
-          contextDeliveryPhase: "pending_tool_result",
-          providerDeliveryPhase: providerDelivery.phase,
-          providerPacketMessageCount: providerDelivery.packetMessageCount,
-          providerPacketLeafId: providerDelivery.leafId,
-          providerPacketError: providerDelivery.error,
-          // Native replacement is scheduled independently from when the
-          // persisted Context Packet becomes deliverable to the model.
-          nativeContextReplacementState: liveAgentSessionSync.status,
-          nativeContextReplacement: liveAgentSessionSync,
-          // Compatibility aliases retained for existing integrations.
-          liveAgentSessionSyncState: liveAgentSessionSync.status,
-          liveAgentSessionSync,
           mutationStatus: "applied",
           persistentMutationApplied: true,
           postMutationEvidenceStatus: "verified",

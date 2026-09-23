@@ -9,13 +9,11 @@ import { buildLabelMaps, type LabelMaps } from "./label-journal.js";
 import { optionalString, sanitizeTerminalText } from "./conventions.js";
 import { aggregateMessages, countActiveSummaryDepth, estimateUsageFromAggregates, formatContextUsage, projectSummaryDepthAfterTravel, type MessageAggregate } from "./usage-estimation.js";
 import { extractTextFromContent, extractTextFromContentBounded, findInTree, getEntryLabel, pushTreeChildrenPreOrder, resolveTargetId } from "./target-resolution.js";
-import { ContextRefreshRegistry } from "./context-refresh-registry.js";
 import { collectTrustedAcmTravelTransactions, createAcmPacketSnapshot } from "./context-packet.js";
 import { estimateFoldGainsFromAggregates, selectFoldReferences, type FoldEstimateEntry } from "./fold-estimate.js";
 import { calculateContextUsagePressure, foldProjectionScaleName, formatContextUsagePressure, formatTokenCount, type ContextUsagePressure } from "./context-pressure.js";
-import { getLiveAgentSyncRecoveryGuidance } from "./live-agent-session-adapter.js";
-import type { AcmSessionRuntime, FoldProjectionCacheEntry, ProviderDeliveryPhase } from "./runtime.js";
-import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, RECOVERY_GUIDANCE, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
+import type { AcmSessionRuntime, FoldProjectionCacheEntry } from "./runtime.js";
+import { GUIDANCE_CUES, PROMPT_GUIDELINES, PROMPT_SNIPPETS, TOOL_DESCRIPTIONS } from "./generated-guidance.js";
 
 interface CheckpointListing {
   entryId: string;
@@ -484,10 +482,7 @@ function timelineResultEntryBudget(ctx: ExtensionContext): number {
 }
 
 function timelineResultCharacterBudget(ctx: ExtensionContext, authoritative?: { tokens: number; contextWindow: number }): number {
-  // The character budget must shrink with the same tokens the gauge and HUD
-  // report: during a provider epoch the raw native estimate still describes
-  // the pre-travel branch, and sizing output against it would widen the
-  // budget exactly when the real context is fullest.
+  // The character budget shrinks with the same tokens the gauge and HUD report.
   const usage = authoritative ?? ctx.getContextUsage();
   const contextWindow = typeof usage?.contextWindow === "number" && Number.isFinite(usage.contextWindow) && usage.contextWindow > 0
     ? usage.contextWindow
@@ -711,13 +706,10 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         evidence = `${nodes} active nodes · ${shown}/${visible} visible entries shown`;
       }
 
-      const delivery = sanitizeTerminalText(typeof details?.contextDeliveryPhase === "string"
-        ? details.contextDeliveryPhase
-        : "active");
       const lines = [
         theme.fg("success", "✓ TIMELINE READY") + theme.fg("accent", `  ${displayView.toUpperCase()}`),
         theme.fg("muted", `  ${evidence} · handoff layers ${depth}`),
-        theme.fg("dim", `  context ${usage} · delivery ${delivery}`),
+        theme.fg("dim", `  context ${usage}`),
       ];
 
       if (expanded && raw) {
@@ -779,7 +771,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       const resultEntryBudget = timelineResultEntryBudget(ctx);
       const effectiveLimit = Math.min(requestedLimit, resultEntryBudget);
       const resultBudgetApplied = requestedLimit > effectiveLimit;
-      const budgetAuthority = runtime.authoritativeContextPressure(ctx.sessionManager, toUsageLike(ctx.getContextUsage()));
+      const hostUsage = toUsageLike(ctx.getContextUsage());
+      const budgetAuthority = calculateContextUsagePressure(hostUsage?.tokens, hostUsage?.contextWindow, hostUsage?.percent);
       const resultCharacterBudget = timelineResultCharacterBudget(
         ctx,
         budgetAuthority ? { tokens: budgetAuthority.tokens, contextWindow: budgetAuthority.contextWindow } : undefined,
@@ -866,12 +859,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         checkpointsDisplayedAliases = displayedListings.length;
         checkpointAliasesOnMatchingEntries = listings.length;
         checkpointAliasNamesShown = displayedListings.length;
-        // Same pressure authority as the gauge and HUD: during a provider
-        // epoch the host estimate still describes the pre-travel branch, so
-        // Current usage and every target estimate below must read the
-        // authoritative tokens — mixing them with the HUD's authoritative
-        // line in one result would be a visible self-contradiction.
-        const checkpointsPressure = runtime.authoritativeContextPressure(sessionManager, toUsageLike(ctx.getContextUsage()));
+        const checkpointsUsage = toUsageLike(ctx.getContextUsage());
+        const checkpointsPressure = calculateContextUsagePressure(checkpointsUsage?.tokens, checkpointsUsage?.contextWindow, checkpointsUsage?.percent);
         const usage = checkpointsPressure
           ? { tokens: checkpointsPressure.tokens, contextWindow: checkpointsPressure.contextWindow, percent: checkpointsPressure.usagePercent }
           : undefined;
@@ -1157,14 +1146,8 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
         }
       }
 
-      const officialUsageRaw = ctx.getContextUsage();
-      const officialUsage = toUsageLike(officialUsageRaw);
-      const officialPressure = calculateContextUsagePressure(
-        officialUsageRaw?.tokens,
-        officialUsageRaw?.contextWindow,
-        officialUsageRaw?.percent,
-      );
-      const lastUsage = runtime.getUsage(sessionManager);
+      const officialUsage = toUsageLike(ctx.getContextUsage());
+      const authoritativePressure = calculateContextUsagePressure(officialUsage?.tokens, officialUsage?.contextWindow, officialUsage?.percent);
       let stepsSinceCheckpoint = 0;
       let msgsSinceCheckpoint = 0;
       let nearestCheckpoint: string | null = null;
@@ -1180,12 +1163,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           msgsSinceCheckpoint++;
         }
       }
-      const refreshFailure = runtime.contextRefresh.getFailure(sessionManager);
-      const refreshPending = runtime.contextRefresh.isPending(sessionManager);
-      const deliveryPhase = runtime.getContextDeliveryPhase(sessionManager);
-      const providerDelivery = runtime.getProviderDeliveryStatus(sessionManager);
-      const providerTurnUsageAuthoritative = runtime.isProviderUsageAuthoritative(sessionManager);
-      const authoritativePressure = runtime.authoritativeContextPressure(sessionManager, officialUsage);
       // Fold projections: what a fold at each structural reference point would
       // leave, on the same working-budget yardstick the pressure line uses.
       // Numerator and denominator both come from the authoritative pressure —
@@ -1255,19 +1232,9 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       } catch {
         foldProjectionText = "unavailable";
       }
-      // One authoritative usage line; the secondary readings appear only when
-      // they disagree with it enough to change a decision. Identical numbers
-      // repeated under three different names read as noise, not precision.
-      const primaryUsageLine = authoritativePressure
-        ? `• Context Usage:    ${describeUsage(authoritativePressure)} (${providerTurnUsageAuthoritative ? "provider actual" : "native estimate"})`
-        : `• Context Usage:    ${formatContextUsage(officialUsage)} (native estimate)`;
-      const usageLines: string[] = [primaryUsageLine];
-      if (authoritativePressure && officialUsage && Math.abs(officialUsage.tokens - authoritativePressure.tokens) > 1024) {
-        usageLines.push(`• Native Estimate:  ${describeUsageLike(officialUsage)} (host estimate; may lag right after a travel)`);
-      }
-      if (lastUsage && authoritativePressure && Math.abs(lastUsage.tokens - authoritativePressure.tokens) > 1024) {
-        usageLines.push(`• Last Turn End:    ${describeUsageLike(lastUsage)} (recorded at the end of the previous turn)`);
-      }
+      const usageLines: string[] = [authoritativePressure
+        ? `• Context Usage:    ${describeUsage(authoritativePressure)}`
+        : `• Context Usage:    ${formatContextUsage(officialUsage)}`];
       const offPathHandoffs = offPathSummaryCount;
       // Funnel line: tree nodes -> LLM messages, one conversion statement.
       // Subtraction is not classification (packet rebuild folds tool results
@@ -1291,9 +1258,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       }
       const hudParts = [
         "[Context Dashboard]",
-        ...(providerDelivery.persistentMutationApplied
-          ? ["• Travel Mutation:  applied — the provider context was rewritten by a travel this session"]
-          : []),
         ...usageLines,
         activePathLine,
         ...(activeSummaryDepth > 0
@@ -1315,58 +1279,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           ? "Checkpoint rendering was cancelled before completion; retry the request."
           : "Narrow with filter/query for the remainder.";
         hudParts.push(`• Result Budget:    requested ${requestedLimit}; this call processed at most ${effectiveLimit} entries from the ${resultEntryBudget}-entry context-derived budget. ${resultBudgetRecovery}`);
-      }
-      if (refreshFailure) {
-        const attempts = runtime.contextRefresh.getAttemptCount(sessionManager);
-        const exhausted = attempts >= ContextRefreshRegistry.MAX_ATTEMPTS && !refreshPending;
-        const refreshGuidance = exhausted
-          ? RECOVERY_GUIDANCE.refreshExhausted
-          : "";
-        hudParts.push(`• Context Sync:     last travel refresh failed — ${refreshFailure}${refreshGuidance ? ` ${refreshGuidance}` : ""}`);
-      }
-      // Delivery diagnostics collapse to one line while healthy; the detailed
-      // lines exist for troubleshooting, not for routine fold decisions.
-      const liveSync = runtime.getLiveAgentSyncStatus(sessionManager);
-      const liveSyncRecovery = getLiveAgentSyncRecoveryGuidance(liveSync);
-      const packetDescription = providerDelivery.packetMessageCount != null && providerDelivery.leafId != null
-        ? `${providerDelivery.packetMessageCount} message(s) at ${providerDelivery.leafId}`
-        : "no packet delivered yet";
-      const providerPacketLine = `• Provider Packet: ${providerDelivery.phase}; ${packetDescription}${providerDelivery.error ? `; last error: ${providerDelivery.error}` : ""}`;
-      const syncHealthy = !refreshFailure && !refreshPending && providerDelivery.phase === "active" && !liveSyncRecovery;
-      if (syncHealthy) {
-        const healthyDetail = providerDelivery.packetMessageCount != null && providerDelivery.leafId != null
-          ? `provider packet matches the active path (${packetDescription})`
-          : "no travel yet; context follows the session natively";
-        hudParts.push(`• Context Sync:     healthy — ${healthyDetail}`);
-      } else {
-        if (refreshPending) {
-          const attempt = runtime.contextRefresh.getAttemptCount(sessionManager);
-          const pendingPhaseByStatus: Partial<Record<ProviderDeliveryPhase, string>> = {
-            pending_tool_result: "waiting for matching persisted tool_result; current valid tool batch is preserved",
-            ready: "matching receipt observed; provider Context Packet rebuild starts on this context event",
-            fallback: "provider rebuild fallback is retrying from the latest persisted branch",
-          };
-          const pendingPhase = pendingPhaseByStatus[providerDelivery.phase]
-            ?? `persistent provider packet active${runtime.contextRefresh.hasRebuilt(sessionManager) ? "" : " (travel pending)"}`;
-          let retry = "";
-          if (attempt > 0 && providerDelivery.phase === "active" && providerDelivery.packetMessageCount !== null) {
-            retry = ` (cached retry ${attempt})`;
-          } else if (attempt > 0) {
-            retry = ` (retry ${attempt}/${ContextRefreshRegistry.MAX_ATTEMPTS})`;
-          }
-          hudParts.push(`• Context Delivery: ${pendingPhase}${retry}`);
-        } else {
-          hudParts.push(`• Context Delivery: ${providerDelivery.phase === "active" ? "active persisted provider context" : providerDelivery.phase}`);
-        }
-        hudParts.push(providerPacketLine);
-        if (liveSync.status === "applied") {
-          hudParts.push(`• Native Replacement: applied — ${liveSync.messageCount} message(s) at ${liveSync.leafId ?? "no leaf"}`);
-        } else if (liveSyncRecovery) {
-          const message = "message" in liveSync ? liveSync.message : "no adapter diagnostic";
-          hudParts.push(`• Native Replacement: ${liveSync.status} — ${message}. ${liveSyncRecovery}`);
-        } else {
-          hudParts.push(`• Native Replacement: ${liveSync.status} — no native context swap was needed this reading`);
-        }
       }
       // The raw-archive sentence teaches a thing that does not exist before
       // the first fold; showing it then reads as a dangling term. The alias
@@ -1485,9 +1397,7 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
       return {
         content: [{ type: "text" as const, text: fittedOutput.text }],
         details: {
-          contextUsageAuthority: providerTurnUsageAuthoritative ? "provider_turn_end" : "native_context",
-          contextPressure: officialPressure ?? null,
-          authoritativeContextPressure: authoritativePressure ?? null,
+          contextPressure: authoritativePressure ?? null,
           leafId,
           nearestCheckpoint,
           stepsSinceCheckpoint,
@@ -1538,16 +1448,6 @@ export function registerTimelineTool(pi: ExtensionAPI, runtime: AcmSessionRuntim
           nodeAfterCount: params.view === "node" ? nodeAfterCount : null,
           nodeNeighborScanAborted: params.view === "node" ? nodeNeighborScanAborted : null,
           outputLines: lines.length,
-          contextRefreshPending: refreshPending,
-          contextRefreshFailure: refreshFailure ?? null,
-          contextDeliveryPhase: deliveryPhase,
-          persistentMutationApplied: providerDelivery.persistentMutationApplied,
-          providerDeliveryPhase: providerDelivery.phase,
-          providerPacketMessageCount: providerDelivery.packetMessageCount,
-          providerPacketLeafId: providerDelivery.leafId,
-          providerPacketError: providerDelivery.error,
-          nativeContextReplacement: liveSync,
-          nativeContextReplacementRecovery: liveSyncRecovery,
         },
       };
     },

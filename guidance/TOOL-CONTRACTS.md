@@ -118,14 +118,6 @@ The fold failed before changing anything; the return-ticket label was rolled bac
 Automatic return-ticket rollback was unsafe, so the return-ticket label was kept. Note the return-ticket pointer, confirm your position with acm_timeline, then retry.
 <!-- ACM:RECOVERY_ROLLBACK_SKIPPED:END -->
 
-<!-- ACM:RECOVERY_REFRESH_PENDING:START -->
-The fold is applied but the rebuilt context is not yet confirmed. If the next turn looks wrong, check sync state with acm_timeline.
-<!-- ACM:RECOVERY_REFRESH_PENDING:END -->
-
 <!-- ACM:RECOVERY_RESTORED_HISTORY:START -->
 This travel restored old history, so context grew. Retrieve the needed detail and travel back to your return point; if this branch is deliberately your new working state, continue here.
 <!-- ACM:RECOVERY_RESTORED_HISTORY:END -->
-
-<!-- ACM:RECOVERY_REFRESH_EXHAUSTED:START -->
-Context rebuild retries are exhausted. Reload the session, check sync state with acm_timeline, and confirm the active branch before continuing.
-<!-- ACM:RECOVERY_REFRESH_EXHAUSTED:END -->

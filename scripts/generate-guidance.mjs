@@ -61,9 +61,7 @@ export function deriveGuidance(coreSource, contractsSource) {
       rollbackFailed: extract("RECOVERY_ROLLBACK_FAILED"),
       branchRolledBack: extract("RECOVERY_BRANCH_ROLLED_BACK"),
       rollbackSkipped: extract("RECOVERY_ROLLBACK_SKIPPED"),
-      refreshPending: extract("RECOVERY_REFRESH_PENDING"),
       restoredHistory: extract("RECOVERY_RESTORED_HISTORY"),
-      refreshExhausted: extract("RECOVERY_REFRESH_EXHAUSTED"),
     },
   };
 }

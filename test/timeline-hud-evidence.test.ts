@@ -6,7 +6,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { countActiveSummaryDepth, projectSummaryDepthAfterTravel } from "../src/usage-estimation.js";
 import { ACM_CONTINUATION_MARKER } from "../src/context-packet.js";
-import { calculateContextUsagePressure } from "../src/context-pressure.js";
 import { registerTimelineTool } from "../src/timeline-tool.js";
 import { GUIDANCE_CUES } from "../src/generated-guidance.js";
 
@@ -79,7 +78,6 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     },
   };
   const runtime = {
-    getUsage: () => undefined,
     // Minimal mirror of AcmSessionRuntime.foldAggregate: pass-through, no
     // cache — the HUD tests exercise presentation, not cache behavior.
     foldAggregate: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
@@ -87,40 +85,8 @@ function captureTimelineTool(overrides: Record<string, unknown> = {}) {
     foldProjection: (_session: object, _key: unknown, rebuild: () => unknown) => rebuild(),
     // Same pass-through mirror for the label replay cache.
     labelMapsFor: (_session: object, _entries: unknown, rebuild: () => unknown) => rebuild(),
-    contextRefresh: {
-      getFailure: () => undefined,
-      isPending: () => false,
-      getAttemptCount: () => 0,
-      hasRebuilt: () => false,
-    },
-    getContextDeliveryPhase: () => "active",
-    getProviderDeliveryStatus: () => ({
-      persistentMutationApplied: false,
-      phase: "active",
-      packetMessageCount: null,
-      leafId: null,
-      error: null,
-      usageObserved: false,
-    }),
-    getLiveAgentSyncStatus: () => ({ status: "idle" }),
     ...overrides,
   } as Record<string, unknown>;
-  // Mirror AcmSessionRuntime's single authority decision so the HUD reads one
-  // authority here too; overrides above may replace the delivery status it uses.
-  if (!("isProviderUsageAuthoritative" in runtime)) {
-    runtime.isProviderUsageAuthoritative = () => {
-      const status = (runtime.getProviderDeliveryStatus as () => { persistentMutationApplied: boolean; usageObserved: boolean })();
-      return status.persistentMutationApplied && status.usageObserved;
-    };
-  }
-  runtime.authoritativeContextPressure = (
-    _session: object,
-    hostUsage: { tokens?: number | null; contextWindow?: number | null; percent?: number | null } | undefined,
-  ) => {
-    const cached = (runtime.getUsage as () => { tokens: number; contextWindow: number; percent: number } | undefined)();
-    const usage = (runtime.isProviderUsageAuthoritative as (s: object) => boolean)({}) ? cached ?? hostUsage : hostUsage;
-    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
-  };
   registerTimelineTool(pi as ExtensionAPI, runtime as never);
   if (!timeline) throw new Error("acm_timeline was not registered");
   return timeline;
@@ -325,44 +291,6 @@ describe("timeline HUD handoff-layer evidence", () => {
     expect(result.content[0].text).toContain("ordinary-checkpoint");
     expect(result.content[0].text).not.toContain("[raw archive]");
     expect(result.content[0].text).not.toContain("raw archive origin — restore/rehydrate only");
-  });
-
-  test("HUD exposes cached_exhausted and stops presenting persistence refresh as pending", async () => {
-    const root = message("root", null, "root");
-    const tool = captureTimelineTool({
-      contextRefresh: {
-        getFailure: () => "persistent read failed",
-        isPending: () => false,
-        getAttemptCount: () => 3,
-        hasRebuilt: () => true,
-      },
-      getContextDeliveryPhase: () => "cached_exhausted",
-      getProviderDeliveryStatus: () => ({
-        persistentMutationApplied: true,
-        phase: "cached_exhausted",
-        packetMessageCount: 2,
-        leafId: "summary-1",
-        error: "persistent read failed",
-        usageObserved: true,
-      }),
-      getLiveAgentSyncStatus: () => ({ status: "pending" }),
-    });
-
-    const result = await tool.execute(
-      "timeline-cached-exhausted",
-      { view: "active" },
-      undefined,
-      undefined,
-      makeContext([root], [node(root)], [root]),
-    );
-
-    expect(result.content[0].text).toContain("Context Delivery: cached_exhausted");
-    expect(result.content[0].text).toContain("Provider Packet: cached_exhausted; 2 message(s) at summary-1");
-    expect(result.details).toMatchObject({
-      contextRefreshPending: false,
-      contextDeliveryPhase: "cached_exhausted",
-      providerDeliveryPhase: "cached_exhausted",
-    });
   });
 
   test("a failing aggregate acquisition degrades to both fallback lines instead of rejecting", async () => {

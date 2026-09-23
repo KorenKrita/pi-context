@@ -24,7 +24,6 @@ const entrypoints = [
   { source: "../../src/index.ts", output: "index.js" },
   { source: "../../src/context-packet.ts", output: "context-packet.js" },
   { source: "../../src/handoff.ts", output: "handoff.js" },
-  { source: "../../src/live-agent-session-adapter.ts", output: "live-agent-session-adapter.js" },
   { source: "../../src/tool-protocol.ts", output: "tool-protocol.js" },
   { source: "../../src/runtime.ts", output: "runtime.js" },
   { source: "../../src/runtime-lifecycle.ts", output: "runtime-lifecycle.js" },

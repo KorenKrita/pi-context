@@ -1,14 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  estimateTokens,
   type AgentMessage,
   type AssistantMessage,
-  type ToolResultMessage,
 } from "@earendil-works/pi-agent-core";
 import {
-  AgentSession,
   SessionManager,
-  shouldCompact,
   type ExtensionAPI,
   type ExtensionContext,
   type ToolDefinition,
@@ -16,8 +12,6 @@ import {
 import registerAcmExtension from "./.acm-build/index.js";
 import { ACM_CONTINUATION_MARKER, rebuildAcmContextPacket } from "./.acm-build/context-packet.js";
 
-const installationSymbol = Symbol.for("pi-context.live-agent-session-adapter.v1");
-const originalGetContextUsage = AgentSession.prototype.getContextUsage;
 const TOOL_CALL_ID = "travel-live-sync";
 const HANDOFF = {
   goal: "exercise live travel synchronization",
@@ -34,11 +28,6 @@ function acmMessages(sessionManager: SessionManager): AgentMessage[] {
   if (!result.ok) throw new Error(result.message);
   return result.value.messages;
 }
-
-afterEach(() => {
-  AgentSession.prototype.getContextUsage = originalGetContextUsage;
-  delete (AgentSession.prototype as Record<PropertyKey, unknown>)[installationSymbol];
-});
 
 function travelToolCall(toolCallId = TOOL_CALL_ID): AssistantMessage {
   return {
@@ -297,7 +286,7 @@ describe("checkpoint recovery anchoring", () => {
   });
 });
 
-describe("successful travel synchronizes a capability-compatible live AgentSession", () => {
+describe("travel on the exact Pi host", () => {
   test("allows a later raw backup after safely normalizing the prior applied travel receipt", async () => {
     const sessionManager = SessionManager.inMemory();
     const rootId = sessionManager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
@@ -694,9 +683,6 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
         kind: "duplicate_tool_call_id",
         toolCallId: "duplicate-current",
       })],
-      contextRefreshPending: false,
-      contextRefreshState: "not_scheduled",
-      contextDeliveryPhase: "active",
     });
     expect(sessionManager.getLeafId()).toBe(headId);
     expect(sessionManager.getEntries()).toEqual(entriesBefore);
@@ -704,8 +690,6 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     expect(sessionManager.getEntries().some((entry) => entry.type === "branch_summary")).toBe(false);
     const timeline = await timelineTool.execute("current-invalid-timeline", { view: "active" }, undefined, undefined, context);
     expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "active",
-      contextRefreshPending: false,
     });
   });
 
@@ -1051,110 +1035,4 @@ describe("successful travel synchronizes a capability-compatible live AgentSessi
     });
   });
 
-  test("preserves the active run until settlement, then applies the latest persisted travel branch", async () => {
-    const sessionManager = SessionManager.inMemory();
-    const rootId = sessionManager.appendMessage({ role: "user", content: "old branch root", timestamp: Date.now() });
-    const abandonedId = sessionManager.appendMessage({
-      role: "assistant",
-      content: [{ type: "text", text: "abandoned branch payload".repeat(20_000) }],
-      api: "test",
-      provider: "test",
-      model: "test",
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: 0 },
-      stopReason: "stop",
-      timestamp: Date.now(),
-    });
-    sessionManager.appendMessage(travelToolCall());
-    const staleMessages = sessionManager.buildSessionContext().messages as AgentMessage[];
-    const contextWindow = 100_000;
-    const compactionSettings = { enabled: true, reserveTokens: 90_000, keepRecentTokens: 1_000 };
-    const storedTokensBefore = staleMessages.reduce((sum, message) => sum + estimateTokens(message), 0);
-    expect(shouldCompact(storedTokensBefore, contextWindow, compactionSettings)).toBe(true);
-
-    AgentSession.prototype.getContextUsage = function () {
-      return { tokens: storedTokensBefore, contextWindow, percent: (storedTokensBefore / contextWindow) * 100 };
-    };
-    const { context, handlers, timelineTool, travelTool } = createExtensionFixture(sessionManager);
-    const liveSession = Object.create(AgentSession.prototype) as AgentSession & {
-      sessionManager: SessionManager;
-      agent: { state: { messages: AgentMessage[] } };
-    };
-    Object.defineProperties(liveSession, {
-      sessionManager: { value: sessionManager },
-      agent: { value: { state: { messages: staleMessages } } },
-    });
-    liveSession.getContextUsage();
-
-    const result = await travelTool.execute(
-      TOOL_CALL_ID,
-      { target: rootId, handoff: HANDOFF, backupCurrentHeadAs: "deferred-refresh-done" },
-      undefined,
-      undefined,
-      context,
-    );
-    expect(result.details).toMatchObject({
-      contextRefreshState: "pending_tool_result",
-      contextDeliveryPhase: "pending_tool_result",
-      activeSummaryDepthBefore: 0,
-      activeSummaryDepthAfter: 1,
-      activeSummaryDepthDelta: 1,
-      currentUserTurnOpen: false,
-    });
-    expect((result.content[0] as { text: string }).text).toContain("handoffLayers=0 → 1 (delta=+1)");
-    expect(liveSession.agent.state.messages).toBe(staleMessages);
-
-    await emit(handlers, "tool_execution_end", { toolCallId: "unrelated", toolName: "acm_travel" }, context);
-    await emit(handlers, "tool_execution_end", { toolCallId: TOOL_CALL_ID, toolName: "acm_travel" }, context);
-    const toolResult: ToolResultMessage = {
-      role: "toolResult",
-      toolCallId: TOOL_CALL_ID,
-      toolName: "acm_travel",
-      content: [{ type: "text", text: "Travel complete" }],
-      details: result.details,
-      isError: false,
-      timestamp: Date.now(),
-    };
-    const inFlightContext = [...staleMessages, toolResult];
-    expect(hasToolCall(inFlightContext, TOOL_CALL_ID)).toBe(true);
-    const providerContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
-    expect(providerContext.messages).toEqual(acmMessages(sessionManager));
-    expect(liveSession.agent.state.messages).toBe(staleMessages);
-
-    // Error may retry; only agent_settled permits replacement.
-    await emit(handlers, "agent_end", {
-      messages: [{ role: "assistant", content: [], stopReason: "error" }],
-    }, context);
-    const retryProviderContext = await emit(handlers, "context", { messages: inFlightContext }, context) as { messages?: AgentMessage[] };
-    expect(retryProviderContext.messages).toEqual(acmMessages(sessionManager));
-    expect(liveSession.agent.state.messages).toBe(staleMessages);
-
-    await emit(handlers, "agent_settled", {}, context);
-    const rebuilt = acmMessages(sessionManager);
-    expect(liveSession.agent.state.messages).toEqual(rebuilt);
-    expect(rebuilt).toContainEqual(expect.objectContaining({
-      role: "custom",
-      customType: "acm:continuation",
-      display: false,
-    }));
-    expect(JSON.stringify(rebuilt)).toContain("ACTIVE SESSION STATE AFTER TRAVEL");
-    expect(JSON.stringify(rebuilt)).toContain("REQUIRED NEXT: continue from the traveled branch");
-    expect(JSON.stringify(rebuilt)).not.toContain("CURRENT USER TURN IS STILL OPEN");
-    expect(JSON.stringify(rebuilt)).not.toContain("abandoned branch payload");
-    expect(hasToolCall(rebuilt, TOOL_CALL_ID)).toBe(false);
-    const storedTokensAfter = rebuilt.reduce((sum, message) => sum + estimateTokens(message), 0);
-    expect(storedTokensAfter).toBeLessThan(storedTokensBefore);
-    expect(shouldCompact(storedTokensAfter, contextWindow, compactionSettings)).toBe(false);
-    expect(sessionManager.getEntry(abandonedId)).toBeDefined();
-    expect(sessionManager.getEntries().some((entry) => entry.type === "label" && entry.label === "deferred-refresh-done")).toBe(true);
-
-    const contextResult = await emit(handlers, "context", { messages: liveSession.agent.state.messages }, context) as { messages?: AgentMessage[] } | undefined;
-    expect(contextResult?.messages ?? liveSession.agent.state.messages).toEqual(rebuilt);
-    const timeline = await timelineTool.execute("timeline", { view: "active" }, undefined, undefined, context);
-    expect(timeline.content[0]).toMatchObject({ type: "text" });
-    expect((timeline.content[0] as { text: string }).text).toContain("Context Delivery:");
-    expect(timeline.details).toMatchObject({
-      contextDeliveryPhase: "provider_active_native_applied",
-      nativeContextReplacement: { status: "applied" },
-    });
-  });
 });

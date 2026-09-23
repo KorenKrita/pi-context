@@ -1,5 +1,4 @@
-import { type MessageAggregate, type UsageLike } from "./usage-estimation.js";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { type MessageAggregate } from "./usage-estimation.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { LabelMaps } from "./label-journal.js";
 /** One cached fold projection: the compact facts the checkpoints view renders
@@ -11,11 +10,6 @@ export interface FoldProjectionCacheEntry {
   projectedSummaryDepth: number;
 }
 
-import { ContextRefreshRegistry } from "./context-refresh-registry.js";
-import {
-  createLiveAgentSessionAdapter,
-  type LiveAgentSessionAdapter,
-} from "./live-agent-session-adapter.js";
 import {
   createGaugeState,
   isNewBoundary,
@@ -25,39 +19,15 @@ import {
   shouldShowGauge,
   type GaugeState,
 } from "./context-gauge.js";
-import { calculateContextUsagePressure, type ContextUsagePressure } from "./context-pressure.js";
 import { createLedgerState, type LedgerState } from "./boundary-ledger.js";
-import { ProviderDelivery } from "./provider-delivery.js";
-
-export type {
-  ContextDeliveryPhase,
-  ProviderDeliveryPhase,
-  ProviderDeliveryStatus,
-} from "./provider-delivery.js";
-
-interface ContextUsageInput {
-  readonly tokens: number | null | undefined;
-  readonly contextWindow: number | null | undefined;
-  readonly percent: number | null | undefined;
-}
 
 /**
- * Describes which context is deliverable to the model for this SessionManager.
- * The provider delivery phases themselves live in provider-delivery.ts; this
- * re-export keeps existing import paths stable.
- */
-/**
- * Per-extension state shared only by ACM modules that participate in session lifecycle.
- * Provider delivery is a deep module of its own; the runtime keeps the
- * cross-store orchestration (refresh scheduling, usage cache, gauge cycle,
- * ledger, travel-turn counters) and the single pressure authority.
+ * Per-extension state shared only by ACM modules that participate in session lifecycle:
+ * gauge cycle, ledger, fold caches, and travel-turn counters. Provider context needs no
+ * state here: since Pi 0.87 every request is projected from the SessionManager, and the
+ * `context` hook normalizes that projection statelessly.
  */
 export class AcmSessionRuntime {
-  readonly contextRefresh = new ContextRefreshRegistry();
-  readonly liveAgentSessions: LiveAgentSessionAdapter;
-  private readonly delivery: ProviderDelivery;
-  private readonly cachedUsage = new WeakMap<object, UsageLike>();
-  private readonly refreshTargets = new WeakMap<object, string>();
   /**
    * Constant-gauge odometer state. Reset on every context transition (travel,
    * compaction, manual /tree). Per SessionManager, like all runtime state.
@@ -138,191 +108,6 @@ export class AcmSessionRuntime {
     this.travelTurnCounters.delete(session);
   }
 
-  constructor(liveAgentSessions: LiveAgentSessionAdapter = createLiveAgentSessionAdapter()) {
-    this.liveAgentSessions = liveAgentSessions;
-    this.delivery = new ProviderDelivery(liveAgentSessions);
-  }
-
-  scheduleRefresh(session: object, preferredLeafId?: string): void {
-    this.contextRefresh.markPending(session);
-    if (preferredLeafId) this.refreshTargets.set(session, preferredLeafId);
-    else this.refreshTargets.delete(session);
-  }
-
-  /**
-   * A successful travel records both independent phase tickets. The provider
-   * remains on the current valid tool batch until the matching persisted
-   * tool_result arrives; native AgentSession replacement remains deferred to
-   * an idle settled boundary.
-   */
-  deferPostTravelRefresh(
-    session: object,
-    toolCallId: string,
-    preferredLeafId?: string,
-  ) {
-    this.scheduleRefresh(session, preferredLeafId);
-    // Usage from the pre-travel provider prompt belongs to the previous context
-    // epoch. Do not let the HUD relabel it as post-cutover provider evidence.
-    this.cachedUsage.delete(session);
-    return this.delivery.defer(session, toolCallId);
-  }
-
-  /** Keep the originating assistant run's current valid tool batch untouched. */
-  shouldKeepCurrentRunContext(session: object): boolean {
-    return this.delivery.shouldKeepCurrentRunContext(session);
-  }
-
-  getContextDeliveryPhase(session: object) {
-    return this.delivery.getContextDeliveryPhase(session);
-  }
-
-  getProviderDeliveryStatus(session: object) {
-    return this.delivery.getProviderDeliveryStatus(session);
-  }
-
-  /** The matching success receipt opens provider cutover, never native replacement. */
-  markProviderCutoverReady(session: object, toolCallId: string): boolean {
-    return this.delivery.markCutoverReady(session, toolCallId);
-  }
-
-  getPendingTravelToolCallId(session: object): string | undefined {
-    return this.delivery.getPendingTravelToolCallId(session);
-  }
-
-  /** A finalized error receipt cancels both provider cutover and native replacement. */
-  rejectProviderCutover(session: object, toolCallId: string): boolean {
-    if (!this.delivery.rejectTicket(session, toolCallId)) return false;
-    this.contextRefresh.clear(session);
-    this.refreshTargets.delete(session);
-    this.cachedUsage.delete(session);
-    this.resetGaugeCycle(session);
-    return true;
-  }
-
-  /** A persisted packet is the only provider-delivery authority after cutover. */
-  activateProviderPacket(
-    session: object,
-    messages: readonly AgentMessage[],
-    leafId: string | null,
-    sourceMessages: readonly AgentMessage[] = messages,
-  ): boolean {
-    return this.delivery.activatePacket(session, messages, leafId, sourceMessages);
-  }
-
-  /** Preserve a known compact packet instead of ever re-expanding stale raw history. */
-  recordProviderDeliveryFailure(
-    session: object,
-    message: string,
-    disposition: "retry" | "unsafe_fallback" | "cached_exhausted" = "retry",
-  ): void {
-    this.delivery.recordDeliveryFailure(session, message, disposition);
-  }
-
-  getCachedProviderPacket(session: object): readonly AgentMessage[] | undefined {
-    return this.delivery.getCachedPacket(session);
-  }
-
-  /**
-   * Preserve only a verified post-cutover tail from host provider messages.
-   * The first match covers native in-flight arrays; the second covers a host
-   * that already starts the next provider request from the compact packet.
-   */
-  mergeCachedProviderPacket(
-    session: object,
-    incomingMessages: readonly AgentMessage[],
-  ): AgentMessage[] | undefined {
-    return this.delivery.mergeCachedPacket(session, incomingMessages);
-  }
-
-  /** Retain a valid cached fallback plus its observed provider source tail. */
-  cacheProviderFallbackPacket(
-    session: object,
-    messages: readonly AgentMessage[],
-    sourceMessages: readonly AgentMessage[],
-  ): boolean {
-    return this.delivery.cacheFallbackPacket(session, messages, sourceMessages);
-  }
-
-  /** True whenever a travel still owns provider delivery, including cached retry fallback. */
-  shouldRebuildProviderContext(session: object): boolean {
-    return this.delivery.shouldRebuildProviderContext(session);
-  }
-
-  isProviderDeliveryActive(session: object): boolean {
-    return this.delivery.isDeliveryActive(session);
-  }
-
-  markProviderUsageObserved(session: object): void {
-    this.delivery.markUsageObserved(session);
-  }
-
-  /**
-   * tool_execution_end happens before the containing run settles. The ticket
-   * is deliberately retained; only the latest matching travel ticket is
-   * applied at agent_settled.
-   */
-  keepDeferredRefreshThroughToolExecution(session: object, toolCallId: string): boolean {
-    return this.delivery.keepThroughToolExecution(session, toolCallId);
-  }
-
-  /** Apply the latest scheduled ticket at Pi's actual run-settlement boundary. */
-  settleDeferredRefresh(session: object) {
-    return this.delivery.settle(session);
-  }
-
-  getRefreshTarget(session: object): string | undefined {
-    return this.refreshTargets.get(session);
-  }
-
-  getLiveAgentSyncStatus(session: object) {
-    return this.delivery.getLiveSyncStatus(session);
-  }
-
-  setUsage(session: object, usage: UsageLike): void {
-    this.cachedUsage.set(session, usage);
-  }
-
-  getUsage(session: object): UsageLike | undefined {
-    return this.cachedUsage.get(session);
-  }
-  /**
-   * One pressure authority for every ACM perception surface. Between a
-   * travel's provider cutover and its native replacement, the host's native
-   * estimate describes the pre-travel branch, so only actual provider
-   * turn_end usage is trusted — one LLM call behind, bounded by the current
-   * tool batch, self-healing. Once the native live messages are verifiably
-   * the post-travel world, the native estimate is real-time and correct
-   * again, and staying on the cached value would keep a lag with no
-   * compensating benefit.
-   */
-  authoritativeContextPressure(
-    session: object,
-    hostUsage: ContextUsageInput | undefined,
-  ): ContextUsagePressure | undefined {
-    const usage = this.isProviderUsageAuthoritative(session)
-      ? this.getUsage(session) ?? hostUsage
-      : hostUsage;
-    return calculateContextUsagePressure(usage?.tokens, usage?.contextWindow, usage?.percent);
-  }
-
-  /**
-   * Single authority decision for every perception surface (gauge, timeline
-   * HUD): cached provider turn_end usage governs only inside the window where
-   * the native estimate still describes the pre-travel branch.
-   */
-  isProviderUsageAuthoritative(session: object): boolean {
-    const providerDelivery = this.getProviderDeliveryStatus(session);
-    return providerDelivery.persistentMutationApplied
-      && providerDelivery.usageObserved
-      && !this.delivery.nativeReplacementApplied(session);
-  }
-
-  resetUsageForModelChange(session: object): void {
-    this.cachedUsage.delete(session);
-    this.resetGaugeCycle(session);
-    this.delivery.clearUsageObserved(session);
-  }
-
   resetGaugeCycle(session: object): void {
     // A context transition (travel, model change) restarts the pressure
     // odometer: the first post-transition reading always shows once. Boundary
@@ -334,12 +119,7 @@ export class AcmSessionRuntime {
   }
 
   clear(session: object): void {
-    this.contextRefresh.clear(session);
-    this.refreshTargets.delete(session);
-    this.delivery.forget(session);
-    this.cachedUsage.delete(session);
     this.gaugeStates.delete(session);
-    this.liveAgentSessions.clear(session);
     this.foldAggregates.delete(session);
     this.foldProjections.delete(session);
     this.traceFreeVerdicts.delete(session);

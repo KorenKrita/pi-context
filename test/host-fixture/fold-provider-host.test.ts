@@ -3,21 +3,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type, fauxAssistantMessage, fauxProvider, fauxToolCall, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
-import { AgentSession, createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import registerAcmExtension from "./.acm-build/index.js";
 import { ACM_CORE_MARKER } from "../../src/generated-guidance.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 // End to end on the exact host: a real AgentSession, a faux provider, and the provider
 // requests themselves as evidence. Pi >= 0.87 builds provider context from the SessionManager,
-// so a fold must be visible in the next request without any live message replacement.
+// so a fold must be visible in the next request with no delivery state in ACM.
 
-const installationSymbol = Symbol.for("pi-context.live-agent-session-adapter.v1");
-const originalGetContextUsage = AgentSession.prototype.getContextUsage;
 const tempDirs: string[] = [];
 afterEach(() => {
-  AgentSession.prototype.getContextUsage = originalGetContextUsage;
-  delete (AgentSession.prototype as Record<PropertyKey, unknown>)[installationSymbol];
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -60,15 +56,17 @@ async function runSession(responses: AssistantMessage[], prompts: string[], opti
     sessionManager: SessionManager.inMemory(dir),
     settingsManager: SettingsManager.inMemory({ compaction: { enabled: false } }),
   });
+  let transcriptInSync = false;
   try {
     for (const prompt of prompts) {
       await session.prompt(prompt);
       await session.waitForIdle();
     }
+    transcriptInSync = JSON.stringify(session.messages) === JSON.stringify(session.sessionManager.buildSessionProjection().messages);
   } finally {
     session.dispose();
   }
-  return (i: number) => JSON.stringify(requests[i]?.messages ?? null);
+  return Object.assign((i: number) => JSON.stringify(requests[i]?.messages ?? null), { transcriptInSync });
 }
 
 const FOLD_RUN = () => [
@@ -87,6 +85,8 @@ test("an acm_travel fold reaches the provider in the same run and in the next pr
   expect(request(4)).not.toBe("null");
   expect(request(2)).toContain("DUMPED-LINE"); // the dump was live before the fold
   for (const i of [0, 3, 4]) expect(count(request(i), ACM_CORE_MARKER)).toBe(1);
+  // Pi's finalized transcript follows the traveled branch too, not only the provider requests.
+  expect(request.transcriptInSync).toBe(true);
   for (const i of [3, 4]) {
     expect(request(i)).not.toContain("DUMPED-LINE");
     expect(request(i)).toContain("edit tokenizeComment in src/lexer.ts");
@@ -95,13 +95,18 @@ test("an acm_travel fold reaches the provider in the same run and in the next pr
   }
 });
 
-test("a travel receipt rewritten by a later tool_result handler does not become an authoritative continuation", async () => {
-  const request = await runSession(FOLD_RUN(), PROMPTS, {
-    after: [(pi) => pi.on("tool_result", (event) => (event.toolName === "acm_travel" ? { isError: true, details: { error: "denied by later extension" } } : undefined))],
+for (const [name, rewrite] of [
+  ["rejected as an error", { isError: true, details: { error: "denied by later extension" } }],
+  ["stripped of its trusted details", { isError: false, details: { rewrittenByLaterExtension: true } }],
+] as const) {
+  test(`a travel receipt ${name} by a later tool_result handler does not become an authoritative continuation`, async () => {
+    const request = await runSession(FOLD_RUN(), PROMPTS, {
+      after: [(pi) => pi.on("tool_result", (event) => (event.toolName === "acm_travel" ? rewrite : undefined))],
+    });
+    expect(request(4)).not.toBe("null");
+    for (const i of [3, 4]) expect(count(request(i), FENCE)).toBe(0);
   });
-  expect(request(4)).not.toBe("null");
-  for (const i of [3, 4]) expect(count(request(i), FENCE)).toBe(0);
-});
+}
 
 test("CORE still reaches the provider when an earlier extension forces the whole system prompt", async () => {
   const request = await runSession([fauxAssistantMessage("ok")], ["hello"], {

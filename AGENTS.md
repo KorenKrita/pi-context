@@ -10,7 +10,7 @@
 | `acm_timeline` | active / checkpoints / search / node / tree 单一视图与 HUD |
 | `acm_travel` | fold：回到较早节点，把之后的历史替换为七行 handoff |
 
-设计立场（2026-07-31 affirmative-guidance 重构后）：**代码层厚，注入层薄，文案全部正向肯定**。运行时正确性（事务、回滚、协议校验、settled sync）由代码和测试保证；给模型的引导只有恒定面，无 Skill、无流程机器、无阈值措辞。
+设计立场（2026-07-31 affirmative-guidance 重构后）：**代码层厚，注入层薄，文案全部正向肯定**。运行时正确性（事务、回滚、协议校验、context 归一化）由代码和测试保证；给模型的引导只有恒定面，无 Skill、无流程机器、无阈值措辞。
 
 ### 重构的实证依据
 
@@ -42,21 +42,20 @@ boundary ledger 记录了 202 个真实 user-request boundary、0 次真实 fold
 
 | 路径 | 责任 |
 |---|---|
-| `src/checkpoint-tool.ts` | checkpoint schema、自动 protocol-complete 锚定、runtime-authoritative pressure 回执与 fold 投影 |
+| `src/checkpoint-tool.ts` | checkpoint schema、自动 protocol-complete 锚定、pressure 回执与 fold 投影 |
 | `src/timeline-tool.ts` | strict single-view timeline、HUD、投影收益 |
-| `src/travel-tool.ts` | handoff 验证、自动回程票、travel evidence、settled sync 调度 |
+| `src/travel-tool.ts` | handoff 验证、自动回程票、travel evidence |
 | `src/handoff.ts` | 三必填四可选 wire schema、"none" 缺省、canonical 七行文本、`deriveReturnTicketName` |
 | `src/context-packet.ts` | LLM-bound packet 重建、tool protocol normalization、ACM continuation 投影 |
 | `src/travel-coordinator.ts` | backup → branch → verify → compensate 单次事务 |
 | `src/host-bridge.ts` | readonly SessionManager 到 mutation capability 的唯一 guarded seam |
-| `src/runtime.ts` | 按 SessionManager 隔离 usage、refresh、gauge state（含 boundary 追踪）、settled sync；`authoritativeContextPressure` 是 gauge/HUD/checkpoint/travel 共用的唯一 pressure authority |
-| `src/runtime-lifecycle.ts` | context rebuild、gauge 装配（boundary/savePoints/双针）、settled sync、compaction、`/tree`、cleanup |
+| `src/runtime.ts` | 按 SessionManager 隔离 gauge state（含 boundary 追踪）、ledger、fold/label 缓存、travel 计数 |
+| `src/runtime-lifecycle.ts` | 无状态 `context` 归一化、gauge 装配（boundary/savePoints/双针）、compaction、`/tree`、cleanup |
 | `src/context-gauge.ts` | 仪表格式化、里程表节奏、boundary 强制首读 |
 | `src/context-pressure.ts` | working-budget pressure（400K cap policy） |
 | `src/fold-estimate.ts` | 双折叠针投影（剩余压力 + 消息数），计入 handoff 名义成本 |
 | `src/boundary-ledger.ts` | 被动 append-only 观测（boundary/fold 行，fold 区分 direction） |
 | `src/ledger-writer.ts` | ledger 行的异步有界队列与跨进程锁写（batch 持锁、flush deadline、lock-compromise 中止） |
-| `src/live-agent-session-adapter.ts` | capability-probed live sync 与 settled-boundary replacement |
 | `src/generated-guidance.ts` | 生成产物，不要手改 |
 
 ### Guidance 管道
@@ -100,20 +99,19 @@ wire 上 `goal/state/next` 必填字符串；`evidence/external/exclusions/recov
 - 节奏：budget（小窗口即 window）百分比整数位变化即显示（双向）+ **每个 request 首读强制显示**（boundary entry id 变化触发）
 - 重置点：明确成功的 travel、`session_compact`、`/tree` 导航、`session_start`
 - 豁免：`acm_*` 结果与 error 结果永不装饰
-- provider-active 阶段 pressure 只采用最近 provider `turn_end` usage
+- pressure 一律读宿主 `ctx.getContextUsage()`（Pi ≥ 0.87 在 travel 后立即反映折叠后的分支）
 - kill switch：`ACM_GAUGE_DISABLED=1`，按调用时读取
 - 四个模型可见面同 grammar：gauge 后缀、checkpoint 回执/renderer、travel 回执（budget 口径 details 字段 `budgetBeforePercent` 等；旧 hard-window 字段保留不改义）、timeline HUD/renderer/checkpoints 视图；每面的百分比与裸分子必须来自同一个 `ContextUsagePressure`。ledger 不是呈现面：它共用同一 pressure authority/口径并以 `gauge` cohort 字段标注 grammar 世代，schema 只存计数与百分比、无裸分子
 
-### Travel 事务与 settled sync
+### Travel 事务与 context 投影
 
-顺序：解析 target → 验证 handoff → 解析回程票 → prevalidate → coordinator（backup label + rollback token → `branchWithSummary` → verify → compensate）→ schedule persistent refresh 与 settled ticket。
+顺序：解析 target → 验证 handoff → 解析回程票 → prevalidate → coordinator（backup label + rollback token → `branchWithSummary` → verify → compensate）。
 
-- mutation outcome 三态：`applied` / `not_applied` / `indeterminate`；`indeterminate` 只 schedule observation refresh
-- `agent_settled` 是 native replacement 的唯一 apply boundary；`agent_end`（尤其 error）不是
-- finalized error receipt 取消 provider cutover 与 native ticket
-- persistent rebuild 最多 3 次，之后 `cached_exhausted`
+- mutation outcome 三态：`applied` / `not_applied` / `indeterminate`
+- Pi ≥ 0.87 每次请求都由 SessionManager 投影生成，applied travel 在下一次请求（含同一 run）即生效；ACM 不持有投递状态，`context` hook 只做无状态归一化（trusted continuation 投影、applied receipt 归一、孤儿修复、去掉 system 消息）
+- ACM 注册一个空 `turn_end` handler：Pi 仅在存在 turn_end handler 时于 boundary commit 刷新 `agent.state.messages`，否则 travel 后 `session.messages` 与 Pi 的 system section diff 读旧数组（host fixture 断言同步）
+- receipt 存在但不可信（被后续 `tool_result` handler 改成 error 或剥掉 details）的 travel summary 保持 archival，不投影为 continuation
 - travel 只改会话上下文，不回滚文件/进程/外部系统
-- overflow-retry 尾部修复（`stopReason === "length"` 的 assistant 消息移除）保留
 
 ### Boundary ledger
 
@@ -163,7 +161,7 @@ bun run generate:guidance # 从 canonical 源重新生成
 bun run verify:acm        # 完整 gate：guidance check + 测试 + typecheck + host fixture
 ```
 
-host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel/settled sync 全链路、fold 到 provider 请求的端到端（真实 AgentSession + faux provider）、multi-session 隔离。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
+host fixture（`test/host-fixture/`）在真实 Pi 0.87.1 上验证宿主契约：exact version、CORE 注入、prompt metadata、三必填 schema、自动回程票锚定（含跳过受损 stretch）、travel 全链路、fold 到 provider 请求的端到端（真实 AgentSession + faux provider，含 receipt 被改写与强制 system prompt）。独立 lockfile 和构建（`bun ./build-source.mjs`），根目录 `bun test` 不含它。
 
 不要使用 `console.log`；用户可见 warning 用 `ctx.ui.notify()`。
 

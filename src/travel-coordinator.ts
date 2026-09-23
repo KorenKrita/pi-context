@@ -48,8 +48,6 @@ export interface TravelMutationFailure {
   backupRollbackSkipReason: "branch_mutation_observed" | "backup_mutation_indeterminate" | null;
   remainingBackupLabel: string | null;
   remainingBackupLabelState: "present" | "absent" | "unknown";
-  refreshRequired: boolean;
-  refreshLeafId?: string;
 }
 
 export type TravelMutationOutcome = TravelMutationSuccess | TravelMutationFailure;
@@ -100,7 +98,6 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
           backupRollbackSkipReason: append.state === "indeterminate" ? "backup_mutation_indeterminate" : null,
           remainingBackupLabel: remainingBackupLabelState === "present" ? backup.name : null,
           remainingBackupLabelState,
-          refreshRequired: false,
         };
       }
       backupOutcome = append.value.status === "already_present" ? "already_present" : "created";
@@ -143,7 +140,6 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
     ? observeLabelPresence(sessionManager, backup.targetId, backup.name)
     : "absent";
   const remainingBackupLabel = backup && remainingBackupLabelState === "present" ? backup.name : null;
-  const refreshLeafId = branchFailure?.actualSummaryEntryId ?? branchFailure?.leafAfter ?? undefined;
 
   return {
     ok: false,
@@ -160,7 +156,5 @@ export function executeTravelMutation(request: TravelMutationRequest): TravelMut
     backupRollbackSkipReason,
     remainingBackupLabel,
     remainingBackupLabelState,
-    refreshRequired: branch.state === "indeterminate",
-    ...(refreshLeafId === undefined ? {} : { refreshLeafId }),
   };
 }

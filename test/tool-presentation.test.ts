@@ -163,7 +163,6 @@ describe("ACM tool rendering", () => {
       searchTruncated: true,
       activeSummaryDepth: 1,
       contextUsage: { tokens: 120000, contextWindow: 400000, percent: 30 },
-      contextDeliveryPhase: "active",
     };
     const collapsed = timeline.renderResult!(
       { content: [{ type: "text", text: raw }], details },
@@ -202,7 +201,6 @@ describe("ACM tool rendering", () => {
           nodeBeforeCount: 2,
           nodeAfterCount: 1,
           activeSummaryDepth: 0,
-          contextDeliveryPhase: "active",
         },
       },
       { expanded: false, isPartial: false },
@@ -224,7 +222,6 @@ describe("ACM tool rendering", () => {
           checkpointsDisplayedAliases: 2,
           checkpointsMatchingAliases: 4,
           activeSummaryDepth: 0,
-          contextDeliveryPhase: "active",
         },
       },
       { expanded: false, isPartial: false },
@@ -245,7 +242,6 @@ describe("ACM tool rendering", () => {
       activeDisplayedEntries: 3,
       activeVisibleEntries: 3,
       activeSummaryDepth: 0,
-      contextDeliveryPhase: "active",
     };
     const pressure = {
       tokens: 300_000,
@@ -353,7 +349,6 @@ describe("ACM tool rendering", () => {
           activeSummaryDepthBefore: 2,
           activeSummaryDepthAfter: 1,
           backupCurrentHeadAs: "parser-fix-done",
-          contextDeliveryPhase: "pending_tool_result",
           postMutationEvidenceStatus: "verified",
         },
       },
@@ -366,7 +361,7 @@ describe("ACM tool rendering", () => {
     expect(output).toContain("context 120000 → 70000 est. (-50000)");
     expect(output).toContain("messages 42 → 18 (shrunk)");
     expect(output).toContain("handoff layers 2 → 1 · return ticket parser-fix-done");
-    expect(output).toContain("delivery pending_tool_result · evidence verified · persisted refresh pending");
+    expect(output).toContain("return ticket parser-fix-done · evidence verified");
 
     // A receipt that carries no evidence status must not claim verification:
     // the renderer downgrades to the pending style with evidence unknown.
@@ -376,7 +371,6 @@ describe("ACM tool rendering", () => {
         details: {
           target: "parser-fix-start",
           resultingLeafId: "summary-456",
-          contextDeliveryPhase: "pending_tool_result",
         },
       },
       { expanded: false, isPartial: false },
@@ -449,7 +443,6 @@ describe("ACM tool rendering", () => {
             checkpointsDisplayedAliases: 1,
             checkpointsMatchingAliases: 1,
             rootCandidateEntryId: payload,
-            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },
@@ -464,7 +457,6 @@ describe("ACM tool rendering", () => {
             resultingLeafId: payload,
             structuralMessageDirection: payload,
             backupCurrentHeadAs: payload,
-            contextDeliveryPhase: payload,
           },
         },
         { expanded: false, isPartial: false },

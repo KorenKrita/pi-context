@@ -41,7 +41,5 @@ export const RECOVERY_GUIDANCE = {
   "rollbackFailed": "The return-ticket label is still in the tree. Note its name and entry ID before retrying.",
   "branchRolledBack": "The fold failed before changing anything; the return-ticket label was rolled back. Resolve the reported host error, then retry.",
   "rollbackSkipped": "Automatic return-ticket rollback was unsafe, so the return-ticket label was kept. Note the return-ticket pointer, confirm your position with acm_timeline, then retry.",
-  "refreshPending": "The fold is applied but the rebuilt context is not yet confirmed. If the next turn looks wrong, check sync state with acm_timeline.",
-  "restoredHistory": "This travel restored old history, so context grew. Retrieve the needed detail and travel back to your return point; if this branch is deliberately your new working state, continue here.",
-  "refreshExhausted": "Context rebuild retries are exhausted. Reload the session, check sync state with acm_timeline, and confirm the active branch before continuing."
+  "restoredHistory": "This travel restored old history, so context grew. Retrieve the needed detail and travel back to your return point; if this branch is deliberately your new working state, continue here."
 } as const;
