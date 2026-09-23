@@ -1,4 +1,6 @@
 import type {
+  ContextEvent,
+  ContextEventResult,
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -400,7 +402,7 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     }
   });
 
-  pi.on("context", (event, ctx: ExtensionContext) => {
+  const acmContext = (event: ContextEvent, ctx: ExtensionContext): ContextEventResult | undefined => {
     const sessionManager = ctx.sessionManager;
     const pendingTravelToolCallId = runtime.getPendingTravelToolCallId(sessionManager);
     if (pendingTravelToolCallId) {
@@ -564,6 +566,15 @@ export function registerAcmLifecycle(pi: ExtensionAPI, runtime: AcmSessionRuntim
     } catch (error) {
       return reportFailure(error instanceof Error ? error.message : String(error));
     }
+  };
+  // Pi >= 0.87 hands `context` handlers conversation messages only and restores the current
+  // prompt/tool system state afterwards. Rebuilt packets and cached fallbacks come from the
+  // persisted branch and can carry system messages; returning them would duplicate the system
+  // prompt (and ACM CORE) on providers that accept mid-conversation system messages.
+  pi.on("context", (event, ctx: ExtensionContext) => {
+    const result = acmContext(event, ctx);
+    if (!result?.messages) return result;
+    return { messages: result.messages.filter((message) => message.role !== "system") };
   });
 
   pi.on("turn_start", (_event, ctx: ExtensionContext) => {

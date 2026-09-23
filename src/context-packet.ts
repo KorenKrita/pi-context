@@ -247,9 +247,22 @@ interface TrustedContinuationMetadata {
   returnTicket?: string;
 }
 
-function trustedContinuationQueues(entries: readonly SessionEntry[]): Map<string, TrustedContinuationMetadata[]> {
+function trustedContinuationQueues(
+  entries: readonly SessionEntry[],
+  trustedTransactions: readonly TrustedAcmTravelTransaction[],
+): Map<string, TrustedContinuationMetadata[]> {
   const queues = new Map<string, TrustedContinuationMetadata[]>();
+  // Since Pi 0.87 provider context follows the SessionManager, so an applied travel's summary
+  // reaches the next request even when its finalized receipt was rejected or rewritten by a later
+  // tool_result handler. A summary whose receipt exists but is not trusted stays archival.
+  const trustedSummaries = new Set(trustedTransactions.map((transaction) => transaction.summaryEntryId));
+  const receiptParents = new Set(entries.flatMap((entry) => (
+    entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "acm_travel" && entry.parentId
+      ? [entry.parentId]
+      : []
+  )));
   for (const entry of entries) {
+    if (receiptParents.has(entry.id) && !trustedSummaries.has(entry.id)) continue;
     if (
       entry.type !== "branch_summary"
       || typeof entry.summary !== "string"
@@ -340,9 +353,10 @@ interface BranchTrace {
 }
 
 function analyzeBranchTrace(activeEntries: readonly SessionEntry[]): BranchTrace {
+  const trustedTransactions = collectTrustedAcmTravelTransactions(activeEntries);
   return {
-    trusted: trustedContinuationQueues(activeEntries),
-    trustedTransactions: collectTrustedAcmTravelTransactions(activeEntries),
+    trusted: trustedContinuationQueues(activeEntries, trustedTransactions),
+    trustedTransactions,
   };
 }
 

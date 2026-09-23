@@ -15,10 +15,15 @@ export function registerAcmPrompt(pi: ExtensionAPI): void {
   // forces a whole-prompt replacement (Pi >= 0.86), which drops section changes made by
   // extensions loaded later and prevents Pi from recording the change as a transcript delta.
   pi.on("before_agent_start", (event) => {
-    if (event.systemPrompt.includes(ACM_CORE_MARKER)) return;
+    if (event.systemPrompt.includes(ACM_CORE_MARKER)) return undefined;
+    // An earlier handler forced the whole prompt: sections are not rendered, so append CORE to
+    // the forced text (the only way it reaches the provider).
+    const forced = event.systemPromptOptions.forceSystemPrompt;
+    if (forced !== undefined) return { systemPrompt: ensureAcmCoreSegment(forced) };
     event.systemPromptOptions.sections = {
       ...event.systemPromptOptions.sections,
       [ACM_CORE_SECTION]: `${ACM_CORE_MARKER}\n${ACM_CORE}`,
     };
+    return undefined;
   });
 }
