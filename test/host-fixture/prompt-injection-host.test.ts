@@ -53,16 +53,18 @@ test("ACM CORE injects once through the exact Pi before_agent_start hook", async
       getSystemPromptOptions: () => ({ cwd: tempDir }),
     });
 
-    const first = await runner.emitBeforeAgentStart("hello", undefined, "base prompt", { cwd: tempDir });
-    const injected = first?.systemPrompt;
-    expect(injected).toBeDefined();
-    expect(injected).toStartWith("base prompt");
-    expect(injected).toContain(generated.ACM_CORE_MARKER);
-    expect(injected).toContain("The fold test");
-    expect(injected?.split(generated.ACM_CORE_MARKER)).toHaveLength(2);
+    const first = await runner.emitBeforeAgentStart("hello", undefined, { cwd: tempDir });
+    const section = first.systemPromptOptions.sections?.["acm_core"];
+    expect(section).toBeDefined();
+    expect(section).toStartWith(generated.ACM_CORE_MARKER);
+    expect(section).toContain("The fold test");
+    expect(section?.split(generated.ACM_CORE_MARKER)).toHaveLength(2);
+    // Structured section, not a forced whole-prompt replacement.
+    expect(first.systemPromptOptions.forceSystemPrompt).toBeUndefined();
 
-    const second = await runner.emitBeforeAgentStart("again", undefined, injected!, { cwd: tempDir });
-    expect(second?.systemPrompt ?? injected).toBe(injected!);
+    const second = await runner.emitBeforeAgentStart("again", undefined, first.systemPromptOptions);
+    expect(second.systemPromptOptions.sections?.["acm_core"]).toBe(section!);
+    expect(second.systemPromptOptions.forceSystemPrompt).toBeUndefined();
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

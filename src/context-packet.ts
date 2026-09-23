@@ -107,8 +107,9 @@ function trustedTravelSummaryDetails(entry: SessionEntry | undefined): TrustedAc
     || !target
     || !targetId
     || backupCurrentHeadAs === undefined
+    // Pi >= 0.87 records the abandoned leaf in `fromId` (earlier versions recorded the branch
+    // point), so provenance is anchored on `parentId` and the receipt/details cross-checks.
     || entry.parentId !== targetId
-    || entry.fromId !== targetId
   ) return undefined;
   return {
     toolCallId,
@@ -209,7 +210,7 @@ function normalizeAppliedTravelReceipts(
   };
 }
 
-function continuationKey(summary: string, fromId: string, timestamp: number): string {
+function continuationKey(summary: string, fromId: string | null, timestamp: number): string {
   return JSON.stringify([summary, fromId, timestamp]);
 }
 

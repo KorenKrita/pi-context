@@ -32,7 +32,7 @@ pi install .
 pi -e /path/to/pi-context/src/index.ts
 ```
 
-> **兼容性：** 当前版本针对 Pi（`@earendil-works/pi-coding-agent`）`0.84.0` 开发并完成集成验证，要求 Node.js `>=22.19.0`。其它 Pi 版本未经验证；升级 Pi 后如遇报错，请先核对版本。
+> **兼容性：** 当前版本针对 Pi（`@earendil-works/pi-coding-agent`）`0.87.1` 开发并完成集成验证，要求 Node.js `>=22.19.0`。其它 Pi 版本未经验证；升级 Pi 后如遇报错，请先核对版本。
 >
 > 本 fork 只发布在 GitHub。npm 上未带 scope 的 `pi-context` 是上游项目，不要用 `npm install` 装这个 fork。
 

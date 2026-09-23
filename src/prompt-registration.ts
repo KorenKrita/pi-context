@@ -7,9 +7,18 @@ export function ensureAcmCoreSegment(systemPrompt: string): string {
   return `${systemPrompt}\n\n${ACM_CORE_MARKER}\n${ACM_CORE}`;
 }
 
+/** Structured prompt section key; Pi renders sections as XML-wrapped blocks. */
+export const ACM_CORE_SECTION = "acm_core";
+
 export function registerAcmPrompt(pi: ExtensionAPI): void {
+  // Add CORE as a structured section instead of returning `systemPrompt`: a returned prompt
+  // forces a whole-prompt replacement (Pi >= 0.86), which drops section changes made by
+  // extensions loaded later and prevents Pi from recording the change as a transcript delta.
   pi.on("before_agent_start", (event) => {
-    const systemPrompt = ensureAcmCoreSegment(event.systemPrompt);
-    return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
+    if (event.systemPrompt.includes(ACM_CORE_MARKER)) return;
+    event.systemPromptOptions.sections = {
+      ...event.systemPromptOptions.sections,
+      [ACM_CORE_SECTION]: `${ACM_CORE_MARKER}\n${ACM_CORE}`,
+    };
   });
 }
